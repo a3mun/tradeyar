@@ -1,7 +1,7 @@
 """
 core/analyzer.py
 تحلیل تکنیکال — اندیکاتورها، سیگنال، SL/TP
-نسخه ۳.۱ — با پشتیبانی تایم‌فریم در تحلیل
+نسخه ۴.۰ — تحلیل جسورانه‌تر + سطوح S/R حرفه‌ای
 """
 
 import pandas as pd
@@ -18,7 +18,7 @@ RISK_PROFILES = {
         "name": "کم",
         "sl_mult": 1.0,
         "tp_mult": 2.0,
-        "min_score": 2,
+        "min_score": 1.5,   # ← قبلاً 2 بود
         "color": "#3FB950",
         "advice": "سرمایه کم داری؟ فقط سیگنال‌های قوی رو بگیر. حداکثر ۱-۲٪ سرمایه.",
     },
@@ -26,7 +26,7 @@ RISK_PROFILES = {
         "name": "متوسط",
         "sl_mult": 1.5,
         "tp_mult": 3.0,
-        "min_score": 1,
+        "min_score": 1.0,   # ← قبلاً 1 بود
         "color": "#D29922",
         "advice": "تعادل بین ریسک و بازده. ۳-۵٪ سرمایه در هر معامله.",
     },
@@ -39,6 +39,130 @@ RISK_PROFILES = {
         "advice": "ریسک‌پذیر هستی؟ می‌تونی SHORT هم بزنی. ولی حتماً حد ضرر بذار.",
     },
 }
+
+
+# ═══════════════════════════════════════════════════════════
+# سطوح حمایت/مقاومت حرفه‌ای
+# ═══════════════════════════════════════════════════════════
+def compute_pivot_points(df: pd.DataFrame) -> dict:
+    """
+    Pivot Points کلاسیک — بر اساس High/Low/Close آخرین دوره کامل.
+    
+    Returns:
+        dict: {
+            "pivot": ...,
+            "r1", "r2", "r3": ...,
+            "s1", "s2", "s3": ...,
+        }
+    """
+    if df is None or df.empty or len(df) < 2:
+        return {}
+
+    # از کندل ماقبل آخر استفاده کن (کندل آخر ممکنه ناقص باشه)
+    prev = df.iloc[-2]
+    high = safe_num(prev.get("high"))
+    low = safe_num(prev.get("low"))
+    close = safe_num(prev.get("close"))
+
+    if high <= 0 or low <= 0 or close <= 0:
+        return {}
+
+    pivot = (high + low + close) / 3
+
+    r1 = 2 * pivot - low
+    s1 = 2 * pivot - high
+
+    r2 = pivot + (high - low)
+    s2 = pivot - (high - low)
+
+    r3 = high + 2 * (pivot - low)
+    s3 = low - 2 * (high - pivot)
+
+    return {
+        "pivot": pivot,
+        "r1": r1, "r2": r2, "r3": r3,
+        "s1": s1, "s2": s2, "s3": s3,
+    }
+
+
+def find_swing_points(df: pd.DataFrame, lookback: int = 50, window: int = 3) -> dict:
+    """
+    پیدا کردن Swing High/Low از N کندل آخر.
+    
+    Args:
+        df: دیتافریم با high/low
+        lookback: تعداد کندل‌های بررسی (پیش‌فرض ۵۰)
+        window: تعداد کندل چپ و راست برای تشخیص پیوت (پیش‌فرض ۳)
+    
+    Returns:
+        dict: {
+            "swing_highs": [(idx, price), ...],
+            "swing_lows": [(idx, price), ...],
+            "nearest_resistance": price,
+            "nearest_support": price,
+            "strongest_resistance": price,
+            "strongest_support": price,
+        }
+    """
+    result = {
+        "swing_highs": [],
+        "swing_lows": [],
+        "nearest_resistance": 0.0,
+        "nearest_support": 0.0,
+        "strongest_resistance": 0.0,
+        "strongest_support": 0.0,
+    }
+
+    if df is None or df.empty or len(df) < lookback:
+        return result
+
+    data = df.tail(lookback).reset_index(drop=True)
+    highs = data["high"].values
+    lows = data["low"].values
+    n = len(data)
+
+    current_price = safe_num(data["close"].iloc[-1])
+
+    swing_highs = []
+    swing_lows = []
+
+    # پیوت‌ها
+    for i in range(window, n - window):
+        h = highs[i]
+        l = lows[i]
+
+        # چک کردن High
+        if all(h >= highs[i - j] for j in range(1, window + 1)) and \
+           all(h >= highs[i + j] for j in range(1, window + 1)):
+            swing_highs.append((i, float(h)))
+
+        # چک کردن Low
+        if all(l <= lows[i - j] for j in range(1, window + 1)) and \
+           all(l <= lows[i + j] for j in range(1, window + 1)):
+            swing_lows.append((i, float(l)))
+
+    result["swing_highs"] = swing_highs
+    result["swing_lows"] = swing_lows
+
+    # مقاومت نزدیک: کمترین swing high بالای قیمت فعلی
+    resistances_above = [p for _, p in swing_highs if p > current_price]
+    if resistances_above:
+        result["nearest_resistance"] = min(resistances_above)
+        result["strongest_resistance"] = max(resistances_above)
+    elif swing_highs:
+        result["nearest_resistance"] = max(p for _, p in swing_highs)
+        result["strongest_resistance"] = result["nearest_resistance"]
+
+    # حمایت نزدیک: بیشترین swing low زیر قیمت فعلی
+    supports_below = [p for _, p in swing_lows if p < current_price]
+    if supports_below:
+        result["nearest_support"] = max(supports_below)
+        result["strongest_support"] = min(supports_below)
+    elif swing_lows:
+        result["nearest_support"] = min(p for _, p in swing_lows)
+        result["strongest_support"] = result["nearest_support"]
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════
@@ -94,21 +218,22 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════
-# تحلیل نماد
+# تحلیل نماد — نسخه جسورانه
 # ═══════════════════════════════════════════════════════════
 def analyze_symbol(
     df: pd.DataFrame,
     risk_profile: str = "medium",
 ) -> dict | None:
     """
-    تحلیل کامل یک نماد.
+    تحلیل کامل یک نماد — نسخه جسورانه‌تر.
     
-    Args:
-        df: دیتافریم با open, high, low, close, volume
-        risk_profile: "low" | "medium" | "high"
-    
-    Returns:
-        dict کامل تحلیل یا None
+    تغییرات نسبت به نسخه قبل:
+    - ضریب ADX از 0.5 به 0.7 (رنج کمتر سرکوب کنه)
+    - امتیاز RSI از ±1.5 به ±1.5 (بدون تغییر، ولی در ترکیب بهتر)
+    - امتیاز MACD از ±1.0 به ±1.5
+    - امتیاز EMA200 از ±1.0 به ±1.2
+    - آستانه‌های LONG/SHORT کم‌تر شده
+    - Confidence فرمول بهتر
     """
     if df is None or df.empty or len(df) < 50:
         return None
@@ -118,9 +243,9 @@ def analyze_symbol(
         if df is None or df.empty:
             return None
 
-        last20 = df.tail(20)
-        resistance = safe_num(last20["high"].max())
-        support = safe_num(last20["low"].min())
+        # S/R حرفه‌ای
+        pivots = compute_pivot_points(df)
+        swings = find_swing_points(df, lookback=50, window=3)
 
         last = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else last
@@ -139,54 +264,81 @@ def analyze_symbol(
         bb_lower = safe_num(last.get("bb_lower"))
         vwap_last = safe_num(last.get("vwap")) if "vwap" in df.columns else None
 
-        # ─── محاسبه امتیاز ───
+        # مقاومت/حمایت ترکیبی: pivot + swing
+        resistance = swings.get("nearest_resistance") or (
+            max(df.tail(20)["high"].max(), pivots.get("r1", 0)) if len(df) >= 20 else 0
+        )
+        support = swings.get("nearest_support") or (
+            min(df.tail(20)["low"].min(), pivots.get("s1", 0)) if len(df) >= 20 else 0
+        )
+
+        # ─── محاسبه امتیاز (نسخه جسورانه‌تر) ───
         score = 0.0
         reasons = []
 
+        # EMA200 — وزن بیشتر
         if ema200 > 0:
             if price > ema200:
-                score += 1.0
+                score += 1.2
                 reasons.append("قیمت بالای EMA200 — روند بلندمدت صعودی")
             else:
-                score -= 1.0
+                score -= 1.2
                 reasons.append("قیمت زیر EMA200 — روند بلندمدت نزولی")
 
+        # RSI — بدون تغییر
         if rsi < 30:
             score += 1.5
             reasons.append(f"RSI={rsi:.0f} اشباع فروش")
         elif rsi > 70:
             score -= 1.5
             reasons.append(f"RSI={rsi:.0f} اشباع خرید")
-
-        if willr < -80:
+        elif rsi < 40:
             score += 0.5
+            reasons.append(f"RSI={rsi:.0f} نزدیک اشباع فروش")
+        elif rsi > 60:
+            score -= 0.5
+            reasons.append(f"RSI={rsi:.0f} نزدیک اشباع خرید")
+
+        # Williams %R
+        if willr < -80:
+            score += 0.7
             reasons.append(f"Williams %R={willr:.0f} اشباع فروش")
         elif willr > -20:
-            score -= 0.5
+            score -= 0.7
             reasons.append(f"Williams %R={willr:.0f} اشباع خرید")
 
+        # MACD — وزن بیشتر
         if prev_macd_h <= 0 and macd_h > 0:
-            score += 1.0
+            score += 1.5
             reasons.append("MACD کراس صعودی")
         elif prev_macd_h >= 0 and macd_h < 0:
-            score -= 1.0
+            score -= 1.5
             reasons.append("MACD کراس نزولی")
-
-        if stoch_k < 20 and stoch_d < 20:
+        elif macd_h > 0 and macd_h > prev_macd_h:
             score += 0.5
+            reasons.append("MACD در حال تقویت (صعودی)")
+        elif macd_h < 0 and macd_h < prev_macd_h:
+            score -= 0.5
+            reasons.append("MACD در حال تقویت (نزولی)")
+
+        # Stochastic
+        if stoch_k < 20 and stoch_d < 20:
+            score += 0.7
             reasons.append("Stochastic اشباع فروش")
         elif stoch_k > 80 and stoch_d > 80:
-            score -= 0.5
+            score -= 0.7
             reasons.append("Stochastic اشباع خرید")
 
+        # Bollinger
         if bb_upper > 0 and bb_lower > 0:
             if price <= bb_lower * 1.005:
-                score += 0.5
+                score += 0.7
                 reasons.append("نزدیک باند پایین Bollinger")
             elif price >= bb_upper * 0.995:
-                score -= 0.5
+                score -= 0.7
                 reasons.append("نزدیک باند بالا Bollinger")
 
+        # VWAP
         if vwap_last and vwap_last > 0:
             if price > vwap_last * 1.02:
                 score -= 0.5
@@ -195,46 +347,68 @@ def analyze_symbol(
                 score += 0.5
                 reasons.append("قیمت زیر VWAP — فرصت ورود")
 
+        # S/R حرفه‌ای
         if resistance > 0 and price >= resistance * 0.995:
-            score -= 0.3
-            reasons.append("نزدیک مقاومت")
+            score -= 0.5
+            reasons.append("نزدیک مقاومت (swing/pivot)")
         elif support > 0 and price <= support * 1.005:
-            score += 0.3
-            reasons.append("نزدیک حمایت")
+            score += 0.5
+            reasons.append("نزدیک حمایت (swing/pivot)")
 
+        # ADX — ضریب از 0.5 به 0.7
         is_ranging = adx < 20
         if is_ranging:
-            score *= 0.5
+            score *= 0.7
             reasons.append(f"ADX={adx:.0f} بازار رنج")
 
-        # ─── تعیین سیگنال ───
-        if is_ranging and abs(score) < 1:
+        # ─── تعیین سیگنال — آستانه‌های جسورانه‌تر ───
+        if is_ranging and abs(score) < 0.8:
             signal = "خنثی"
             explanation = "صبر کن، بازار بی‌جهته"
-        elif score >= 2:
+        elif score >= 1.5:
             signal = "LONG"
             explanation = "خرید خوب، با حد ضرر"
-        elif score >= 1:
+        elif score >= 0.8:
             signal = "LONG ضعیف"
             explanation = "خرید با احتیاط"
-        elif score <= -2:
+        elif score <= -1.5:
             signal = "SHORT"
             explanation = "فروش خوب، مراقب"
-        elif score <= -1:
+        elif score <= -0.8:
             signal = "SHORT ضعیف"
             explanation = "فروش با احتیاط"
         else:
             signal = "خنثی"
             explanation = "بدون سیگنال واضح"
 
-        confidence = min(100, int(abs(score) * 25 + len(reasons) * 5))
+        # ─── Confidence — فرمول بهتر ───
+        # ترکیب امتیاز + کیفیت دلایل + ADX + فاصله از S/R
+        base_conf = min(60, abs(score) * 22)
+        reasons_bonus = min(20, len(reasons) * 3)
+        adx_bonus = min(15, max(0, (adx - 15) * 0.8))
+        # اگه نزدیک S/R هستیم، اطمینان کمتر
+        sr_penalty = 0
+        if resistance > 0 and price > 0:
+            dist_r = abs(resistance - price) / price * 100
+            if dist_r < 1:
+                sr_penalty = 10
+        if support > 0 and price > 0:
+            dist_s = abs(price - support) / price * 100
+            if dist_s < 1:
+                sr_penalty += 5
+
+        confidence = int(min(95, max(10, base_conf + reasons_bonus + adx_bonus - sr_penalty)))
 
         # ─── SL/TP ───
+        # آستانه هماهنگ با سیگنال ضعیف (0.8)
+        # هر سیگنالی (LONG/SHORT حتی ضعیف) باید SL/TP داشته باشه
         profile = RISK_PROFILES.get(risk_profile, RISK_PROFILES["medium"])
         sl_tp = None
         rr = None
 
-        if atr > 0 and abs(score) >= profile["min_score"]:
+        MIN_SCORE_FOR_SLTP = 0.8  # ← هماهنگ با آستانه سیگنال ضعیف
+
+        if atr > 0 and abs(score) >= MIN_SCORE_FOR_SLTP:
             if score > 0:
                 sl = price - atr * profile["sl_mult"]
                 tp_price = price + atr * profile["tp_mult"]
@@ -263,6 +437,8 @@ def analyze_symbol(
             "vwap": vwap_last,
             "support": support,
             "resistance": resistance,
+            "pivots": pivots,
+            "swings": swings,
             "score": score,
             "signal": signal,
             "explanation": explanation,
@@ -276,6 +452,8 @@ def analyze_symbol(
 
     except Exception as e:
         print(f"[Analyzer] خطا در تحلیل: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -489,7 +667,7 @@ def build_checklist_weighted(tfs: dict) -> tuple[list, int, str, str]:
 
 
 # ═══════════════════════════════════════════════════════════
-# پاراگراف تحلیل — با تایم‌فریم
+# پاراگراف تحلیل
 # ═══════════════════════════════════════════════════════════
 def build_analysis_paragraph(
     ticker: str,
@@ -499,20 +677,8 @@ def build_analysis_paragraph(
     risk_profile: str = "medium",
     tf_name: str = "۱ ساعت",
 ) -> str:
-    """
-    ساخت پاراگراف تحلیل کامل به فارسی.
-    
-    Args:
-        ticker: نماد
-        name: نام فارسی
-        tfs: dict تحلیل‌های همه TFها
-        gsr: نسبت طلا به نقره
-        risk_profile: سطح ریسک
-        tf_name: تایم‌فریم مرجع تحلیل (جدید)
-    """
     lines = []
 
-    # ─── خط اول: تایم‌فریم مرجع ───
     lines.append(f"📊 تحلیل بر اساس تایم‌فریم: {tf_name}")
     lines.append(f"📍 این تحلیل با تمرکز روی تایم‌فریم {tf_name} نوشته شده.")
     lines.append("")
@@ -553,6 +719,30 @@ def build_analysis_paragraph(
         lines.append(f"• حمایت نزدیک: {s:,.2f}$")
 
     lines.append("")
+
+    # ─── Pivot Points ───
+    pivots = r1h.get("pivots") or {}
+    if pivots:
+        lines.append("◈ سطوح کلیدی (Pivot)")
+        lines.append("─" * 30)
+        lines.append(f"• R3: {pivots.get('r3', 0):,.2f}$   R2: {pivots.get('r2', 0):,.2f}$   R1: {pivots.get('r1', 0):,.2f}$")
+        lines.append(f"• Pivot: {pivots.get('pivot', 0):,.2f}$")
+        lines.append(f"• S1: {pivots.get('s1', 0):,.2f}$   S2: {pivots.get('s2', 0):,.2f}$   S3: {pivots.get('s3', 0):,.2f}$")
+        lines.append("")
+
+    # ─── Swing Points ───
+    swings = r1h.get("swings") or {}
+    if swings.get("swing_highs") or swings.get("swing_lows"):
+        n_highs = len(swings.get("swing_highs", []))
+        n_lows = len(swings.get("swing_lows", []))
+        lines.append("◈ نقاط چرخش (Swing)")
+        lines.append("─" * 30)
+        lines.append(f"• {n_highs} سقف و {n_lows} کف شناسایی شد")
+        if swings.get("strongest_resistance"):
+            lines.append(f"• قوی‌ترین مقاومت: {swings['strongest_resistance']:,.2f}$")
+        if swings.get("strongest_support"):
+            lines.append(f"• قوی‌ترین حمایت: {swings['strongest_support']:,.2f}$")
+        lines.append("")
 
     if r1h.get("reasons"):
         lines.append("◈ دلایل تحلیل")
@@ -599,7 +789,7 @@ def build_analysis_paragraph(
         if gsr > 80:
             lines.append("• بالای ۸۰: نقره ارزونه")
         elif gsr < 60:
-            lines.append("• زیر ۶۰: طلا ارزونه")
+            lines.append("• طلا ارزونه")
         else:
             lines.append("• در محدوده نرمال (۶۰-۸۰)")
 
