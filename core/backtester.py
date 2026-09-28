@@ -1,393 +1,385 @@
 """
 core/backtester.py
-Backtest سیگنال‌ها با داده تاریخی yfinance
-نسخه ۲.۰ — اصلاح‌شده کامل
+راستی‌آزمایی سیگنال‌ها — نسخه ۳.۰
+================================================
+- ثبت سیگنال با SL/TP
+- بررسی خودکار برد/باخت/انتظار
+- محاسبه آمار کامل (Win Rate, PF, Max DD)
 """
 
 import json
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
-import yfinance as yf
 
-# مسیر فایل ذخیره سیگنال‌ها
-DATA_DIR = Path(__file__).parent.parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
-SIGNAL_FILE = DATA_DIR / "signals_log.json"
-
-# نقشه تبدیل تایم‌فریم به دقیقه
-TF_TO_MINUTES = {
-    "۵ دقیقه": 5,
-    "۱۵ دقیقه": 15,
-    "۳۰ دقیقه": 30,
-    "۱ ساعت": 60,
-    "روزانه": 1440,
-}
+from core.data_fetcher import fetch_history, TIMEFRAMES
+from core.utils import safe_num
 
 
 # ═══════════════════════════════════════════════════════════
-# ذخیره و بارگذاری
+# مسیر فایل لاگ
 # ═══════════════════════════════════════════════════════════
+SIGNAL_FILE = Path("data/signals_log.json")
 
+
+# ═══════════════════════════════════════════════════════════
+# بارگذاری لاگ
+# ═══════════════════════════════════════════════════════════
 def load_signal_log() -> list:
-    """بارگذاری سیگنال‌ها از فایل JSON"""
+    """بارگذاری لاگ سیگنال‌ها از فایل JSON"""
     if not SIGNAL_FILE.exists():
         return []
+
     try:
         with open(SIGNAL_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[Backtest] خطا در خوندن سیگنال: {e}")
+            if isinstance(data, list):
+                return data
+            return []
+    except Exception as e:
+        print(f"[Backtester] خطا در load: {e}")
         return []
 
 
-def save_signal_log(log: list) -> None:
-    """ذخیره سیگنال‌ها با محدودیت ۱۰۰۰ رکورد آخر"""
+# ═══════════════════════════════════════════════════════════
+# ذخیره لاگ
+# ═══════════════════════════════════════════════════════════
+def _save_signal_log(log: list) -> None:
+    """ذخیره لاگ به فایل JSON"""
     try:
+        SIGNAL_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(SIGNAL_FILE, "w", encoding="utf-8") as f:
-            json.dump(log[-1000:], f, ensure_ascii=False, indent=2)
-    except OSError as e:
-        print(f"[Backtest] خطا در ذخیره سیگنال: {e}")
+            json.dump(log, f, ensure_ascii=False, indent=2, default=str)
+    except Exception as e:
+        print(f"[Backtester] خطا در save: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
+# پاک کردن کامل لاگ
+# ═══════════════════════════════════════════════════════════
+def clear_log() -> None:
+    """پاک کردن کامل لاگ سیگنال‌ها"""
+    if SIGNAL_FILE.exists():
+        try:
+            SIGNAL_FILE.unlink()
+            print(f"[Backtester] لاگ پاک شد")
+        except Exception as e:
+            print(f"[Backtester] خطا در پاک کردن: {e}")
+
+
+# نام مستعار برای سازگاری با app.py
+reset_signal_log = clear_log
 
 
 # ═══════════════════════════════════════════════════════════
 # ثبت سیگنال جدید
 # ═══════════════════════════════════════════════════════════
-
 def record_signal(
     ticker: str,
     name: str,
     signal: str,
     price: float,
     tf_name: str,
-    sl_tp: dict | None,
-    cooldown_minutes: int = 60,
-) -> bool:
+    sl_tp: Optional[dict] = None,
+) -> None:
     """
-    ثبت سیگنال جدید با جلوگیری از تکرار (cooldown)
-    
-    Returns:
-        True اگه ثبت شد، False اگه تکراری بود
+    ثبت یه سیگنال جدید.
+    اگه ۲۴ ساعت از آخرین سیگنال هم‌تایم‌فریم/نماد گذشته باشه، جدید ثبت می‌شه.
     """
     if signal not in ("LONG", "SHORT"):
-        return False
+        return
+
     if not price or price <= 0:
-        return False
+        return
 
     log = load_signal_log()
-    now = datetime.now()
 
-    # چک کردن تکرار — اگه سیگنال مشابه در بازه cooldown ثبت شده، نادیده بگیر
-    for entry in reversed(log[-50:]):
+    # ─── جلوگیری از تکرار در ۲۴ ساعت اخیر ───
+    now = datetime.now()
+    for entry in reversed(log):
         try:
-            entry_time = datetime.fromisoformat(entry["time"])
-            delta = (now - entry_time).total_seconds() / 60
-            if delta < cooldown_minutes:
-                if (entry["ticker"] == ticker
-                        and entry["tf"] == tf_name
-                        and entry["signal"] == signal):
-                    return False
-        except (KeyError, ValueError):
+            entry_time = datetime.fromisoformat(entry.get("timestamp", ""))
+            if (now - entry_time).total_seconds() < 24 * 3600:
+                if (entry.get("ticker") == ticker
+                        and entry.get("tf") == tf_name
+                        and entry.get("signal") == signal):
+                    return
+        except Exception:
             continue
 
+    # ─── ثبت ───
     entry = {
-        "time": now.isoformat(),
+        "timestamp": now.isoformat(),
         "ticker": ticker,
         "name": name,
-        "tf": tf_name,
         "signal": signal,
         "price": float(price),
-        "sl": float(sl_tp["sl"]) if sl_tp else None,
-        "tp": float(sl_tp["tp"]) if sl_tp else None,
-        "result": None,           # None=در انتظار، True=برد، False=باخت، "neutral"=خنثی
-        "resolved_at": None,
-        "resolved_price": None,
+        "tf": tf_name,
+        "result": None,
+        "result_time": None,
     }
+
+    if sl_tp:
+        entry["sl"] = safe_num(sl_tp.get("sl"))
+        entry["tp"] = safe_num(sl_tp.get("tp"))
+        entry["sl_tp_type"] = sl_tp.get("type", "")
+
     log.append(entry)
-    save_signal_log(log)
-    return True
+
+    # ─── محدودیت ۱۰۰۰ رکورد ───
+    if len(log) > 1000:
+        log = log[-1000:]
+
+    _save_signal_log(log)
 
 
 # ═══════════════════════════════════════════════════════════
-# Backtest اصلی — نسخه اصلاح‌شده
+# بررسی یه سیگنال (بسته شده یا نه)
 # ═══════════════════════════════════════════════════════════
-
-def _pick_interval(tf_name: str) -> str:
-    """انتخاب interval مناسب yfinance بر اساس تایم‌فریم سیگنال"""
-    tf_min = TF_TO_MINUTES.get(tf_name, 60)
-    if tf_min <= 5:
-        return "5m"
-    elif tf_min <= 15:
-        return "15m"
-    elif tf_min <= 30:
-        return "30m"
-    elif tf_min <= 60:
-        return "1h"
-    else:
-        return "1d"
-
-
-def _resolve_one(entry: dict, now: datetime) -> bool:
+def _check_signal(entry: dict) -> dict:
     """
-    بررسی یک سیگنال و تعیین نتیجه.
-    
-    Returns:
-        True اگه entry تغییر کرد، False اگه نه
+    بررسی یه سیگنال:
+      - آمدن به TP → result=True (برد)
+      - آمدن به SL → result=False (باخت)
+      - هنوز نه → result=None (انتظار)
     """
-    # اگه قبلاً حل شده، رد شو
     if entry.get("result") is not None:
-        return False
+        return entry
 
-    sl = entry.get("sl")
-    tp = entry.get("tp")
-    signal = entry.get("signal", "")
+    ticker = entry.get("ticker")
+    tf_name = entry.get("tf")
+    signal = entry.get("signal")
+    entry_price = safe_num(entry.get("price"))
+    entry_time_str = entry.get("timestamp")
 
-    # اگه SL/TP نداره، رد شو
-    if not sl or not tp:
-        return False
+    sl = safe_num(entry.get("sl"))
+    tp = safe_num(entry.get("tp"))
 
-    try:
-        entry_time = datetime.fromisoformat(entry["time"])
-    except (KeyError, ValueError):
-        return False
+    if not ticker or not signal or not entry_price or not sl or not tp:
+        return entry
 
-    age_hours = (now - entry_time).total_seconds() / 3600
+    if not entry_time_str:
+        return entry
 
-    # اگه بیشتر از ۷ روز گذشته و حل نشده → خنثی
-    if age_hours > 24 * 7:
-        entry["result"] = "neutral"
-        entry["resolved_at"] = now.isoformat()
-        return True
-
-    # ✅ باگ #1 رفع شد: اطمینان از اینکه start < end
-    # اگه سیگنال تازه ثبت شده، start رو ۱۰ دقیقه عقب‌تر ببر
-    start_dt = entry_time - timedelta(minutes=5)
-    end_dt = now + timedelta(minutes=5)
-
-    interval = _pick_interval(entry.get("tf", ""))
+    # ─── تایم‌فریم ───
+    interval, period = "1h", "3mo"
+    for iv, p, n in TIMEFRAMES:
+        if n == tf_name:
+            interval, period = iv, p
+            break
 
     try:
-        df = yf.download(
-            entry["ticker"],
-            start=start_dt,
-            end=end_dt,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-    except Exception as e:
-        print(f"[Backtest] خطای دانلود {entry['ticker']}: {e}")
-        return False
+        entry_time = datetime.fromisoformat(entry_time_str)
+    except Exception:
+        return entry
 
-    if df is None or df.empty:
-        return False
+    # ─── دریافت دیتای فعلی ───
+    try:
+        df = fetch_history(ticker, interval, period)
+        if df is None or df.empty:
+            return entry
+    except Exception:
+        return entry
 
-    # نرمال‌سازی ستون‌ها
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df.columns = [str(c).lower() for c in df.columns]
+    # ─── فیلتر از زمان ثبت به بعد ───
+    try:
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df = df[df.index.tz_localize(None) >= entry_time]
+        else:
+            df = df[df.index >= entry_time]
+    except Exception:
+        pass
 
-    if not {"high", "low"}.issubset(df.columns):
-        return False
-
-    df = df.dropna(subset=["high", "low"])
     if df.empty:
-        return False
+        return entry
 
-    # ✅ باگ #2 رفع شد: منطق دقیق بررسی کندل به کندل
-    # در هر کندل چک می‌کنیم کدوم اول لمس میشه
-    # قانون محافظه‌کارانه: اگه هم SL و هم TP در یک کندل لمس شدن، SL رو بگیر (بدبینانه)
-    result = None
-    resolved_price = None
+    # ─── بررسی کندل‌ها ───
+    for _, row in df.iterrows():
+        high = safe_num(row.get("high"))
+        low = safe_num(row.get("low"))
 
-    for ts, row in df.iterrows():
-        try:
-            high = float(row["high"])
-            low = float(row["low"])
-        except (ValueError, TypeError):
-            continue
+        if signal == "LONG":
+            if high >= tp:
+                entry["result"] = True
+                entry["result_time"] = datetime.now().isoformat()
+                entry["exit_price"] = tp
+                return entry
+            if low <= sl:
+                entry["result"] = False
+                entry["result_time"] = datetime.now().isoformat()
+                entry["exit_price"] = sl
+                return entry
 
-        if "LONG" in signal:
-            # LONG: SL پایین‌تر، TP بالاتر
-            hit_sl = low <= sl
-            hit_tp = high >= tp
-            if hit_sl and hit_tp:
-                # محافظه‌کارانه: SL رو در نظر بگیر
-                result = False
-                resolved_price = sl
-                break
-            elif hit_sl:
-                result = False
-                resolved_price = sl
-                break
-            elif hit_tp:
-                result = True
-                resolved_price = tp
-                break
+        elif signal == "SHORT":
+            if low <= tp:
+                entry["result"] = True
+                entry["result_time"] = datetime.now().isoformat()
+                entry["exit_price"] = tp
+                return entry
+            if high >= sl:
+                entry["result"] = False
+                entry["result_time"] = datetime.now().isoformat()
+                entry["exit_price"] = sl
+                return entry
 
-        elif "SHORT" in signal:
-            # SHORT: SL بالاتر، TP پایین‌تر
-            hit_sl = high >= sl
-            hit_tp = low <= tp
-            if hit_sl and hit_tp:
-                result = False
-                resolved_price = sl
-                break
-            elif hit_sl:
-                result = False
-                resolved_price = sl
-                break
-            elif hit_tp:
-                result = True
-                resolved_price = tp
-                break
-
-    if result is not None:
-        entry["result"] = result
-        entry["resolved_at"] = now.isoformat()
-        entry["resolved_price"] = float(resolved_price) if resolved_price else None
-        return True
-
-    return False
+    return entry
 
 
-def backtest_all() -> dict:
-    """
-    اجرای Backtest روی همه سیگنال‌های حل‌نشده.
-    
-    Returns:
-        dict خلاصه: {"checked": n, "resolved": m}
-    """
+# ═══════════════════════════════════════════════════════════
+# Backtest همه سیگنال‌ها
+# ═══════════════════════════════════════════════════════════
+def backtest_all() -> None:
+    """بررسی همه سیگنال‌های ثبت‌شده که هنوز نتیجه‌شون مشخص نیست"""
     log = load_signal_log()
     if not log:
-        return {"checked": 0, "resolved": 0}
+        return
 
-    now = datetime.now()
-    checked = 0
-    resolved = 0
+    updated = False
+    for i, entry in enumerate(log):
+        if entry.get("result") is None:
+            new_entry = _check_signal(entry)
+            if new_entry.get("result") is not None:
+                log[i] = new_entry
+                updated = True
 
-    for entry in log:
-        if entry.get("result") is not None:
-            continue
-        checked += 1
-        try:
-            if _resolve_one(entry, now):
-                resolved += 1
-        except Exception as e:
-            print(f"[Backtest] خطا در {entry.get('ticker')}: {e}")
-
-    if resolved > 0:
-        save_signal_log(log)
-
-    return {"checked": checked, "resolved": resolved}
+    if updated:
+        _save_signal_log(log)
 
 
 # ═══════════════════════════════════════════════════════════
-# آمار و تحلیل نتایج
+# محاسبه آمار
 # ═══════════════════════════════════════════════════════════
-
-def compute_stats(log: list | None = None) -> dict:
+def compute_stats(log: Optional[list] = None) -> dict:
     """
-    محاسبه آمار کامل از سیگنال‌ها.
+    محاسبه آمار کامل از لاگ سیگنال‌ها.
     
     Returns:
-        dict: {
-            total, win, loss, neutral, pending,
-            win_rate, profit_factor, max_dd, avg_win, avg_loss,
-            expectancy, by_tf
+        {
+            "total": int,
+            "win": int,
+            "loss": int,
+            "pending": int,
+            "win_rate": float,
+            "profit_factor": float,
+            "max_dd": float,
+            "by_tf": {...},
+            "by_symbol": {...},
+            "expectancy": float,
+            "avg_win": float,
+            "avg_loss": float,
         }
     """
     if log is None:
         log = load_signal_log()
 
     stats = {
-        "total": 0, "win": 0, "loss": 0, "neutral": 0, "pending": 0,
-        "win_rate": 0.0, "profit_factor": 0.0, "max_dd": 0.0,
-        "avg_win": 0.0, "avg_loss": 0.0, "expectancy": 0.0,
+        "total": 0,
+        "win": 0,
+        "loss": 0,
+        "pending": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_dd": 0.0,
+        "expectancy": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": 0.0,
         "by_tf": {},
         "by_symbol": {},
     }
 
-    profits = []
-    losses = []
+    if not log:
+        return stats
+
+    stats["total"] = len(log)
+
+    # ─── شمارش ───
+    total_win_pct = 0.0
+    total_loss_pct = 0.0
 
     for entry in log:
-        stats["total"] += 1
-        tf = entry.get("tf", "نامشخص")
-        ticker = entry.get("ticker", "?")
         result = entry.get("result")
+        tf = entry.get("tf", "?")
+        ticker = entry.get("ticker", "?")
 
-        # آمار کلی TF
-        stats["by_tf"].setdefault(tf, {
-            "total": 0, "win": 0, "loss": 0, "neutral": 0, "pending": 0,
-            "win_rate": 0.0,
-        })
-        stats["by_tf"][tf]["total"] += 1
-
-        # آمار به تفکیک نماد
-        stats["by_symbol"].setdefault(ticker, {
-            "total": 0, "win": 0, "loss": 0, "win_rate": 0.0,
-        })
-        stats["by_symbol"][ticker]["total"] += 1
+        if tf not in stats["by_tf"]:
+            stats["by_tf"][tf] = {"win": 0, "loss": 0, "pending": 0, "win_rate": 0.0}
+        if ticker not in stats["by_symbol"]:
+            stats["by_symbol"][ticker] = {"win": 0, "loss": 0, "pending": 0, "win_rate": 0.0}
 
         if result is True:
             stats["win"] += 1
             stats["by_tf"][tf]["win"] += 1
             stats["by_symbol"][ticker]["win"] += 1
-            if entry.get("tp") and entry.get("price"):
-                p = abs(entry["tp"] - entry["price"]) / entry["price"] * 100
-                profits.append(p)
+
+            # محاسبه درصد سود
+            price = safe_num(entry.get("price"))
+            tp = safe_num(entry.get("tp"))
+            if price > 0 and tp > 0:
+                total_win_pct += abs(tp - price) / price * 100
+
         elif result is False:
             stats["loss"] += 1
             stats["by_tf"][tf]["loss"] += 1
             stats["by_symbol"][ticker]["loss"] += 1
-            if entry.get("sl") and entry.get("price"):
-                l = abs(entry["sl"] - entry["price"]) / entry["price"] * 100
-                losses.append(l)
-        elif result == "neutral":
-            stats["neutral"] += 1
-            stats["by_tf"][tf]["neutral"] += 1
+
+            price = safe_num(entry.get("price"))
+            sl = safe_num(entry.get("sl"))
+            if price > 0 and sl > 0:
+                total_loss_pct += abs(price - sl) / price * 100
+
         else:
             stats["pending"] += 1
             stats["by_tf"][tf]["pending"] += 1
+            stats["by_symbol"][ticker]["pending"] += 1
 
-    # محاسبه نرخ برد
-    resolved = stats["win"] + stats["loss"]
-    stats["win_rate"] = (stats["win"] / resolved * 100) if resolved > 0 else 0.0
+    # ─── نرخ برد ───
+    closed = stats["win"] + stats["loss"]
+    if closed > 0:
+        stats["win_rate"] = stats["win"] / closed * 100
 
-    # Profit Factor
-    total_profit = sum(profits) if profits else 0.0
-    total_loss = sum(losses) if losses else 0.0
-    stats["profit_factor"] = (total_profit / total_loss) if total_loss > 0 else 0.0
+    # ─── Profit Factor ───
+    if total_loss_pct > 0:
+        stats["profit_factor"] = total_win_pct / total_loss_pct
+    elif total_win_pct > 0:
+        stats["profit_factor"] = 999.0  # همه برد، ضرری نبوده
 
-    # میانگین‌ها
-    stats["avg_win"] = (total_profit / len(profits)) if profits else 0.0
-    stats["avg_loss"] = (total_loss / len(losses)) if losses else 0.0
+    # ─── میانگین برد/باخت ───
+    if stats["win"] > 0:
+        stats["avg_win"] = total_win_pct / stats["win"]
+    if stats["loss"] > 0:
+        stats["avg_loss"] = total_loss_pct / stats["loss"]
 
-    # Expectancy = (WinRate × AvgWin) - (LossRate × AvgLoss)
-    if resolved > 0:
-        wr = stats["win"] / resolved
-        lr = stats["loss"] / resolved
-        stats["expectancy"] = (wr * stats["avg_win"]) - (lr * stats["avg_loss"])
+    # ─── Expectancy ───
+    if closed > 0:
+        wr = stats["win"] / closed
+        stats["expectancy"] = (wr * stats["avg_win"]) - ((1 - wr) * stats["avg_loss"])
 
-    # Max Drawdown (به درصد، روی سری cumulative)
+    # ─── Max Drawdown ───
     cumulative = 0.0
     peak = 0.0
     max_dd = 0.0
+
     for entry in log:
-        if entry.get("result") is True and entry.get("tp") and entry.get("price"):
-            cumulative += abs(entry["tp"] - entry["price"]) / entry["price"] * 100
-        elif entry.get("result") is False and entry.get("sl") and entry.get("price"):
-            cumulative -= abs(entry["sl"] - entry["price"]) / entry["price"] * 100
+        result = entry.get("result")
+        price = safe_num(entry.get("price"))
+
+        if result is True:
+            tp = safe_num(entry.get("tp"))
+            if price > 0 and tp > 0:
+                cumulative += abs(tp - price) / price * 100
+        elif result is False:
+            sl = safe_num(entry.get("sl"))
+            if price > 0 and sl > 0:
+                cumulative -= abs(sl - price) / price * 100
+
         peak = max(peak, cumulative)
         max_dd = max(max_dd, peak - cumulative)
+
     stats["max_dd"] = max_dd
 
-    # نرخ برد هر TF
+    # ─── نرخ برد به تفکیک TF ───
     for tf, s in stats["by_tf"].items():
         r = s["win"] + s["loss"]
         s["win_rate"] = (s["win"] / r * 100) if r > 0 else 0.0
@@ -399,12 +391,9 @@ def compute_stats(log: list | None = None) -> dict:
     return stats
 
 
-def clear_log() -> None:
-    """پاک کردن کامل لاگ سیگنال‌ها (برای تست)"""
-    if SIGNAL_FILE.exists():
-        SIGNAL_FILE.unlink()
-
-
+# ═══════════════════════════════════════════════════════════
+# آخرین سیگنال‌ها
+# ═══════════════════════════════════════════════════════════
 def get_recent_signals(n: int = 20) -> list:
     """آخرین n سیگنال"""
     log = load_signal_log()

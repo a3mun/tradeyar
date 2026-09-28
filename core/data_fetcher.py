@@ -55,6 +55,7 @@ CORRELATION_SYMBOLS = {
 }
 
 TIMEFRAMES = [
+    ("1m", "1d", "۱ دقیقه"),      # ← جدید
     ("5m", "5d", "۵ دقیقه"),
     ("15m", "5d", "۱۵ دقیقه"),
     ("30m", "1mo", "۳۰ دقیقه"),
@@ -471,3 +472,100 @@ if __name__ == "__main__":
     print()
 
     print("[OK] تست کامل شد.")
+
+    # ═══════════════════════════════════════════════════════════
+# دریافت OHLCV بر اساس منبع انتخابی
+# ═══════════════════════════════════════════════════════════
+def fetch_history_by_source(
+    ticker: str,
+    interval: str,
+    period: str,
+    source: str = "global",
+) -> "pd.DataFrame | None":
+    """
+    دریافت OHLCV بر اساس منبع انتخابی کاربر.
+    
+    Args:
+        ticker: نماد (مثلاً BTC-USD)
+        interval: تایم‌فریم (5m, 15m, 30m, 1h, 1d)
+        period: دوره (5d, 1mo, 3mo, 6mo)
+        source: منبع دیتا:
+            - "global": yfinance (پیش‌فرض)
+            - "nobitex": نوبیتکس (فقط کریپتو)
+            - "abantether": آبان‌تتر (فقط قیمت لحظه‌ای — OHLCV نداره)
+    
+    Returns:
+        DataFrame OHLCV یا None
+    """
+    if source == "global":
+        return fetch_history(ticker, interval, period)
+    
+    if source == "nobitex":
+        # نوبیتکس فقط کریپتو داره
+        try:
+            from .nobitex_fetcher import fetch_nobitex_for_ticker
+            df = fetch_nobitex_for_ticker(ticker, interval, period)
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            print(f"[Fetcher] خطا در نوبیتکس {ticker}: {e}")
+        # fallback به yfinance
+        return fetch_history(ticker, interval, period)
+    
+    if source == "abantether":
+        # آبان‌تتر OHLCV نداره — از yfinance استفاده می‌کنیم
+        # ولی قیمت لحظه‌ای رو از آبان‌تتر می‌گیریم (در تابع دیگه)
+        return fetch_history(ticker, interval, period)
+    
+    # پیش‌فرض
+    return fetch_history(ticker, interval, period)
+
+    # ═══════════════════════════════════════════════════════════
+# قیمت لحظه‌ای از منبع انتخابی
+# ═══════════════════════════════════════════════════════════
+def fetch_live_price_by_source(ticker: str, source: str = "global") -> "dict | None":
+    """
+    دریافت قیمت لحظه‌ای بر اساس منبع انتخابی.
+    
+    Args:
+        ticker: نماد (مثلاً BTC-USD)
+        source: "global" / "nobitex" / "abantether"
+    
+    Returns:
+        {"price": float, "buy": float, "sell": float, "spread_pct": float} یا None
+    """
+    if source == "nobitex":
+        try:
+            from .nobitex_fetcher import fetch_nobitex_for_ticker
+            # از Order Book استفاده می‌کنیم
+            from .nobitex_fetcher import map_symbol_to_nobitex, fetch_nobitex_orderbook
+            sym = map_symbol_to_nobitex(ticker)
+            if sym:
+                ob = fetch_nobitex_orderbook(sym)
+                if ob:
+                    return {
+                        "price": ob["last_price"],
+                        "buy": ob["best_bid"],
+                        "sell": ob["best_ask"],
+                        "spread_pct": ob["spread_pct"],
+                    }
+        except Exception as e:
+            print(f"[Fetcher] خطا در قیمت نوبیتکس: {e}")
+        return None
+    
+    if source == "abantether":
+        try:
+            from .abantether_fetcher import fetch_abantether_for_ticker
+            info = fetch_abantether_for_ticker(ticker)
+            if info:
+                return {
+                    "price": info["last_price"],
+                    "buy": info["buy_price"],
+                    "sell": info["sell_price"],
+                    "spread_pct": info["spread_pct"],
+                }
+        except Exception as e:
+            print(f"[Fetcher] خطا در قیمت آبان‌تتر: {e}")
+        return None
+    
+    return None

@@ -1,8 +1,8 @@
 """
 ui/styles.py
-پالت رنگ + CSS
-نسخه ۱۹.۰ — نهایی فاز ۳
-هدر سه‌بخشی + Marquee پیوسته
+پالت رنگ + CSS — نسخه ۱۲.۰
+فونت IRANYekanXVF + JetBrains Mono
+راست‌چین سراسری + تم روشن بازطراحی‌شده
 """
 
 from pathlib import Path
@@ -10,62 +10,91 @@ from pathlib import Path
 FONT_DIR = Path(__file__).parent.parent / "fonts"
 FONT_DIR.mkdir(exist_ok=True)
 
+B64_FILE = FONT_DIR / "IRANYekanXVF.b64.txt"
+
+
+def _load_font_base64() -> str:
+    try:
+        if B64_FILE.exists():
+            with open(B64_FILE, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    except Exception as e:
+        print(f"[Styles] خطا در خواندن فونت: {e}")
+    return ""
+
+
+_FONT_B64 = _load_font_base64()
+
 
 THEME_DARK = {
     "name": "تاریک",
-    "bg": "#0D1117",
-    "bg_dark": "#08090D",
-    "bg_card": "#161B22",
-    "bg_hover": "#1C2128",
-    "bg_mid": "#12161C",
-    "border": "#21262D",
-    "border_light": "#30363D",
-    "fg": "#F0F6FC",
-    "fg_muted": "#B1BAC4",
-    "fg_dim": "#7D8590",
-    "primary": "#F59E0B",
-    "primary_dark": "#D97706",
-    "primary_glow": "rgba(245, 158, 11, 0.25)",
-    "cyan": "#3FD9C6",
-    "cyan_dark": "#14B8A6",
-    "cyan_glow": "rgba(63, 217, 198, 0.2)",
-    "green": "#4ADE80",
-    "green_glow": "rgba(74, 222, 128, 0.2)",
-    "red": "#F87171",
-    "red_glow": "rgba(248, 113, 113, 0.2)",
-    "yellow": "#FACC15",
-    "orange": "#FB923C",
-    "purple": "#C084FC",
-    "gold": "#FFD700",
+    "bg": "#0d1117",
+    "bg_dark": "#010409",
+    "bg_card": "#161b22",
+    "bg_card_hover": "#1c2128",
+    "bg_mid": "#21262d",
+    "bg_input": "#0d1117",
+    "border": "#30363d",
+    "border_light": "#484f58",
+    "border_glow": "rgba(88, 166, 255, 0.4)",
+    "fg": "#e6edf3",
+    "fg_muted": "#8b949e",
+    "fg_dim": "#6e7681",
+    "primary": "#f0b90b",
+    "primary_dark": "#d29922",
+    "primary_glow": "rgba(240, 185, 11, 0.15)",
+    "cyan": "#58a6ff",
+    "cyan_dark": "#388bfd",
+    "cyan_glow": "rgba(88, 166, 255, 0.15)",
+    "green": "#3fb950",
+    "green_dark": "#2ea043",
+    "green_glow": "rgba(63, 185, 80, 0.15)",
+    "red": "#f85149",
+    "red_dark": "#da3633",
+    "red_glow": "rgba(248, 81, 73, 0.15)",
+    "yellow": "#d29922",
+    "orange": "#db6d28",
+    "purple": "#bc8cff",
+    "purple_glow": "rgba(188, 140, 255, 0.15)",
+    "gold": "#f0b90b",
+    "nobitex": "#a855f7",
+    "abantether": "#3b82f6",
 }
 
 
 THEME_LIGHT = {
     "name": "روشن",
-    "bg": "#E8EDF2",
-    "bg_dark": "#DDE3EA",
-    "bg_card": "#F5F7FA",
-    "bg_hover": "#EDF1F6",
-    "bg_mid": "#E2E8F0",
-    "border": "#CBD5E1",
-    "border_light": "#B8C4D4",
-    "fg": "#0F172A",
-    "fg_muted": "#475569",
-    "fg_dim": "#64748B",
-    "primary": "#D97706",
-    "primary_dark": "#B45309",
-    "primary_glow": "rgba(217, 119, 6, 0.2)",
-    "cyan": "#0D9488",
-    "cyan_dark": "#0F766E",
-    "cyan_glow": "rgba(13, 148, 136, 0.2)",
-    "green": "#16A34A",
-    "green_glow": "rgba(22, 163, 74, 0.15)",
-    "red": "#DC2626",
-    "red_glow": "rgba(220, 38, 38, 0.15)",
-    "yellow": "#CA8A04",
-    "orange": "#EA580C",
-    "purple": "#9333EA",
-    "gold": "#CA8A04",
+    "bg": "#f8fafc",
+    "bg_dark": "#f1f5f9",
+    "bg_card": "#ffffff",
+    "bg_card_hover": "#f8fafc",
+    "bg_mid": "#f1f5f9",
+    "bg_input": "#ffffff",
+    "border": "#cbd5e1",
+    "border_light": "#94a3b8",
+    "border_glow": "rgba(2, 132, 199, 0.3)",
+    "fg": "#0f172a",
+    "fg_muted": "#334155",
+    "fg_dim": "#64748b",
+    "primary": "#b45309",
+    "primary_dark": "#92400e",
+    "primary_glow": "rgba(180, 83, 9, 0.12)",
+    "cyan": "#0369a1",
+    "cyan_dark": "#075985",
+    "cyan_glow": "rgba(3, 105, 161, 0.1)",
+    "green": "#047857",
+    "green_dark": "#065f46",
+    "green_glow": "rgba(4, 120, 87, 0.1)",
+    "red": "#b91c1c",
+    "red_dark": "#991b1b",
+    "red_glow": "rgba(185, 28, 28, 0.1)",
+    "yellow": "#a16207",
+    "orange": "#c2410c",
+    "purple": "#6d28d9",
+    "purple_glow": "rgba(109, 40, 217, 0.1)",
+    "gold": "#b45309",
+    "nobitex": "#7c3aed",
+    "abantether": "#2563eb",
 }
 
 
@@ -76,48 +105,99 @@ def get_theme(name: str = "dark") -> dict:
 def get_custom_css(theme_name: str = "dark") -> str:
     t = get_theme(theme_name)
 
+    font_face = ""
+    if _FONT_B64:
+        font_face = f"""
+        @font-face {{
+            font-family: 'IRANYekanX';
+            src: url('data:font/woff2;base64,{_FONT_B64}') format('woff2-variations');
+            font-weight: 100 900;
+            font-style: normal;
+            font-display: swap;
+        }}
+        """
+    else:
+        font_face = """
+        @import url('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css');
+        """
+
+    is_light = (theme_name == "light")
+    
+    # تفاوت‌های خاص تم روشن
+    card_shadow = "0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)" if is_light else "0 2px 8px rgba(0,0,0,0.15)"
+    card_shadow_hover = "0 4px 12px rgba(15, 23, 42, 0.12)" if is_light else "0 4px 12px rgba(0,0,0,0.25)"
+
     return f"""
     <style>
-    * {{ box-sizing: border-box; }}
+    {font_face}
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    * {{
+        box-sizing: border-box;
+        font-family: 'IRANYekanX', 'Vazirmatn', 'Tahoma', system-ui, sans-serif;
+    }}
+
+    code, .mono, [style*="Consolas"], [style*="monospace"] {{
+        font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+    }}
 
     html, body, [class*="css"], .stApp {{
         direction: rtl !important;
         text-align: right !important;
-        font-family: 'Vazirmatn', 'Tahoma', sans-serif !important;
         background-color: {t['bg']} !important;
         color: {t['fg']} !important;
+        font-family: 'IRANYekanX', 'Vazirmatn', 'Tahoma', sans-serif !important;
     }}
 
     .main .block-container {{
-        padding: 0.5rem 0.75rem !important;
+        padding: 1rem 1.5rem !important;
         max-width: 100% !important;
     }}
 
-    #MainMenu, footer, header {{ visibility: hidden; }}
-
-    div[data-testid="stMarkdownContainer"] pre,
-    div[data-testid="stMarkdownContainer"] code {{
-        background: transparent !important;
-        color: inherit !important;
-        padding: 0 !important;
+    #MainMenu, footer, header {{
+        visibility: hidden;
     }}
 
-    /* ═══════════════════════════════════════════════════════
-       هدر یکپارچه — سه بخش
-       ═══════════════════════════════════════════════════════ */
+    div[data-testid="stMarkdownContainer"],
+    div[data-testid="stMarkdownContainer"] > p,
+    div[data-testid="stMarkdownContainer"] > div,
+    div[data-testid="stMarkdownContainer"] > span,
+    label,
+    .stRadio > label,
+    .stSelectbox > label,
+    .stTextInput > label,
+    .stTextArea > label,
+    h1, h2, h3, h4, h5, h6 {{
+        direction: rtl !important;
+        text-align: right !important;
+    }}
+
+    div[role="radiogroup"] {{
+        direction: rtl !important;
+        justify-content: flex-start !important;
+    }}
+
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="select"] > div > div {{
+        direction: rtl !important;
+        text-align: right !important;
+    }}
+
+    /* ═══ هدر ═══ */
     .tradeyar-header {{
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: linear-gradient(135deg, {t['bg_dark']} 0%, {t['bg_card']} 100%);
+        background: {t['bg_card']};
         border: 1px solid {t['border']};
-        border-radius: 12px;
-        padding: 12px 24px;
-        margin-bottom: 12px;
+        border-radius: 14px;
+        padding: 14px 24px;
+        margin-bottom: 14px;
         gap: 16px;
         flex-wrap: nowrap;
         width: 100%;
         min-height: 80px;
+        box-shadow: {card_shadow};
     }}
 
     .header-left {{
@@ -151,34 +231,24 @@ def get_custom_css(theme_name: str = "dark") -> str:
         height: 7px;
         border-radius: 50%;
         background: {t['green']};
-        box-shadow: 0 0 6px {t['green']};
-        margin-left: 4px;
+        box-shadow: 0 0 8px {t['green']};
         animation: pulse 2s infinite;
     }}
 
     @keyframes pulse {{
         0%, 100% {{ opacity: 1; }}
-        50% {{ opacity: 0.3; }}
+        50% {{ opacity: 0.4; }}
     }}
 
-    @keyframes fadeIn {{
-        from {{ opacity: 0; transform: translateY(5px); }}
-        to {{ opacity: 1; transform: translateY(0); }}
-    }}
-
-    .fade-in {{ animation: fadeIn 0.3s ease; }}
-
-    /* ═══════════════════════════════════════════════════════
-       نوار بالایی — ثابت راست‌چین با اسکرول دستی
-       ═══════════════════════════════════════════════════════ */
+    /* ═══ تیکر ═══ */
     .top-ticker {{
         background: {t['bg_card']};
         border: 1px solid {t['border']};
-        border-radius: 10px;
+        border-radius: 12px;
         padding: 8px 0;
-        margin-bottom: 12px;
+        margin-bottom: 14px;
         overflow: hidden;
-        width: 100%;
+        box-shadow: {card_shadow};
     }}
 
     .ticker-row-wrapper {{
@@ -188,23 +258,13 @@ def get_custom_css(theme_name: str = "dark") -> str:
         width: 100%;
         direction: rtl;
         scroll-behavior: smooth;
-        -webkit-overflow-scrolling: touch;
     }}
 
-    /* اسکرول‌بار نامرئی */
-    .ticker-row-wrapper::-webkit-scrollbar {{
-        height: 4px;
-    }}
-    .ticker-row-wrapper::-webkit-scrollbar-track {{
-        background: {t['bg_dark']};
-        border-radius: 2px;
-    }}
+    .ticker-row-wrapper::-webkit-scrollbar {{ height: 4px; }}
+    .ticker-row-wrapper::-webkit-scrollbar-track {{ background: {t['bg_dark']}; }}
     .ticker-row-wrapper::-webkit-scrollbar-thumb {{
-        background: {t['primary']};
+        background: {t['border_light']};
         border-radius: 2px;
-    }}
-    .ticker-row-wrapper::-webkit-scrollbar-thumb:hover {{
-        background: {t['cyan']};
     }}
 
     .ticker-track {{
@@ -225,59 +285,96 @@ def get_custom_css(theme_name: str = "dark") -> str:
         flex-shrink: 0;
     }}
 
-    /* ═══════════════════════════════════════════════════════
-       کارت سیگنال
-       ═══════════════════════════════════════════════════════ */
-    .signal-card {{
-        background: linear-gradient(135deg, {t['bg_card']} 0%, {t['bg_mid']} 100%);
-        border: 2px solid {t['border']};
-        border-radius: 14px;
-        padding: 16px 20px;
-        margin-bottom: 14px;
-        transition: all 0.3s ease;
-        width: 100%;
-    }}
-
-    .signal-card.long {{
-        border-color: {t['green']};
-        box-shadow: 0 6px 24px {t['green_glow']};
-    }}
-
-    .signal-card.short {{
-        border-color: {t['red']};
-        box-shadow: 0 6px 24px {t['red_glow']};
-    }}
-
-    .signal-badge {{
-        display: inline-block;
-        padding: 8px 20px;
+    /* ═══ دکمه‌ها ═══ */
+    .stButton > button {{
+        background: {t['bg_card']};
+        color: {t['fg']};
+        border: 1px solid {t['border']};
         border-radius: 10px;
-        font-weight: bold;
-        text-align: center;
-        font-size: 15px;
+        padding: 8px 14px;
+        font-family: 'IRANYekanX', 'Vazirmatn', sans-serif;
+        font-weight: 600;
+        font-size: 12px;
+        transition: all 0.15s ease;
+        box-shadow: {card_shadow};
     }}
 
-    .signal-badge.long {{
-        background: {t['green_glow']};
-        color: {t['green']};
-        border: 2px solid {t['green']};
+    .stButton > button:hover {{
+        background: {t['bg_card_hover']};
+        border-color: {t['primary']};
+        transform: translateY(-1px);
+        box-shadow: {card_shadow_hover};
     }}
 
-    .signal-badge.short {{
-        background: {t['red_glow']};
-        color: {t['red']};
-        border: 2px solid {t['red']};
+    .stButton > button[kind="primary"] {{
+        background: {t['primary']};
+        color: #ffffff;
+        border-color: {t['primary_dark']};
+        font-weight: 700;
     }}
 
-    .signal-badge.neutral {{
-        background: rgba(139, 148, 158, 0.15);
-        color: {t['fg_muted']};
-        border: 2px solid {t['border_light']};
+    .stButton > button[kind="primary"]:hover {{
+        background: {t['primary_dark']};
+        box-shadow: 0 3px 10px {t['primary_glow']};
     }}
 
-    /* ═══════════════════════════════════════════════════════
-       جدول TF
-       ═══════════════════════════════════════════════════════ */
+    /* ═══ ورودی‌ها ═══ */
+    .stSelectbox > div > div,
+    .stTextInput > div > div {{
+        background: {t['bg_input']} !important;
+        border-color: {t['border']} !important;
+        color: {t['fg']} !important;
+        border-radius: 10px !important;
+    }}
+
+    .stTextInput input {{
+        background: {t['bg_input']} !important;
+        color: {t['fg']} !important;
+        font-family: 'IRANYekanX', 'Vazirmatn', sans-serif !important;
+        font-size: 13px !important;
+    }}
+
+    /* حذف راهنمای مزاحم زیر ورودی */
+    div[data-testid="InputInstructions"] {{
+        display: none !important;
+    }}
+
+    /* ═══ Radio افقی ═══ */
+    div[role="radiogroup"] {{
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 6px !important;
+        flex-wrap: wrap !important;
+    }}
+
+    div[role="radiogroup"] > label {{
+        background: {t['bg_card']} !important;
+        border: 1px solid {t['border']} !important;
+        border-radius: 10px !important;
+        padding: 8px 14px !important;
+        cursor: pointer !important;
+        transition: all 0.15s ease !important;
+        margin: 0 !important;
+        font-size: 12px !important;
+        color: {t['fg']} !important;
+    }}
+
+    div[role="radiogroup"] > label:hover {{
+        border-color: {t['primary']} !important;
+    }}
+
+    div[role="radiogroup"] > label:has(input:checked) {{
+        background: {t['primary']} !important;
+        color: #ffffff !important;
+        border-color: {t['primary_dark']} !important;
+        font-weight: 700 !important;
+    }}
+
+    div[role="radiogroup"] > label > div:first-child {{
+        display: none !important;
+    }}
+
+    /* ═══ جدول TF ═══ */
     .tf-table {{
         width: 100%;
         border-collapse: separate;
@@ -288,20 +385,21 @@ def get_custom_css(theme_name: str = "dark") -> str:
         border: 1px solid {t['border']};
         font-size: 12px;
         direction: rtl;
+        box-shadow: {card_shadow};
     }}
 
     .tf-table th {{
         background: {t['bg_mid']};
         color: {t['fg_muted']};
-        padding: 9px 8px;
+        padding: 10px 8px;
         text-align: right;
-        font-weight: 500;
+        font-weight: 600;
         border-bottom: 1px solid {t['border']};
         font-size: 11px;
     }}
 
     .tf-table td {{
-        padding: 9px 8px;
+        padding: 10px 8px;
         border-bottom: 1px solid {t['border']};
         color: {t['fg']};
         font-size: 12px;
@@ -310,7 +408,7 @@ def get_custom_css(theme_name: str = "dark") -> str:
     }}
 
     .tf-table tr:last-child td {{ border-bottom: none; }}
-    .tf-table tr:hover td {{ background: {t['bg_hover']}; }}
+    .tf-table tr:hover td {{ background: {t['bg_card_hover']}; }}
 
     .tf-card {{
         display: none;
@@ -321,56 +419,102 @@ def get_custom_css(theme_name: str = "dark") -> str:
         margin-bottom: 10px;
     }}
 
-    /* ═══════════════════════════════════════════════════════
-       دکمه‌ها
-       ═══════════════════════════════════════════════════════ */
-    .stButton > button {{
-        background: {t['bg_card']};
-        color: {t['fg']};
-        border: 1px solid {t['border']};
-        border-radius: 8px;
-        padding: 6px 12px;
-        font-family: 'Vazirmatn', 'Tahoma', sans-serif;
-        font-weight: 500;
-        font-size: 12px;
-        transition: all 0.2s ease;
+    /* ═══ Progress ═══ */
+    .stProgress > div > div > div {{
+        background: linear-gradient(90deg, {t['cyan']}, {t['primary']});
+        border-radius: 4px;
     }}
 
-    .stButton > button:hover {{
-        background: {t['cyan']};
-        color: #000;
-        border-color: {t['cyan']};
-    }}
-
-    .stButton > button[kind="primary"] {{
-        background: {t['primary']};
-        color: #000;
-        border-color: {t['primary']};
-        font-weight: bold;
-    }}
-
-    .stSelectbox > div > div {{
+    /* ═══ Expander ═══ */
+    details {{
         background: {t['bg_card']} !important;
-        border-color: {t['border']} !important;
-        color: {t['fg']} !important;
-        border-radius: 8px !important;
+        border: 1px solid {t['border']} !important;
+        border-radius: 12px !important;
+        margin-bottom: 14px !important;
+        overflow: hidden !important;
     }}
 
-    ::-webkit-scrollbar {{ width: 5px; height: 5px; }}
-    ::-webkit-scrollbar-track {{ background: {t['bg_dark']}; }}
-    ::-webkit-scrollbar-thumb {{ background: {t['border_light']}; border-radius: 3px; }}
-    ::-webkit-scrollbar-thumb:hover {{ background: {t['cyan']}; }}
+    details > summary {{
+        direction: rtl !important;
+        text-align: right !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        flex-direction: row-reverse !important;
+        padding: 14px 18px !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+        color: {t['fg']} !important;
+        cursor: pointer !important;
+        background: transparent !important;
+        border-radius: 12px !important;
+        list-style: none !important;
+        outline: none !important;
+    }}
 
-    /* ═══════════════════════════════════════════════════════
-       موبایل
-       ═══════════════════════════════════════════════════════ */
+    details > summary::-webkit-details-marker {{
+        display: none !important;
+    }}
+
+    details > summary:hover {{
+        background: {t['bg_card_hover']} !important;
+    }}
+
+    details > summary > div,
+    details > summary > span,
+    details > summary > p {{
+        direction: rtl !important;
+        text-align: right !important;
+        margin: 0 !important;
+    }}
+
+    details > summary svg {{
+        margin: 0 !important;
+        order: -1 !important;
+        flex-shrink: 0 !important;
+    }}
+
+    details[open] > summary {{
+        border-bottom: 1px solid {t['border']} !important;
+        border-radius: 12px 12px 0 0 !important;
+    }}
+
+    details[open] {{
+        padding: 0 !important;
+    }}
+
+    details > div {{
+        padding: 16px 18px !important;
+    }}
+
+    /* ═══ کارت‌ها ═══ */
+    .ty-unified-card {{
+        padding: 14px 18px !important;
+    }}
+
+    .ty-signal-box, .ty-sr-box {{
+        padding: 12px !important;
+    }}
+
+    /* ═══ Scrollbar ═══ */
+    ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+    ::-webkit-scrollbar-track {{ background: {t['bg_dark']}; }}
+    ::-webkit-scrollbar-thumb {{
+        background: {t['border_light']};
+        border-radius: 3px;
+    }}
+    ::-webkit-scrollbar-thumb:hover {{
+        background: {t['cyan']};
+    }}
+
+    /* ═══ موبایل ═══ */
     @media (max-width: 900px) {{
-        .main .block-container {{ padding: 0.35rem 0.5rem !important; }}
-        .signal-card {{ padding: 12px; }}
+        .main .block-container {{ padding: 0.5rem 0.75rem !important; }}
 
         .tradeyar-header {{
             padding: 10px 14px;
             gap: 8px;
+            flex-wrap: wrap;
         }}
 
         .header-left span:first-child {{ font-size: 24px !important; }}
@@ -381,6 +525,15 @@ def get_custom_css(theme_name: str = "dark") -> str:
 
         .tf-table {{ display: none !important; }}
         .tf-card {{ display: block !important; }}
+
+        details > summary {{
+            padding: 12px 14px !important;
+            font-size: 13px !important;
+        }}
+
+        details > div {{
+            padding: 12px 14px !important;
+        }}
     }}
     </style>
     """

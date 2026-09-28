@@ -1,11 +1,22 @@
 """
 app.py
-TradeYar — نسخه ۲۴.۰
-کارت یکپارچه + اسکنر بازارمحور + Lazy Load + تحلیل موازی
+TradeYar — نسخه ۳۳.۰ (نهایی)
+========================
+- معماری رژیم‌محور (روند/گذار/رنج)
+- دو پروفایل: جسورانه / محتاطانه
+- سه منبع دیتا: جهانی / نوبیتکس / آبان‌تتر
+- باکس تنظیمات یکپارچه
+- چک‌لیست آکاردئونی
+- جدول TF ریسپانسیو (شامل ۱ دقیقه)
+- راستی‌آزمایی با لیست کشویی سیگنال‌ها
+- جستجوی هوشمند + پایدار
+- Order Book (عمق بازار)
+- تم تاریک/روشن بازطراحی‌شده
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
+import json
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -31,7 +42,10 @@ from ui.components import (
     render_header, render_top_ticker, render_unified_signal_card,
     render_tf_table, render_deep_analysis, render_fear_greed,
     render_calendar, render_news, render_backtest_stats, render_checklist,
-    render_section_toggle, render_scanner,
+    render_section_toggle, render_scanner, render_live_timer,
+    render_profile_selector, render_source_selector,
+    render_settings_section_title, render_settings_divider,
+    render_order_book, render_recent_signals_list,
 )
 
 
@@ -52,17 +66,26 @@ st.set_page_config(
 defaults = {
     "theme": "dark",
     "selected_symbol": "GC=F",
-    "selected_tf": "۱ ساعت",
+    "selected_tf": "۵ دقیقه",
+    "risk_profile": "aggressive",
+    "data_source": "global",
     "custom_symbol": "",
     "custom_symbols": [],
     "last_update": datetime.now().strftime("%H:%M"),
+    "last_data_refresh": datetime.now().strftime("%H:%M:%S"),
+    "scanner_last_update": "",
     "refresh_seconds": 0,
     "bt_done": False,
+    "bt_time_filter": "all",
+    "bt_confirm_reset": False,
     "show_calendar": False,
     "show_news": False,
     "show_scanner": True,
     "scanner_filter": "all",
     "scanner_category": "crypto",
+    "scanner_tf": "۵ دقیقه",
+    "scanner_key": "",
+    "expanded_scanner": True,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -90,20 +113,13 @@ if st.session_state.refresh_seconds > 0:
 
 
 # ═══════════════════════════════════════════════════════════
-# Cache
+# Cache — پایه
 # ═══════════════════════════════════════════════════════════
 @st.cache_data(ttl=300, show_spinner=False)
-def cached_history(ticker, interval, period):
-    return fetch_history(ticker, interval, period)
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def cached_analysis(ticker: str, interval: str, period: str):
-    """تحلیل کش‌شده — شامل Pivot و Swing"""
-    df = fetch_history(ticker, interval, period)
-    if df is None or df.empty:
-        return None
-    return analyze_symbol(df, "medium")
+def cached_history(ticker, interval, period, source="global"):
+    """دریافت OHLCV بر اساس منبع انتخابی"""
+    from core.data_fetcher import fetch_history_by_source
+    return fetch_history_by_source(ticker, interval, period, source)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -128,12 +144,209 @@ def cached_gsr():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_scan_category(category: str, tf_index: int):
-    """اسکن کش‌شده یه بازار خاص"""
     return scan_markets(
         category=category,
         tf_index=tf_index,
         top_n=5,
+        risk_profile="aggressive",
     )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_nobitex_search(query: str):
+    try:
+        from core.nobitex_fetcher import fetch_all_nobitex_symbols, NOBITEX_SYMBOLS
+        all_syms = fetch_all_nobitex_symbols("usdt")
+        reverse_map = {v: k for k, v in NOBITEX_SYMBOLS.items()}
+        q_upper = query.upper()
+        results = []
+        for s in all_syms:
+            if q_upper in s["symbol"] or q_upper in s["base"]:
+                our_ticker = reverse_map.get(s["symbol"], f"{s['base']}-USD")
+                results.append({
+                    "ticker": our_ticker,
+                    "name": f"{s['base']}/{s['quote']}",
+                    "source": "nobitex",
+                    "price": s["price"],
+                    "change": s["change_24h"],
+                })
+        return results[:10]
+    except Exception as e:
+        print(f"[App] خطا در جستجوی نوبیتکس: {e}")
+        return []
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def cached_ticker_data(source: str):
+    """قیمت‌های تیکر (کش ۵ ثانیه)"""
+    result = []
+
+    ip = fetch_iran_prices()
+    if ip.get("prices"):
+        p = ip["prices"]
+        result.extend([
+            {"name": "طلای ۱۸", "emoji": "🥇", "price": p.get("geram18"), "change_pct": None, "unit": "تومان"},
+            {"name": "سکه امامی", "emoji": "🪙", "price": p.get("sekee"), "change_pct": None, "unit": "تومان"},
+            {"name": "دلار", "emoji": "💵", "price": p.get("dollar"), "change_pct": None, "unit": "تومان"},
+            {"name": "انس جهانی", "emoji": "🌍", "price": p.get("ons"), "change_pct": None, "unit": "دلار"},
+        ])
+
+    if source == "nobitex":
+        try:
+            from core.nobitex_fetcher import (
+                fetch_all_nobitex_symbols,
+                filter_liquid_symbols,
+            )
+            all_syms = fetch_all_nobitex_symbols("usdt")
+            top = filter_liquid_symbols(all_syms, min_volume=100000, max_count=8)
+
+            emoji_map_crypto = {
+                "BTC": "₿", "ETH": "Ξ", "SOL": "◎", "XRP": "✕",
+                "DOGE": "🐕", "BNB": "🟡", "ADA": "🔵", "TON": "💎",
+                "NEAR": "Ⓝ", "SUI": "💧", "AVAX": "🔺", "LINK": "🔗",
+            }
+            for s in top:
+                base = s["base"]
+                result.append({
+                    "name": f"{base}/USDT",
+                    "emoji": emoji_map_crypto.get(base, "💰"),
+                    "price": s["price"],
+                    "change_pct": s["change_24h"],
+                    "unit": "دلار",
+                })
+        except Exception as e:
+            print(f"[App] خطا در تیکر نوبیتکس: {e}")
+
+    emoji_map_global = {"GC=F": "🥇", "SI=F": "🥈", "BTC-USD": "₿", "BZ=F": "🛢"}
+    for tkr, name in SYMBOLS.items():
+        try:
+            d = fetch_history(tkr, "1h", "5d")
+            if d is not None and len(d) > 0:
+                lp = float(d["close"].iloc[-1])
+                pp = float(d["close"].iloc[-2]) if len(d) > 1 else lp
+                ch = ((lp - pp) / pp * 100) if pp > 0 else 0
+                result.append({
+                    "name": name, "emoji": emoji_map_global.get(tkr, "💰"),
+                    "price": lp, "change_pct": ch, "unit": "دلار",
+                })
+        except Exception:
+            continue
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════
+# Cache — تحلیل
+# ═══════════════════════════════════════════════════════════
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_analysis_v3(
+    ticker: str,
+    interval: str,
+    period: str,
+    tf_name: str,
+    tfs_snapshot: str,
+    risk_profile: str,
+    source: str = "global",
+):
+    df = cached_history(ticker, interval, period, source)
+    if df is None or df.empty:
+        return None
+
+    tfs_data = None
+    if tfs_snapshot:
+        try:
+            tfs_data = json.loads(tfs_snapshot)
+        except Exception:
+            tfs_data = None
+
+    return analyze_symbol(
+        df,
+        risk_profile=risk_profile,
+        tf_name=tf_name,
+        tfs_data=tfs_data,
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# Snapshot
+# ═══════════════════════════════════════════════════════════
+def _make_tfs_snapshot(tfs_data: dict, exclude_tf: str = None) -> str:
+    snapshot = {}
+    if tfs_data:
+        for tf, data in tfs_data.items():
+            if tf == exclude_tf:
+                continue
+            if data:
+                snapshot[tf] = {
+                    "signal": data.get("signal", ""),
+                    "confidence": data.get("confidence", 0),
+                    "direction": data.get("direction", "neutral"),
+                }
+    return json.dumps(snapshot, sort_keys=True, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════════════
+# تحلیل موازی
+# ═══════════════════════════════════════════════════════════
+def fetch_and_analyze_multi_tf(
+    ticker: str,
+    risk_profile: str,
+    source: str = "global",
+) -> dict:
+    tfs_data = {}
+
+    def _process_tf_first(iv, p, n):
+        try:
+            a = cached_analysis_v3(ticker, iv, p, n, "", risk_profile, source)
+            if a:
+                return (n, a)
+        except Exception as e:
+            print(f"[App] خطا در TF {n} (مرحله ۱): {e}")
+        return (n, None)
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(_process_tf_first, iv, p, n)
+            for iv, p, n in TIMEFRAMES
+        ]
+        for fut in as_completed(futures):
+            try:
+                n, a = fut.result()
+                if a:
+                    tfs_data[n] = a
+            except Exception as e:
+                print(f"[App] خطا در future (مرحله ۱): {e}")
+
+    if not tfs_data:
+        return {}
+
+    tfs_data_v2 = {}
+
+    def _process_tf_second(iv, p, n):
+        try:
+            snapshot = _make_tfs_snapshot(tfs_data, exclude_tf=n)
+            a = cached_analysis_v3(ticker, iv, p, n, snapshot, risk_profile, source)
+            if a:
+                return (n, a)
+            return (n, tfs_data.get(n))
+        except Exception as e:
+            print(f"[App] خطا در TF {n} (مرحله ۲): {e}")
+            return (n, tfs_data.get(n))
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(_process_tf_second, iv, p, n)
+            for iv, p, n in TIMEFRAMES
+        ]
+        for fut in as_completed(futures):
+            try:
+                n, a = fut.result()
+                if a:
+                    tfs_data_v2[n] = a
+            except Exception as e:
+                print(f"[App] خطا در future (مرحله ۲): {e}")
+
+    return tfs_data_v2 if tfs_data_v2 else tfs_data
 
 
 # ═══════════════════════════════════════════════════════════
@@ -145,29 +358,25 @@ def get_markets_info() -> list:
     tm = h * 60 + m
 
     is_weekend_global = wd in [5, 6]
-
     markets = []
 
     tokyo_open = (not is_weekend_global) and 210 <= tm < 720
     if is_weekend_global:
-        markets.append({"name": "توکیو", "icon": "🇯🇵", "is_open": False,
-                        "next_event": "تعطیل آخر هفته"})
+        markets.append({"name": "توکیو", "icon": "🇯🇵", "is_open": False, "next_event": "تعطیل آخر هفته"})
     else:
         markets.append({"name": "توکیو", "icon": "🇯🇵", "is_open": tokyo_open,
                         "next_event": "باز تا ۱۲:۰۰" if tokyo_open else "باز می‌شه ۰۳:۳۰"})
 
     london_open = (not is_weekend_global) and 690 <= tm < 1200
     if is_weekend_global:
-        markets.append({"name": "لندن", "icon": "🇪🇺", "is_open": False,
-                        "next_event": "تعطیل آخر هفته"})
+        markets.append({"name": "لندن", "icon": "🇪🇺", "is_open": False, "next_event": "تعطیل آخر هفته"})
     else:
         markets.append({"name": "لندن", "icon": "🇪🇺", "is_open": london_open,
                         "next_event": "باز تا ۲۰:۰۰" if london_open else "باز می‌شه ۱۱:۳۰"})
 
     ny_open = (not is_weekend_global) and 990 <= tm < 1380
     if is_weekend_global:
-        markets.append({"name": "نیویورک", "icon": "🇺🇸", "is_open": False,
-                        "next_event": "تعطیل آخر هفته"})
+        markets.append({"name": "نیویورک", "icon": "🇺🇸", "is_open": False, "next_event": "تعطیل آخر هفته"})
     else:
         markets.append({"name": "نیویورک", "icon": "🇺🇸", "is_open": ny_open,
                         "next_event": "باز تا ۲۳:۰۰" if ny_open else "باز می‌شه ۱۶:۳۰"})
@@ -175,52 +384,19 @@ def get_markets_info() -> list:
     iran_days = [5, 6, 0, 1, 2]
     iran_open = (wd in iran_days) and 540 <= tm < 750
     if wd not in iran_days:
-        markets.append({"name": "بورس تهران", "icon": "🇮🇷", "is_open": False,
-                        "next_event": "تعطیل (پنج‌شنبه/جمعه)"})
+        markets.append({"name": "بورس تهران", "icon": "🇮🇷", "is_open": False, "next_event": "تعطیل (پنج‌شنبه/جمعه)"})
     else:
         markets.append({"name": "بورس تهران", "icon": "🇮🇷", "is_open": iran_open,
                         "next_event": "باز تا ۱۲:۳۰" if iran_open else "باز می‌شه ۹:۰۰"})
 
     gold_fund_open = (wd in iran_days) and 720 <= tm < 1080
     if wd not in iran_days:
-        markets.append({"name": "صندوق طلا", "icon": "🇮🇷", "is_open": False,
-                        "next_event": "تعطیل (پنج‌شنبه/جمعه)"})
+        markets.append({"name": "صندوق طلا", "icon": "🇮🇷", "is_open": False, "next_event": "تعطیل (پنج‌شنبه/جمعه)"})
     else:
         markets.append({"name": "صندوق طلا", "icon": "🇮🇷", "is_open": gold_fund_open,
                         "next_event": "باز تا ۱۸:۰۰" if gold_fund_open else "باز می‌شه ۱۲:۰۰"})
 
     return markets
-
-
-# ═══════════════════════════════════════════════════════════
-# تحلیل موازی
-# ═══════════════════════════════════════════════════════════
-def fetch_and_analyze_multi_tf(ticker: str) -> dict:
-    tfs_data = {}
-
-    def _process_tf(iv, p, n):
-        try:
-            a = cached_analysis(ticker, iv, p)
-            if a:
-                return (n, a)
-        except Exception as e:
-            print(f"[App] خطا در TF {n}: {e}")
-        return (n, None)
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [
-            executor.submit(_process_tf, iv, p, n)
-            for iv, p, n in TIMEFRAMES
-        ]
-        for fut in as_completed(futures):
-            try:
-                n, a = fut.result()
-                if a:
-                    tfs_data[n] = a
-            except Exception as e:
-                print(f"[App] خطا در future: {e}")
-
-    return tfs_data
 
 
 # ═══════════════════════════════════════════════════════════
@@ -250,64 +426,168 @@ with ticker_placeholder:
 
 
 # ═══════════════════════════════════════════════════════════
-# کنترل‌ها
+# ⚙️ تنظیمات
 # ═══════════════════════════════════════════════════════════
-ctrl = st.columns([2, 3])
+with st.container(border=True):
+    render_settings_section_title("🎯", "پروفایل تحلیل")
+    render_profile_selector(st.session_state.risk_profile)
 
-with ctrl[0]:
-    refresh_opt = st.selectbox(
-        "به‌روزرسانی",
-        options=[
-            ("🔄 به‌روزرسانی دستی", 0),
-            ("⏱ هر ۳۰ ثانیه خودکار", 30),
-            ("⏱ هر ۱ دقیقه خودکار", 60),
-            ("⏱ هر ۵ دقیقه خودکار", 300),
-        ],
-        format_func=lambda x: x[0],
-        index=0,
-        label_visibility="collapsed",
-        key="refresh_select",
-    )
-    if refresh_opt[1] != st.session_state.refresh_seconds:
-        st.session_state.refresh_seconds = refresh_opt[1]
-        st.cache_data.clear()
-        st.session_state.last_update = datetime.now().strftime("%H:%M")
-        st.rerun()
+    render_settings_divider()
 
-with ctrl[1]:
-    search = st.text_input(
-        "جستجوی نماد (با اینتر تایید کنید)",
-        placeholder="مثال: AAPL, EURUSD, BTC, TSLA",
+    render_settings_section_title("📡", "منبع دیتا")
+    render_source_selector(st.session_state.data_source)
+
+    render_settings_divider()
+
+    render_settings_section_title("🔄", "کنترل به‌روزرسانی")
+
+    ctrl_cols = st.columns([3, 1, 1.5])
+
+    with ctrl_cols[0]:
+        refresh_options = [
+            ("🖐 دستی", 0),
+            ("⚡ ۵ ثانیه", 5),
+            ("⏱ ۱۰ ثانیه", 10),
+            ("⏱ ۳۰ ثانیه", 30),
+            ("⏱ ۱ دقیقه", 60),
+            ("⏱ ۵ دقیقه", 300),
+        ]
+
+        current_idx = 0
+        for i, (_, secs) in enumerate(refresh_options):
+            if secs == st.session_state.refresh_seconds:
+                current_idx = i
+                break
+
+        refresh_choice = st.radio(
+            "حالت به‌روزرسانی خودکار",
+            options=refresh_options,
+            format_func=lambda x: x[0],
+            index=current_idx,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="refresh_toggle",
+        )
+
+        if refresh_choice[1] != st.session_state.refresh_seconds:
+            st.session_state.refresh_seconds = refresh_choice[1]
+            st.session_state.last_update = datetime.now().strftime("%H:%M")
+            st.session_state.last_data_refresh = datetime.now().strftime("%H:%M:%S")
+            st.rerun()
+
+    with ctrl_cols[1]:
+        if st.button("🔄 بروزرسانی حالا", key="manual_refresh", use_container_width=True, type="primary"):
+            st.cache_data.clear()
+            st.session_state.last_data_refresh = datetime.now().strftime("%H:%M:%S")
+            st.session_state.last_update = datetime.now().strftime("%H:%M")
+            st.rerun()
+
+    with ctrl_cols[2]:
+        last_refresh = st.session_state.get("last_data_refresh", "")
+        if last_refresh:
+            render_live_timer(
+                last_refresh,
+                key="top_refresh",
+                prefix="🕐 آخرین بروزرسانی:",
+                font_size=11,
+                color=t["cyan"],
+            )
+
+st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# جستجوی هوشمند
+# ═══════════════════════════════════════════════════════════
+st.markdown(
+    f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; '
+    f'margin-bottom:6px; padding-right:8px; border-right:3px solid {t["primary"]}; '
+    f'direction:rtl; text-align:right;">🔍 جستجوی نماد</div>',
+    unsafe_allow_html=True,
+)
+
+search_cols = st.columns([5, 1])
+with search_cols[0]:
+    search_query = st.text_input(
+        "جستجو",
+        placeholder="مثال: BTC، ETH، ZEC، PAXG، بیت‌کوین",
         label_visibility="collapsed",
         key="search_input",
     )
-    if search:
-        last_search = st.session_state.get("_last_search", "")
-        if search != last_search:
-            st.session_state["_last_search"] = search
-            s = search.strip()
+with search_cols[1]:
+    st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+    search_btn = st.button("🔍 جستجو", use_container_width=True, key="search_btn")
 
-            if len(st.session_state.custom_symbols) >= 6:
-                st.warning("⚠️ حداکثر ۶ نماد سفارشی می‌تونی اضافه کنی")
-            else:
-                with st.spinner(f"جستجوی {s}..."):
-                    found = search_symbol(s)
-                    if found:
-                        if found not in st.session_state.custom_symbols and found not in SYMBOLS:
-                            st.session_state.custom_symbols.append(found)
+if search_query and len(search_query.strip()) >= 2:
+    q = search_query.strip()
+    q_upper = q.upper()
+    suggestions = []
 
-                        st.session_state.custom_symbol = found
-                        st.session_state.selected_symbol = found
-                        st.success(f"✅ {found} اضافه شد")
-                        st.rerun()
-                    else:
-                        st.warning(f"⚠️ نماد «{s}» یافت نشد — لطفاً بررسی کنید")
+    for tkr, name in SYMBOLS.items():
+        if q_upper in tkr.upper() or q in name:
+            suggestions.append({"ticker": tkr, "name": name, "source": "global"})
+
+    for tkr in st.session_state.custom_symbols:
+        if q_upper in tkr.upper():
+            suggestions.append({"ticker": tkr, "name": tkr, "source": "custom"})
+
+    nobitex_results = cached_nobitex_search(q_upper)
+    suggestions.extend(nobitex_results)
+
+    if suggestions:
+        st.markdown(
+            f'<div style="font-size:10px; color:{t["fg_muted"]}; '
+            f'margin:4px 0; direction:rtl;">'
+            f'📌 {len(suggestions)} نتیجه</div>',
+            unsafe_allow_html=True,
+        )
+
+        for i, sug in enumerate(suggestions[:8]):
+            cols = st.columns([4, 1])
+            with cols[0]:
+                source_icon = {
+                    "global": "🌍",
+                    "nobitex": "🟣",
+                    "custom": "⭐",
+                }.get(sug["source"], "•")
+
+                price_str = ""
+                change_str = ""
+                if "price" in sug:
+                    price_str = f' · <span style="color:{t["fg"]}; font-family:\'JetBrains Mono\'; direction:ltr;">${sug["price"]:,.4f}</span>'
+                if "change" in sug:
+                    c = t["green"] if sug["change"] > 0 else t["red"]
+                    change_str = f' · <span style="color:{c}; font-family:\'JetBrains Mono\';">{sug["change"]:+.2f}%</span>'
+
+                st.markdown(
+                    f'<div style="padding:6px 10px; background:{t["bg_card"]}; '
+                    f'border:1px solid {t["border"]}; border-radius:8px; '
+                    f'direction:rtl; text-align:right; font-size:11px;">'
+                    f'{source_icon} <b style="color:{t["primary"]};">{sug["ticker"]}</b> '
+                    f'— <span style="color:{t["fg_muted"]};">{sug["name"]}</span>'
+                    f'{price_str}{change_str}</div>',
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                if st.button(
+                    "➕",
+                    key=f"add_sug_{i}_{sug['ticker']}",
+                    use_container_width=True,
+                ):
+                    tkr = sug["ticker"]
+                    if tkr not in st.session_state.custom_symbols and tkr not in SYMBOLS:
+                        if len(st.session_state.custom_symbols) < 10:
+                            st.session_state.custom_symbols.append(tkr)
+                    st.session_state.selected_symbol = tkr
+                    st.rerun()
+    else:
+        st.info(f"نتیجه‌ای برای «{q}» پیدا نشد")
 
 
 # ═══════════════════════════════════════════════════════════
 # انتخاب نماد
 # ═══════════════════════════════════════════════════════════
-st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
 emoji_map = {"GC=F": "🥇", "SI=F": "🥈", "BTC-USD": "₿", "BZ=F": "🛢"}
 
@@ -315,29 +595,50 @@ sym_opts = dict(SYMBOLS)
 for custom in st.session_state.custom_symbols:
     sym_opts[custom] = f"⭐ {custom}"
 
-syms_list = list(sym_opts.items())
-rows_of_syms = [syms_list[i:i+5] for i in range(0, len(syms_list), 5)]
+POPULAR = ["GC=F", "BTC-USD", "BZ=F", "SI=F"]
+popular_syms = [(k, sym_opts[k]) for k in POPULAR if k in sym_opts]
 
-for row_syms in rows_of_syms:
-    cols = st.columns(len(row_syms))
-    for i, (tkr, name) in enumerate(row_syms):
-        with cols[i]:
+if popular_syms:
+    pop_cols = st.columns(len(popular_syms))
+    for i, (tkr, name) in enumerate(popular_syms):
+        with pop_cols[i]:
+            short_name = name.replace("⭐ ", "")[:12]
+            is_active = tkr == st.session_state.selected_symbol
             if st.button(
-                f"{emoji_map.get(tkr, '📌')} {name}",
-                key=f"s_{tkr}",
+                f"{emoji_map.get(tkr, '📌')} {short_name}",
+                key=f"sp_{tkr}",
                 use_container_width=True,
-                type="primary" if tkr == st.session_state.selected_symbol else "secondary",
+                type="primary" if is_active else "secondary",
             ):
                 st.session_state.selected_symbol = tkr
                 st.rerun()
 
-            st.markdown(
-                f'<div style="text-align:center; font-size:9px; color:{t["fg_dim"]}; margin-top:2px; direction:ltr;">{tkr}</div>',
-                unsafe_allow_html=True,
-            )
+other_syms = [(k, v) for k, v in sym_opts.items() if k not in POPULAR]
+if other_syms:
+    other_list = list(other_syms)
+    rows_of_syms = [other_list[i:i+7] for i in range(0, len(other_list), 7)]
 
-            if tkr in st.session_state.custom_symbols:
-                if st.button("🗑 حذف", key=f"del_{tkr}", use_container_width=True):
+    for row_syms in rows_of_syms:
+        cols = st.columns(len(row_syms))
+        for i, (tkr, name) in enumerate(row_syms):
+            with cols[i]:
+                short_name = name.replace("⭐ ", "")[:12]
+                is_active = tkr == st.session_state.selected_symbol
+                if st.button(
+                    f"{emoji_map.get(tkr, '📌')} {short_name}",
+                    key=f"so_{tkr}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                ):
+                    st.session_state.selected_symbol = tkr
+                    st.rerun()
+
+if st.session_state.custom_symbols:
+    with st.expander("🗑 حذف نمادهای سفارشی", expanded=False):
+        del_cols = st.columns(min(len(st.session_state.custom_symbols), 6))
+        for i, tkr in enumerate(st.session_state.custom_symbols):
+            with del_cols[i % 6]:
+                if st.button(f"❌ {tkr[:10]}", key=f"del_{tkr}", use_container_width=True):
                     st.session_state.custom_symbols.remove(tkr)
                     if st.session_state.selected_symbol == tkr:
                         st.session_state.selected_symbol = "GC=F"
@@ -351,16 +652,17 @@ selected_ticker = st.session_state.selected_symbol
 sym_name = sym_opts.get(selected_ticker, selected_ticker)
 
 tf_names = [tf[2] for tf in TIMEFRAMES]
+
 tf_choice = st.selectbox(
-    "⏱ تایم فریم",
+    "⏱ تایم فریم تحلیل",
     options=tf_names,
-    index=tf_names.index(st.session_state.selected_tf) if st.session_state.selected_tf in tf_names else 3,
+    index=tf_names.index(st.session_state.selected_tf) if st.session_state.selected_tf in tf_names else 1,
     key="tf_select",
 )
 st.session_state.selected_tf = tf_choice
 
-tf_interval, tf_period = "1h", "3mo"
-tf_index_current = 3
+tf_interval, tf_period = "5m", "5d"
+tf_index_current = 0
 for i, (iv, p, n) in enumerate(TIMEFRAMES):
     if n == tf_choice:
         tf_interval, tf_period = iv, p
@@ -369,21 +671,50 @@ for i, (iv, p, n) in enumerate(TIMEFRAMES):
 
 
 # ═══════════════════════════════════════════════════════════
-# تحلیل کش‌شده + موازی
+# تحلیل
 # ═══════════════════════════════════════════════════════════
+current_source = st.session_state.get("data_source", "global")
+
 with st.spinner(f"⏳ تحلیل {sym_name}..."):
-    df_main = cached_history(selected_ticker, tf_interval, tf_period)
+    df_main = cached_history(selected_ticker, tf_interval, tf_period, current_source)
 
     if df_main is None or df_main.empty:
-        st.error(f"❌ داده‌ای برای {sym_name} یافت نشد.")
+        st.error(f"❌ داده‌ای برای {sym_name} یافت نشد (منبع: {current_source}).")
+        st.info(
+            "💡 **راه‌حل‌ها:**\n"
+            "- اگه منبع «نوبیتکس» هست، مطمئن شو نماد کریپتو هست\n"
+            "- اگه منبع «جهانی» هست، اتصال اینترنت رو چک کن\n"
+            "- یه نماد دیگه امتحان کن"
+        )
         st.stop()
 
-    analysis = cached_analysis(selected_ticker, tf_interval, tf_period)
+    tfs_data = fetch_and_analyze_multi_tf(
+        selected_ticker,
+        st.session_state.risk_profile,
+        current_source,
+    )
+
+    snapshot_main = _make_tfs_snapshot(tfs_data, exclude_tf=tf_choice)
+    analysis = cached_analysis_v3(
+        selected_ticker,
+        tf_interval,
+        tf_period,
+        tf_choice,
+        snapshot_main,
+        st.session_state.risk_profile,
+        current_source,
+    )
 
     if not analysis:
-        analysis = analyze_symbol(df_main, "medium")
+        analysis = tfs_data.get(tf_choice)
 
-    tfs_data = fetch_and_analyze_multi_tf(selected_ticker)
+    if not analysis:
+        analysis = analyze_symbol(
+            df_main,
+            risk_profile=st.session_state.risk_profile,
+            tf_name=tf_choice,
+            tfs_data=tfs_data,
+        )
 
 
 # ثبت سیگنال
@@ -402,28 +733,83 @@ if not st.session_state.bt_done:
 
 
 # ═══════════════════════════════════════════════════════════
-# کارت یکپارچه سیگنال + S/R
+# کارت سیگنال
 # ═══════════════════════════════════════════════════════════
 render_unified_signal_card(
     analysis=analysis,
     sym_name=sym_name,
     tf_name=tf_choice,
     ticker=selected_ticker,
+    last_update=st.session_state.get("last_data_refresh", ""),
+    source=current_source,
 )
 
-st.markdown("<hr style='border-color:#21262D; margin:10px 0;'>", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════
+# Order Book (عمق بازار)
+# ═══════════════════════════════════════════════════════════
+if current_source in ("nobitex", "abantether") and "-USD" in selected_ticker:
+    try:
+        from core.nobitex_fetcher import (
+            map_symbol_to_nobitex,
+            fetch_nobitex_orderbook,
+        )
+
+        nobitex_sym = map_symbol_to_nobitex(selected_ticker)
+        if nobitex_sym:
+            ob = fetch_nobitex_orderbook(nobitex_sym)
+            if ob:
+                render_order_book(ob, sym_name=sym_name)
+    except Exception as e:
+        print(f"[App] خطا در Order Book: {e}")
 
 
 # ═══════════════════════════════════════════════════════════
-# 🎯 اسکنر فرصت‌ها — بازارمحور
+# تحلیل عمیق + جدول TF + چک‌لیست + Fear & Greed
 # ═══════════════════════════════════════════════════════════
-with st.expander("🎯 اسکنر فرصت‌ها — پیدا کردن نماد مستعد نوسان", expanded=False):
+st.markdown("<hr style='border-color:#21262D; margin:14px 0;'>", unsafe_allow_html=True)
+col_a, col_b = st.columns([1, 1])
 
-    # ─── انتخاب بازار ───
+with col_a:
+    analysis_text = build_analysis_paragraph(
+        selected_ticker, sym_name, tfs_data,
+        gsr=cached_gsr(),
+        risk_profile=st.session_state.risk_profile,
+        tf_name=tf_choice,
+    )
+    render_deep_analysis(analysis_text, analysis, sym_name=sym_name)
+
+with col_b:
+    current_price = analysis.get("price", 0) if analysis else 0
+    render_tf_table(tfs_data, sym_name, current_price)
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="font-size:13px; font-weight:bold; color:{t["primary"]};'
+        f' margin-bottom:8px; padding-right:8px; border-right:3px solid {t["primary"]};'
+        f' direction:rtl; text-align:right;">📋 چک‌لیست گروهی</div>',
+        unsafe_allow_html=True,
+    )
+    items, pct, final_text, final_color = build_checklist_weighted(tfs_data, main_tf=tf_choice)
+    render_checklist(items, pct, final_text, final_color)
+
+    st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
+    fg_val = compute_fear_greed(df_main)
+    render_fear_greed(fg_val)
+
+
+# ═══════════════════════════════════════════════════════════
+# اسکنر فرصت‌ها
+# ═══════════════════════════════════════════════════════════
+st.markdown("<hr style='border-color:#21262D; margin:14px 0;'>", unsafe_allow_html=True)
+
+with st.expander("🎯 اسکنر فرصت‌ها — پیدا کردن نماد مستعد نوسان", expanded=True):
+
     st.markdown(
         f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-bottom:8px; '
         f'direction:rtl; padding-right:8px; border-right:3px solid {t["primary"]};">'
-        f'۱) بازار رو انتخاب کن:</div>',
+        f'🎯 انتخاب بازار هدف:</div>',
         unsafe_allow_html=True,
     )
 
@@ -436,13 +822,11 @@ with st.expander("🎯 اسکنر فرصت‌ها — پیدا کردن نماد
         if st.session_state.scanner_category not in cat_keys:
             st.session_state.scanner_category = cat_keys[0]
 
-        # دکمه‌های بازار (حداکثر ۶ تا در یه ردیف)
         n_cols = min(len(cat_keys), 6)
         cat_cols = st.columns(n_cols)
 
         for i, key in enumerate(cat_keys):
             cat = categories[key]
-            # فقط اسم کوتاه (بدون ایموجی اول)
             short_name = cat["name"].split(" ", 1)[-1] if " " in cat["name"] else cat["name"]
 
             with cat_cols[i % n_cols]:
@@ -456,19 +840,18 @@ with st.expander("🎯 اسکنر فرصت‌ها — پیدا کردن نماد
                     st.session_state.scanner_category = key
                     st.rerun()
 
-        # ─── فیلتر سیگنال ───
         st.markdown(
             f'<div style="font-size:11px; color:{t["fg_muted"]}; margin:12px 0 8px 0; '
             f'direction:rtl; padding-right:8px; border-right:3px solid {t["primary"]};">'
-            f'۲) فیلتر سیگنال:</div>',
+            f'⚙️ تنظیمات اسکن:</div>',
             unsafe_allow_html=True,
         )
 
-        fc = st.columns([1, 1, 1])
+        fc = st.columns([1.2, 1.2, 1, 1])
         with fc[0]:
             filt_opt = st.selectbox(
-                "فیلتر سیگنال",
-                options=[("همه", "all"), ("فقط LONG", "long"), ("فقط SHORT", "short")],
+                "فیلتر",
+                options=[("همه", "all"), ("LONG", "long"), ("SHORT", "short")],
                 format_func=lambda x: x[0],
                 index=0,
                 key="scanner_filter_opt",
@@ -477,75 +860,70 @@ with st.expander("🎯 اسکنر فرصت‌ها — پیدا کردن نماد
             st.session_state.scanner_filter = filt_opt[1]
 
         with fc[1]:
-            if st.button("🔄 اسکن مجدد", key="rescan_btn", use_container_width=True):
-                st.cache_data.clear()
-                st.rerun()
+            scanner_tf = st.selectbox(
+                "تایم‌فریم اسکن",
+                options=tf_names,
+                index=tf_names.index(st.session_state.scanner_tf) if st.session_state.scanner_tf in tf_names else 1,
+                key="scanner_tf_select",
+                label_visibility="collapsed",
+            )
+            st.session_state.scanner_tf = scanner_tf
 
         with fc[2]:
+            if st.button("🔄 اسکن مجدد", key="rescan_btn", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
+                st.session_state.scanner_key = ""
+                st.rerun()
+
+        with fc[3]:
             st.markdown(
                 f'<div style="text-align:center; padding:6px; font-size:10px; '
-                f'color:{t["fg_muted"]};">'
-                f'⏱ تایم‌فریم: <b style="color:{t["cyan"]};">{tf_choice}</b></div>',
+                f'color:{t["fg_muted"]};">⏱ اسکن با: '
+                f'<b style="color:{t["cyan"]};">{st.session_state.scanner_tf}</b></div>',
                 unsafe_allow_html=True,
             )
 
-        # ─── اسکن ───
+        scanner_tf_index = 0
+        for i, (iv, p, n) in enumerate(TIMEFRAMES):
+            if n == st.session_state.scanner_tf:
+                scanner_tf_index = i
+                break
+
         current_cat = st.session_state.scanner_category
         current_cat_name = categories[current_cat]["name"]
 
         with st.spinner(f"⏳ اسکن {current_cat_name}..."):
-            scan_data = cached_scan_category(
-                current_cat,
-                tf_index_current,
-            )
+            scan_data = cached_scan_category(current_cat, scanner_tf_index)
 
-        render_scanner(
+        scan_key = f"{current_cat}_{scanner_tf_index}"
+
+        if st.session_state.get("scanner_key", "") != scan_key:
+            st.session_state.scanner_key = scan_key
+            st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
+
+        if not st.session_state.get("scanner_last_update", ""):
+            st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
+
+        selected_ticker_from_scan = render_scanner(
             scan_data=scan_data,
             filter_signal=st.session_state.scanner_filter,
+            last_update=st.session_state.scanner_last_update,
         )
 
-st.markdown("<hr style='border-color:#21262D; margin:10px 0;'>", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════
-# جدول TF
-# ═══════════════════════════════════════════════════════════
-current_price = analysis.get("price", 0) if analysis else 0
-render_tf_table(tfs_data, sym_name, current_price)
-
-
-# ═══════════════════════════════════════════════════════════
-# Fear & Greed
-# ═══════════════════════════════════════════════════════════
-st.markdown("<hr style='border-color:#21262D; margin:10px 0;'>", unsafe_allow_html=True)
-fg_val = compute_fear_greed(df_main)
-render_fear_greed(fg_val)
-
-
-# ═══════════════════════════════════════════════════════════
-# تحلیل عمیق + چک‌لیست
-# ═══════════════════════════════════════════════════════════
-st.markdown("<hr style='border-color:#21262D; margin:14px 0;'>", unsafe_allow_html=True)
-col_a, col_b = st.columns([1, 1])
-
-with col_a:
-    analysis_text = build_analysis_paragraph(
-        selected_ticker, sym_name, tfs_data,
-        gsr=cached_gsr(),
-        risk_profile="medium",
-        tf_name=tf_choice,
-    )
-    render_deep_analysis(analysis_text, analysis)
-
-with col_b:
-    st.markdown(
-        f'<div style="font-size:13px; font-weight:bold; color:{t["primary"]};'
-        f' margin-bottom:8px; padding-right:8px; border-right:3px solid {t["primary"]};'
-        f' direction:rtl; text-align:right;">📋 چک‌لیست</div>',
-        unsafe_allow_html=True,
-    )
-    items, pct, final_text, final_color = build_checklist_weighted(tfs_data)
-    render_checklist(items, pct, final_text, final_color)
+        if selected_ticker_from_scan:
+            tkr = selected_ticker_from_scan
+            if tkr in SYMBOLS:
+                st.info(f"ℹ️ {tkr} از قبل توی نمادهای اصلیه.")
+            elif tkr in st.session_state.custom_symbols:
+                st.info(f"ℹ️ {tkr} از قبل توی نمادهای توئه.")
+            elif len(st.session_state.custom_symbols) >= 10:
+                st.warning("⚠️ حداکثر ۱۰ نماد سفارشی.")
+            else:
+                st.session_state.custom_symbols.append(tkr)
+                st.session_state.selected_symbol = tkr
+                st.success(f"✅ {tkr} اضافه شد و انتخاب شد!")
+                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -562,6 +940,9 @@ log = load_signal_log()
 stats = compute_stats(log)
 render_backtest_stats(stats, logs=log)
 
+if log:
+    render_recent_signals_list(log)
+
 
 # ═══════════════════════════════════════════════════════════
 # تقویم + اخبار
@@ -573,8 +954,8 @@ toggle_cols = st.columns([1, 1])
 with toggle_cols[0]:
     show_cal = render_section_toggle(
         key="calendar",
-        label_on="نمایش تقویم اقتصادی",
-        label_off="بستن تقویم",
+        label_on="📅 نمایش تقویم اقتصادی",
+        label_off="❌ بستن تقویم",
         icon_on="📅",
         icon_off="❌",
     )
@@ -582,8 +963,8 @@ with toggle_cols[0]:
 with toggle_cols[1]:
     show_news_flag = render_section_toggle(
         key="news",
-        label_on="نمایش اخبار بازار",
-        label_off="بستن اخبار",
+        label_on="📰 نمایش اخبار بازار",
+        label_off="❌ بستن اخبار",
         icon_on="📰",
         icon_off="❌",
     )
@@ -607,13 +988,7 @@ if show_cal:
             unsafe_allow_html=True,
         )
     else:
-        st.warning(
-            "⚠️ تقویم اقتصادی در دسترس نیست.\n\n"
-            "**دلایل احتمالی:**\n"
-            "- سرور Streamlit Cloud از IP آمریکا استفاده می‌کنه و Cloudflare ایران‌بروکر بلاک می‌کنه\n"
-            "- اگه از نسخه لوکال (کامپیوتر خودت) استفاده می‌کنی، احتمالاً کار می‌کنه\n\n"
-            "💡 **راه‌حل:** از VPN استفاده کن یا بعداً امتحان کن."
-        )
+        st.warning("⚠️ تقویم اقتصادی در دسترس نیست.")
 
 if show_news_flag:
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
@@ -627,38 +1002,15 @@ if show_news_flag:
     if news:
         render_news(news)
     else:
-        st.warning(
-            "⚠️ اخبار در دسترس نیست.\n\n"
-            "اگه از نسخه لوکال استفاده می‌کنی، احتمالاً یه منبع مشکل داره."
-        )
+        st.warning("⚠️ اخبار در دسترس نیست.")
 
 
 # ═══════════════════════════════════════════════════════════
-# Lazy Load: تیکر
+# تیکر — مستقل از نماد انتخابی
 # ═══════════════════════════════════════════════════════════
 with ticker_placeholder:
-    gp = []
-    ip = cached_prices()
-    if ip.get("prices"):
-        p = ip["prices"]
-        gp.extend([
-            {"name": "طلای ۱۸", "emoji": "🥇", "price": p.get("geram18"), "change_pct": None, "unit": "تومان"},
-            {"name": "سکه امامی", "emoji": "🪙", "price": p.get("sekee"), "change_pct": None, "unit": "تومان"},
-            {"name": "دلار", "emoji": "💵", "price": p.get("dollar"), "change_pct": None, "unit": "تومان"},
-            {"name": "انس جهانی", "emoji": "🌍", "price": p.get("ons"), "change_pct": None, "unit": "دلار"},
-        ])
-
-    for tkr, name in SYMBOLS.items():
-        d = cached_history(tkr, "1h", "5d")
-        if d is not None and len(d) > 0:
-            lp = float(d["close"].iloc[-1])
-            pp = float(d["close"].iloc[-2]) if len(d) > 1 else lp
-            ch = ((lp - pp) / pp * 100) if pp > 0 else 0
-            gp.append({
-                "name": name, "emoji": emoji_map.get(tkr, "💰"),
-                "price": lp, "change_pct": ch, "unit": "دلار",
-            })
-
+    current_source_ticker = st.session_state.get("data_source", "global")
+    gp = cached_ticker_data(current_source_ticker)
     markets_info = get_markets_info()
     render_top_ticker(gp, markets_info)
 
@@ -679,12 +1031,20 @@ with last_row[1]:
 # ═══════════════════════════════════════════════════════════
 # فوتر
 # ═══════════════════════════════════════════════════════════
+source_label_footer = {
+    "global": "yfinance (جهانی)",
+    "nobitex": "نوبیتکس",
+    "abantether": "آبان‌تتر",
+}.get(st.session_state.get("data_source", "global"), "—")
+
+ip_footer = cached_prices()
+
 st.markdown(
     f'<div style="text-align:center; padding:12px 0;'
     f' border-top:1px solid {t["border"]}; margin-top:8px;'
     f' color:{t["fg_dim"]}; font-size:9px; direction:rtl;">'
-    f'منبع: <b style="color:{t["cyan"]};">{ip.get("source", "—")}</b>'
-    f' | تحلیل: <b style="color:{t["cyan"]};">yfinance</b>'
+    f'منبع قیمت ایران: <b style="color:{t["cyan"]};">{ip_footer.get("source", "—")}</b>'
+    f' | منبع تحلیل: <b style="color:{t["cyan"]};">{source_label_footer}</b>'
     f' | آخرین: <b style="color:{t["cyan"]};">{st.session_state.last_update}</b>'
     f'</div>',
     unsafe_allow_html=True,

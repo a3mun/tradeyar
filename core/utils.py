@@ -1,6 +1,6 @@
 """
 core/utils.py
-توابع کمکی — تاریخ، فرمت، اعداد، بازار
+توابع کمکی — تاریخ، فرمت، اعداد، بازار، تایمر
 """
 
 from datetime import datetime, timezone, timedelta
@@ -23,7 +23,6 @@ EN_DIGITS = "0123456789"
 
 
 def to_english_digits(text: str) -> str:
-    """تبدیل ارقام فارسی و عربی به انگلیسی"""
     if not text:
         return text
     for fa, en in zip(FA_DIGITS, EN_DIGITS):
@@ -34,7 +33,6 @@ def to_english_digits(text: str) -> str:
 
 
 def to_persian_digits(text: str) -> str:
-    """تبدیل ارقام انگلیسی به فارسی"""
     if not text:
         return text
     for en, fa in zip(EN_DIGITS, FA_DIGITS):
@@ -46,14 +44,6 @@ def to_persian_digits(text: str) -> str:
 # پارس امن اعداد
 # ═══════════════════════════════════════════════════════════
 def parse_number(text) -> float | None:
-    """
-    استخراج عدد از متن (با کاما، ارقام فارسی و ...)
-    
-    مثال:
-        parse_number("۲۴,۱۰۰,۰۰۰") → 24100000.0
-        parse_number("$4,267.45") → 4267.45
-        parse_number("...") → None
-    """
     if text is None:
         return None
     if isinstance(text, (int, float)):
@@ -66,7 +56,6 @@ def parse_number(text) -> float | None:
 
     text = to_english_digits(str(text))
 
-    # مرحله ۱: اولین رقم رو پیدا کن
     start_idx = -1
     for i, ch in enumerate(text):
         if ch.isdigit():
@@ -76,7 +65,6 @@ def parse_number(text) -> float | None:
     if start_idx == -1:
         return None
 
-    # مرحله ۲: از اولین رقم تا جایی که عدد ادامه داره برو
     cleaned = ""
     for ch in text[start_idx:]:
         if ch.isdigit() or ch in ".-":
@@ -99,7 +87,6 @@ def parse_number(text) -> float | None:
 # فرمت امن اعداد
 # ═══════════════════════════════════════════════════════════
 def safe_num(val, default: float = 0.0) -> float:
-    """تبدیل امن به float — اگه NaN/None بود، مقدار پیش‌فرض رو بده"""
     if val is None:
         return default
     try:
@@ -111,12 +98,6 @@ def safe_num(val, default: float = 0.0) -> float:
 
 
 def format_price(price, unit: str = "تومان") -> str:
-    """
-    فرمت قیمت بر اساس واحد
-    
-    - دلار: با ۲ رقم اعشار و $ در ابتدا
-    - تومان: با B/M/K در صورت بزرگ بودن
-    """
     if price is None:
         return "—"
     try:
@@ -144,7 +125,6 @@ def format_price(price, unit: str = "تومان") -> str:
 
 
 def format_change(value: float, decimals: int = 2) -> str:
-    """فرمت درصد تغییر با علامت + یا -"""
     if value is None:
         return "—"
     try:
@@ -160,12 +140,10 @@ def format_change(value: float, decimals: int = 2) -> str:
 # تاریخ و زمان
 # ═══════════════════════════════════════════════════════════
 def get_iran_time() -> datetime:
-    """ساعت فعلی ایران"""
     return datetime.now(IRAN_TZ)
 
 
 def get_jalali_date() -> str:
-    """تاریخ شمسی به صورت YYYY/MM/DD"""
     try:
         import jdatetime
         return jdatetime.datetime.now().strftime("%Y/%m/%d")
@@ -174,7 +152,6 @@ def get_jalali_date() -> str:
 
 
 def get_jalali_datetime() -> str:
-    """تاریخ و ساعت شمسی کامل"""
     try:
         import jdatetime
         return jdatetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
@@ -183,7 +160,6 @@ def get_jalali_datetime() -> str:
 
 
 def get_weekday_fa() -> str:
-    """نام روز هفته به فارسی"""
     try:
         import jdatetime
         wd = jdatetime.datetime.now().weekday()
@@ -199,20 +175,76 @@ def get_weekday_fa() -> str:
 
 
 def get_iran_clock() -> str:
-    """ساعت ایران به صورت HH:MM:SS"""
     return get_iran_time().strftime("%H:%M:%S")
+
+
+# ═══════════════════════════════════════════════════════════
+# زمان نسبی (چند دقیقه پیش)
+# ═══════════════════════════════════════════════════════════
+def time_ago(dt_input) -> str:
+    """
+    تبدیل یه timestamp به متن «چند دقیقه پیش».
+    """
+    if dt_input is None:
+        return "—"
+
+    try:
+        if isinstance(dt_input, str):
+            dt = datetime.fromisoformat(dt_input)
+        elif isinstance(dt_input, datetime):
+            dt = dt_input
+        elif isinstance(dt_input, (int, float)):
+            dt = datetime.fromtimestamp(dt_input)
+        else:
+            return "—"
+    except Exception:
+        return "—"
+
+    try:
+        now = datetime.now()
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+
+        delta = now - dt
+        secs = delta.total_seconds()
+
+        if secs < 0:
+            return "الان"
+        elif secs < 5:
+            return "همین الان"
+        elif secs < 60:
+            return f"{int(secs)} ثانیه پیش"
+        elif secs < 3600:
+            return f"{int(secs / 60)} دقیقه پیش"
+        elif secs < 86400:
+            return f"{int(secs / 3600)} ساعت پیش"
+        else:
+            return f"{int(secs / 86400)} روز پیش"
+    except Exception:
+        return "—"
+
+
+def format_time_short(dt_input) -> str:
+    if dt_input is None:
+        return "—"
+
+    try:
+        if isinstance(dt_input, str):
+            dt = datetime.fromisoformat(dt_input)
+        elif isinstance(dt_input, datetime):
+            dt = dt_input
+        else:
+            return "—"
+
+        return dt.strftime("%H:%M:%S")
+    except Exception:
+        return "—"
 
 
 # ═══════════════════════════════════════════════════════════
 # وضعیت بازار
 # ═══════════════════════════════════════════════════════════
 def market_status() -> tuple[str, str]:
-    """
-    وضعیت بازار جهانی بر اساس ساعت ایران
-    
-    Returns:
-        (نام بازار, کلید رنگ)
-    """
     now = get_iran_time()
     wd = now.weekday()
     h = now.hour
@@ -231,14 +263,9 @@ def market_status() -> tuple[str, str]:
 
 
 # ═══════════════════════════════════════════════════════════
-# توابع کمکی برای pandas DataFrame
+# توابع کمکی pandas
 # ═══════════════════════════════════════════════════════════
 def normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    نرمال‌سازی ستون‌های DataFrame yfinance:
-    - MultiIndex → تک سطح
-    - حروف کوچک
-    """
     if df is None or df.empty:
         return df
     if isinstance(df.columns, pd.MultiIndex):
@@ -248,7 +275,6 @@ def normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def extract_close_series(df: pd.DataFrame):
-    """استخراج سری close از دیتافریم yfinance به صورت امن"""
     if df is None or df.empty:
         return None
     try:
@@ -261,7 +287,7 @@ def extract_close_series(df: pd.DataFrame):
 
 
 # ═══════════════════════════════════════════════════════════
-# تست سریع (اجرا کن: python -m core.utils)
+# تست
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("=" * 50)
@@ -290,9 +316,11 @@ if __name__ == "__main__":
     print(f"   ساعت: {get_iran_clock()}")
     print()
 
-    print("5) وضعیت بازار:")
-    status, color = market_status()
-    print(f"   {status}  (رنگ: {color})")
+    print("5) زمان نسبی:")
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    for delta in [timedelta(seconds=10), timedelta(minutes=3), timedelta(hours=2)]:
+        print(f"   {delta} پیش: {time_ago(now - delta)}")
     print()
 
     print("[OK] همه تست‌ها اجرا شد.")

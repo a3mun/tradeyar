@@ -488,6 +488,7 @@ def render_sparkline(
     """
     t = _get_current_theme()
     color = t["green"] if is_up else t["red"]
+    fill_color = "rgba(34, 197, 94, 0.1)" if is_up else "rgba(239, 68, 68, 0.1)"
 
     fig = go.Figure()
     fig.add_trace(
@@ -496,7 +497,7 @@ def render_sparkline(
             mode="lines",
             line=dict(color=color, width=2),
             fill="tozeroy",
-            fillcolor=f"rgba{'a(34, 197, 94' if is_up else 'a(239, 68, 68'}, 0.1)",
+            fillcolor=fill_color,
             hoverinfo="skip",
         )
     )
@@ -512,7 +513,6 @@ def render_sparkline(
     )
 
     return fig
-
 
 # ═══════════════════════════════════════════════════════════
 # ۷. نشانگر Fear & Greed
