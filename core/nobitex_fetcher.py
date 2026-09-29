@@ -147,8 +147,23 @@ NOBITEX_SYMBOLS = {
     # ─── فلزات دیجیتال ───
     "PAXG-USD": "PAXGUSDT",
     "XAUT-USD": "XAUTUSDT",
+    # ─── جفت‌ارزهای تومانی (جدید) ───
+    "BTC-IRT": "BTCIRT",
+    "ETH-IRT": "ETHIRT",
+    "BNB-IRT": "BNBIRT",
+    "SOL-IRT": "SOLIRT",
+    "XRP-IRT": "XRPIRT",
+    "ADA-IRT": "ADAIRT",
+    "DOGE-IRT": "DOGEIRT",
+    "TRX-IRT": "TRXIRT",
+    "TON-IRT": "TONIRT",
+    "MATIC-IRT": "MATICIRT",
+    "LINK-IRT": "LINKIRT",
+    "AVAX-IRT": "AVAXIRT",
+    "SHIB-IRT": "SHIBIRT",
+    "PAXG-IRT": "PAXGIRT",
+    "XAUT-IRT": "XAUTIRT",
 }
-
 
 # نگاشت معکوس
 _NOBITEX_REVERSE = {v: k for k, v in NOBITEX_SYMBOLS.items()}

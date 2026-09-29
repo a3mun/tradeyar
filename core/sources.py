@@ -49,7 +49,7 @@ SOURCES: dict[str, dict] = {
         "description": "قیمت لحظه‌ای کریپتو",
         "color": "#3b82f6",
         "default_symbol": "BTC-USD",
-        "default_market_type": MarketType.SPOT.value,
+        "default_market_type": MarketType.FUTURES.value,
         "supports_symbols": "crypto",
         "priority": 2,
     },
@@ -87,8 +87,23 @@ def is_crypto_symbol(ticker: str) -> bool:
     """آیا نماد کریپتو هست؟ (دقیق‌تر)"""
     if not ticker:
         return False
+
+    # ═══ ویژه: USDT-IRT ═══
     if ticker == "USDT-IRT":
         return True
+
+    # ═══ جفت‌ارزهای تومانی نوبیتکس (BTC-IRT، ETH-IRT، ...) ═══
+    if ticker.endswith("-IRT"):
+        try:
+            from .nobitex_fetcher import is_in_nobitex
+
+            if is_in_nobitex(ticker):
+                return True
+        except Exception:
+            pass
+        return False
+
+    # ═══ USDT pairs ═══
     if ticker.endswith("-USD"):
         try:
             from .nobitex_fetcher import is_in_nobitex
@@ -105,6 +120,7 @@ def is_crypto_symbol(ticker: str) -> bool:
         except Exception:
             pass
         return False
+
     return False
 
 
@@ -168,10 +184,24 @@ def is_crypto_symbol(ticker: str) -> bool:
     """آیا نماد کریپتو هست؟"""
     if not ticker:
         return False
+
+    # ═══ ویژه: USDT-IRT ═══
     if ticker == "USDT-IRT":
         return True
+
+    # ═══ جفت‌ارزهای تومانی نوبیتکس ═══
+    if ticker.endswith("-IRT"):
+        try:
+            from .nobitex_fetcher import is_in_nobitex
+
+            if is_in_nobitex(ticker):
+                return True
+        except Exception:
+            pass
+        return False
+
+    # ═══ USDT pairs ═══
     if ticker.endswith("-USD"):
-        # ← چک دقیق‌تر: فقط اگه در نوبیتکس یا آبان‌تتر باشه
         try:
             from .nobitex_fetcher import is_in_nobitex
 
@@ -186,7 +216,8 @@ def is_crypto_symbol(ticker: str) -> bool:
                 return True
         except Exception:
             pass
-        return False  # ← اگه هیچ‌جا نبود، کریپتو نیست
+        return False
+
     return False
 
 
@@ -208,8 +239,8 @@ def is_symbol_available_in_source(ticker: str, source: str) -> bool:
     if supports == "all":
         if is_iran_stock(ticker):
             return False
-        # USDT-IRT در yfinance نیست
-        if ticker == "USDT-IRT":
+        # نمادهای تومانی در yfinance نیستن
+        if ticker == "USDT-IRT" or ticker.endswith("-IRT"):
             return False
         return True
 
@@ -250,9 +281,18 @@ def detect_source_for_ticker(ticker: str) -> str:
     if not ticker:
         return DataSource.GLOBAL.value
 
-    # ─── ویژه: USDT-IRT ───
+    # ─── ویژه: USDT-IRT و جفت‌های تومانی ───
     if ticker == "USDT-IRT":
         return DataSource.NOBITEX.value
+
+    if ticker.endswith("-IRT"):
+        try:
+            from .nobitex_fetcher import is_in_nobitex
+
+            if is_in_nobitex(ticker):
+                return DataSource.NOBITEX.value
+        except Exception:
+            pass
 
     # ─── بورس تهران ───
     if is_iran_stock(ticker):

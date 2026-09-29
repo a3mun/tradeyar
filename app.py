@@ -78,6 +78,8 @@ from ui.components import (
     render_section_header,
     render_settings_panel,
     render_settings_panel_open_button,
+    render_help_panel,
+    render_help_panel_open_button,
 )
 
 # ═══════════════════════════════════════════════════════════
@@ -139,6 +141,9 @@ defaults = {
     "scanner_tf": "۵ دقیقه",
     "scanner_key": "",
     "settings_open": False,
+    "bt_last_check": 0,  # ═══ جدید: آخرین بک‌تست ═══
+    "bt_last_auto_update": "",  # ═══ جدید ═══
+    "bt_last_auto_result": {},  # ═══ جدید ═══
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -327,56 +332,170 @@ def cached_ticker_data(source: str):
 
 
 def get_markets_info() -> list:
-    now = datetime.utcnow() + timedelta(hours=3, minutes=30)
-    h, m, wd = now.hour, now.minute, now.weekday()
+    """
+    اطلاعات ساعت بازارهای جهانی.
+    محاسبه‌ی دقیق: باز/بسته + زمان بعدی (باز شدن یا بسته شدن).
+    """
+    # ═══ زمان ایران ═══
+    now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
+    h, m, wd = now_iran.hour, now_iran.minute, now_iran.weekday()
     tm = h * 60 + m
-    is_weekend_global = wd in [5, 6]
+
+    # ═══ تعطیلات ═══
+    is_weekend_global = wd in [5, 6]  # شنبه/یکشنبه — بازار جهانی تعطیل
+
+    def fmt(minutes_total: int) -> str:
+        """تبدیل دقیقه به HH:MM"""
+        hh = (minutes_total // 60) % 24
+        mm = minutes_total % 60
+        return f"{hh:02d}:{mm:02d}"
+
+    def calc_market(open_min: int, close_min: int, is_weekend: bool) -> dict:
+        """محاسبه وضعیت بازار و زمان بعدی"""
+        is_open = (not is_weekend) and (open_min <= tm < close_min)
+        if is_weekend:
+            return {
+                "is_open": False,
+                "status_text": "تعطیل",
+                "next_event_type": "",
+                "next_event_time": "",
+            }
+
+        if is_open:
+            # زمان بسته شدن
+            remaining = close_min - tm
+            hh = remaining // 60
+            mm = remaining % 60
+            if hh > 0:
+                status_text = f"باز (تا {hh}h {mm}m)"
+            else:
+                status_text = f"باز (تا {mm}m)"
+            return {
+                "is_open": True,
+                "status_text": "باز",
+                "next_event_type": "بسته",
+                "next_event_time": fmt(close_min),
+            }
+        else:
+            # زمان باز شدن (اگه الان قبل از بازه) یا فردا
+            if tm < open_min:
+                next_open = open_min
+            else:
+                next_open = open_min  # فردا
+
+            # متن باز شدن
+            if tm < open_min:
+                remaining = open_min - tm
+                hh = remaining // 60
+                mm = remaining % 60
+                if hh > 0:
+                    status_text = f"بسته ({hh}h {mm}m تا باز شدن)"
+                else:
+                    status_text = f"بسته ({mm}m تا باز شدن)"
+            else:
+                status_text = "بسته"
+
+            return {
+                "is_open": False,
+                "status_text": "بسته",
+                "next_event_type": "باز",
+                "next_event_time": fmt(next_open),
+            }
+
     markets = []
-    tokyo_open = (not is_weekend_global) and 210 <= tm < 720
+
+    # ─── توکیو: ۰۳:۳۰ - ۱۲:۰۰ ───
+    tokyo = calc_market(
+        open_min=3 * 60 + 30,
+        close_min=12 * 60,
+        is_weekend=is_weekend_global,
+    )
     markets.append(
         {
             "name": "توکیو",
             "icon": "🇯🇵",
-            "is_open": tokyo_open,
-            "next_event": (
-                "تعطیل" if is_weekend_global else ("باز" if tokyo_open else "بسته")
-            ),
+            **tokyo,
         }
     )
-    london_open = (not is_weekend_global) and 690 <= tm < 1200
+
+    # ─── لندن: ۱۱:۳۰ - ۲۰:۰۰ ───
+    london = calc_market(
+        open_min=11 * 60 + 30,
+        close_min=20 * 60,
+        is_weekend=is_weekend_global,
+    )
     markets.append(
         {
             "name": "لندن",
             "icon": "🇪🇺",
-            "is_open": london_open,
-            "next_event": (
-                "تعطیل" if is_weekend_global else ("باز" if london_open else "بسته")
-            ),
+            **london,
         }
     )
-    ny_open = (not is_weekend_global) and 990 <= tm < 1380
+
+    # ─── نیویورک: ۱۶:۳۰ - ۲۳:۰۰ ───
+    ny = calc_market(
+        open_min=16 * 60 + 30,
+        close_min=23 * 60,
+        is_weekend=is_weekend_global,
+    )
     markets.append(
         {
             "name": "نیویورک",
             "icon": "🇺🇸",
-            "is_open": ny_open,
-            "next_event": (
-                "تعطیل" if is_weekend_global else ("باز" if ny_open else "بسته")
-            ),
+            **ny,
         }
     )
-    iran_days = [5, 6, 0, 1, 2]
-    iran_open = (wd in iran_days) and 540 <= tm < 750
+
+    # ─── بورس تهران: شنبه-چهارشنبه ۰۹:۰۰ - ۱۲:۳۰ ───
+    # wd: دوشنبه=0، سه=1، چهار=2، پنج=3، جمعه=4، شنبه=5، یک=6
+    iran_days = [5, 6, 0, 1, 2]  # شنبه تا چهارشنبه
+    iran_open = (wd in iran_days) and (9 * 60 <= tm < 12 * 60 + 30)
+
+    if wd not in iran_days:
+        iran_status = {
+            "is_open": False,
+            "status_text": "تعطیل",
+            "next_event_type": "",
+            "next_event_time": "",
+        }
+    elif iran_open:
+        iran_status = {
+            "is_open": True,
+            "status_text": "باز",
+            "next_event_type": "بسته",
+            "next_event_time": "12:30",
+        }
+    else:
+        if tm < 9 * 60:
+            remaining = 9 * 60 - tm
+            hh = remaining // 60
+            mm = remaining % 60
+            if hh > 0:
+                status_text = f"بسته ({hh}h {mm}m تا باز شدن)"
+            else:
+                status_text = f"بسته ({mm}m تا باز شدن)"
+            iran_status = {
+                "is_open": False,
+                "status_text": "بسته",
+                "next_event_type": "باز",
+                "next_event_time": "09:00",
+            }
+        else:
+            iran_status = {
+                "is_open": False,
+                "status_text": "بسته",
+                "next_event_type": "",
+                "next_event_time": "",
+            }
+
     markets.append(
         {
             "name": "بورس تهران",
             "icon": "🇮🇷",
-            "is_open": iran_open,
-            "next_event": (
-                "تعطیل" if wd not in iran_days else ("باز" if iran_open else "بسته")
-            ),
+            **iran_status,
         }
     )
+
     return markets
 
 
@@ -386,6 +505,20 @@ def _is_iranian_ticker(ticker: str) -> bool:
         return False
     upper = ticker.upper()
     return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
+
+
+def _normalize_fa(text: str) -> str:
+    """نرمال‌سازی متن فارسی — حذف فاصله/نیم‌فاصله/ی/ک عربی"""
+    if not text:
+        return ""
+    return (
+        text.strip()
+        .replace("‌", "")  # نیم‌فاصله
+        .replace(" ", "")  # فاصله
+        .replace("ي", "ی")  # ی عربی
+        .replace("ك", "ک")  # ک عربی
+        .lower()
+    )
 
 
 def build_ai_export(
@@ -579,23 +712,19 @@ def build_ai_export(
 t = get_theme(st.session_state.theme)
 render_header(get_jalali_date(), get_weekday_fa(), get_miladi_date())
 
-render_settings_panel_open_button()
+# ═══ یک ردیف: تنظیمات + راهنما کنار هم ═══
+_btn_cols = st.columns([5, 1, 1])
+with _btn_cols[1]:
+    render_settings_panel_open_button()
+with _btn_cols[2]:
+    render_help_panel_open_button()
+
 render_settings_panel()
+render_help_panel()
 
-
-# ═══════════════════════════════════════════════════════════
-# Placeholder تیکر
-# ═══════════════════════════════════════════════════════════
-ticker_placeholder = st.empty()
-with ticker_placeholder:
-    st.markdown(
-        f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]};'
-        f" border-radius:10px; padding:20px; text-align:center;"
-        f' color:{t["fg_muted"]}; direction:rtl;">'
-        f"⏳ در حال دریافت قیمت‌ها...</div>",
-        unsafe_allow_html=True,
-    )
-
+# ═══ تیکر ساعت‌های بازار ═══
+markets_info = get_markets_info()
+render_top_ticker([], markets_info)
 
 # ═══════════════════════════════════════════════════════════
 # جستجو
@@ -623,44 +752,111 @@ if search_query and len(search_query.strip()) >= 2:
     q_upper = q.upper()
     suggestions = []
 
+    # ═══ جستجوی هوشمند فارسی + انگلیسی ═══
+    q_norm = _normalize_fa(q)
+
     for tkr, name in SYMBOLS.items():
-        if q_upper in tkr.upper() or q in name:
-            suggestions.append({"ticker": tkr, "name": name, "source": "global"})
+        tkr_upper = tkr.upper()
+        name_norm = _normalize_fa(name)
+
+        # انطباق انگلیسی
+        if q_upper in tkr_upper:
+            src = detect_source_for_ticker(tkr)
+            suggestions.append({"ticker": tkr, "name": name, "source": src})
+            continue
+
+        # انطباق فارسی (نرمال‌شده)
+        if q_norm and q_norm in name_norm:
+            src = detect_source_for_ticker(tkr)
+            suggestions.append({"ticker": tkr, "name": name, "source": src})
+            continue
 
     for tkr in st.session_state.custom_symbols:
         if q_upper in tkr.upper():
             suggestions.append({"ticker": tkr, "name": tkr, "source": "custom"})
 
+    # ═══ نوبیتکس: USDT + RLS ═══
     try:
         from core.nobitex_fetcher import (
             fetch_all_nobitex_symbols,
             map_nobitex_to_symbol,
         )
 
-        all_nobitex = fetch_all_nobitex_symbols("usdt")
-        for s in all_nobitex[:100]:
+        existing_tickers = {s["ticker"] for s in suggestions}
+
+        # USDT pairs
+        all_usdt = fetch_all_nobitex_symbols("usdt")
+        for s in all_usdt[:200]:
             if q_upper in s["symbol"] or q_upper in s["base"]:
                 our_ticker = map_nobitex_to_symbol(s["symbol"])
-                if our_ticker:
+                if our_ticker and our_ticker not in existing_tickers:
                     suggestions.append(
                         {
                             "ticker": our_ticker,
-                            "name": f"{s['base']}/{s['quote']}",
+                            "name": f"{s['base']}/USDT",
                             "source": "nobitex",
                             "price": s["price"],
                             "change": s.get("change_24h", 0),
                         }
                     )
+                    existing_tickers.add(our_ticker)
+
+        # RLS pairs (تومانی)
+        all_rls = fetch_all_nobitex_symbols("rls")
+        for s in all_rls[:100]:
+            if q_upper in s["symbol"] or q_upper in s["base"]:
+                our_ticker = map_nobitex_to_symbol(s["symbol"])
+                if our_ticker and our_ticker not in existing_tickers:
+                    suggestions.append(
+                        {
+                            "ticker": our_ticker,
+                            "name": f"{s['base']}/تومان",
+                            "source": "nobitex",
+                            "price": s["price"],
+                            "change": s.get("change_24h", 0),
+                        }
+                    )
+                    existing_tickers.add(our_ticker)
     except Exception:
         pass
 
+    # ═══ بورس تهران: static + cache ═══
     try:
-        tsetmc_syms = fetch_tsetmc_all_symbols()
-        for sym in tsetmc_syms:
+        from core.market_lists import get_iran_stock_symbols, get_iran_stock_map
+
+        existing_tickers = {s["ticker"] for s in suggestions}
+        static_syms = get_iran_stock_symbols()
+        static_map = get_iran_stock_map()
+
+        for sym in static_syms:
+            if sym in existing_tickers:
+                continue
             if q in sym or q_upper in sym.upper():
-                suggestions.append({"ticker": sym, "name": sym, "source": "tsetmc"})
+                name_fa = static_map.get(sym, sym)
+                suggestions.append(
+                    {
+                        "ticker": sym,
+                        "name": f"{sym} — {name_fa}",
+                        "source": "tsetmc",
+                    }
+                )
+                existing_tickers.add(sym)
     except Exception:
         pass
+
+    # ═══ اگه کمتر از ۵ نتیجه، از cache TSETMC بگیر ═══
+    if len(suggestions) < 5:
+        try:
+            existing_tickers = {s["ticker"] for s in suggestions}
+            tsetmc_syms = fetch_tsetmc_all_symbols()
+            for sym in tsetmc_syms:
+                if sym in existing_tickers:
+                    continue
+                if q in sym or q_upper in sym.upper():
+                    suggestions.append({"ticker": sym, "name": sym, "source": "tsetmc"})
+                    existing_tickers.add(sym)
+        except Exception:
+            pass
 
     if len(suggestions) < 5 and q_upper.isascii():
         try:
@@ -718,9 +914,13 @@ if search_query and len(search_query.strip()) >= 2:
                     f'— <span style="color:{t["fg_muted"]};">{sug["name"]}</span>{price_str}</div>',
                     unsafe_allow_html=True,
                 )
+
             with cols[1]:
                 if st.button(
-                    "➕", key=f"add_sug_{i}_{sug['ticker']}", use_container_width=True
+                    "📊 تحلیل",
+                    key=f"add_sug_{i}_{sug['ticker']}",
+                    use_container_width=True,
+                    help=f"نمایش تحلیل {sug['ticker']}",
                 ):
                     tkr = sug["ticker"]
                     if (
@@ -733,9 +933,11 @@ if search_query and len(search_query.strip()) >= 2:
                         ):
                             st.session_state.custom_symbols.append(tkr)
                             save_custom_symbols(st.session_state.custom_symbols)
-                    st.session_state.selected_symbol = tkr
-                    st.session_state.data_source = detect_source_for_ticker(tkr)
-                    st.rerun()
+                        st.session_state.selected_symbol = tkr
+                        st.session_state.data_source = detect_source_for_ticker(tkr)
+                        if detect_source_for_ticker(tkr) == "tsetmc":
+                            st.session_state.market_type = "spot"
+                        st.rerun()
     else:
         st.info(f"نتیجه‌ای برای «{q}» پیدا نشد")
 
@@ -770,7 +972,12 @@ if popular_syms:
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state.selected_symbol = tkr
-                st.session_state.data_source = detect_source_for_ticker(tkr)
+                new_source = detect_source_for_ticker(tkr)
+                st.session_state.data_source = new_source
+
+                # ═══ market_type خودکار ═══
+                if new_source == "tsetmc":
+                    st.session_state.market_type = "spot"
                 st.rerun()
 
 other_syms = [(k, v) for k, v in sym_opts.items() if k not in POPULAR]
@@ -792,6 +999,8 @@ if other_syms:
                     ):
                         st.session_state.selected_symbol = tkr
                         st.session_state.data_source = detect_source_for_ticker(tkr)
+                        if detect_source_for_ticker(tkr) == "tsetmc":
+                            st.session_state.market_type = "spot"
                         st.rerun()
 
 if st.session_state.custom_symbols:
@@ -817,18 +1026,25 @@ if st.session_state.custom_symbols:
 selected_ticker = st.session_state.selected_symbol
 sym_name = sym_opts.get(selected_ticker, selected_ticker)
 
+# ═══ TF — بدون key، پایدار ═══
+if "selected_tf" not in st.session_state:
+    st.session_state.selected_tf = AppDefaults.TIMEFRAME
+
+_tf_index = (
+    TF_NAMES.index(st.session_state.selected_tf)
+    if st.session_state.selected_tf in TF_NAMES
+    else 0
+)
+
 tf_choice = st.selectbox(
     "⏱ تایم فریم تحلیل",
     options=TF_NAMES,
-    index=(
-        TF_NAMES.index(st.session_state.selected_tf)
-        if st.session_state.selected_tf in TF_NAMES
-        else 0
-    ),
-    key="tf_select",
+    index=_tf_index,
 )
-st.session_state.selected_tf = tf_choice
 
+if tf_choice != st.session_state.selected_tf:
+    st.session_state.selected_tf = tf_choice
+    st.rerun()
 
 # ═══════════════════════════════════════════════════════════
 # تحلیل
@@ -899,8 +1115,15 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
         st.stop()
 
 
-# ثبت سیگنال + backtest
-if analysis and analysis.get("signal") in ("LONG", "SHORT", "LONG ضعیف", "SHORT ضعیف"):
+# ═══════════════════════════════════════════════════════════
+# ثبت سیگنال + بک‌تست خودکار
+# ═══════════════════════════════════════════════════════════
+if analysis and analysis.get("signal") in (
+    "LONG",
+    "SHORT",
+    "LONG ضعیف",
+    "SHORT ضعیف",
+):
     record_signal(
         selected_ticker,
         sym_name,
@@ -912,11 +1135,31 @@ if analysis and analysis.get("signal") in ("LONG", "SHORT", "LONG ضعیف", "SH
         source=current_source,
     )
 
-try:
-    backtest_all()
-except Exception as e:
-    print(f"[App] backtest: {e}")
+# ═══ بک‌تست: هر ۶۰ ثانیه، غیر-بلاکینگ ═══
+import time as _time
 
+now_ts = _time.time()
+last_check = st.session_state.get("bt_last_check", 0)
+if now_ts - last_check >= 60:
+    # اول timestamp رو آپدیت کن تا دوباره اجرا نشه
+    st.session_state["bt_last_check"] = now_ts
+
+    # ═══ در background اجرا کن ═══
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(backtest_all)
+            result = future.result(timeout=5)  # حداکثر ۵ ثانیه صبر
+            if result.get("updated", 0) > 0:
+                st.session_state["bt_last_auto_update"] = datetime.now().strftime(
+                    "%H:%M:%S"
+                )
+                st.session_state["bt_last_auto_result"] = result
+    except TimeoutError:
+        print("[App] backtest: timeout")
+    except Exception as e:
+        print(f"[App] backtest: {e}")
 
 # ═══════════════════════════════════════════════════════════
 # بخش ۱: تحلیل
@@ -1168,6 +1411,8 @@ if cat_keys:
                 save_custom_symbols(st.session_state.custom_symbols)
         st.session_state.selected_symbol = tkr
         st.session_state.data_source = detect_source_for_ticker(tkr)
+        if detect_source_for_ticker(tkr) == "tsetmc":
+            st.session_state.market_type = "spot"
         st.rerun()
 
 
@@ -1187,15 +1432,6 @@ stats = compute_stats(log)
 render_backtest_stats(stats, logs=log)
 if log:
     render_recent_signals_list(log)
-
-
-# ═══════════════════════════════════════════════════════════
-# تیکر
-# ═══════════════════════════════════════════════════════════
-with ticker_placeholder:
-    gp = cached_ticker_data(st.session_state.get("data_source", "nobitex"))
-    markets_info = get_markets_info()
-    render_top_ticker(gp, markets_info)
 
 
 # ═══════════════════════════════════════════════════════════

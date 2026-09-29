@@ -127,8 +127,101 @@ def record_signal(
 # ═══════════════════════════════════════════════════════════
 # بررسی سیگنال
 # ═══════════════════════════════════════════════════════════
-def _check_signal(entry: dict) -> dict:
-    """بررسی یه سیگنال"""
+def _check_signal_with_df(entry: dict, df: pd.DataFrame) -> dict:
+    """
+    بررسی سیگنال با df آماده (به جای fetch مجدد).
+
+    df از قبل گرفته شده و برای چند سیگنال قابل استفاده‌ست.
+    """
+    if entry.get("result") is not None:
+        return entry
+
+    signal = entry.get("signal")
+    entry_price = safe_num(entry.get("price"))
+    entry_time_str = entry.get("timestamp")
+    tf_name = entry.get("tf")
+
+    sl = safe_num(entry.get("sl"))
+    tp = safe_num(entry.get("tp"))
+
+    if not signal or not entry_price or not sl or not tp:
+        return entry
+    if not entry_time_str:
+        return entry
+
+    try:
+        entry_time = datetime.fromisoformat(entry_time_str)
+    except Exception:
+        return entry
+
+    now = datetime.now()
+    timeout = SIGNAL_TIMEOUT.get(tf_name, timedelta(hours=2))
+    expires_at = entry_time + timeout
+
+    # ═══ چک انقضا ═══
+    if now > expires_at:
+        entry["result"] = "expired"
+        entry["result_time"] = now.isoformat()
+        entry["exit_price"] = None
+        entry["expired"] = True
+        return entry
+
+    # ═══ فیلتر کندل‌های بعد از entry ═══
+    try:
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df_filtered = df[df.index.tz_localize(None) >= entry_time]
+        else:
+            df_filtered = df[df.index >= entry_time]
+    except Exception:
+        df_filtered = df
+
+    if df_filtered.empty:
+        return entry
+
+    # ═══ بررسی کندل به کندل ═══
+    for idx, row in df_filtered.iterrows():
+        high = safe_num(row.get("high"))
+        low = safe_num(row.get("low"))
+
+        try:
+            candle_time = pd.to_datetime(idx)
+            if hasattr(candle_time, "to_pydatetime"):
+                candle_time = candle_time.to_pydatetime()
+            result_time_iso = candle_time.isoformat()
+        except Exception:
+            result_time_iso = now.isoformat()
+
+        if SigEnum.is_long(signal):
+            if high >= tp:
+                entry["result"] = True
+                entry["result_time"] = result_time_iso
+                entry["exit_price"] = tp
+                return entry
+            if low <= sl:
+                entry["result"] = False
+                entry["result_time"] = result_time_iso
+                entry["exit_price"] = sl
+                return entry
+        elif SigEnum.is_short(signal):
+            if low <= tp:
+                entry["result"] = True
+                entry["result_time"] = result_time_iso
+                entry["exit_price"] = tp
+                return entry
+            if high >= sl:
+                entry["result"] = False
+                entry["result_time"] = result_time_iso
+                entry["exit_price"] = sl
+                return entry
+
+    return entry
+
+
+def _check_signal_simple(entry: dict) -> dict:
+    """
+    بررسی سیگنال بدون batch — خودش dата رو می‌گیره.
+    برای fallback اگه batch کار نکرد.
+    """
     if entry.get("result") is not None:
         return entry
 
@@ -137,7 +230,7 @@ def _check_signal(entry: dict) -> dict:
     signal = entry.get("signal")
     entry_price = safe_num(entry.get("price"))
     entry_time_str = entry.get("timestamp")
-    source = entry.get("source", "global")
+    source = entry.get("source", "nobitex")
 
     sl = safe_num(entry.get("sl"))
     tp = safe_num(entry.get("tp"))
@@ -172,7 +265,7 @@ def _check_signal(entry: dict) -> dict:
         entry["expired"] = True
         return entry
 
-    # ═══ دریافت دیتا ═══
+    # ═══ fetch دیتا ═══
     try:
         df = fetch_history_by_source(ticker, interval, period, source)
         if df is None or df.empty:
@@ -216,7 +309,6 @@ def _check_signal(entry: dict) -> dict:
                 entry["result_time"] = result_time_iso
                 entry["exit_price"] = sl
                 return entry
-
         elif SigEnum.is_short(signal):
             if low <= tp:
                 entry["result"] = True
@@ -235,12 +327,11 @@ def _check_signal(entry: dict) -> dict:
 # ═══════════════════════════════════════════════════════════
 # Backtest همه
 # ═══════════════════════════════════════════════════════════
-def backtest_all() -> dict:
+def backtest_all(max_checks: int = 200) -> dict:
     """
     بررسی همه سیگنال‌های در انتظار.
 
-    Returns:
-        dict: {"checked": int, "updated": int, "expired": int, "win": int, "loss": int}
+    بررسی همه pending ها (چون تعدادشون کمه).
     """
     log = load_signal_log()
     if not log:
@@ -252,21 +343,27 @@ def backtest_all() -> dict:
     loss = 0
     checked = 0
 
-    for i, entry in enumerate(log):
-        if entry.get("result") is None:
-            checked += 1
-            new_entry = _check_signal(entry)
-            new_result = new_entry.get("result")
+    # اول قدیمی‌ترها (که زودتر expire می‌شن)
+    pending_indexes = sorted(
+        [i for i, e in enumerate(log) if e.get("result") is None],
+        key=lambda i: log[i].get("timestamp", ""),
+    )[:max_checks]
 
-            if new_result is not None:
-                log[i] = new_entry
-                updated += 1
-                if new_result == "expired":
-                    expired += 1
-                elif new_result is True:
-                    win += 1
-                elif new_result is False:
-                    loss += 1
+    for i in pending_indexes:
+        checked += 1
+        entry = log[i]
+        new_entry = _check_signal_simple(entry)
+        new_result = new_entry.get("result")
+
+        if new_result is not None:
+            log[i] = new_entry
+            updated += 1
+            if new_result == "expired":
+                expired += 1
+            elif new_result is True:
+                win += 1
+            elif new_result is False:
+                loss += 1
 
     if updated:
         _save_signal_log(log)

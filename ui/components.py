@@ -13,8 +13,14 @@ ui/components.py
 
 from datetime import datetime
 
+try:
+    import jdatetime
+except ImportError:
+    jdatetime = None
+
 import streamlit as st
 import streamlit.components.v1 as components
+
 
 from core.contracts import (
     AnalysisGroup,
@@ -242,6 +248,7 @@ def render_header(jalali: str, weekday: str, miladi: str) -> None:
 # پنل تنظیمات
 # ═══════════════════════════════════════════════════════════
 def render_settings_panel_open_button() -> None:
+    """دکمه باز/بسته کردن پنل تنظیمات — فقط دکمه، بدون ردیف"""
     t = _t()
 
     state_key = "settings_open"
@@ -250,18 +257,16 @@ def render_settings_panel_open_button() -> None:
 
     is_open = st.session_state[state_key]
 
-    cols = st.columns([6, 1])
-    with cols[1]:
-        label = "❌ بستن" if is_open else "⚙️ تنظیمات"
-        btn_type = "primary" if is_open else "secondary"
-        if st.button(
-            label,
-            key="settings_toggle_btn",
-            use_container_width=True,
-            type=btn_type,
-        ):
-            st.session_state[state_key] = not is_open
-            st.rerun()
+    label = "❌ بستن" if is_open else "⚙️ تنظیمات"
+    btn_type = "primary" if is_open else "secondary"
+    if st.button(
+        label,
+        key="settings_toggle_btn",
+        use_container_width=True,
+        type=btn_type,
+    ):
+        st.session_state[state_key] = not is_open
+        st.rerun()
 
 
 def render_settings_panel() -> None:
@@ -360,73 +365,301 @@ def render_settings_panel() -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# تیکر
+# راهنما (Help Panel)
 # ═══════════════════════════════════════════════════════════
-def render_top_ticker(prices_data: list, markets_info: list) -> None:
+def render_help_panel_open_button() -> None:
+    """دکمه راهنما — فقط دکمه، بدون ردیف"""
     t = _t()
 
-    def render_price(item):
-        name = item.get("name", "—")
-        emoji = item.get("emoji", "💰")
-        price = item.get("price")
-        change = item.get("change_pct")
-        unit = item.get("unit", "دلار")
+    state_key = "help_open"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = False
 
-        if price is None:
-            price_str = "—"
-        elif unit == "دلار":
-            price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
-        else:
-            price_str = f"{price:,.0f}"
+    is_open = st.session_state[state_key]
 
-        change_html = ""
-        if change is not None:
-            arrow = "▲" if change > 0 else ("▼" if change < 0 else "")
-            c = (
-                t["green"]
-                if change > 0
-                else (t["red"] if change < 0 else t["fg_muted"])
-            )
-            change_html = (
-                f'<span style="color:{c}; font-size:10px; '
-                f"font-family:'JetBrains Mono'; direction:ltr;\">"
-                f"{arrow}{abs(change):.2f}%</span>"
-            )
+    label = "❌ بستن" if is_open else "❓ راهنما"
+    btn_type = "primary" if is_open else "secondary"
+    if st.button(
+        label,
+        key="help_toggle_btn",
+        use_container_width=True,
+        type=btn_type,
+    ):
+        st.session_state[state_key] = not is_open
+        st.rerun()
 
-        return (
-            f'<div class="ticker-item">'
-            f'<span style="font-size:13px;">{emoji}</span>'
-            f'<span style="color:{t["fg_muted"]}; font-size:10px;">{name}:</span>'
-            f'<span style="font-family:\'JetBrains Mono\'; color:{t["fg"]}; '
-            f'font-weight:600; direction:ltr; font-size:11px;">{price_str}</span>'
-            f"{change_html}"
-            f"</div>"
+
+def render_help_panel() -> None:
+    """پنل راهنمای کامل"""
+    t = _t()
+
+    if not st.session_state.get("help_open", False):
+        return
+
+    with st.container(border=True):
+        # ═══ تیتر ═══
+        st.markdown(
+            f'<div style="text-align:center; padding:8px 0 20px 0; direction:rtl;">'
+            f'<div style="font-size:20px; font-weight:700; color:{t["primary"]};">'
+            f"📖 راهنمای آسمون‌یار</div>"
+            f'<div style="font-size:12px; color:{t["fg_muted"]}; margin-top:6px;">'
+            f"هر چیزی که برای استفاده از اپ لازمه بدونی</div></div>",
+            unsafe_allow_html=True,
         )
+
+        # ═══ بخش ۱: آسمون‌یار چیه؟ ═══
+        with st.expander("🎯 آسمون‌یار چیه؟", expanded=True):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b>یه دستیار هوشمند تحلیل بازار که برای معامله‌گر ایرانی ساخته شده.</b><br><br>"
+                f"آسمون‌یار به جای اینکه شما ساعت‌ها چارت و اندیکاتور چک کنی، خودش:<br>"
+                f"• بازار رو تحلیل می‌کنه<br>"
+                f"• ۵ گروه تحلیلی مختلف رو با هم ترکیب می‌کنه<br>"
+                f"• سیگنال خرید یا فروش با حد ضرر و هدف می‌ده<br>"
+                f"• نتیجه‌ی سیگنال‌ها رو در پس‌زمینه بررسی می‌کنه<br><br>"
+                f'<b style="color:{t["cyan"]};">هدف:</b> '
+                f"کمک به تصمیم‌گیری سریع و مطمئن، مخصوصاً برای کسانی "
+                f"که وقت کم دارن یا تجربه‌ی کم."
+                f"</div>"
+            )
+
+        # ═══ بخش ۲: بازارها ═══
+        with st.expander("🔎 بازارهایی که پشتیبانی می‌شه"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b>آسمون‌یار ۴ بازار رو پوشش می‌ده:</b><br><br>"
+                f"<b style='color:{t['nobitex']};'>🟣 نوبیتکس</b> — بزرگ‌ترین صرافی ایرانی<br>"
+                f"• ۲۲۷ نماد کریپتو (USDT pairs)<br>"
+                f"• جفت‌ارزهای تومانی (تتر/تومان، بیت‌کوین/تومان)<br><br>"
+                f"<b style='color:{t['cyan']};'>🌍 جهانی (Yahoo Finance)</b><br>"
+                f"• طلا، نقره، نفت، گاز<br>"
+                f"• سهام آمریکا (اپل، تسلا، ...)<br>"
+                f"• شاخص‌ها (S&P 500، نزدک)<br>"
+                f"• فارکس<br>"
+                f"<span style='color:{t['orange']};'>⚠️ بعضی اوقات از IP ایران در دسترس نیست</span><br><br>"
+                f"<b style='color:{t['abantether']};'>🔵 آبان‌تتر</b><br>"
+                f"• قیمت لحظه‌ای کریپتو<br><br>"
+                f"<b style='color:{t['tsetmc']};'>🇮🇷 بورس تهران (TSETMC)</b><br>"
+                f"• سهام بورس تهران (فولاد، فملی، ...)<br>"
+                f"<span style='color:{t['orange']};'>⚠️ فقط از IP ایران در دسترسه</span>"
+                f"</div>"
+            )
+
+        # ═══ بخش ۳: اسپات vs فیوچرز ═══
+        with st.expander("🎯 اسپات vs فیوچرز"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b style='color:{t['green']};'>💵 اسپات (Spot):</b><br>"
+                f"• فقط می‌تونی بخری، بعداً بفروشی<br>"
+                f"• <b>شورت ممنوع!</b> (نمی‌تونی قرض بگیری و بفروشی)<br>"
+                f"• ریسک کمتر، سود کمتر<br>"
+                f"• مناسب برای تازه‌کارها<br><br>"
+                f"<b style='color:{t['orange']};'>📈 فیوچرز (Futures):</b><br>"
+                f"• هم LONG (خرید) هم SHORT (فروش)<br>"
+                f"• با <b>اهرم</b> (۳x = سه برابر سود و ضرر)<br>"
+                f"• ریسک بالا، سود بالقوه بالا<br>"
+                f"• حتماً حد ضرر بذار!<br><br>"
+                f"<b style='color:{t['cyan']};'>💡 توصیه:</b> "
+                f"اگه تازه‌کاری، با اسپات شروع کن."
+                f"</div>"
+            )
+
+        # ═══ بخش ۴: ۵ گروه ═══
+        with st.expander("⚡ ۵ گروه تحلیل"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"آسمون‌یار به جای تکیه بر یه اندیکاتور، "
+                f"<b>۵ گروه تحلیلی</b> رو با هم ترکیب می‌کنه:<br><br>"
+                f"<b style='color:{t['primary']};'>📈 ۱. روند (Trend)</b><br>"
+                f"می‌فهمه قیمت در چه جهتی حرکت می‌کنه.<br>"
+                f"<i>EMA200، MACD، ADX، Supertrend، Ichimoku</i><br>"
+                f"<span style='color:{t['fg_muted']};'>مثال: «قیمت بالای EMA200 → روند صعودی»</span><br><br>"
+                f"<b style='color:{t['primary']};'>⚡ ۲. مومنتوم (Momentum)</b><br>"
+                f"قدرت حرکت و اشباع بودن رو می‌سنجه.<br>"
+                f"<i>RSI، Stochastic، Williams، CCI، ROC</i><br>"
+                f"<span style='color:{t['fg_muted']};'>مثال: «RSI=۲۵ → اشباع فروش → احتمال برگشت»</span><br><br>"
+                f"<b style='color:{t['primary']};'>📊 ۳. نوسان (Volatility)</b><br>"
+                f"بازار چقدر پرنوسان یا آرومه.<br>"
+                f"<i>Bollinger، ATR، Keltner، Donchian</i><br>"
+                f"<span style='color:{t['fg_muted']};'>مثال: «نزدیک باند پایین Bollinger → فرصت خرید»</span><br><br>"
+                f"<b style='color:{t['primary']};'>💧 ۴. حجم (Volume)</b><br>"
+                f"خریدار یا فروشنده غالب‌تره.<br>"
+                f"<i>OBV، CVD، Delta، CMF، MFI، Absorption</i><br>"
+                f"<span style='color:{t['fg_muted']};'>مثال: «CVD نزولی → فشار فروش»</span><br><br>"
+                f"<b style='color:{t['primary']};'>🏗 ۵. ساختار (Structure)</b><br>"
+                f"سطوح کلیدی حمایت/مقاومت.<br>"
+                f"<i>Pivot Points، Swing، Fibonacci</i><br>"
+                f"<span style='color:{t['fg_muted']};'>مثال: «نزدیک مقاومت Swing → احتمال برگشت»</span><br><br>"
+                f"<b>هر گروه رای می‌ده:</b> 🟢 صعودی / ⚪ خنثی / 🔴 نزولی<br>"
+                f"سیستم با وزن‌دهی، تصمیم نهایی رو می‌گیره."
+                f"</div>"
+            )
+
+        # ═══ بخش ۵: حالت بازار ═══
+        with st.expander("🌊 حالت بازار (رژیم)"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"آسمون‌یار اول می‌فهمه بازار در چه حالتیه (با ADX):<br><br>"
+                f"<b style='color:{t['green']};'>📈 بازار جهت‌دار</b> (ADX ≥ ۲۵)<br>"
+                f"• روند قوی داره<br>"
+                f"• <b>استراتژی:</b> ورود در جهت روند<br><br>"
+                f"<b style='color:{t['yellow']};'>⚖️ بازار در حال‌تغییر</b> (ADX ۲۰-۲۵)<br>"
+                f"• نه روند قوی، نه رنج<br>"
+                f"• <b>استراتژی:</b> احتیاط، حجم کم<br><br>"
+                f"<b style='color:{t['cyan']};'>📊 بازار بی‌جهت (رنج)</b> (ADX < ۲۰)<br>"
+                f"• بدون روند، پرنوسان<br>"
+                f"• <b>استراتژی:</b> صبر کن، ورود نکن<br>"
+                f"• معامله‌گرای حرفه‌ای هم در رنج معامله نمی‌کنن"
+                f"</div>"
+            )
+
+        # ═══ بخش ۶: سیگنال و SL/TP ═══
+        with st.expander("🎯 سیگنال و SL/TP"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b>سیگنال‌ها:</b><br>"
+                f"• 🟢 <b style='color:{t['green']};'>LONG</b> → انتظار صعود<br>"
+                f"• 🔴 <b style='color:{t['red']};'>SHORT</b> → انتظار نزول<br>"
+                f"• ⚪ <b>خنثی</b> → بازار سیگنال واضحی نمی‌ده<br><br>"
+                f"<b>شدت سیگنال:</b><br>"
+                f"• 🔥 <b>قوی</b> (≥ ۷۰٪) → فرصت طلایی<br>"
+                f"• ✅ <b>معمولی</b> (۵۰-۷۰٪) → با احتیاط<br>"
+                f"• ⚠️ <b>ضعیف</b> (۳۰-۵۰٪) → ریسک بالا، حجم کم<br><br>"
+                f"<b>حد ضرر و هدف (SL/TP):</b><br>"
+                f"• 🛑 <b style='color:{t['red']};'>SL</b>: اگه قیمت به اینجا برسه، باختی — خارج شو<br>"
+                f"• 🎯 <b style='color:{t['green']};'>TP</b>: اگه قیمت به اینجا برسه، بردی — سود بگیر<br>"
+                f"• ⚖️ <b style='color:{t['cyan']};'>R:R</b>: نسبت سود به ضرر<br>"
+                f"  - R:R=۲ → ۱ ریسک، ۲ سود → <b>عالی</b><br>"
+                f"  - R:R=۱.۵ → قابل قبول<br>"
+                f"  - R:R<۱.۵ → ضعیف<br><br>"
+                f"<b style='color:{t['orange']};'>💡 حد ضرر حتماً بذار!</b>"
+                f"</div>"
+            )
+
+        # ═══ بخش ۷: تله‌ها ═══
+        with st.expander("🚨 تله‌ها و سناریوها"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b>آسمون‌یار تله‌های معاملاتی رو تشخیص می‌ده:</b><br><br>"
+                f"<b style='color:{t['red']};'>🚨 تله صعودی</b><br>"
+                f"مومنتوم صعودی ولی حجم خروجی → «صعود جعلیه»<br><br>"
+                f"<b style='color:{t['red']};'>🚨 تله نزولی</b><br>"
+                f"مومنتوم نزولی ولی حجم ورودی → «نزول جعلیه»<br><br>"
+                f"<b style='color:{t['orange']};'>⚠️ شکست جعلی</b><br>"
+                f"عبور از سطح با حجم کم → احتمال برگشت سریع<br><br>"
+                f"<b style='color:{t['yellow']};'>😮‍💨 خستگی روند</b><br>"
+                f"ADX بالا ولی مومنتوم ضعیف → روند در حال تموم شدن<br><br>"
+                f"<b>🎯 سناریوها:</b><br>"
+                f"سیستم پیش‌بینی می‌کنه «اگه X بشه → Y اتفاق می‌افته» "
+                f"با احتمال هر کدوم."
+                f"</div>"
+            )
+
+        # ═══ بخش ۸: TF و Timeout ═══
+        with st.expander("⏰ تایم‌فریم و Timeout"):
+            _render(
+                f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
+                f'direction:rtl; text-align:right; padding:8px 12px;">'
+                f"<b>⏱ تایم‌فریم (TF):</b><br>"
+                f"تحلیل روی کندل‌های چقدر بزرگ انجام شده.<br>"
+                f"• TF=۵ دقیقه → کندل‌های ۵ دقیقه‌ای<br>"
+                f"• TF=روزانه → کندل‌های روزانه<br><br>"
+                f"<b style='color:{t['orange']};'>⚠️ مهم: TF ≠ مدت اعتبار سیگنال!</b><br><br>"
+                f"<b>⌛ Timeout (مدت اعتبار سیگنال):</b><br>"
+                f"• ۱ دقیقه → ۳۰ دقیقه<br>"
+                f"• ۵ دقیقه → ۲ ساعت<br>"
+                f"• ۱۵ دقیقه → ۶ ساعت<br>"
+                f"• ۳۰ دقیقه → ۱۲ ساعت<br>"
+                f"• ۱ ساعت → ۲ روز<br>"
+                f"• روزانه → ۷ روز<br><br>"
+                f"<b style='color:{t['cyan']};'>📌 مثال:</b> "
+                f"سیگنال SHORT در TF=۳۰ دقیقه یعنی:<br>"
+                f"• تحلیل روی کندل‌های ۳۰ دقیقه‌ای<br>"
+                f"• سیگنال تا ۱۲ ساعت معتبره<br>"
+                f"• اگه به TP یا SL برسه → بسته می‌شه<br>"
+                f"• اگه نه → <b>منقضی</b> می‌شه<br><br>"
+                f"<b>✅ راستی‌آزمایی خودکار:</b><br>"
+                f"• ✅ <b style='color:{t['green']};'>برد:</b> به TP رسید<br>"
+                f"• ❌ <b style='color:{t['red']};'>باخت:</b> به SL رسید<br>"
+                f"• ⏰ <b>منقضی:</b> در بازه timeout به نتیجه نرسید"
+                f"</div>"
+            )
+
+        # ═══ دکمه بستن پایین ═══
+        st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+        close_cols = st.columns([1, 2, 1])
+        with close_cols[1]:
+            if st.button(
+                "✅ متوجه شدم، ببند",
+                key="help_close_bottom",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.session_state["help_open"] = False
+                st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════
+# تیکر ساعت‌های بازار (نسخه جدید — سبک و کاربردی)
+# ═══════════════════════════════════════════════════════════
+def render_top_ticker(prices_data: list, markets_info: list) -> None:
+    """
+    تیکر ساعت‌های بازار.
+
+    prices_data: نادیده گرفته می‌شه (برای سازگاری)
+    markets_info: لیست بازارها با نام، آیکون، is_open، next_event
+    """
+    t = _t()
 
     def render_market(mk):
         name = mk.get("name", "")
         icon = mk.get("icon", "🌍")
         is_open = mk.get("is_open", False)
-        next_event = mk.get("next_event", "")
-        color = t["green"] if is_open else t["fg_muted"]
+        status = mk.get("status_text", "—")
+        next_time = mk.get("next_event_time", "")
+        next_type = mk.get("next_event_type", "")
+
+        # رنگ بر اساس باز/بسته
+        if is_open:
+            color = t["green"]
+            status_icon = "🟢"
+        else:
+            color = t["fg_muted"]
+            status_icon = "⚪"
+
+        # بخش زمان بعدی
+        next_html = ""
+        if next_time and next_type:
+            next_html = (
+                f'<span style="color:{t["cyan"]}; font-size:9px; '
+                f'margin-right:4px;">· {next_type}: </span>'
+                f'<span style="color:{t["cyan"]}; font-size:10px; '
+                f"font-family:'JetBrains Mono'; font-weight:600; "
+                f'direction:ltr;">{next_time}</span>'
+            )
 
         return (
-            f'<div class="ticker-item">'
-            f'<span style="font-size:12px;">{icon}</span>'
-            f'<span style="color:{color}; font-size:10px; font-weight:600;">{name}</span>'
-            f'<span style="color:{t["fg_muted"]}; font-size:9px;">{next_event}</span>'
+            f'<div class="ticker-item" style="gap:6px;">'
+            f'<span style="font-size:14px;">{icon}</span>'
+            f'<span style="color:{color}; font-size:11px; font-weight:700;">{name}</span>'
+            f'<span style="font-size:10px;">{status_icon}</span>'
+            f'<span style="color:{color}; font-size:10px; font-weight:600;">{status}</span>'
+            f"{next_html}"
             f"</div>"
         )
 
-    prices_html = "".join(render_price(p) for p in prices_data)
     markets_html = "".join(render_market(m) for m in markets_info)
 
     _render(f"""
-    <div class="top-ticker">
+    <div class="top-ticker" style="padding:8px 0;">
         <div class="ticker-row-wrapper">
-            <div class="ticker-track">{prices_html}</div>
-        </div>
-        <div class="ticker-row-wrapper" style="border-top:1px solid {t['border']}; margin-top:4px; padding-top:4px;">
             <div class="ticker-track">{markets_html}</div>
         </div>
     </div>
@@ -562,6 +795,12 @@ def render_source_badge(source: str) -> str:
 
 
 def render_market_type_selector(current_type: str) -> None:
+    t = _t()
+
+    # ═══ چک: اگه منبع TSETMC هست، فیوچرز غیرفعال ═══
+    current_source = st.session_state.get("data_source", "global")
+    is_tsetmc = current_source == "tsetmc"
+
     market_types = [
         {"key": "spot", "icon": "💵", "label": "اسپات"},
         {"key": "futures", "icon": "📈", "label": "فیوچرز"},
@@ -575,11 +814,16 @@ def render_market_type_selector(current_type: str) -> None:
             if is_active:
                 label += " ✓"
 
+            # ═══ اگه TSETMC و فیوچرز، غیرفعال ═══
+            disabled = is_tsetmc and mt["key"] == "futures"
+
             if st.button(
                 label,
                 key=f"mt_btn_{mt['key']}",
                 use_container_width=True,
                 type="primary" if is_active else "secondary",
+                disabled=disabled,
+                help=("بورس تهران فقط اسپات داره" if disabled else None),
             ):
                 if not is_active:
                     st.session_state.market_type = mt["key"]
@@ -587,6 +831,15 @@ def render_market_type_selector(current_type: str) -> None:
                         "%H:%M:%S"
                     )
                     st.rerun()
+
+    # ═══ پیام راهنما برای TSETMC ═══
+    if is_tsetmc:
+        _render(
+            f'<div style="font-size:10px; color:{t["orange"]}; '
+            f'text-align:center; margin-top:6px; direction:rtl;">'
+            f"⚠️ بورس تهران فقط اسپات داره (شورت و اهرم نداره)"
+            f"</div>"
+        )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1666,16 +1919,57 @@ def render_fear_greed(value: float) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# راستی‌آزمایی
+# راستی‌آزمایی — با رفرش خودکار
 # ═══════════════════════════════════════════════════════════
 def render_backtest_stats(stats: dict, logs: list = None) -> None:
+    """راستی‌آزمایی — نتایج + فیلتر + دکمه‌ها"""
     t = _t()
 
+    # ═══ نمایش نتایج فعلی ═══
+    _render_stats_body(stats, logs)
+
+    # ═══ آخرین بررسی خودکار ═══
+    last_auto = st.session_state.get("bt_last_auto_update", "")
+    if last_auto:
+        last_result = st.session_state.get("bt_last_auto_result", {})
+        updated = last_result.get("updated", 0)
+        expired = last_result.get("expired", 0)
+        win = last_result.get("win", 0)
+        loss = last_result.get("loss", 0)
+
+        if updated > 0:
+            _render(
+                f'<div style="text-align:center; font-size:10px; '
+                f'color:{t["green"]}; margin-top:6px; direction:rtl; '
+                f'padding:6px; background:{t["green"]}10; border-radius:6px;">'
+                f"🔄 آخرین بررسی خودکار: <b>{last_auto}</b>"
+                f" · <b>{updated}</b> سیگنال بررسی شد"
+                f" · <span>🎯 {win} برد</span>"
+                f" · <span>❌ {loss} باخت</span>"
+                f" · <span>⏰ {expired} منقضی</span>"
+                f"</div>"
+            )
+        else:
+            _render(
+                f'<div style="text-align:center; font-size:9px; '
+                f'color:{t["fg_muted"]}; margin-top:6px; direction:rtl;">'
+                f"🔄 آخرین بررسی: <b>{last_auto}</b> — همه در انتظار"
+                f"</div>"
+            )
+    else:
+        _render(
+            f'<div style="text-align:center; font-size:9px; '
+            f'color:{t["fg_muted"]}; margin-top:6px; direction:rtl;">'
+            f"🔄 بررسی خودکار فعال — با هر رفرش صفحه"
+            f"</div>"
+        )
+
+    # ═══ فیلتر زمانی ═══
     if "bt_time_filter" not in st.session_state:
         st.session_state.bt_time_filter = "all"
 
     st.markdown(
-        f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-bottom:6px; '
+        f'<div style="font-size:11px; color:{t["fg_muted"]}; margin:12px 0 6px 0; '
         f'direction:rtl; text-align:right;">📅 فیلتر زمانی:</div>',
         unsafe_allow_html=True,
     )
@@ -1709,6 +2003,94 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
             st.session_state.bt_time_filter = "all"
             st.rerun()
 
+    total = stats.get("total", 0)
+
+    if total > 0:
+        action_cols = st.columns([1, 1, 1])
+        with action_cols[0]:
+            if st.button("🔄 بررسی دستی", key="bt_recheck", use_container_width=True):
+                try:
+                    from core.backtester import backtest_all
+
+                    result = backtest_all()
+                    st.session_state["bt_last_check"] = 0
+                    if result.get("updated", 0) > 0:
+                        st.session_state["bt_last_auto_update"] = (
+                            datetime.now().strftime("%H:%M:%S")
+                        )
+                        st.session_state["bt_last_auto_result"] = result
+                        st.success(f"✅ {result['updated']} سیگنال بررسی شد")
+                    else:
+                        st.info("ℹ️ همه سیگنال‌ها در انتظار هستن")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"خطا: {e}")
+
+        with action_cols[1]:
+            if logs:
+                import json
+
+                logs_json = json.dumps(logs, ensure_ascii=False, indent=2, default=str)
+                st.download_button(
+                    "📥 دانلود JSON",
+                    data=logs_json,
+                    file_name=f"tradeyar_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    key="bt_export",
+                )
+            else:
+                st.button(
+                    "📥 دانلود JSON",
+                    disabled=True,
+                    use_container_width=True,
+                    key="bt_export_disabled",
+                )
+
+        with action_cols[2]:
+            if st.button(
+                "🗑 ریست لاگ",
+                key="bt_reset",
+                use_container_width=True,
+                type="secondary",
+            ):
+                st.session_state.bt_confirm_reset = True
+
+        if st.session_state.get("bt_confirm_reset", False):
+            st.warning("⚠️ همه سیگنال‌ها پاک می‌شن. مطمئنی؟")
+            confirm_cols = st.columns([1, 1])
+            with confirm_cols[0]:
+                if st.button(
+                    "✅ بله، پاک کن",
+                    key="bt_confirm_yes",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    try:
+                        from core.backtester import reset_signal_log
+
+                        reset_signal_log()
+                        st.session_state.bt_confirm_reset = False
+                        st.session_state["bt_last_check"] = 0
+                        st.session_state["bt_last_auto_update"] = ""
+                        st.session_state["bt_last_auto_result"] = {}
+                        st.cache_data.clear()
+                        st.success("✅ لاگ پاک شد")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"خطا در ریست: {e}")
+                        st.session_state.bt_confirm_reset = False
+            with confirm_cols[1]:
+                if st.button("❌ لغو", key="bt_confirm_no", use_container_width=True):
+                    st.session_state.bt_confirm_reset = False
+                    st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════
+# بدنه stats — جدا
+# ═══════════════════════════════════════════════════════════
+def _render_stats_body(stats: dict, logs: list = None) -> None:
+    t = _t()
     total = stats.get("total", 0)
 
     if total == 0:
@@ -1752,74 +2134,6 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
         </div>
     </div>
     """)
-
-    action_cols = st.columns([1, 1, 1])
-    with action_cols[0]:
-        if st.button("🔄 بررسی مجدد", key="bt_recheck", use_container_width=True):
-            try:
-                from core.backtester import backtest_all
-
-                result = backtest_all()
-                if result.get("updated", 0) > 0:
-                    st.success(f"✅ {result['updated']} سیگنال بررسی شد")
-                else:
-                    st.info("ℹ️ همه سیگنال‌ها در انتظار هستن")
-                st.rerun()
-            except Exception as e:
-                st.error(f"خطا: {e}")
-
-    with action_cols[1]:
-        if logs:
-            import json
-
-            logs_json = json.dumps(logs, ensure_ascii=False, indent=2, default=str)
-            st.download_button(
-                "📥 دانلود JSON",
-                data=logs_json,
-                file_name=f"tradeyar_signals_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json",
-                use_container_width=True,
-                key="bt_export",
-            )
-        else:
-            st.button(
-                "📥 دانلود JSON",
-                disabled=True,
-                use_container_width=True,
-                key="bt_export_disabled",
-            )
-
-    with action_cols[2]:
-        if st.button(
-            "🗑 ریست لاگ", key="bt_reset", use_container_width=True, type="secondary"
-        ):
-            st.session_state.bt_confirm_reset = True
-
-    if st.session_state.get("bt_confirm_reset", False):
-        st.warning("⚠️ همه سیگنال‌ها پاک می‌شن. مطمئنی؟")
-        confirm_cols = st.columns([1, 1])
-        with confirm_cols[0]:
-            if st.button(
-                "✅ بله، پاک کن",
-                key="bt_confirm_yes",
-                use_container_width=True,
-                type="primary",
-            ):
-                try:
-                    from core.backtester import reset_signal_log
-
-                    reset_signal_log()
-                    st.session_state.bt_confirm_reset = False
-                    st.cache_data.clear()
-                    st.success("✅ لاگ پاک شد")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"خطا در ریست: {e}")
-                    st.session_state.bt_confirm_reset = False
-        with confirm_cols[1]:
-            if st.button("❌ لغو", key="bt_confirm_no", use_container_width=True):
-                st.session_state.bt_confirm_reset = False
-                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1919,6 +2233,20 @@ def render_recent_signals_list(logs: list) -> None:
             _render_log_entry(entry, t)
 
 
+def _to_jalali(ts_str: str) -> str:
+    """تبدیل timestamp میلادی به شمسی"""
+    if not ts_str:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(ts_str)
+        if jdatetime:
+            jdt = jdatetime.datetime.fromgregorian(datetime=dt)
+            return jdt.strftime("%Y/%m/%d %H:%M")
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ts_str[:16] if ts_str else "—"
+
+
 def _render_log_entry(entry: dict, t: dict) -> None:
     sig = entry.get("signal", "—")
     ticker = entry.get("ticker", "—")
@@ -1959,19 +2287,8 @@ def _render_log_entry(entry: dict, t: dict) -> None:
     src_info = get_source_info(source)
     src_badge = f"{src_info['icon']} {src_info['full_name']}"
 
-    try:
-        dt = datetime.fromisoformat(ts)
-        ts_str = dt.strftime("%m-%d %H:%M")
-    except Exception:
-        ts_str = ts[:16] if ts else "—"
-
-    result_time_str = ""
-    if result_time:
-        try:
-            rdt = datetime.fromisoformat(result_time)
-            result_time_str = rdt.strftime("%m-%d %H:%M")
-        except Exception:
-            result_time_str = result_time[:16]
+    ts_str = _to_jalali(ts)
+    result_time_str = _to_jalali(result_time) if result_time else ""
 
     # فرمت قیمت
     if is_iranian:
@@ -2471,6 +2788,8 @@ __all__ = [
     "render_section_header",
     "render_header",
     "render_settings_panel_open_button",
+    "render_help_panel_open_button",
+    "render_help_panel",
     "render_settings_panel",
     "render_top_ticker",
     "render_settings_section_title",
