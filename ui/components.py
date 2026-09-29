@@ -1,12 +1,12 @@
 """
 ui/components.py
-کامپوننت‌های رابط کاربری — نسخه ۱۳.۰
-================================================
-- جستجوی هوشمند با dropdown (بدون Enter)
-- Order Book با نمایش صحیح
-- لیست سیگنال‌ها
-- تم روشن/تاریک بازطراحی‌شده
-- رفع باگ‌ها
+کامپوننت‌های رابط کاربری — نسخه ۱۶.۰ (فاز ۵ — گام ۱، ۲، ۳)
+============================================================
+تغییرات نسخه ۱۶.۰:
+  - گام ۲: sl_tp_note حالا از neutral_explain (short + long + hint) استفاده می‌کنه
+  - گام ۳: render_tf_table حالا کلیک‌پذیر است (st.dataframe selection)
+          + fallback با دکمه‌ها اگه Streamlit قدیمی بود
+  - مابقی توابع بدون تغییر
 """
 
 from datetime import datetime
@@ -14,6 +14,15 @@ from datetime import datetime
 import streamlit as st
 import streamlit.components.v1 as components
 
+from core.contracts import (
+    AnalysisGroup,
+    Consensus,
+    MarketType,
+    Regime,
+    Signal as SigEnum,
+    SignalResult,
+)
+from core.sources import get_source_info
 from ui.styles import get_theme
 
 
@@ -39,28 +48,11 @@ def _safe_num(v, default=0.0):
 
 
 # ═══════════════════════════════════════════════════════════
-# ثابت‌ها
-# ═══════════════════════════════════════════════════════════
-GROUP_META = {
-    "momentum":   ("⚡", "مومنتوم", "RSI، Stochastic، Williams، CCI، ROC"),
-    "trend":      ("📈", "روند", "EMA200، MACD، ADX، Supertrend، Ichimoku"),
-    "volatility": ("📊", "نوسان", "Bollinger، ATR، Keltner، Donchian، StdDev"),
-    "volume":     ("💧", "حجم", "OBV، CVD، Delta، CMF، MFI، Absorption"),
-    "structure":  ("🏗", "ساختار", "Pivot، Swing، Fibonacci، S/R"),
-}
-
-REGIME_META = {
-    "trend":        ("📈", "روند"),
-    "transitional": ("⚖️", "گذار"),
-    "range":        ("📊", "رنج"),
-}
-
-
-# ═══════════════════════════════════════════════════════════
 # Sparkline
 # ═══════════════════════════════════════════════════════════
-def sparkline_svg(prices: list, color: str, width: int = 70, height: int = 26,
-                  trend: str = "flat") -> str:
+def sparkline_svg(
+    prices: list, color: str, width: int = 70, height: int = 26, trend: str = "flat"
+) -> str:
     if not prices or len(prices) < 2:
         return f'<svg width="{width}" height="{height}"></svg>'
     try:
@@ -88,23 +80,100 @@ def sparkline_svg(prices: list, color: str, width: int = 70, height: int = 26,
         f'<svg width="{width}" height="{height}" style="display:inline-block; vertical-align:middle;">'
         f'<polyline points="{" ".join(pts)}" fill="none" stroke="{color}" '
         f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-        f'</div>'
+        f"</div>"
     )
 
 
 # ═══════════════════════════════════════════════════════════
-# هدر
+# هدر رنگی بخش
+# ═══════════════════════════════════════════════════════════
+def render_section_header(
+    icon: str,
+    title: str,
+    subtitle: str = "",
+    color: str = "primary",
+    anchor_id: str = "",
+) -> None:
+    t = _t()
+    color_map = {
+        "primary": t["primary"],
+        "green": t["green"],
+        "orange": t["orange"],
+        "cyan": t["cyan"],
+        "red": t["red"],
+        "purple": t["purple"],
+    }
+    c = color_map.get(color, t["primary"])
+
+    anchor_html = (
+        f'<div id="{anchor_id}" style="scroll-margin-top:20px;"></div>'
+        if anchor_id
+        else ""
+    )
+
+    subtitle_html = (
+        f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-top:5px; '
+        f'direction:rtl; text-align:right;">{subtitle}</div>'
+        if subtitle
+        else ""
+    )
+
+    st.markdown(
+        f"""
+        {anchor_html}
+        <div style="
+            display:flex; align-items:center; gap:14px;
+            padding:16px 22px; margin:22px 0 14px 0;
+            background:linear-gradient(135deg, {c}20, {c}08);
+            border:2px solid {c}66;
+            border-right:6px solid {c};
+            border-radius:14px;
+            direction:rtl;
+            box-shadow:0 4px 16px {c}15;
+        ">
+            <span style="font-size:30px; filter:drop-shadow(0 0 8px {c}88);">{icon}</span>
+            <div style="text-align:right;">
+                <div style="font-size:18px; font-weight:700; color:{c}; letter-spacing:0.3px;">
+                    {title}
+                </div>
+                {subtitle_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# هدر اصلی
 # ═══════════════════════════════════════════════════════════
 def render_header(jalali: str, weekday: str, miladi: str) -> None:
     t = _t()
 
+    try:
+        from ui.styles import get_logo_base64
+
+        logo_b64 = get_logo_base64()
+        if logo_b64:
+            logo_html = f'<img src="data:image/png;base64,{logo_b64}" class="header-logo" alt="AsemunYar" />'
+        else:
+            logo_html = '<span style="font-size:36px;">🏆</span>'
+    except Exception:
+        logo_html = '<span style="font-size:36px;">🏆</span>'
+
     header_html = f"""
-    <div class="tradeyar-header">
+    <style>
+        @media (max-width: 900px) {{
+            .header-brand {{ display: none !important; }}
+            .header-logo {{ width: 42px !important; height: 42px !important; }}
+        }}
+    </style>
+    <div class="asemunyar-header">
         <div class="header-left">
-            <span style="font-size:32px; filter:drop-shadow(0 0 8px {t['primary']}); line-height:1;">🏆</span>
-            <div>
-                <div style="font-size:18px; font-weight:700; color:{t['primary']}; line-height:1.2;">TradeYar</div>
-                <div style="font-size:10px; color:{t['fg_muted']};">ترید‌یار ۲۰۲۶</div>
+            {logo_html}
+            <div class="header-brand">
+                <div class="header-brand-fa">آسمون‌یار</div>
+                <div class="header-brand-en">AsemunYar</div>
             </div>
         </div>
 
@@ -160,6 +229,129 @@ def render_header(jalali: str, weekday: str, miladi: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
+# پنل تنظیمات (جایگزین sidebar)
+# ═══════════════════════════════════════════════════════════
+def render_settings_panel_open_button() -> None:
+    """دکمه باز/بسته کردن پنل تنظیمات"""
+    t = _t()
+
+    state_key = "settings_open"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = False
+
+    is_open = st.session_state[state_key]
+
+    cols = st.columns([6, 1])
+    with cols[1]:
+        label = "❌ بستن" if is_open else "⚙️ تنظیمات"
+        btn_type = "primary" if is_open else "secondary"
+        if st.button(
+            label,
+            key="settings_toggle_btn",
+            use_container_width=True,
+            type=btn_type,
+        ):
+            st.session_state[state_key] = not is_open
+            st.rerun()
+
+
+def render_settings_panel() -> None:
+    """پنل تنظیمات کامل — درون صفحه"""
+    t = _t()
+
+    if not st.session_state.get("settings_open", False):
+        return
+
+    with st.container(border=True):
+        st.markdown(
+            f'<div style="text-align:center; padding:8px 0 16px 0; direction:rtl;">'
+            f'<div style="font-size:16px; font-weight:700; color:{t["primary"]};">⚙️ تنظیمات اپ</div>'
+            f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-top:4px;">'
+            f"پروفایل · بازار · منبع · بروزرسانی</div></div>",
+            unsafe_allow_html=True,
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            render_settings_section_title("🎯", "پروفایل تحلیل")
+            render_profile_selector(st.session_state.risk_profile)
+
+            render_settings_divider()
+
+            render_settings_section_title("📊", "نوع بازار")
+            render_market_type_selector(st.session_state.get("market_type", "futures"))
+
+        with col2:
+            render_settings_section_title("📡", "منبع دیتا")
+            render_source_selector(st.session_state.data_source)
+
+        render_settings_divider()
+
+        render_settings_section_title("🔄", "کنترل بروزرسانی")
+
+        refresh_options = [
+            ("🖐 دستی", 0),
+            ("⚡ ۵ ثانیه", 5),
+            ("⏱ ۱۰ ثانیه", 10),
+            ("⏱ ۳۰ ثانیه", 30),
+            ("⏱ ۱ دقیقه", 60),
+            ("⏱ ۵ دقیقه", 300),
+        ]
+
+        current_idx = 0
+        for i, (_, secs) in enumerate(refresh_options):
+            if secs == st.session_state.refresh_seconds:
+                current_idx = i
+                break
+
+        refresh_choice = st.radio(
+            "حالت",
+            options=refresh_options,
+            format_func=lambda x: x[0],
+            index=current_idx,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="refresh_toggle_panel",
+        )
+
+        if refresh_choice[1] != st.session_state.refresh_seconds:
+            st.session_state.refresh_seconds = refresh_choice[1]
+            st.session_state.last_update = datetime.now().strftime("%H:%M")
+            st.session_state.last_data_refresh = datetime.now().strftime("%H:%M:%S")
+            st.rerun()
+
+        btn_cols = st.columns([1, 1, 1])
+        with btn_cols[0]:
+            if st.button(
+                "🔄 بروزرسانی حالا",
+                key="panel_refresh",
+                use_container_width=True,
+                type="primary",
+            ):
+                st.cache_data.clear()
+                st.session_state.last_data_refresh = datetime.now().strftime("%H:%M:%S")
+                st.session_state.last_update = datetime.now().strftime("%H:%M")
+                st.rerun()
+        with btn_cols[1]:
+            theme_label = "☀️ روشن" if st.session_state.theme == "dark" else "🌙 تیره"
+            if st.button(theme_label, key="panel_theme", use_container_width=True):
+                st.session_state.theme = (
+                    "light" if st.session_state.theme == "dark" else "dark"
+                )
+                st.rerun()
+        with btn_cols[2]:
+            last_refresh = st.session_state.get("last_data_refresh", "")
+            if last_refresh:
+                render_live_timer(
+                    last_refresh,
+                    key="panel_refresh_timer",
+                    prefix="🕐",
+                    font_size=11,
+                )
+
+
+# ═══════════════════════════════════════════════════════════
 # تیکر
 # ═══════════════════════════════════════════════════════════
 def render_top_ticker(prices_data: list, markets_info: list) -> None:
@@ -182,16 +374,25 @@ def render_top_ticker(prices_data: list, markets_info: list) -> None:
         change_html = ""
         if change is not None:
             arrow = "▲" if change > 0 else ("▼" if change < 0 else "")
-            c = t["green"] if change > 0 else (t["red"] if change < 0 else t["fg_muted"])
-            change_html = f'<span style="color:{c}; font-size:10px;">{arrow}{abs(change):.2f}%</span>'
+            c = (
+                t["green"]
+                if change > 0
+                else (t["red"] if change < 0 else t["fg_muted"])
+            )
+            change_html = (
+                f'<span style="color:{c}; font-size:10px; '
+                f"font-family:'JetBrains Mono'; direction:ltr;\">"
+                f"{arrow}{abs(change):.2f}%</span>"
+            )
 
         return (
             f'<div class="ticker-item">'
             f'<span style="font-size:13px;">{emoji}</span>'
             f'<span style="color:{t["fg_muted"]}; font-size:10px;">{name}:</span>'
-            f'<span style="font-family:\'JetBrains Mono\'; color:{t["fg"]}; font-weight:600; direction:ltr; font-size:11px;">{price_str}</span>'
-            f'{change_html}'
-            f'</div>'
+            f'<span style="font-family:\'JetBrains Mono\'; color:{t["fg"]}; '
+            f'font-weight:600; direction:ltr; font-size:11px;">{price_str}</span>'
+            f"{change_html}"
+            f"</div>"
         )
 
     def render_market(mk):
@@ -206,7 +407,7 @@ def render_top_ticker(prices_data: list, markets_info: list) -> None:
             f'<span style="font-size:12px;">{icon}</span>'
             f'<span style="color:{color}; font-size:10px; font-weight:600;">{name}</span>'
             f'<span style="color:{t["fg_muted"]}; font-size:9px;">{next_event}</span>'
-            f'</div>'
+            f"</div>"
         )
 
     prices_html = "".join(render_price(p) for p in prices_data)
@@ -217,7 +418,7 @@ def render_top_ticker(prices_data: list, markets_info: list) -> None:
         <div class="ticker-row-wrapper">
             <div class="ticker-track">{prices_html}</div>
         </div>
-        <div class="ticker-row-wrapper" style="border-top:1px solid {t['border']}; margin-top:6px; padding-top:6px;">
+        <div class="ticker-row-wrapper" style="border-top:1px solid {t['border']}; margin-top:4px; padding-top:4px;">
             <div class="ticker-track">{markets_html}</div>
         </div>
     </div>
@@ -230,10 +431,10 @@ def render_top_ticker(prices_data: list, markets_info: list) -> None:
 def render_settings_section_title(icon: str, title: str) -> None:
     t = _t()
     _render(
-        f'<div style="font-size:11px; font-weight:700; color:{t["fg_muted"]}; '
-        f'margin:6px 0 8px 0; direction:rtl; text-align:right; '
+        f'<div style="font-size:12px; font-weight:700; color:{t["fg"]}; '
+        f"margin:8px 0 10px 0; direction:rtl; text-align:right; "
         f'display:flex; align-items:center; gap:6px;">'
-        f'<span>{icon}</span><span>{title}</span></div>'
+        f"<span>{icon}</span><span>{title}</span></div>"
     )
 
 
@@ -241,16 +442,16 @@ def render_settings_divider() -> None:
     t = _t()
     _render(
         f'<div style="height:1px; background:{t["border"]}; '
-        f'margin:14px 0; opacity:0.5;"></div>'
+        f'margin:16px 0; opacity:0.6;"></div>'
     )
 
 
 # ═══════════════════════════════════════════════════════════
-# انتخاب پروفایل
+# پروفایل
 # ═══════════════════════════════════════════════════════════
 def render_profile_selector(current_profile: str) -> None:
-    is_aggressive = (current_profile == "aggressive")
-    is_conservative = (current_profile == "conservative")
+    is_aggressive = current_profile == "aggressive"
+    is_conservative = current_profile == "conservative"
 
     col_a, col_b = st.columns(2)
 
@@ -282,25 +483,46 @@ def render_profile_selector(current_profile: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# انتخاب منبع
+# منبع
 # ═══════════════════════════════════════════════════════════
 def render_source_selector(current_source: str) -> None:
     t = _t()
 
     sources = [
-        {"key": "global", "icon": "🌍", "label": "جهانی",
-         "desc": "yfinance — سهام، فارکس، کالا", "color": t.get("cyan", "#58a6ff")},
-        {"key": "nobitex", "icon": "🟣", "label": "نوبیتکس",
-         "desc": "کریپتو تتری — ۲۲۷ نماد", "color": t.get("nobitex", "#a855f7")},
-        {"key": "abantether", "icon": "🔵", "label": "آبان‌تتر",
-         "desc": "قیمت لحظه‌ای کریپتو", "color": t.get("abantether", "#3b82f6")},
+        {
+            "key": "global",
+            "icon": "🌍",
+            "label": "جهانی",
+            "desc": "yfinance",
+            "color": t["cyan"],
+        },
+        {
+            "key": "nobitex",
+            "icon": "🟣",
+            "label": "نوبیتکس",
+            "desc": "کریپتو تتری",
+            "color": t["nobitex"],
+        },
+        {
+            "key": "abantether",
+            "icon": "🔵",
+            "label": "آبان‌تتر",
+            "desc": "لحظه‌ای کریپتو",
+            "color": t["abantether"],
+        },
+        {
+            "key": "tsetmc",
+            "icon": "🇮🇷",
+            "label": "بورس تهران",
+            "desc": "TSETMC",
+            "color": t["tsetmc"],
+        },
     ]
 
-    cols = st.columns(3)
+    cols = st.columns(2)
     for i, src in enumerate(sources):
-        with cols[i]:
-            is_active = (src["key"] == current_source)
-
+        with cols[i % 2]:
+            is_active = src["key"] == current_source
             label = f"{src['icon']} {src['label']}"
             if is_active:
                 label += " ✓"
@@ -313,34 +535,59 @@ def render_source_selector(current_source: str) -> None:
             ):
                 if not is_active:
                     st.session_state.data_source = src["key"]
-                    st.session_state.last_data_refresh = datetime.now().strftime("%H:%M:%S")
+                    st.session_state.manual_source_override = True
+                    st.session_state.last_data_refresh = datetime.now().strftime(
+                        "%H:%M:%S"
+                    )
                     st.rerun()
 
             _render(
                 f'<div style="font-size:9px; color:{src["color"]}; '
-                f'text-align:center; margin-top:2px; direction:rtl; opacity:0.8;">'
-                f'{src["desc"]}</div>'
+                f"text-align:center; margin-top:2px; margin-bottom:8px; "
+                f'direction:rtl; opacity:0.85;">{src["desc"]}</div>'
             )
 
 
 def render_source_badge(source: str) -> str:
-    t = _t()
-
-    source_info = {
-        "global": {"icon": "🌍", "label": "yfinance", "color": t.get("cyan", "#58a6ff")},
-        "nobitex": {"icon": "🟣", "label": "نوبیتکس", "color": t.get("nobitex", "#a855f7")},
-        "abantether": {"icon": "🔵", "label": "آبان‌تتر", "color": t.get("abantether", "#3b82f6")},
-    }
-
-    info = source_info.get(source, source_info["global"])
-
+    info = get_source_info(source)
     return (
         f'<span style="display:inline-flex; align-items:center; gap:4px; '
-        f'padding:3px 10px; background:{info["color"]}15; '
-        f'border:1px solid {info["color"]}55; border-radius:8px; '
-        f'font-size:10px; color:{info["color"]}; font-weight:600;">'
-        f'{info["icon"]} {info["label"]}</span>'
+        f'padding:4px 12px; background:{info["color"]}18; '
+        f'border:1px solid {info["color"]}66; border-radius:8px; '
+        f'font-size:11px; color:{info["color"]}; font-weight:700;">'
+        f'{info["icon"]} {info["full_name"]}</span>'
     )
+
+
+# ═══════════════════════════════════════════════════════════
+# نوع بازار
+# ═══════════════════════════════════════════════════════════
+def render_market_type_selector(current_type: str) -> None:
+    market_types = [
+        {"key": "spot", "icon": "💵", "label": "اسپات"},
+        {"key": "futures", "icon": "📈", "label": "فیوچرز"},
+    ]
+
+    cols = st.columns(2)
+    for i, mt in enumerate(market_types):
+        with cols[i]:
+            is_active = mt["key"] == current_type
+            label = f"{mt['icon']} {mt['label']}"
+            if is_active:
+                label += " ✓"
+
+            if st.button(
+                label,
+                key=f"mt_btn_{mt['key']}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                if not is_active:
+                    st.session_state.market_type = mt["key"]
+                    st.session_state.last_data_refresh = datetime.now().strftime(
+                        "%H:%M:%S"
+                    )
+                    st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -353,7 +600,10 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
     swings = analysis.get("swings") or {}
 
     if not price or price <= 0:
-        empty = f'<div style="text-align:center; padding:8px; color:{t["fg_dim"]}; font-size:10px;">داده کافی نیست</div>'
+        empty = (
+            f'<div style="text-align:center; padding:8px; '
+            f'color:{t["fg_dim"]}; font-size:10px;">داده کافی نیست</div>'
+        )
         return empty, empty, empty
 
     resistances = []
@@ -398,16 +648,16 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
     price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
     price_row = (
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
-        f'padding:10px 12px; margin:8px 0; '
+        f"padding:10px 12px; margin:8px 0; "
         f'background:linear-gradient(90deg, {t["primary_glow"]}, transparent); '
         f'border:2px solid {t["primary"]}; border-radius:10px; direction:rtl;">'
         f'<div style="display:flex; align-items:center; gap:6px;">'
         f'<span style="font-size:14px;">💎</span>'
         f'<span style="font-size:12px; color:{t["fg"]}; font-weight:700;">قیمت فعلی</span>'
-        f'</div>'
-        f'<span style="font-size:14px; color:{t["primary"]}; font-family:\'JetBrains Mono\'; '
-        f'font-weight:700; direction:ltr;">{price_str}</span>'
-        f'</div>'
+        f"</div>"
+        f'<span style="font-size:14px; color:{t["primary"]}; '
+        f"font-family:'JetBrains Mono'; font-weight:700; direction:ltr;\">{price_str}</span>"
+        f"</div>"
     )
 
     def level_row(level, order_num, is_resistance):
@@ -420,7 +670,11 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
         if abs_dist < 0.5:
             opacity = 1.0
             border_width = 4
-            bg_tint = f"rgba({248 if is_resistance else 63},{81 if is_resistance else 185},{73 if is_resistance else 80},0.12)"
+            bg_tint = (
+                f"rgba({248 if is_resistance else 63},"
+                f"{81 if is_resistance else 185},"
+                f"{73 if is_resistance else 80},0.12)"
+            )
             weight = "700"
         elif abs_dist < 1.5:
             opacity = 0.85
@@ -450,16 +704,20 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
 
         return (
             f'<div style="display:flex; justify-content:space-between; align-items:center; '
-            f'padding:9px 12px; margin:4px 0; background:{bg_tint}; border-radius:8px; '
+            f"padding:9px 12px; margin:4px 0; background:{bg_tint}; border-radius:8px; "
             f'border-right:{border_width}px solid {base_color}; opacity:{opacity}; direction:rtl;">'
             f'<div style="display:flex; align-items:center; gap:6px;">'
             f'<span style="font-size:10px;">{src_icon}</span>'
-            f'<span style="font-size:11px; color:{base_color}; font-family:\'JetBrains Mono\'; font-weight:700; min-width:34px;">{display_label}</span>'
-            f'<span style="font-size:9px; color:{src_color}; font-family:\'JetBrains Mono\'; opacity:0.8; min-width:14px;">{src_text}</span>'
-            f'<span style="font-size:12px; color:{base_color}; font-family:\'JetBrains Mono\'; font-weight:{weight};">{price_str}</span>'
-            f'</div>'
-            f'<span style="font-size:10px; color:{base_color}; direction:ltr; font-family:\'JetBrains Mono\';">{sign} {abs_dist:.2f}%</span>'
-            f'</div>'
+            f'<span style="font-size:11px; color:{base_color}; '
+            f"font-family:'JetBrains Mono'; font-weight:700; min-width:34px;\">{display_label}</span>"
+            f'<span style="font-size:9px; color:{src_color}; '
+            f"font-family:'JetBrains Mono'; opacity:0.8; min-width:14px;\">{src_text}</span>"
+            f'<span style="font-size:12px; color:{base_color}; '
+            f"font-family:'JetBrains Mono'; font-weight:{weight};\">{price_str}</span>"
+            f"</div>"
+            f'<span style="font-size:10px; color:{base_color}; direction:ltr; '
+            f"font-family:'JetBrains Mono';\">{sign} {abs_dist:.2f}%</span>"
+            f"</div>"
         )
 
     res_rows = ""
@@ -469,7 +727,10 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
             order_num = total - i
             res_rows += level_row(lvl, order_num, True)
     else:
-        res_rows = f'<div style="text-align:center; padding:8px; color:{t["fg_dim"]}; font-size:10px;">مقاومتی بالای قیمت نیست</div>'
+        res_rows = (
+            f'<div style="text-align:center; padding:8px; '
+            f'color:{t["fg_dim"]}; font-size:10px;">مقاومتی بالای قیمت نیست</div>'
+        )
 
     sup_rows = ""
     if supports:
@@ -477,7 +738,10 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
             order_num = i + 1
             sup_rows += level_row(lvl, order_num, False)
     else:
-        sup_rows = f'<div style="text-align:center; padding:8px; color:{t["fg_dim"]}; font-size:10px;">حمایتی زیر قیمت نیست</div>'
+        sup_rows = (
+            f'<div style="text-align:center; padding:8px; '
+            f'color:{t["fg_dim"]}; font-size:10px;">حمایتی زیر قیمت نیست</div>'
+        )
 
     return res_rows, price_row, sup_rows
 
@@ -491,7 +755,7 @@ def _build_regime_badge(analysis: dict) -> str:
     adx = analysis.get("adx", 0)
     risk_profile = analysis.get("risk_profile", "aggressive")
 
-    regime_icon, regime_fa = REGIME_META.get(regime, ("📊", "رنج"))
+    regime_icon, regime_fa = Regime.display_fa(regime)
 
     if regime == "trend":
         regime_color = t["green"]
@@ -535,9 +799,10 @@ def _build_voting_bar(analysis: dict) -> str:
         return ""
 
     group_chips = ""
-    for g_key, (g_icon, g_name, _) in GROUP_META.items():
+    for g_key in AnalysisGroup.all():
         if g_key not in groups:
             continue
+        g_icon, g_name, _ = AnalysisGroup.display_fa(g_key)
         g_vote = groups[g_key].get("vote", 0)
         g_strength = groups[g_key].get("strength_fa", "")
 
@@ -553,27 +818,30 @@ def _build_voting_bar(analysis: dict) -> str:
 
         strength_html = ""
         if g_strength and g_strength != "بی‌جهت":
-            strength_html = f'<span style="color:{chip_color}; font-size:9px; opacity:0.75;">· {g_strength}</span>'
+            strength_html = (
+                f'<span style="color:{chip_color}; font-size:9px; opacity:0.75;">'
+                f"· {g_strength}</span>"
+            )
 
         group_chips += (
             f'<div style="display:inline-flex; align-items:center; gap:5px; '
-            f'padding:5px 10px; margin:3px; '
-            f'background:{chip_color}15; '
-            f'border:1px solid {chip_color}55; '
+            f"padding:5px 10px; margin:3px; "
+            f"background:{chip_color}15; "
+            f"border:1px solid {chip_color}55; "
             f'border-radius:8px; font-size:10px; direction:rtl;">'
-            f'<span>{chip_icon}</span>'
+            f"<span>{chip_icon}</span>"
             f'<span style="color:{chip_color}; font-weight:600;">{g_name}</span>'
-            f'{strength_html}'
-            f'</div>'
+            f"{strength_html}"
+            f"</div>"
         )
 
-    consensus_map = {
-        "strong":  ("🔥 اجماع قوی", t["green"]),
-        "normal":  ("✅ اجماع معمولی", t["green"]),
-        "weak":    ("⚠️ اجماع ضعیف", t["yellow"]),
-        "neutral": ("⚪ بدون اجماع", t["fg_muted"]),
-    }
-    consensus_text, consensus_color = consensus_map.get(consensus, ("—", t["fg_muted"]))
+    consensus_text = Consensus.display_fa(consensus)
+    consensus_color = {
+        "strong": t["green"],
+        "normal": t["green"],
+        "weak": t["yellow"],
+        "neutral": t["fg_muted"],
+    }.get(consensus, t["fg_muted"])
 
     multi_tf_html = ""
     if multi_tf_info and multi_tf_info != "بدون بررسی":
@@ -581,8 +849,8 @@ def _build_voting_bar(analysis: dict) -> str:
         multi_tf_icon = "✅" if multi_tf_ok else "⚠️"
         multi_tf_html = (
             f'<div style="display:flex; align-items:center; gap:6px; font-size:10px; '
-            f'color:{multi_tf_color}; background:{multi_tf_color}10; padding:6px 10px; '
-            f'border-radius:8px; border-right:3px solid {multi_tf_color}; direction:rtl; '
+            f"color:{multi_tf_color}; background:{multi_tf_color}10; padding:6px 10px; "
+            f"border-radius:8px; border-right:3px solid {multi_tf_color}; direction:rtl; "
             f'margin-top:8px;">{multi_tf_icon} {multi_tf_info}</div>'
         )
 
@@ -590,7 +858,7 @@ def _build_voting_bar(analysis: dict) -> str:
     if divergence.get("has_divergence"):
         divergence_html = (
             f'<div style="display:flex; align-items:center; gap:6px; font-size:10px; '
-            f'color:{t["red"]}; background:rgba(248,81,73,0.1); padding:8px 10px; '
+            f'color:{t["red"]}; background:rgba(239,68,68,0.1); padding:8px 10px; '
             f'border-radius:8px; border-right:3px solid {t["red"]}; direction:rtl; '
             f'margin-top:8px; font-weight:600; line-height:1.6;">'
             f'{divergence.get("reason", "")}</div>'
@@ -621,7 +889,137 @@ def _build_voting_bar(analysis: dict) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# کارت سیگنال
+# جعبه تله‌ها (گام ۵.۵)
+# ═══════════════════════════════════════════════════════════
+def _render_traps_box(analysis: dict) -> str:
+    """نمایش تله‌های فعال در کارت سیگنال"""
+    t = _t()
+
+    traps = analysis.get("traps", {})
+    if not traps:
+        return ""
+
+    active_traps = {k: v for k, v in traps.items() if v.get("active")}
+
+    if not active_traps:
+        return ""
+
+    # ترتیب بر اساس severity
+    sorted_traps = sorted(
+        active_traps.items(),
+        key=lambda x: -x[1].get("severity", 0),
+    )
+
+    trap_names = {
+        "bull_trap": ("🚨", "تله صعودی"),
+        "bear_trap": ("🚨", "تله نزولی"),
+        "fake_breakout": ("⚠️", "شکست جعلی"),
+        "exhaustion": ("😮‍💨", "خستگی روند"),
+    }
+
+    rows = ""
+    for trap_key, trap_info in sorted_traps:
+        icon, name = trap_names.get(trap_key, ("⚠️", trap_key))
+        severity = trap_info.get("severity", 5)
+        reason = trap_info.get("reason", "")
+
+        # شدت رنگ بر اساس severity
+        if severity >= 8:
+            bg = f"{t['red']}20"
+            border = t["red"]
+            text_color = t["red"]
+        elif severity >= 6:
+            bg = f"{t['orange']}20"
+            border = t["orange"]
+            text_color = t["orange"]
+        else:
+            bg = f"{t['yellow']}20"
+            border = t["yellow"]
+            text_color = t["yellow"]
+
+        rows += (
+            f'<div style="background:{bg}; '
+            f"border-right:3px solid {border}; "
+            f"border-radius:8px; padding:10px 12px; margin-bottom:6px; "
+            f'direction:rtl; text-align:right;">'
+            f'<div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">'
+            f'<span style="font-size:14px;">{icon}</span>'
+            f'<span style="color:{text_color}; font-weight:700; font-size:12px;">{name}</span>'
+            f'<span style="font-size:9px; color:{text_color}; opacity:0.7;">'
+            f"(شدت {severity}/10)</span>"
+            f"</div>"
+            f'<div style="font-size:10px; color:{t["fg"]}; line-height:1.7;">'
+            f"{reason}</div>"
+            f"</div>"
+        )
+
+    return (
+        f'<div style="margin-top:14px; padding-top:12px; '
+        f'border-top:1px dashed {t["red"]}55;">'
+        f'<div style="font-size:11px; color:{t["red"]}; font-weight:700; '
+        f'margin-bottom:8px;">🚨 هشدار تله‌های معاملاتی</div>'
+        f"{rows}"
+        f"</div>"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# جعبه سناریوها (گام ۵.۵)
+# ═══════════════════════════════════════════════════════════
+def _render_scenarios_box(analysis: dict) -> str:
+    """نمایش سناریوهای «اگه X → Y»"""
+    t = _t()
+
+    scenarios = analysis.get("scenarios", [])
+    if not scenarios:
+        return ""
+
+    rows = ""
+    for sc in scenarios:
+        color = sc.get("color", "yellow")
+        color_hex = {
+            "green": t["green"],
+            "red": t["red"],
+            "yellow": t["yellow"],
+        }.get(color, t["yellow"])
+
+        icon = sc.get("icon", "•")
+        condition = sc.get("condition", "")
+        action = sc.get("action", "")
+        prob = sc.get("probability", 0.5)
+        prob_pct = int(prob * 100)
+
+        rows += (
+            f'<div style="background:{t["bg_card"]}; '
+            f'border:1px solid {t["border"]}; '
+            f"border-right:3px solid {color_hex}; "
+            f"border-radius:8px; padding:10px 12px; margin-bottom:6px; "
+            f'direction:rtl; text-align:right;">'
+            f'<div style="display:flex; justify-content:space-between; align-items:center; '
+            f'margin-bottom:5px;">'
+            f'<span style="font-size:11px; color:{color_hex}; font-weight:700;">'
+            f"{icon} {condition}</span>"
+            f'<span style="font-size:9px; color:{t["fg_muted"]}; '
+            f'background:{color_hex}15; padding:2px 6px; border-radius:4px;">'
+            f"{prob_pct}%</span>"
+            f"</div>"
+            f'<div style="font-size:10px; color:{t["fg"]}; line-height:1.6;">'
+            f"← {action}</div>"
+            f"</div>"
+        )
+
+    return (
+        f'<div style="margin-top:14px; padding-top:12px; '
+        f'border-top:1px solid {t["border"]};">'
+        f'<div style="font-size:11px; color:{t["primary"]}; font-weight:700; '
+        f'margin-bottom:8px;">🎯 سناریوهای احتمالی</div>'
+        f"{rows}"
+        f"</div>"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# کارت سیگنال (با live_price)
 # ═══════════════════════════════════════════════════════════
 def render_unified_signal_card(
     analysis: dict,
@@ -630,6 +1028,9 @@ def render_unified_signal_card(
     ticker: str = "",
     last_update: str = "",
     source: str = "global",
+    market_type: str = "spot",
+    live_price: float = None,
+    show_scenarios: bool = True,  # ← جدید
 ) -> None:
     t = _t()
 
@@ -638,7 +1039,7 @@ def render_unified_signal_card(
             f'<div style="text-align:center; padding:30px; '
             f'background:{t["bg_card"]}; border:1px solid {t["border"]}; '
             f'border-radius:12px; color:{t["fg_muted"]}; direction:rtl;">'
-            f'در حال محاسبه تحلیل...</div>'
+            f"در حال محاسبه تحلیل...</div>"
         )
         return
 
@@ -648,19 +1049,19 @@ def render_unified_signal_card(
     sl_tp = analysis.get("sl_tp")
     rr = analysis.get("rr")
 
-    if "LONG" in signal:
+    # قیمت نمایشی — اگه live_price هست، اون
+    display_price = live_price if live_price and live_price > 0 else price
+
+    if SigEnum.is_long(signal):
         icon = "🟢"
-        action = "مناسب برای خرید"
         signal_color = t["green"]
         signal_border = t["green"]
-    elif "SHORT" in signal:
+    elif SigEnum.is_short(signal):
         icon = "🔴"
-        action = "مناسب برای فروش"
         signal_color = t["red"]
         signal_border = t["red"]
     else:
         icon = "⚪"
-        action = "فعلاً نخر"
         signal_color = t["fg_muted"]
         signal_border = t["border_light"]
 
@@ -669,7 +1070,7 @@ def render_unified_signal_card(
             return "—"
         return f"${p:,.2f}" if p < 10000 else f"${p:,.0f}"
 
-    price_str = _fmt_price(price)
+    price_str = _fmt_price(display_price)
 
     if sl_tp:
         sl_str = _fmt_price(sl_tp.get("sl"))
@@ -685,21 +1086,46 @@ def render_unified_signal_card(
         sl_color = t["fg_dim"]
         tp_color = t["fg_dim"]
 
-        explanation = analysis.get("explanation", "")
+        # ═══ گام ۲: پیام خنثی جدید با short + long + hint ═══
+        neutral_explain = analysis.get("neutral_explain", {})
+        ne_short = neutral_explain.get("short") or analysis.get("explanation", "")
+        ne_long = neutral_explain.get("long", "")
+        ne_hint = neutral_explain.get("hint")
+
+        hint_html = ""
+        if ne_hint:
+            hint_html = (
+                f'<div style="margin-top:10px; padding:8px 10px; '
+                f'background:{t["cyan"]}15; border-right:3px solid {t["cyan"]}; '
+                f'border-radius:6px; font-size:10px; color:{t["cyan"]}; '
+                f'direction:rtl; text-align:right; line-height:1.7; font-weight:600;">'
+                f"{ne_hint}</div>"
+            )
+
+        long_html = ""
+        if ne_long:
+            long_html = (
+                f'<div style="margin-top:6px; font-size:10px; color:{t["fg_muted"]}; '
+                f'direction:rtl; text-align:right; line-height:1.8;">'
+                f"{ne_long}</div>"
+            )
+
         sl_tp_note = (
-            f'<div style="font-size:10px; color:{t["fg_muted"]}; margin-top:8px; '
-            f'text-align:center; padding:10px; background:{t["bg_mid"]}; '
-            f'border-radius:8px; direction:rtl; line-height:1.7;">'
-            f'⚪ <b>چرا سیگنال نیست؟</b><br>'
-            f'<span style="font-size:10px;">{explanation}</span>'
-            f'</div>'
+            f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-top:10px; '
+            f'padding:14px; background:{t["bg_mid"]}; '
+            f'border-radius:8px; direction:rtl; line-height:1.9;">'
+            f'<div style="font-weight:700; color:{t["fg"]}; margin-bottom:6px; '
+            f'font-size:12px;">⚪ {ne_short}</div>'
+            f"{long_html}"
+            f"{hint_html}"
+            f"</div>"
         )
 
     res_rows, price_row, sup_rows = _build_sr_rows(analysis, max_levels=3)
     voting_bar = _build_voting_bar(analysis)
     regime_badge = _build_regime_badge(analysis)
 
-    badge_bg = f'{signal_color}22' if signal != "خنثی" else 'rgba(139,148,158,0.15)'
+    badge_bg = f"{signal_color}22" if signal != "خنثی" else "rgba(139,148,158,0.15)"
 
     weak_suffix = ""
     signal_main = signal
@@ -707,18 +1133,48 @@ def render_unified_signal_card(
         signal_main = signal.replace(" ضعیف", "")
         weak_suffix = f'<div style="font-size:9px; color:{t["fg_muted"]}; margin-top:2px;">(ضعیف)</div>'
 
-    ticker_html = f'<span style="font-size:11px; color:{t["fg_muted"]}; margin-right:6px;">({ticker})</span>' if ticker else ""
+    ticker_html = (
+        f'<span style="font-size:11px; color:{t["fg_muted"]}; margin-right:6px;">({ticker})</span>'
+        if ticker
+        else ""
+    )
 
     update_html = ""
     if last_update:
         update_html = (
-            f'<div style="display:flex; align-items:center; gap:5px; margin-top:4px;">'
-            f'<span style="font-size:9px; color:{t["fg_muted"]};">🕐 آخرین بروزرسانی:</span>'
-            f'<span style="font-family:\'JetBrains Mono\'; font-size:10px; color:{t["cyan"]}; font-weight:600;">{last_update}</span>'
-            f'</div>'
+            f'<span style="font-size:10px; color:{t["fg_muted"]};">🕐 </span>'
+            f"<span style=\"font-family:'JetBrains Mono'; font-size:10px; "
+            f'color:{t["cyan"]}; font-weight:600;">{last_update}</span>'
+        )
+
+    # نشانگر live
+    live_indicator = ""
+    if live_price and live_price > 0:
+        live_indicator = (
+            f'<span class="live-pulse-dot" style="margin-right:6px;"></span>'
         )
 
     source_badge_html = render_source_badge(source)
+
+    if market_type == "futures":
+        leverage = analysis.get("leverage") or 3
+        market_badge = (
+            f'<span style="display:inline-flex; align-items:center; gap:5px; '
+            f'padding:5px 14px; background:{t["orange"]}25; '
+            f'border:1.5px solid {t["orange"]}88; border-radius:9px; '
+            f'font-size:11px; color:{t["orange"]}; font-weight:700;">'
+            f"📈 فیوچرز · {leverage}x</span>"
+        )
+    else:
+        market_badge = (
+            f'<span style="display:inline-flex; align-items:center; gap:5px; '
+            f'padding:5px 14px; background:{t["green"]}25; '
+            f'border:1.5px solid {t["green"]}88; border-radius:9px; '
+            f'font-size:11px; color:{t["green"]}; font-weight:700;">'
+            f"💵 اسپات</span>"
+        )
+
+    action_fa = analysis.get("action_fa", "")
 
     html = f"""
     <style>
@@ -726,16 +1182,16 @@ def render_unified_signal_card(
             background:{t['bg_card']};
             border:2px solid {signal_border};
             border-radius:14px;
-            padding:18px 22px;
+            padding:16px 20px;
             margin-bottom:16px;
-            box-shadow:0 4px 20px {signal_color}22, 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow:0 4px 20px {signal_color}22, 0 2px 8px rgba(0,0,0,0.2);
             direction:rtl;
             text-align:right;
         }}
         .ty-unified-grid {{
             display:grid;
             grid-template-columns:1.2fr 1fr;
-            gap:18px;
+            gap:16px;
             align-items:start;
             direction:rtl;
         }}
@@ -750,7 +1206,7 @@ def render_unified_signal_card(
         .ty-signal-box {{
             background:{t['bg_mid']};
             border-radius:12px;
-            padding:16px;
+            padding:14px;
             border:1px solid {t['border']};
             direction:rtl;
             text-align:right;
@@ -770,37 +1226,41 @@ def render_unified_signal_card(
     <div class="ty-unified-card">
         <div style="
             display:flex; justify-content:space-between; align-items:center;
-            padding-bottom:14px; margin-bottom:16px;
+            padding-bottom:10px; margin-bottom:12px;
             border-bottom:1px solid {t['border']};
-            flex-wrap:wrap; gap:10px;
+            flex-wrap:wrap; gap:8px;
             direction:rtl;
         ">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <span style="font-size:26px; filter:drop-shadow(0 0 8px {signal_color});">{icon}</span>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:24px; filter:drop-shadow(0 0 8px {signal_color});">{icon}</span>
                 <div style="text-align:right;">
-                    <div style="font-size:16px; font-weight:700; color:{t['fg']};">
-                        تحلیل {sym_name} {ticker_html}
+                    <div style="font-size:15px; font-weight:700; color:{t['fg']}; display:flex; align-items:center; gap:6px;">
+                        {live_indicator}
+                        <span>تحلیل {sym_name}</span>
+                        <span style="font-size:10px; color:{t['fg_muted']};">{ticker_html}</span>
                     </div>
-                    <div style="font-size:11px; color:{t['cyan']}; margin-top:3px; font-weight:600;">
-                        ⏱ تایم‌فریم: {tf_name}
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:3px; font-size:10px; color:{t['fg_muted']};">
+                        <span>⏱ {tf_name}</span>
+                        <span>·</span>
+                        {update_html}
                     </div>
-                    {update_html}
                 </div>
             </div>
-            <div style="display:flex; align-items:center; gap:22px;">
+            <div style="display:flex; align-items:center; gap:18px;">
                 <div style="text-align:center;">
-                    <div style="font-size:9px; color:{t['fg_muted']}; margin-bottom:2px;">قیمت فعلی</div>
-                    <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['primary']}; font-weight:700; direction:ltr;">{price_str}</div>
+                    <div style="font-size:9px; color:{t['fg_muted']}; margin-bottom:2px;">قیمت</div>
+                    <div style="font-family:'JetBrains Mono'; font-size:16px; color:{t['primary']}; font-weight:700; direction:ltr;">{price_str}</div>
                 </div>
                 <div style="text-align:center;">
                     <div style="font-size:9px; color:{t['fg_muted']}; margin-bottom:2px;">اطمینان</div>
-                    <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['primary']}; font-weight:700;">{confidence}%</div>
+                    <div style="font-family:'JetBrains Mono'; font-size:16px; color:{t['primary']}; font-weight:700;">{confidence}%</div>
                 </div>
             </div>
         </div>
 
-        <div style="display:flex; justify-content:flex-start; margin-bottom:10px;">
+        <div style="display:flex; justify-content:flex-start; align-items:center; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
             {source_badge_html}
+            {market_badge}
         </div>
 
         <div class="ty-unified-grid">
@@ -809,7 +1269,7 @@ def render_unified_signal_card(
 
                 <div style="
                     display:flex; justify-content:space-between; align-items:center;
-                    padding:14px 18px; margin-bottom:16px;
+                    padding:14px 18px; margin-bottom:14px;
                     background:{badge_bg};
                     border:2px solid {signal_color};
                     border-radius:12px;
@@ -822,7 +1282,7 @@ def render_unified_signal_card(
                         {weak_suffix}
                     </div>
                     <div style="text-align:left;">
-                        <div style="font-size:12px; color:{signal_color}; font-weight:600;">{action}</div>
+                        <div style="font-size:12px; color:{signal_color}; font-weight:600;">{action_fa}</div>
                     </div>
                 </div>
 
@@ -847,8 +1307,10 @@ def render_unified_signal_card(
 
                 {sl_tp_note}
                 {voting_bar}
+                {_render_traps_box(analysis)}
+                {_render_scenarios_box(analysis) if show_scenarios else ""}
             </div>
-
+                                
             <div class="ty-sr-box">
                 <div style="
                     display:flex; justify-content:space-between; align-items:center;
@@ -873,22 +1335,33 @@ def render_unified_signal_card(
 
 
 # ═══════════════════════════════════════════════════════════
-# جدول TF
+# جدول TF (نسخه بهبودیافته — بدون کلیک، با دکمه‌های کوچیک)
 # ═══════════════════════════════════════════════════════════
-def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> None:
+def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str | None:
+    """
+    جدول تحلیل TFها — دسکتاپ: جدول کامل با تحلیل | موبایل: کارت
+    زیر جدول، ۶ دکمه کوچیک برای انتخاب سریع TF
+
+    Returns:
+        اگه کاربر روی دکمه TF کلیک کرد → TF انتخاب‌شده (str)
+        وگرنه → None
+    """
     t = _t()
     if not tfs_data:
-        return
+        return None
 
-    tf_order = ["۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"]
-    tf_short = {
-        "۱ دقیقه": "1m", "۵ دقیقه": "5m", "۱۵ دقیقه": "15m",
-        "۳۰ دقیقه": "30m", "۱ ساعت": "1h", "روزانه": "1D",
-    }
+    from core.contracts import TF_NAMES, TF_SHORT
 
-    price_str = f"${current_price:,.2f}" if current_price < 10000 else f"${current_price:,.0f}"
+    tf_order = TF_NAMES
+    price_str = (
+        f"${current_price:,.2f}" if current_price < 10000 else f"${current_price:,.0f}"
+    )
 
-    _render(f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; margin:0 0 10px 0; padding-right:10px; border-right:3px solid {t["primary"]}; direction:rtl; text-align:right;">📊 جدول تحلیل — قیمت فعلی: {price_str}</div>')
+    _render(
+        f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; '
+        f"margin:0 0 10px 0; padding-right:10px; border-right:3px solid {t['primary']}; "
+        f'direction:rtl; text-align:right;">📊 جدول تحلیل — قیمت فعلی: {price_str}</div>'
+    )
 
     rows = ""
     cards = ""
@@ -900,14 +1373,14 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> None
         signal = a.get("signal", "—")
         confidence = a.get("confidence", 0)
         close_series = a.get("close_series", [])
-        adx = a.get("adx", 20)
         regime = a.get("regime", "range")
 
-        if "LONG" in signal:
+        # ═══ بدون آیکون (فقط متن) ═══
+        if SigEnum.is_long(signal):
             sig_text = "LONG"
             sig_color = t["green"]
             trend = "up"
-        elif "SHORT" in signal:
+        elif SigEnum.is_short(signal):
             sig_text = "SHORT"
             sig_color = t["red"]
             trend = "down"
@@ -916,61 +1389,141 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> None
             sig_color = t["fg_muted"]
             trend = "flat"
 
-        regime_icon, regime_fa = REGIME_META.get(regime, ("📊", "رنج"))
+        # ═══ بدون آیکون رژیم ═══
+        _, regime_fa = Regime.display_fa(regime)
 
-        if "LONG" in signal and confidence >= 70:
-            expl_main = "🟢 فرصت خرید"
-            expl_sub = "احتمال صعود قویه"
-        elif "LONG" in signal:
-            expl_main = "🟢 نشانه‌های صعود"
-            expl_sub = "با احتیاط وارد شو"
-        elif "SHORT" in signal and confidence >= 70:
-            expl_main = "🔴 فرصت فروش"
-            expl_sub = "احتمال نزول قویه"
-        elif "SHORT" in signal:
-            expl_main = "🔴 نشانه‌های نزول"
-            expl_sub = "با احتیاط وارد شو"
+        # ═══ توضیح فارسی بهبودیافته (با تشخیص تله) ═══
+        traps = a.get("traps", {})
+        active_traps = [k for k, v in traps.items() if v.get("active")]
+
+        if active_traps:
+            trap_names_fa = {
+                "bull_trap": "تله صعودی",
+                "bear_trap": "تله نزولی",
+                "fake_breakout": "شکست جعلی",
+                "exhaustion": "خستگی روند",
+            }
+            trap_fa = trap_names_fa.get(active_traps[0], "هشدار")
+            expl_main = f"🚨 {trap_fa}"
+            expl_sub = "احتمال تله — احتیاط"
+        elif SigEnum.is_long(signal) and confidence >= 70:
+            expl_main = "فرصت خرید قوی"
+            expl_sub = "احتمال صعود بالاست"
+        elif SigEnum.is_long(signal) and confidence >= 50:
+            expl_main = "فرصت خرید"
+            expl_sub = "با حد ضرر وارد شو"
+        elif SigEnum.is_long(signal):
+            expl_main = "نشانه‌های صعود ضعیف"
+            expl_sub = "با احتیاط و حجم کم"
+        elif SigEnum.is_short(signal) and confidence >= 70:
+            expl_main = "فرصت فروش قوی"
+            expl_sub = "احتمال نزول بالاست"
+        elif SigEnum.is_short(signal) and confidence >= 50:
+            expl_main = "فرصت فروش"
+            expl_sub = "با حد ضرر وارد شو"
+        elif SigEnum.is_short(signal):
+            expl_main = "نشانه‌های نزول ضعیف"
+            expl_sub = "با احتیاط و حجم کم"
         else:
             if regime == "range":
-                expl_main = "⚪ بازار رنج"
-                expl_sub = "بدون روند واضح"
+                expl_main = "بازار رنج"
+                expl_sub = "بدون روند — صبر کن"
+            elif regime == "trend":
+                expl_main = "بدون سیگنال معتبر"
+                expl_sub = "روند هست ولی گروه‌ها هم‌جهت نیستن"
             else:
-                expl_main = "⚪ بدون سیگنال"
-                expl_sub = "صبر کن"
+                expl_main = "بدون سیگنال"
+                expl_sub = "منتظر تأیید باش"
+        ...
 
-        spark_color = t["green"] if "LONG" in signal else (t["red"] if "SHORT" in signal else t["fg_muted"])
+        # ═══ توضیح فارسی سیگنال (بهبود یافته) ═══
+        traps = a.get("traps", {})
+        active_traps = [k for k, v in traps.items() if v.get("active")]
+
+        if active_traps:
+            trap_names_fa = {
+                "bull_trap": "تله صعودی",
+                "bear_trap": "تله نزولی",
+                "fake_breakout": "شکست جعلی",
+                "exhaustion": "خستگی روند",
+            }
+            trap_fa = trap_names_fa.get(active_traps[0], "هشدار")
+            expl_main = f"🚨 {trap_fa}"
+            expl_sub = "احتمال تله — احتیاط"
+        elif SigEnum.is_long(signal) and confidence >= 70:
+            expl_main = "فرصت خرید قوی"
+            expl_sub = "احتمال صعود بالاست"
+        elif SigEnum.is_long(signal) and confidence >= 50:
+            expl_main = "فرصت خرید"
+            expl_sub = "با حد ضرر وارد شو"
+        elif SigEnum.is_long(signal):
+            expl_main = "نشانه‌های صعود ضعیف"
+            expl_sub = "با احتیاط و حجم کم"
+        elif SigEnum.is_short(signal) and confidence >= 70:
+            expl_main = "فرصت فروش قوی"
+            expl_sub = "احتمال نزول بالاست"
+        elif SigEnum.is_short(signal) and confidence >= 50:
+            expl_main = "فرصت فروش"
+            expl_sub = "با حد ضرر وارد شو"
+        elif SigEnum.is_short(signal):
+            expl_main = "نشانه‌های نزول ضعیف"
+            expl_sub = "با احتیاط و حجم کم"
+        else:
+            if regime == "range":
+                expl_main = "بازار رنج"
+                expl_sub = "بدون روند — صبر کن"
+            elif regime == "trend":
+                expl_main = "بدون سیگنال معتبر"
+                expl_sub = "روند هست ولی گروه‌ها هم‌جهت نیستن"
+            else:
+                expl_main = "بدون سیگنال"
+                expl_sub = "منتظر تأیید باش"
+
+        spark_color = (
+            t["green"]
+            if SigEnum.is_long(signal)
+            else (t["red"] if SigEnum.is_short(signal) else t["fg_muted"])
+        )
         spark = sparkline_svg(close_series, spark_color, 65, 24, trend)
 
         rows += (
-            f'<tr>'
-            f'<td style="font-weight:700; color:{t["primary"]}; text-align:right; font-family:\'JetBrains Mono\'; font-size:12px;">{tf_short.get(tf, tf)}</td>'
+            f"<tr>"
+            f'<td style="font-weight:700; color:{t["primary"]}; text-align:right; '
+            f"font-family:'JetBrains Mono'; font-size:12px;\">{TF_SHORT.get(tf, tf)}</td>"
             f'<td style="text-align:center;">{spark}</td>'
-            f'<td style="text-align:center; color:{sig_color}; font-weight:700; font-size:12px; font-family:\'JetBrains Mono\';">{sig_text}</td>'
-            f'<td style="font-size:11px; color:{t["fg"]}; text-align:right; line-height:1.6;">{expl_main}<br><span style="font-size:9px; color:{t["fg_muted"]};">{expl_sub} · {regime_icon} {regime_fa}</span></td>'
-            f'<td style="text-align:center; font-family:\'JetBrains Mono\'; color:{t["primary"]}; font-size:12px; font-weight:600;">{confidence}%</td>'
-            f'</tr>'
+            f'<td style="text-align:center; color:{sig_color}; font-weight:700; '
+            f"font-size:12px; font-family:'JetBrains Mono';\">{sig_text}</td>"
+            f'<td style="font-size:11px; color:{t["fg"]}; text-align:right; line-height:1.6;">'
+            f'{expl_main}<br><span style="font-size:9px; color:{t["fg_muted"]};">{expl_sub} · رژیم {regime_fa}</span></td>'
+            f"<td style=\"text-align:center; font-family:'JetBrains Mono'; "
+            f'color:{t["primary"]}; font-size:12px; font-weight:600;">{confidence}%</td>'
+            f"</tr>"
         )
 
         cards += (
             f'<div class="ty-tf-card">'
             f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
-            f'<div style="font-size:14px; font-weight:700; color:{t["primary"]}; font-family:\'JetBrains Mono\';">{tf_short.get(tf, tf)}</div>'
-            f'<div style="font-size:12px; color:{sig_color}; font-weight:700; font-family:\'JetBrains Mono\';">{sig_text}</div>'
-            f'</div>'
+            f'<div style="font-size:14px; font-weight:700; color:{t["primary"]}; '
+            f"font-family:'JetBrains Mono';\">{TF_SHORT.get(tf, tf)}</div>"
+            f'<div style="font-size:12px; color:{sig_color}; font-weight:700; '
+            f"font-family:'JetBrains Mono';\">{sig_text}</div>"
+            f"</div>"
             f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
-            f'<div>{spark}</div>'
-            f'<div style="font-family:\'JetBrains Mono\'; font-size:13px; color:{t["primary"]}; font-weight:600;">{confidence}%</div>'
-            f'</div>'
+            f"<div>{spark}</div>"
+            f"<div style=\"font-family:'JetBrains Mono'; font-size:13px; "
+            f'color:{t["primary"]}; font-weight:600;">{confidence}%</div>'
+            f"</div>"
             f'<div style="font-size:11px; color:{t["fg"]}; text-align:right; margin-bottom:4px;">{expl_main}</div>'
-            f'<div style="font-size:9px; color:{t["fg_muted"]}; text-align:right;">{expl_sub} · {regime_icon} {regime_fa}</div>'
-            f'</div>'
+            f'<div style="font-size:9px; color:{t["fg_muted"]}; text-align:right;">'
+            f'<div style="font-size:9px; color:{t["fg_muted"]}; text-align:right;">'
+            f"{expl_sub} · رژیم {regime_fa}</div>"
+            f"</div>"
         )
 
     _render(f"""
     <style>
         .ty-tf-desktop {{ display: block; }}
         .ty-tf-mobile {{ display: none; }}
-        
         .ty-tf-card {{
             background:{t['bg_card']};
             border:1px solid {t['border']};
@@ -981,13 +1534,11 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> None
             direction:rtl;
             text-align:right;
         }}
-        
         @media (max-width: 768px) {{
             .ty-tf-desktop {{ display: none !important; }}
             .ty-tf-mobile {{ display: block !important; }}
         }}
     </style>
-    
     <div class="ty-tf-desktop">
         <table class="tf-table" style="direction:rtl;">
             <thead>
@@ -1002,31 +1553,28 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> None
             <tbody>{rows}</tbody>
         </table>
     </div>
-    
-    <div class="ty-tf-mobile">
-        {cards}
-    </div>
+    <div class="ty-tf-mobile">{cards}</div>
     """)
+
+    return None
 
 
 # ═══════════════════════════════════════════════════════════
 # تحلیل عمیق
 # ═══════════════════════════════════════════════════════════
 def render_deep_analysis(
-    analysis_text: str,
-    analysis_data: dict,
-    sym_name: str = "",
+    analysis_text: str, analysis_data: dict, sym_name: str = ""
 ) -> None:
     t = _t()
 
     signal = analysis_data.get("signal", "خنثی") if analysis_data else "خنثی"
     confidence = analysis_data.get("confidence", 0) if analysis_data else 0
 
-    if "LONG" in signal:
+    if SigEnum.is_long(signal):
         final_decision = "🟢 پیشنهاد خرید"
         final_color = t["green"]
         decision_line = "با احتیاط وارد شو و حتماً حد ضرر بذار"
-    elif "SHORT" in signal:
+    elif SigEnum.is_short(signal):
         final_decision = "🔴 پیشنهاد فروش"
         final_color = t["red"]
         decision_line = "محتاط باش، نوسان بالاست"
@@ -1035,26 +1583,26 @@ def render_deep_analysis(
         final_color = t["fg_muted"]
         decision_line = "بدون سیگنال واضح — منتظر بمان"
 
-    if "LONG" in signal and confidence > 70:
+    if SigEnum.is_long(signal) and confidence > 70:
         low_risk_color = t["green"]
         low_risk_text = "✅ می‌تونی با احتیاط وارد شی — ۱٪ سرمایه"
-    elif "LONG" in signal and confidence > 50:
+    elif SigEnum.is_long(signal) and confidence > 50:
         low_risk_color = t["yellow"]
         low_risk_text = "⚠️ صبر کن تا سیگنال قوی‌تر بشه"
-    elif "SHORT" in signal and confidence > 70:
+    elif SigEnum.is_short(signal) and confidence > 70:
         low_risk_color = t["red"]
         low_risk_text = "⚠️ فروش پر‌ریسکه — بهتره صبر کنی"
-    elif "SHORT" in signal:
+    elif SigEnum.is_short(signal):
         low_risk_color = t["red"]
         low_risk_text = "❌ فعلاً وارد نشو"
     else:
         low_risk_color = t["fg_muted"]
         low_risk_text = "⏸ صبر کن — بازار بی‌جهته"
 
-    if "LONG" in signal:
+    if SigEnum.is_long(signal):
         high_risk_color = t["green"]
         high_risk_text = "🚀 فرصت خرید — با حد ضرر و ۳-۵٪ سرمایه"
-    elif "SHORT" in signal:
+    elif SigEnum.is_short(signal):
         high_risk_color = t["red"]
         high_risk_text = "🎯 فرصت فروش — با حد ضرر و ۳-۵٪ سرمایه"
     else:
@@ -1062,13 +1610,17 @@ def render_deep_analysis(
         high_risk_text = "⏳ می‌تونی نوسان‌گیری کنی ولی محتاط باش"
 
     text_html = analysis_text.replace("\n", "<br>")
-    text_html = text_html.replace("◈", f'<span style="color:{t["primary"]}; font-weight:700;">◈</span>')
-    text_html = text_html.replace("─" * 30, f'<span style="color:{t["border"]};">{"─" * 30}</span>')
+    text_html = text_html.replace(
+        "◈", f'<span style="color:{t["primary"]}; font-weight:700;">◈</span>'
+    )
+    text_html = text_html.replace(
+        "─" * 30, f'<span style="color:{t["border"]};">{"─" * 30}</span>'
+    )
 
     title_html = f"تحلیل عمیق {sym_name}" if sym_name else "تحلیل عمیق"
 
     _render(f"""
-    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:18px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:18px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
         <div style="background:{t['bg_mid']}; border-right:4px solid {final_color}; border-radius:10px; padding:14px 18px; margin-bottom:16px; text-align:right;">
             <div style="font-size:15px; font-weight:700; color:{final_color}; margin-bottom:5px;">{final_decision}</div>
             <div style="font-size:11px; color:{t['fg']};">{decision_line}</div>
@@ -1113,7 +1665,7 @@ def render_fear_greed(value: float) -> None:
     bar_width = int(value)
 
     _render(f"""
-    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:16px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:16px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div style="font-size:12px; font-weight:700; color:{t['fg']};">🌡 شاخص ترس و طمع</div>
             <div style="font-size:9px; color:{t['fg_muted']};">Fear & Greed</div>
@@ -1128,115 +1680,13 @@ def render_fear_greed(value: float) -> None:
                     <div style="background:linear-gradient(90deg, {t['green']}, {t['yellow']}, {t['red']}); height:100%; width:{bar_width}%; border-radius:4px;"></div>
                 </div>
                 <div style="display:flex; justify-content:space-between; font-size:8px; color:{t['fg_dim']}; margin-bottom:8px; direction:rtl;">
-                    <span>ترس شدید</span>
-                    <span>خنثی</span>
-                    <span>طمع شدید</span>
+                    <span>ترس شدید</span><span>خنثی</span><span>طمع شدید</span>
                 </div>
                 <div style="font-size:11px; color:{c}; font-weight:600; margin-bottom:4px;">💡 {adv}</div>
             </div>
         </div>
     </div>
     """)
-
-
-# ═══════════════════════════════════════════════════════════
-# تقویم
-# ═══════════════════════════════════════════════════════════
-def render_calendar(calendar_data: dict) -> None:
-    t = _t()
-    critical = calendar_data.get("critical", [])
-    weekly = calendar_data.get("weekly", [])
-
-    _render(f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; margin:0 0 10px 0; padding-right:10px; border-right:3px solid {t["primary"]}; direction:rtl; text-align:right;">⚠️ رویدادهای مهم</div>')
-
-    if critical:
-        for ev in critical[:3]:
-            date_str = ev["date"].strftime("%m-%d") if ev.get("date") else "?"
-            _render(f"""
-            <div style="background:rgba(248,81,73,0.08); border-right:3px solid {t['red']}; border-radius:10px; padding:12px; margin-bottom:8px; direction:rtl; text-align:right;">
-                <div style="font-size:12px; color:{t['red']}; font-weight:700; margin-bottom:8px;">
-                    🔴 {date_str} • {ev['time']} | {ev['flag']} {ev['title_fa']}
-                </div>
-                {_impact_html(ev.get("market_impact", {}), t)}
-            </div>
-            """)
-    else:
-        _render(f'<div style="background:rgba(63,185,80,0.08); border-right:3px solid {t["green"]}; border-radius:8px; padding:10px 12px; color:{t["green"]}; font-size:11px; direction:rtl; text-align:right;">✅ رویداد بحرانی توی ۲۴ ساعت آینده نیست — بازار آرومه</div>')
-
-    if weekly:
-        _render(f'<div style="font-size:10px; color:{t["fg_muted"]}; margin:10px 0 6px 0; direction:rtl; text-align:right;">📅 هفته پیش‌رو ({len(weekly)} رویداد)</div>')
-        items = ""
-        for ev in weekly[:8]:
-            date_str = ev["date"].strftime("%m-%d") if ev.get("date") else "?"
-            icon = "🔴" if ev.get("impact") == "high" else "🟠"
-            items += (
-                f'<div style="background:{t["bg_mid"]}; border:1px solid {t["border"]}; border-radius:8px; padding:10px 12px; margin-bottom:6px; direction:rtl; text-align:right;">'
-                f'<div style="font-size:11px; color:{t["fg"]}; font-weight:600; margin-bottom:8px;">'
-                f'{icon} {date_str} • {ev["time"]} | {ev["flag"]} {ev["title_fa"][:50]}</div>'
-                f'{_impact_html(ev.get("market_impact", {}), t)}'
-                f'</div>'
-            )
-        _render(f'<div style="max-height:400px; overflow-y:auto;">{items}</div>')
-
-
-def _impact_html(impact: dict, t: dict) -> str:
-    if not impact or not isinstance(impact, dict):
-        return ""
-
-    high_data = impact.get("high", {})
-    low_data = impact.get("low", {})
-
-    if not high_data and not low_data:
-        return ""
-
-    labels = {"gold": ("🥇", "طلا"), "dollar": ("💵", "دلار"),
-              "crypto": ("₿", "کریپتو"), "oil": ("🛢", "نفت")}
-
-    def render_row(data, prefix):
-        items = []
-        for key in ["gold", "dollar", "crypto", "oil"]:
-            info = data.get(key)
-            if not info:
-                continue
-            emoji, name = labels[key]
-            color = t["green"] if info.get("dir") == "up" else (
-                t["red"] if info.get("dir") == "down" else t["fg_muted"]
-            )
-            items.append(
-                f'<span style="display:inline-block; padding:3px 10px; '
-                f'background:{t["bg_card"]}; border-radius:8px; margin:2px; '
-                f'font-size:10px; color:{color}; border:1px solid {color};">'
-                f'{emoji} {name} {info.get("icon", "")} {info.get("label", "")}</span>'
-            )
-        return f'<div style="margin-bottom:6px; direction:rtl; text-align:right;">{prefix} {" ".join(items)}</div>'
-
-    result = ""
-    if high_data:
-        result += render_row(high_data,
-            f'<span style="font-size:10px; color:{t["green"]}; font-weight:600;">⬆️ بالاتر از انتظار:</span>')
-    if low_data:
-        result += render_row(low_data,
-            f'<span style="font-size:10px; color:{t["red"]}; font-weight:600;">⬇️ پایین‌تر از انتظار:</span>')
-
-    return f'<div style="line-height:1.9;">{result}</div>'
-
-
-# ═══════════════════════════════════════════════════════════
-# اخبار
-# ═══════════════════════════════════════════════════════════
-def render_news(news_items: list) -> None:
-    t = _t()
-    _render(f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; margin:0 0 10px 0; padding-right:10px; border-right:3px solid {t["primary"]}; direction:rtl; text-align:right;">📰 اخبار بازار</div>')
-    if not news_items:
-        _render(f'<div style="color:{t["fg_muted"]}; font-size:10px; direction:rtl; text-align:right;">در حال دریافت...</div>')
-        return
-    for item in news_items[:6]:
-        source = item.get("source", "?")
-        category = item.get("category", "")
-        title = item.get("title", "")
-        link = item.get("link", "")
-        title_html = f'<a href="{link}" target="_blank" style="color:{t["fg"]}; text-decoration:none; font-size:11px; line-height:1.6;">{title}</a>' if link else f'<span style="font-size:11px; color:{t["fg"]};">{title}</span>'
-        _render(f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]}; border-radius:8px; padding:10px 12px; margin-bottom:6px; direction:rtl; text-align:right;"><div style="font-size:9px; color:{t["cyan"]}; margin-bottom:4px;">[{source}] {category}</div><div>{title_html}</div></div>')
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1248,7 +1698,13 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
     if "bt_time_filter" not in st.session_state:
         st.session_state.bt_time_filter = "all"
 
-    time_filter_cols = st.columns([1, 1, 1, 1])
+    st.markdown(
+        f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-bottom:6px; '
+        f'direction:rtl; text-align:right;">📅 فیلتر زمانی:</div>',
+        unsafe_allow_html=True,
+    )
+
+    time_filter_cols = st.columns([1, 1, 1])
     with time_filter_cols[0]:
         if st.button(
             "📅 ۷ روز",
@@ -1276,38 +1732,47 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
         ):
             st.session_state.bt_time_filter = "all"
             st.rerun()
-    with time_filter_cols[3]:
-        st.markdown(
-            f'<div style="font-size:10px; color:{t["fg_muted"]}; text-align:center; '
-            f'padding-top:10px; direction:rtl;">فیلتر زمانی</div>',
-            unsafe_allow_html=True,
-        )
 
     total = stats.get("total", 0)
 
     if total == 0:
-        _render(f'<div style="color:{t["fg_muted"]}; font-size:11px; padding:20px; text-align:center; background:{t["bg_card"]}; border:1px dashed {t["border"]}; border-radius:10px; direction:rtl; margin-top:10px;">هنوز سیگنالی ثبت نشده.<br><span style="font-size:9px; color:{t["fg_dim"]};">به‌محض ثبت، خودکار راستی‌آزمایی می‌شود</span></div>')
+        _render(
+            f'<div style="color:{t["fg_muted"]}; font-size:11px; padding:20px; '
+            f'text-align:center; background:{t["bg_card"]}; border:1px dashed {t["border"]}; '
+            f'border-radius:10px; direction:rtl; margin-top:10px;">'
+            f"هنوز سیگنالی ثبت نشده.<br>"
+            f'<span style="font-size:9px; color:{t["fg_dim"]};">به‌محض ثبت، خودکار راستی‌آزمایی می‌شود</span></div>'
+        )
         return
 
     win = stats.get("win", 0)
     loss = stats.get("loss", 0)
     pending = stats.get("pending", 0)
+    expired = stats.get("expired", 0)
     wr = stats.get("win_rate", 0)
     pf = stats.get("profit_factor", 0)
     wr_c = t["green"] if wr >= 60 else (t["yellow"] if wr >= 40 else t["red"])
     pf_c = t["green"] if pf >= 1.5 else (t["yellow"] if pf >= 1.0 else t["red"])
 
     _render(f"""
-    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:16px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.15); margin-top:10px;">
-        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; text-align:center;">
-            <div><div style="font-size:9px; color:{t['fg_muted']};">کل</div><div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['fg']}; font-weight:700;">{total}</div></div>
-            <div><div style="font-size:9px; color:{t['fg_muted']};">✅ برد</div><div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['green']}; font-weight:700;">{win}</div></div>
-            <div><div style="font-size:9px; color:{t['fg_muted']};">❌ باخت</div><div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['red']}; font-weight:700;">{loss}</div></div>
-            <div><div style="font-size:9px; color:{t['fg_muted']};">⏳ انتظار</div><div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['yellow']}; font-weight:700;">{pending}</div></div>
+    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:16px; direction:rtl; text-align:right; box-shadow:0 2px 8px rgba(0,0,0,0.2); margin-top:10px;">
+        <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; text-align:center;">
+            <div><div style="font-size:9px; color:{t['fg_muted']};">کل</div>
+                <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['fg']}; font-weight:700;">{total}</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">✅ برد</div>
+                <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['green']}; font-weight:700;">{win}</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">❌ باخت</div>
+                <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['red']}; font-weight:700;">{loss}</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">⏳ انتظار</div>
+                <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['yellow']}; font-weight:700;">{pending}</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">⏰ منقضی</div>
+                <div style="font-family:'JetBrains Mono'; font-size:18px; color:{t['fg_muted']}; font-weight:700;">{expired}</div></div>
         </div>
         <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; text-align:center; margin-top:12px; padding-top:12px; border-top:1px solid {t['border']};">
-            <div><div style="font-size:9px; color:{t['fg_muted']};">نرخ برد</div><div style="font-family:'JetBrains Mono'; font-size:20px; color:{wr_c}; font-weight:700;">{wr:.0f}%</div></div>
-            <div><div style="font-size:9px; color:{t['fg_muted']};">Profit Factor</div><div style="font-family:'JetBrains Mono'; font-size:20px; color:{pf_c}; font-weight:700;">{pf:.2f}</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">نرخ برد</div>
+                <div style="font-family:'JetBrains Mono'; font-size:20px; color:{wr_c}; font-weight:700;">{wr:.0f}%</div></div>
+            <div><div style="font-size:9px; color:{t['fg_muted']};">Profit Factor</div>
+                <div style="font-family:'JetBrains Mono'; font-size:20px; color:{pf_c}; font-weight:700;">{pf:.2f}</div></div>
         </div>
     </div>
     """)
@@ -1317,8 +1782,12 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
         if st.button("🔄 بررسی مجدد", key="bt_recheck", use_container_width=True):
             try:
                 from core.backtester import backtest_all
-                backtest_all()
-                st.success("✅ بررسی مجدد انجام شد")
+
+                result = backtest_all()
+                if result.get("updated", 0) > 0:
+                    st.success(f"✅ {result['updated']} سیگنال بررسی شد")
+                else:
+                    st.info("ℹ️ همه سیگنال‌ها در انتظار هستن")
                 st.rerun()
             except Exception as e:
                 st.error(f"خطا: {e}")
@@ -1326,6 +1795,7 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
     with action_cols[1]:
         if logs:
             import json
+
             logs_json = json.dumps(logs, ensure_ascii=False, indent=2, default=str)
             st.download_button(
                 "📥 دانلود JSON",
@@ -1344,16 +1814,24 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
             )
 
     with action_cols[2]:
-        if st.button("🗑 ریست لاگ", key="bt_reset", use_container_width=True, type="secondary"):
+        if st.button(
+            "🗑 ریست لاگ", key="bt_reset", use_container_width=True, type="secondary"
+        ):
             st.session_state.bt_confirm_reset = True
 
     if st.session_state.get("bt_confirm_reset", False):
         st.warning("⚠️ همه سیگنال‌ها پاک می‌شن. مطمئنی؟")
         confirm_cols = st.columns([1, 1])
         with confirm_cols[0]:
-            if st.button("✅ بله، پاک کن", key="bt_confirm_yes", use_container_width=True, type="primary"):
+            if st.button(
+                "✅ بله، پاک کن",
+                key="bt_confirm_yes",
+                use_container_width=True,
+                type="primary",
+            ):
                 try:
                     from core.backtester import reset_signal_log
+
                     reset_signal_log()
                     st.session_state.bt_confirm_reset = False
                     st.cache_data.clear()
@@ -1369,127 +1847,190 @@ def render_backtest_stats(stats: dict, logs: list = None) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# چک‌لیست
+# لیست سیگنال‌ها
 # ═══════════════════════════════════════════════════════════
-def render_checklist(items: list, percentage: int, final_text: str, final_color: str) -> None:
+def render_recent_signals_list(logs: list) -> None:
     t = _t()
 
-    st.progress(percentage / 100)
+    if not logs:
+        return
 
-    color_map = {
-        "green": t["green"],
-        "red": t["red"],
-        "yellow": t["yellow"],
-        "orange": t.get("orange", "#DB6D28"),
-    }
-    final_color_hex = color_map.get(final_color, t["primary"])
+    from core.backtester import filter_logs
+
+    with st.expander(f"📋 لیست سیگنال‌های ثبت‌شده ({len(logs)} مورد)", expanded=False):
+        sorted_logs = sorted(logs, key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        st.markdown(
+            f'<div style="font-size:10px; color:{t["fg_muted"]}; margin:6px 0; '
+            f'direction:rtl; text-align:right;">🔎 فیلترها:</div>',
+            unsafe_allow_html=True,
+        )
+
+        filter_cols = st.columns(4)
+        with filter_cols[0]:
+            st.markdown(
+                f'<div style="font-size:10px; color:{t["fg_muted"]}; margin-bottom:4px; '
+                f'direction:rtl;">بازار</div>',
+                unsafe_allow_html=True,
+            )
+            market_filter = st.selectbox(
+                "بازار",
+                ["همه", "اسپات", "فیوچرز"],
+                key="log_market_filter",
+                label_visibility="collapsed",
+            )
+        with filter_cols[1]:
+            st.markdown(
+                f'<div style="font-size:10px; color:{t["fg_muted"]}; margin-bottom:4px; '
+                f'direction:rtl;">سیگنال</div>',
+                unsafe_allow_html=True,
+            )
+            signal_filter = st.selectbox(
+                "سیگنال",
+                ["همه", "LONG", "SHORT"],
+                key="log_signal_filter",
+                label_visibility="collapsed",
+            )
+        with filter_cols[2]:
+            st.markdown(
+                f'<div style="font-size:10px; color:{t["fg_muted"]}; margin-bottom:4px; '
+                f'direction:rtl;">وضعیت</div>',
+                unsafe_allow_html=True,
+            )
+            status_filter = st.selectbox(
+                "وضعیت",
+                ["همه", "در انتظار", "برد", "باخت", "منقضی"],
+                key="log_status_filter",
+                label_visibility="collapsed",
+            )
+        with filter_cols[3]:
+            st.markdown(
+                f'<div style="font-size:10px; color:{t["fg_muted"]}; margin-bottom:4px; '
+                f'direction:rtl;">زمان</div>',
+                unsafe_allow_html=True,
+            )
+            time_filter = st.selectbox(
+                "زمان",
+                ["همه", "۷ روز", "۳۰ روز"],
+                key="log_time_filter",
+                label_visibility="collapsed",
+            )
+
+        market_map = {"همه": "all", "اسپات": "spot", "فیوچرز": "futures"}
+        signal_map = {"همه": "all", "LONG": "long", "SHORT": "short"}
+        status_map = {
+            "همه": "all",
+            "در انتظار": "pending",
+            "برد": "win",
+            "باخت": "loss",
+            "منقضی": "expired",
+        }
+        time_map = {"همه": "all", "۷ روز": "7d", "۳۰ روز": "30d"}
+
+        filtered = filter_logs(
+            sorted_logs,
+            market_filter=market_map.get(market_filter, "all"),
+            signal_filter=signal_map.get(signal_filter, "all"),
+            status_filter=status_map.get(status_filter, "all"),
+            time_filter=time_map.get(time_filter, "all"),
+        )
+
+        if not filtered:
+            st.info("هیچ سیگنالی با این فیلترها پیدا نشد.")
+            return
+
+        for entry in filtered[:50]:
+            _render_log_entry(entry, t)
+
+
+def _render_log_entry(entry: dict, t: dict) -> None:
+    sig = entry.get("signal", "—")
+    ticker = entry.get("ticker", "—")
+    name = entry.get("name", ticker)
+    tf = entry.get("tf", "—")
+    price = _safe_num(entry.get("price"))
+    result = entry.get("result")
+    ts = entry.get("timestamp", "")
+    market_type = entry.get("market_type", "spot")
+    source = entry.get("source", "—")
+    result_time = entry.get("result_time", "")
+    exit_price = entry.get("exit_price")
+
+    if SigEnum.is_long(sig):
+        sig_color = t["green"]
+        sig_icon = "🟢"
+    elif SigEnum.is_short(sig):
+        sig_color = t["red"]
+        sig_icon = "🔴"
+    else:
+        sig_color = t["fg_muted"]
+        sig_icon = "⚪"
+
+    if result is True:
+        result_icon, result_text, result_color = "✅", "برد", t["green"]
+    elif result is False:
+        result_icon, result_text, result_color = "❌", "باخت", t["red"]
+    elif result == "expired":
+        result_icon, result_text, result_color = "⏰", "منقضی", t["fg_muted"]
+    else:
+        result_icon, result_text, result_color = "⏳", "در انتظار", t["yellow"]
+
+    market_badge = "📈 فیوچرز" if market_type == "futures" else "💵 اسپات"
+    market_color = t["orange"] if market_type == "futures" else t["green"]
+
+    src_info = get_source_info(source)
+    src_badge = f"{src_info['icon']} {src_info['full_name']}"
+
+    try:
+        dt = datetime.fromisoformat(ts)
+        ts_str = dt.strftime("%m-%d %H:%M")
+    except Exception:
+        ts_str = ts[:16] if ts else "—"
+
+    result_time_str = ""
+    if result_time:
+        try:
+            rdt = datetime.fromisoformat(result_time)
+            result_time_str = rdt.strftime("%m-%d %H:%M")
+        except Exception:
+            result_time_str = result_time[:16]
+
+    exit_str = ""
+    if exit_price:
+        exit_str = f"→ ${_safe_num(exit_price):,.2f}"
 
     _render(
         f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]}; '
-        f'border-radius:12px; padding:14px; margin:10px 0; direction:rtl; '
-        f'box-shadow:0 2px 8px rgba(0,0,0,0.15);">'
-        f'<div style="text-align:center; font-size:13px; font-weight:700; '
-        f'color:{final_color_hex}; padding:12px; '
-        f'background:{t["bg_mid"]}; border-radius:10px; '
-        f'border-right:3px solid {final_color_hex};">{final_text}</div>'
-        f'</div>',
+        f"border-right:3px solid {sig_color}; "
+        f"border-radius:10px; padding:12px; margin-bottom:8px; "
+        f'direction:rtl; text-align:right;">'
+        f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
+        f'<span style="font-size:12px; color:{sig_color}; font-weight:700;">{sig_icon} {sig}</span>'
+        f'<span style="font-size:11px; color:{result_color}; font-weight:600;">{result_icon} {result_text}</span>'
+        f"</div>"
+        f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">'
+        f'<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+        f'<b style="color:{t["primary"]}; font-size:12px;">{name}</b>'
+        f'<span style="font-size:9px; color:{t["fg_muted"]}; direction:ltr;">{ticker}</span>'
+        f'<span style="font-size:9px; color:{market_color}; padding:2px 6px; background:{market_color}15; border-radius:6px;">{market_badge}</span>'
+        f'<span style="font-size:9px; color:{t["fg_muted"]};">{src_badge}</span>'
+        f"</div>"
+        f'<span style="font-size:10px; color:{t["cyan"]}; padding:2px 6px; background:{t["cyan"]}15; border-radius:6px;">{tf}</span>'
+        f"</div>"
+        f'<div style="display:flex; justify-content:space-between; font-size:10px; color:{t["fg_muted"]};">'
+        f"<span style=\"font-family:'JetBrains Mono'; direction:ltr;\">💰 ${price:,.2f} {exit_str}</span>"
+        f"<span>🕐 ثبت: {ts_str}</span>"
+        f"</div>"
+        f'{f"<div style=\'font-size:9px; color:{result_color}; margin-top:4px; text-align:left; direction:ltr;\'>✅ تأیید: {result_time_str}</div>" if result_time_str else ""}'
+        f"</div>"
     )
-
-    if not items:
-        return
-
-    GROUP_ORDER = ["multi_tf", "divergence", "momentum", "trend",
-                   "volatility", "volume", "structure", "sl_tp"]
-
-    sorted_items = sorted(
-        items,
-        key=lambda x: GROUP_ORDER.index(x.get("group", ""))
-        if x.get("group") in GROUP_ORDER else 999,
-    )
-
-    for item in sorted_items:
-        label = item.get("label", "")
-        detail = item.get("detail", "")
-        score = item.get("score", 0.0)
-        weight = item.get("weight", 0)
-        color_key = item.get("color", "yellow")
-        reasons = item.get("reasons", [])
-        vote = item.get("vote", None)
-
-        c = color_map.get(color_key, t["fg"])
-
-        if vote is None:
-            status_icon = "•"
-        elif vote > 0:
-            status_icon = "🟢"
-        elif vote < 0:
-            status_icon = "🔴"
-        else:
-            status_icon = "⚪"
-
-        title = f"{status_icon} {label}  ·  {score:+.2f}  ({weight}%)"
-
-        with st.expander(title, expanded=False):
-            if detail:
-                _render(
-                    f'<div style="color:{t["fg_dim"]}; font-size:10px; '
-                    f'margin-bottom:10px; direction:rtl; line-height:1.7;">{detail}</div>'
-                )
-
-            if reasons:
-                for r in reasons:
-                    _render(
-                        f'<div style="color:{t["fg_muted"]}; font-size:11px; '
-                        f'padding:8px 10px; margin-bottom:5px; '
-                        f'background:{t["bg_mid"]}; border-radius:6px; '
-                        f'border-right:2px solid {c}; direction:rtl; '
-                        f'text-align:right; line-height:1.6;">◦ {r}</div>'
-                    )
-            else:
-                _render(
-                    f'<div style="color:{t["fg_dim"]}; font-size:10px; '
-                    f'text-align:center; padding:10px; direction:rtl;">'
-                    f'دلیلی ثبت نشده</div>'
-                )
-
-
-# ═══════════════════════════════════════════════════════════
-# تاگل
-# ═══════════════════════════════════════════════════════════
-def render_section_toggle(
-    key: str,
-    label_on: str,
-    label_off: str,
-    icon_on: str = "📂",
-    icon_off: str = "❌",
-) -> bool:
-    state_key = f"show_{key}"
-    if state_key not in st.session_state:
-        st.session_state[state_key] = False
-
-    is_on = st.session_state[state_key]
-
-    if is_on:
-        label = f"{icon_off} {label_off}"
-        btn_type = "primary"
-    else:
-        label = f"{icon_on} {label_on}"
-        btn_type = "secondary"
-
-    if st.button(label, key=f"btn_{key}", use_container_width=True, type=btn_type):
-        st.session_state[state_key] = not is_on
-        st.rerun()
-
-    return st.session_state[state_key]
 
 
 # ═══════════════════════════════════════════════════════════
 # اسکنر
 # ═══════════════════════════════════════════════════════════
 def render_scanner(
-    scan_data: dict,
-    filter_signal: str = "all",
-    last_update: str = "",
+    scan_data: dict, filter_signal: str = "all", last_update: str = ""
 ) -> str | None:
     t = _t()
 
@@ -1512,9 +2053,9 @@ def render_scanner(
     def passes_filter(item):
         sig = item.get("signal", "")
         if filter_signal == "long":
-            return "LONG" in sig
+            return SigEnum.is_long(sig)
         elif filter_signal == "short":
-            return "SHORT" in sig
+            return SigEnum.is_short(sig)
         return True
 
     filtered = [x for x in all_results if passes_filter(x)]
@@ -1523,22 +2064,14 @@ def render_scanner(
     if source_label:
         source_html = (
             f'<div style="font-size:9px; color:{t["cyan"]}; margin-top:3px;">'
-            f'📡 منبع: {source_label}</div>'
+            f"📡 منبع: {source_label}</div>"
         )
-
-    note_html = (
-        f'<div style="font-size:9px; color:{t["fg_dim"]}; margin-top:6px; '
-        f'padding:6px 10px; background:{t["bg_mid"]}; border-radius:6px; '
-        f'border-right:2px solid {t["yellow"]}; direction:rtl; line-height:1.6;">'
-        f'ℹ️ اسکنر روی <b>نوبیتکس</b> و <b>yfinance</b> کار می‌کنه. '
-        f'آبان‌تتر OHLCV (تاریخچه کندل) نداره، پس توی اسکنر نیست.</div>'
-    )
 
     _render(f"""
     <div style="background:{t['bg_card']};
                 border:1px solid {t['border']}; border-radius:12px;
                 padding:14px 18px; margin-bottom:8px; direction:rtl; text-align:right;
-                box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                box-shadow:0 2px 8px rgba(0,0,0,0.2);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
             <div style="display:flex; align-items:center; gap:10px;">
                 <span style="font-size:22px;">🎯</span>
@@ -1553,7 +2086,6 @@ def render_scanner(
                 </div>
             </div>
         </div>
-        {note_html}
     </div>
     """)
 
@@ -1568,6 +2100,8 @@ def render_scanner(
                 color=t["cyan"],
             )
 
+    selected_ticker = None
+
     for idx, item in enumerate(filtered[:10], 1):
         signal = item.get("signal", "خنثی")
         score = item.get("score", 0)
@@ -1577,11 +2111,11 @@ def render_scanner(
         confidence = item.get("confidence", 0)
         rr = item.get("rr")
 
-        if "LONG" in signal:
+        if SigEnum.is_long(signal):
             sig_color = t["green"]
             sig_icon = "🟢"
             sig_text = "LONG"
-        elif "SHORT" in signal:
+        elif SigEnum.is_short(signal):
             sig_color = t["red"]
             sig_icon = "🔴"
             sig_text = "SHORT"
@@ -1611,11 +2145,11 @@ def render_scanner(
                 use_container_width=True,
                 help=f"افزودن {name}",
             ):
-                return ticker
+                selected_ticker = ticker
 
         with row_cols[1]:
             _render(f"""
-            <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px 14px; margin-bottom:6px; direction:rtl; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+            <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px 14px; margin-bottom:6px; direction:rtl; box-shadow:0 1px 4px rgba(0,0,0,0.15);">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span style="font-size:18px;">{medal}</span>
@@ -1652,115 +2186,105 @@ def render_scanner(
             </div>
             """)
 
-    return None
+    return selected_ticker
 
 
 # ═══════════════════════════════════════════════════════════
-# تایمر زنده
+# چک‌لیست
 # ═══════════════════════════════════════════════════════════
-def render_live_timer(
-    timestamp_str: str,
-    key: str = "timer",
-    prefix: str = "🕐",
-    font_size: int = 11,
-    color: str = None,
+def render_checklist(
+    items: list, percentage: int, final_text: str, final_color: str
 ) -> None:
     t = _t()
 
-    if not timestamp_str:
-        _render(
-            f'<span style="font-size:{font_size}px; color:{t["fg_muted"]};">—</span>'
-        )
+    st.progress(percentage / 100)
+
+    color_map = {
+        "green": t["green"],
+        "red": t["red"],
+        "yellow": t["yellow"],
+        "orange": t.get("orange", "#F97316"),
+    }
+    final_color_hex = color_map.get(final_color, t["primary"])
+
+    _render(
+        f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]}; '
+        f"border-radius:12px; padding:14px; margin:10px 0; direction:rtl; "
+        f'box-shadow:0 2px 8px rgba(0,0,0,0.2);">'
+        f'<div style="text-align:center; font-size:13px; font-weight:700; '
+        f"color:{final_color_hex}; padding:12px; "
+        f'background:{t["bg_mid"]}; border-radius:10px; '
+        f'border-right:3px solid {final_color_hex};">{final_text}</div>'
+        f"</div>"
+    )
+
+    if not items:
         return
 
-    try:
-        if len(timestamp_str) <= 8 and ":" in timestamp_str:
-            today = datetime.now().strftime("%Y-%m-%d")
-            dt = datetime.strptime(f"{today} {timestamp_str}", "%Y-%m-%d %H:%M:%S")
+    GROUP_ORDER = [
+        "multi_tf",
+        "divergence",
+        "momentum",
+        "trend",
+        "volatility",
+        "volume",
+        "structure",
+        "sl_tp",
+    ]
+
+    sorted_items = sorted(
+        items,
+        key=lambda x: (
+            GROUP_ORDER.index(x.get("group", ""))
+            if x.get("group") in GROUP_ORDER
+            else 999
+        ),
+    )
+
+    for item in sorted_items:
+        label = item.get("label", "")
+        detail = item.get("detail", "")
+        score = item.get("score", 0.0)
+        weight = item.get("weight", 0)
+        color_key = item.get("color", "yellow")
+        reasons = item.get("reasons", [])
+        vote = item.get("vote", None)
+
+        c = color_map.get(color_key, t["fg"])
+
+        if vote is None:
+            status_icon = "•"
+        elif vote > 0:
+            status_icon = "🟢"
+        elif vote < 0:
+            status_icon = "🔴"
         else:
-            dt = datetime.fromisoformat(timestamp_str)
-        iso_str = dt.isoformat()
-    except Exception:
-        iso_str = timestamp_str
+            status_icon = "⚪"
 
-    timer_color = color if color else t["cyan"]
+        title = f"{status_icon} {label}  ·  {score:+.2f}  ({weight}%)"
 
-    timer_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <style>
-        body {{
-            margin: 0;
-            padding: 0;
-            background: transparent;
-            overflow: hidden;
-            font-family: 'IRANYekanX', 'Tahoma', sans-serif;
-            direction: rtl;
-        }}
-        #ty-live-timer {{
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            white-space: nowrap;
-        }}
-        #ty-live-timer .prefix {{
-            font-size: {font_size - 1}px;
-            color: {t['fg_muted']};
-        }}
-        #ty-live-timer .time {{
-            font-family: 'JetBrains Mono', Consolas, monospace;
-            font-size: {font_size}px;
-            color: {timer_color};
-            font-weight: 600;
-            direction: ltr;
-        }}
-    </style>
-    </head>
-    <body>
-        <span id="ty-live-timer">
-            <span class="prefix">{prefix}</span>
-            <span class="time" id="ty-timer-text">—</span>
-        </span>
+        with st.expander(title, expanded=False):
+            if detail:
+                _render(
+                    f'<div style="color:{t["fg_dim"]}; font-size:10px; '
+                    f'margin-bottom:10px; direction:rtl; line-height:1.7;">{detail}</div>'
+                )
 
-        <script>
-        (function liveTimer() {{
-            var startISO = "{iso_str}";
-
-            function updateTimer() {{
-                try {{
-                    var now = new Date();
-                    var start = new Date(startISO);
-                    var deltaSec = Math.floor((now - start) / 1000);
-
-                    var text;
-                    if (deltaSec < 0) text = "الان";
-                    else if (deltaSec < 5) text = "همین الان";
-                    else if (deltaSec < 60) text = deltaSec + " ثانیه پیش";
-                    else if (deltaSec < 3600) text = Math.floor(deltaSec / 60) + " دقیقه پیش";
-                    else if (deltaSec < 86400) text = Math.floor(deltaSec / 3600) + " ساعت پیش";
-                    else text = Math.floor(deltaSec / 86400) + " روز پیش";
-
-                    var el = document.getElementById('ty-timer-text');
-                    if (el) el.textContent = text;
-                }} catch(e) {{}}
-
-                setTimeout(updateTimer, 1000);
-            }}
-
-            updateTimer();
-        }})();
-        </script>
-    </body>
-    </html>
-    """
-
-    height = font_size + 14
-    components.html(timer_html, height=height)
-
-
-def render_live_timer_inline(timestamp_str: str, key: str = "timer") -> None:
-    render_live_timer(timestamp_str, key)
+            if reasons:
+                for r in reasons:
+                    _render(
+                        f'<div style="color:{t["fg_muted"]}; font-size:11px; '
+                        f"padding:8px 10px; margin-bottom:5px; "
+                        f'background:{t["bg_mid"]}; border-radius:6px; '
+                        f"border-right:2px solid {c}; direction:rtl; "
+                        f'text-align:right; line-height:1.6;">◦ {r}</div>'
+                    )
+            else:
+                _render(
+                    f'<div style="color:{t["fg_dim"]}; font-size:10px; '
+                    f'text-align:center; padding:10px; direction:rtl;">'
+                    f"دلیلی ثبت نشده</div>"
+                )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1772,8 +2296,6 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
     if not orderbook_data:
         return
 
-    best_bid = orderbook_data.get("best_bid", 0)
-    best_ask = orderbook_data.get("best_ask", 0)
     spread_pct = orderbook_data.get("spread_pct", 0)
     bids = orderbook_data.get("bids", [])[:5]
     asks = orderbook_data.get("asks", [])[:5]
@@ -1805,12 +2327,10 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
             vol = float(a[1])
             ask_rows += (
                 f'<div style="display:flex; justify-content:space-between; '
-                f'padding:4px 10px; font-size:10px; direction:ltr; '
+                f"padding:4px 10px; font-size:10px; direction:ltr; "
                 f'font-family:\'JetBrains Mono\'; color:{t["red"]}; '
                 f'border-bottom:1px solid {t["border"]}20;">'
-                f'<span>${price:,.4f}</span>'
-                f'<span>{vol:.4f}</span>'
-                f'</div>'
+                f"<span>${price:,.4f}</span><span>{vol:.4f}</span></div>"
             )
         except (IndexError, ValueError, TypeError):
             continue
@@ -1822,18 +2342,16 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
             vol = float(b[1])
             bid_rows += (
                 f'<div style="display:flex; justify-content:space-between; '
-                f'padding:4px 10px; font-size:10px; direction:ltr; '
+                f"padding:4px 10px; font-size:10px; direction:ltr; "
                 f'font-family:\'JetBrains Mono\'; color:{t["green"]}; '
                 f'border-bottom:1px solid {t["border"]}20;">'
-                f'<span>${price:,.4f}</span>'
-                f'<span>{vol:.4f}</span>'
-                f'</div>'
+                f"<span>${price:,.4f}</span><span>{vol:.4f}</span></div>"
             )
         except (IndexError, ValueError, TypeError):
             continue
 
     _render(f"""
-    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:14px; direction:rtl; margin-top:12px; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+    <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:12px; padding:14px; direction:rtl; margin-top:12px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid {t['border']};">
             <div style="font-size:13px; font-weight:700; color:{t['primary']}; padding-right:8px; border-right:3px solid {t['primary']};">
                 📊 عمق بازار {sym_name}
@@ -1872,71 +2390,101 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# لیست سیگنال‌ها
+# تایمر زنده
 # ═══════════════════════════════════════════════════════════
-def render_recent_signals_list(logs: list) -> None:
-    """لیست کشویی آخرین سیگنال‌های ثبت‌شده."""
+def render_live_timer(
+    timestamp_str: str,
+    key: str = "timer",
+    prefix: str = "🕐",
+    font_size: int = 11,
+    color: str = None,
+) -> None:
     t = _t()
 
-    if not logs:
+    if not timestamp_str:
+        _render(
+            f'<span style="font-size:{font_size}px; color:{t["fg_muted"]};">—</span>'
+        )
         return
 
-    with st.expander(f"📋 لیست سیگنال‌های ثبت‌شده ({len(logs)} مورد)", expanded=False):
-        sorted_logs = sorted(
-            logs,
-            key=lambda x: x.get("timestamp", ""),
-            reverse=True,
-        )[:30]
+    try:
+        if len(timestamp_str) <= 8 and ":" in timestamp_str:
+            today = datetime.now().strftime("%Y-%m-%d")
+            dt = datetime.strptime(f"{today} {timestamp_str}", "%Y-%m-%d %H:%M:%S")
+        else:
+            dt = datetime.fromisoformat(timestamp_str)
+        iso_str = dt.isoformat()
+    except Exception:
+        iso_str = timestamp_str
 
-        for i, entry in enumerate(sorted_logs, 1):
-            sig = entry.get("signal", "—")
-            ticker = entry.get("ticker", "—")
-            tf = entry.get("tf", "—")
-            price = _safe_num(entry.get("price"))
-            result = entry.get("result")
-            ts = entry.get("timestamp", "")
+    timer_color = color if color else t["cyan"]
 
-            if "LONG" in sig:
-                sig_color = t["green"]
-                sig_icon = "🟢"
-            elif "SHORT" in sig:
-                sig_color = t["red"]
-                sig_icon = "🔴"
-            else:
-                sig_color = t["fg_muted"]
-                sig_icon = "⚪"
+    timer_html = f"""
+    <!DOCTYPE html><html><head><style>
+        body {{ margin: 0; padding: 0; background: transparent; overflow: hidden;
+            font-family: 'IRANYekanX', 'Tahoma', sans-serif; direction: rtl; }}
+        #ty-live-timer {{ display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }}
+        #ty-live-timer .prefix {{ font-size: {font_size - 1}px; color: {t['fg_muted']}; }}
+        #ty-live-timer .time {{ font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: {font_size}px; color: {timer_color}; font-weight: 600; direction: ltr; }}
+    </style></head>
+    <body>
+        <span id="ty-live-timer">
+            <span class="prefix">{prefix}</span>
+            <span class="time" id="ty-timer-text">—</span>
+        </span>
+        <script>
+        (function liveTimer() {{
+            var startISO = "{iso_str}";
+            function updateTimer() {{
+                try {{
+                    var now = new Date();
+                    var start = new Date(startISO);
+                    var deltaSec = Math.floor((now - start) / 1000);
+                    var text;
+                    if (deltaSec < 0) text = "الان";
+                    else if (deltaSec < 5) text = "همین الان";
+                    else if (deltaSec < 60) text = deltaSec + " ثانیه پیش";
+                    else if (deltaSec < 3600) text = Math.floor(deltaSec / 60) + " دقیقه پیش";
+                    else if (deltaSec < 86400) text = Math.floor(deltaSec / 3600) + " ساعت پیش";
+                    else text = Math.floor(deltaSec / 86400) + " روز پیش";
+                    var el = document.getElementById('ty-timer-text');
+                    if (el) el.textContent = text;
+                }} catch(e) {{}}
+                setTimeout(updateTimer, 1000);
+            }}
+            updateTimer();
+        }})();
+        </script>
+    </body></html>
+    """
+    components.html(timer_html, height=font_size + 14)
 
-            if result is True:
-                result_icon = "✅"
-                result_text = "برد"
-                result_color = t["green"]
-            elif result is False:
-                result_icon = "❌"
-                result_text = "باخت"
-                result_color = t["red"]
-            else:
-                result_icon = "⏳"
-                result_text = "در انتظار"
-                result_color = t["yellow"]
 
-            try:
-                dt = datetime.fromisoformat(ts)
-                ts_str = dt.strftime("%m-%d %H:%M")
-            except Exception:
-                ts_str = ts[:16] if ts else "—"
-
-            _render(
-                f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]}; '
-                f'border-radius:8px; padding:10px 12px; margin-bottom:6px; '
-                f'direction:rtl; text-align:right;">'
-                f'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">'
-                f'<span style="font-size:11px; color:{sig_color}; font-weight:700;">{sig_icon} {sig}</span>'
-                f'<span style="font-size:10px; color:{result_color}; font-weight:600;">{result_icon} {result_text}</span>'
-                f'</div>'
-                f'<div style="display:flex; justify-content:space-between; font-size:10px; color:{t["fg_muted"]};">'
-                f'<span><b style="color:{t["primary"]};">{ticker}</b> · {tf}</span>'
-                f'<span style="font-family:\'JetBrains Mono\'; direction:ltr;">${price:,.2f}</span>'
-                f'</div>'
-                f'<div style="font-size:9px; color:{t["fg_dim"]}; margin-top:4px; text-align:left; direction:ltr;">{ts_str}</div>'
-                f'</div>'
-            )
+# ═══════════════════════════════════════════════════════════
+# Exports
+# ═══════════════════════════════════════════════════════════
+__all__ = [
+    "sparkline_svg",
+    "render_section_header",
+    "render_header",
+    "render_settings_panel_open_button",
+    "render_settings_panel",
+    "render_top_ticker",
+    "render_settings_section_title",
+    "render_settings_divider",
+    "render_profile_selector",
+    "render_source_selector",
+    "render_source_badge",
+    "render_market_type_selector",
+    "render_unified_signal_card",
+    "render_tf_table",
+    "render_deep_analysis",
+    "render_fear_greed",
+    "render_backtest_stats",
+    "render_recent_signals_list",
+    "render_scanner",
+    "render_checklist",
+    "render_order_book",
+    "render_live_timer",
+]

@@ -18,6 +18,7 @@ def _get_current_theme() -> dict:
     """تم فعلی رو از session_state می‌خونه"""
     try:
         import streamlit as st
+
         theme_name = st.session_state.get("theme", "dark")
     except Exception:
         theme_name = "dark"
@@ -90,7 +91,7 @@ def render_candlestick(
 ) -> go.Figure:
     """
     ساخت نمودار کندل استیک با اندیکاتورها.
-    
+
     Args:
         df: دیتافریم با ستون‌های open, high, low, close, volume
             و اختیاری: ema200, vwap
@@ -101,7 +102,7 @@ def render_candlestick(
         show_sr: dict {"support": 4270, "resistance": 4290}
         n_candles: تعداد کندل‌های نمایش
         height: ارتفاع چارت
-    
+
     Returns:
         Figure plotly
     """
@@ -121,10 +122,8 @@ def render_candlestick(
             low=plot_df["low"],
             close=plot_df["close"],
             name="قیمت",
-            increasing=dict(line=dict(color=t["green"], width=1),
-                            fillcolor=t["green"]),
-            decreasing=dict(line=dict(color=t["red"], width=1),
-                            fillcolor=t["red"]),
+            increasing=dict(line=dict(color=t["green"], width=1), fillcolor=t["green"]),
+            decreasing=dict(line=dict(color=t["red"], width=1), fillcolor=t["red"]),
         )
     )
 
@@ -213,7 +212,7 @@ def render_full_chart(
 ) -> go.Figure:
     """
     ساخت چارت سه‌طبقه: کندل + RSI + MACD.
-    
+
     Args:
         df: دیتافریم با ستون‌های open, high, low, close, volume
             و اختیاری: ema200, vwap, rsi, macd_hist
@@ -222,7 +221,7 @@ def render_full_chart(
         show_sr: dict S/R
         n_candles: تعداد کندل
         height: ارتفاع کل
-    
+
     Returns:
         Figure plotly
     """
@@ -249,46 +248,55 @@ def render_full_chart(
             low=plot_df["low"],
             close=plot_df["close"],
             name="قیمت",
-            increasing=dict(line=dict(color=t["green"], width=1),
-                            fillcolor=t["green"]),
-            decreasing=dict(line=dict(color=t["red"], width=1),
-                            fillcolor=t["red"]),
+            increasing=dict(line=dict(color=t["green"], width=1), fillcolor=t["green"]),
+            decreasing=dict(line=dict(color=t["red"], width=1), fillcolor=t["red"]),
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     # EMA200
     if "ema200" in plot_df.columns:
         fig.add_trace(
             go.Scatter(
-                x=plot_df.index, y=plot_df["ema200"],
-                mode="lines", name="EMA200",
+                x=plot_df.index,
+                y=plot_df["ema200"],
+                mode="lines",
+                name="EMA200",
                 line=dict(color=t["cyan"], width=1.5),
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
 
     # VWAP
     if "vwap" in plot_df.columns:
         fig.add_trace(
             go.Scatter(
-                x=plot_df.index, y=plot_df["vwap"],
-                mode="lines", name="VWAP",
+                x=plot_df.index,
+                y=plot_df["vwap"],
+                mode="lines",
+                name="VWAP",
                 line=dict(color=t["purple"], width=1.5, dash="dot"),
             ),
-            row=1, col=1,
+            row=1,
+            col=1,
         )
 
     # S/R
     if show_sr:
         if show_sr.get("support", 0) > 0:
             fig.add_hline(
-                y=show_sr["support"], row=1, col=1,
+                y=show_sr["support"],
+                row=1,
+                col=1,
                 line=dict(color=t["green"], width=1, dash="dash"),
             )
         if show_sr.get("resistance", 0) > 0:
             fig.add_hline(
-                y=show_sr["resistance"], row=1, col=1,
+                y=show_sr["resistance"],
+                row=1,
+                col=1,
                 line=dict(color=t["yellow"], width=1, dash="dash"),
             )
 
@@ -296,7 +304,9 @@ def render_full_chart(
     if show_sl_tp:
         if show_sl_tp.get("sl", 0) > 0:
             fig.add_hline(
-                y=show_sl_tp["sl"], row=1, col=1,
+                y=show_sl_tp["sl"],
+                row=1,
+                col=1,
                 line=dict(color=t["red"], width=2, dash="dot"),
                 annotation_text=f"SL {show_sl_tp['sl']:,.2f}",
                 annotation_position="right",
@@ -304,7 +314,9 @@ def render_full_chart(
             )
         if show_sl_tp.get("tp", 0) > 0:
             fig.add_hline(
-                y=show_sl_tp["tp"], row=1, col=1,
+                y=show_sl_tp["tp"],
+                row=1,
+                col=1,
                 line=dict(color=t["green"], width=2, dash="dot"),
                 annotation_text=f"TP {show_sl_tp['tp']:,.2f}",
                 annotation_position="right",
@@ -315,24 +327,33 @@ def render_full_chart(
     if "rsi" in plot_df.columns:
         fig.add_trace(
             go.Scatter(
-                x=plot_df.index, y=plot_df["rsi"],
-                mode="lines", name="RSI",
+                x=plot_df.index,
+                y=plot_df["rsi"],
+                mode="lines",
+                name="RSI",
                 line=dict(color=t["primary"], width=1.5),
             ),
-            row=2, col=1,
+            row=2,
+            col=1,
         )
 
         # خطوط 30/70
         fig.add_hline(
-            y=70, row=2, col=1,
+            y=70,
+            row=2,
+            col=1,
             line=dict(color=t["red"], width=1, dash="dash"),
-            annotation_text="70", annotation_position="right",
+            annotation_text="70",
+            annotation_position="right",
             annotation_font_color=t["red"],
         )
         fig.add_hline(
-            y=30, row=2, col=1,
+            y=30,
+            row=2,
+            col=1,
             line=dict(color=t["green"], width=1, dash="dash"),
-            annotation_text="30", annotation_position="right",
+            annotation_text="30",
+            annotation_position="right",
             annotation_font_color=t["green"],
         )
 
@@ -341,18 +362,19 @@ def render_full_chart(
     # ─── طبقه ۳: MACD ───
     if "macd_hist" in plot_df.columns:
         colors = [
-            t["green"] if v > 0 else t["red"]
-            for v in plot_df["macd_hist"].fillna(0)
+            t["green"] if v > 0 else t["red"] for v in plot_df["macd_hist"].fillna(0)
         ]
 
         fig.add_trace(
             go.Bar(
-                x=plot_df.index, y=plot_df["macd_hist"],
+                x=plot_df.index,
+                y=plot_df["macd_hist"],
                 name="MACD Hist",
                 marker_color=colors,
                 opacity=0.7,
             ),
-            row=3, col=1,
+            row=3,
+            col=1,
         )
 
     # تنظیمات کلی
@@ -387,8 +409,10 @@ def render_rsi_chart(
     if "rsi" in plot_df.columns:
         fig.add_trace(
             go.Scatter(
-                x=plot_df.index, y=plot_df["rsi"],
-                mode="lines", name="RSI",
+                x=plot_df.index,
+                y=plot_df["rsi"],
+                mode="lines",
+                name="RSI",
                 line=dict(color=t["primary"], width=2),
                 fill="tozeroy",
                 fillcolor=f"rgba(245, 158, 11, 0.1)",
@@ -419,13 +443,15 @@ def render_macd_chart(
     fig = go.Figure()
     if "macd_hist" in plot_df.columns:
         colors = [
-            t["green"] if v > 0 else t["red"]
-            for v in plot_df["macd_hist"].fillna(0)
+            t["green"] if v > 0 else t["red"] for v in plot_df["macd_hist"].fillna(0)
         ]
         fig.add_trace(
             go.Bar(
-                x=plot_df.index, y=plot_df["macd_hist"],
-                name="MACD Hist", marker_color=colors, opacity=0.7,
+                x=plot_df.index,
+                y=plot_df["macd_hist"],
+                name="MACD Hist",
+                marker_color=colors,
+                opacity=0.7,
             )
         )
 
@@ -480,7 +506,7 @@ def render_sparkline(
 ) -> go.Figure:
     """
     نمودار Sparkline کوچک برای کارت‌ها.
-    
+
     Args:
         prices: لیست قیمت‌ها
         is_up: صعودی یا نزولی (برای رنگ)
@@ -514,6 +540,7 @@ def render_sparkline(
 
     return fig
 
+
 # ═══════════════════════════════════════════════════════════
 # ۷. نشانگر Fear & Greed
 # ═══════════════════════════════════════════════════════════
@@ -523,7 +550,7 @@ def render_fear_greed_gauge(
 ) -> go.Figure:
     """
     نشانگر Fear & Greed به صورت Gauge.
-    
+
     Args:
         value: مقدار 0-100
         height: ارتفاع
@@ -552,8 +579,10 @@ def render_fear_greed_gauge(
             mode="gauge+number+delta",
             value=value,
             domain={"x": [0, 1], "y": [0, 1]},
-            title={"text": f"شاخص ترس و طمع<br>{label}",
-                   "font": {"size": 14, "color": t["fg"]}},
+            title={
+                "text": f"شاخص ترس و طمع<br>{label}",
+                "font": {"size": 14, "color": t["fg"]},
+            },
             gauge={
                 "axis": {
                     "range": [0, 100],

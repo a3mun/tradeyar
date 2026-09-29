@@ -1,18 +1,20 @@
 """
 core/nobitex_fetcher.py
-اتصال به API نوبیتکس — قیمت لحظه‌ای، OHLCV، Order Book، لیست خودکار نمادها
-نسخه ۳.۰ (نهایی)
-================================================
-API عمومی نوبیتکس (بدون نیاز به توکن):
-  - https://apiv2.nobitex.ir/market/stats?dstCurrency=usdt
-  - https://apiv2.nobitex.ir/market/udf/history?symbol=BTCUSDT&resolution=5&from=...&to=...
-  - https://apiv2.nobitex.ir/v2/orderbook/{symbol}
+اتصال به API نوبیتکس — قیمت لحظه‌ای، OHLCV، Order Book
+نسخه ۴.۰ (فاز ۵)
+============================================================
+تغییرات نسخه ۴.۰:
+  - اضافه شدن USDT-IRT (تتر/تومان) به عنوان نماد ویژه
+  - تابع is_in_nobitex برای چک سریع
+  - fetch_nobitex_stats رفع باگ (usdt→rls درست کار می‌کنه)
+  - تابع get_nobitex_symbols_map برای دسترسی سریع
+  - حذف کدهای مرده
+  - add: fetch_nobitex_usdt_irt (پیش‌فرض جدید)
 
-نکات مهم:
-  - نوبیتکس ترجیحاً با dstCurrency=usdt کار می‌کنه (تتری)
-  - فیلد dayChange در API درصد هست (نه واحد پول)
-  - volumeDst = حجم به تتر، volumeSrc = حجم به ارز پایه
-  - bestBuy و bestSell مستقیم از API میان (نیازی به Order Book نیست)
+API عمومی نوبیتکس (بدون نیاز به توکن):
+  - /market/stats?srcCurrency=...&dstCurrency=...
+  - /market/udf/history?symbol=...&resolution=...
+  - /v2/orderbook/{symbol}
 """
 
 from datetime import datetime, timezone
@@ -22,7 +24,6 @@ import pandas as pd
 import requests
 
 from .utils import safe_num
-
 
 # ═══════════════════════════════════════════════════════════
 # تنظیمات
@@ -41,9 +42,11 @@ HEADERS = {
 
 
 # ═══════════════════════════════════════════════════════════
-# نمادهای نوبیتکس (گسترش‌یافته)
+# نمادهای نوبیتکس (نگاشت داخلی → نوبیتکس)
 # ═══════════════════════════════════════════════════════════
 NOBITEX_SYMBOLS = {
+    # ─── ویژه ───
+    "USDT-IRT": "USDTIRT",  # تتر/تومان
     # ─── کریپتوهای اصلی ───
     "BTC-USD": "BTCUSDT",
     "ETH-USD": "ETHUSDT",
@@ -73,7 +76,6 @@ NOBITEX_SYMBOLS = {
     "OP-USD": "OPUSDT",
     "ZEC-USD": "ZECUSDT",
     "QNT-USD": "QNTUSDT",
-    "GRAM-USD": "GRAMUSDT",
     "PEPE-USD": "PEPEUSDT",
     "WIF-USD": "WIFUSDT",
     "BONK-USD": "BONKUSDT",
@@ -149,6 +151,13 @@ NOBITEX_SYMBOLS = {
 }
 
 
+# نگاشت معکوس
+_NOBITEX_REVERSE = {v: k for k, v in NOBITEX_SYMBOLS.items()}
+
+
+# ═══════════════════════════════════════════════════════════
+# تایم‌فریم
+# ═══════════════════════════════════════════════════════════
 TIMEFRAME_MAP = {
     "1m": "1",
     "5m": "5",
@@ -161,29 +170,33 @@ TIMEFRAME_MAP = {
     "1w": "1W",
 }
 
+_PERIOD_SECONDS = {
+    "1d": 86400,
+    "5d": 5 * 86400,
+    "1mo": 30 * 86400,
+    "3mo": 90 * 86400,
+    "6mo": 180 * 86400,
+    "1y": 365 * 86400,
+}
+
 
 # ═══════════════════════════════════════════════════════════
-# ابزار کمکی
+# ابزار
 # ═══════════════════════════════════════════════════════════
 def _get(url: str, params: dict = None) -> Optional[dict]:
-    """درخواست GET امن با error handling"""
+    """درخواست GET امن"""
     try:
-        r = requests.get(
-            url,
-            params=params,
-            headers=HEADERS,
-            timeout=NOBITEX_TIMEOUT,
-        )
+        r = requests.get(url, params=params, headers=HEADERS, timeout=NOBITEX_TIMEOUT)
         r.raise_for_status()
         return r.json()
     except requests.exceptions.Timeout:
         print(f"[Nobitex] Timeout: {url}")
     except requests.exceptions.HTTPError as e:
-        print(f"[Nobitex] HTTP Error {e.response.status_code}: {url}")
+        print(f"[Nobitex] HTTP {e.response.status_code}: {url}")
     except requests.exceptions.RequestException as e:
-        print(f"[Nobitex] Request Error: {e}")
+        print(f"[Nobitex] Request: {e}")
     except ValueError as e:
-        print(f"[Nobitex] JSON Error: {e}")
+        print(f"[Nobitex] JSON: {e}")
     return None
 
 
@@ -198,26 +211,52 @@ def _resolution_to_seconds(resolution: str) -> int:
         return 3600
 
 
-def _period_to_seconds(period: str) -> int:
-    mapping = {
-        "1d": 86400,
-        "5d": 5 * 86400,
-        "1mo": 30 * 86400,
-        "3mo": 90 * 86400,
-        "6mo": 180 * 86400,
-        "1y": 365 * 86400,
-    }
-    return mapping.get(period, 30 * 86400)
+# ═══════════════════════════════════════════════════════════
+# نگاشت نماد
+# ═══════════════════════════════════════════════════════════
+def map_symbol_to_nobitex(ticker: str) -> Optional[str]:
+    """تبدیل نماد داخلی به نوبیتکس (BTC-USD → BTCUSDT)"""
+    if not ticker:
+        return None
+    if ticker in NOBITEX_SYMBOLS:
+        return NOBITEX_SYMBOLS[ticker]
+    return None
+
+
+def map_nobitex_to_symbol(nobitex_symbol: str) -> Optional[str]:
+    """معکوس: BTCUSDT → BTC-USD"""
+    if not nobitex_symbol:
+        return None
+    return _NOBITEX_REVERSE.get(nobitex_symbol)
+
+
+def is_in_nobitex(ticker: str) -> bool:
+    """بررسی سریع اینکه نماد در نوبیتکس هست"""
+    return map_symbol_to_nobitex(ticker) is not None
+
+
+def get_nobitex_symbols_map() -> dict:
+    """نگاشت کامل نمادها"""
+    return dict(NOBITEX_SYMBOLS)
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱. آمار بازار
+# ۱. آمار بازار (قیمت لحظه‌ای)
 # ═══════════════════════════════════════════════════════════
 def fetch_nobitex_stats(
     src_currency: str = "btc",
     dst_currency: str = "usdt",
 ) -> Optional[dict]:
-    """دریافت آمار کامل بازار از نوبیتکس"""
+    """
+    دریافت آمار بازار از نوبیتکس.
+
+    Args:
+        src_currency: ارز پایه (btc, eth, usdt, ...)
+        dst_currency: ارز quote (usdt, rls, ...)
+
+    Returns:
+        dict با price, best_buy, best_sell, ... یا None
+    """
     url = f"{NOBITEX_BASE}/market/stats"
     params = {"srcCurrency": src_currency, "dstCurrency": dst_currency}
     data = _get(url, params)
@@ -263,8 +302,35 @@ def fetch_nobitex_stats(
             "is_closed": bool(info.get("isClosed", False)),
         }
     except (KeyError, TypeError) as e:
-        print(f"[Nobitex] Error parsing stats: {e}")
+        print(f"[Nobitex] parse stats: {e}")
         return None
+
+
+def fetch_nobitex_stats_for_ticker(ticker: str) -> Optional[dict]:
+    """
+    دریافت آمار برای نماد داخلی.
+
+    - USDT-IRT → usdt/rls
+    - BTC-USD → btc/usdt
+    """
+    if not ticker:
+        return None
+
+    # ─── ویژه: USDT-IRT ───
+    if ticker == "USDT-IRT":
+        return fetch_nobitex_stats("usdt", "rls")
+
+    # ─── عادی ───
+    nobitex_sym = map_symbol_to_nobitex(ticker)
+    if not nobitex_sym:
+        return None
+
+    # BTCUSDT → base=BTC, quote=USDT
+    if nobitex_sym.endswith("USDT"):
+        base = nobitex_sym.replace("USDT", "").lower()
+        return fetch_nobitex_stats(base, "usdt")
+
+    return None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -276,7 +342,13 @@ def fetch_nobitex_history(
     from_ts: Optional[int] = None,
     to_ts: Optional[int] = None,
 ) -> Optional[pd.DataFrame]:
-    """دریافت OHLCV از نوبیتکس"""
+    """
+    دریافت OHLCV از نوبیتکس.
+
+    Args:
+        symbol: نماد نوبیتکس (BTCUSDT, USDTIRT, ...)
+        resolution: 1, 5, 15, 30, 60, 240, 720, 1D, 1W
+    """
     if to_ts is None:
         to_ts = int(datetime.now(timezone.utc).timestamp())
     if from_ts is None:
@@ -296,6 +368,7 @@ def fetch_nobitex_history(
     if not data:
         return None
 
+    # نوبیتکس ممکنه s=no_data برگردونه
     if data.get("s") != "ok":
         if "t" not in data or not data["t"]:
             return None
@@ -311,13 +384,16 @@ def fetch_nobitex_history(
         if not timestamps or len(timestamps) < 2:
             return None
 
-        df = pd.DataFrame({
-            "open": [safe_num(x) for x in opens],
-            "high": [safe_num(x) for x in highs],
-            "low": [safe_num(x) for x in lows],
-            "close": [safe_num(x) for x in closes],
-            "volume": [safe_num(x) for x in volumes],
-        }, index=pd.to_datetime(timestamps, unit="s", utc=True))
+        df = pd.DataFrame(
+            {
+                "open": [safe_num(x) for x in opens],
+                "high": [safe_num(x) for x in highs],
+                "low": [safe_num(x) for x in lows],
+                "close": [safe_num(x) for x in closes],
+                "volume": [safe_num(x) for x in volumes],
+            },
+            index=pd.to_datetime(timestamps, unit="s", utc=True),
+        )
 
         df.index.name = "time"
         df = df[~df.index.duplicated(keep="last")]
@@ -330,66 +406,36 @@ def fetch_nobitex_history(
         return df
 
     except (KeyError, TypeError, ValueError) as e:
-        print(f"[Nobitex] Error parsing OHLCV: {e}")
+        print(f"[Nobitex] parse OHLCV: {e}")
         return None
 
 
-# ═══════════════════════════════════════════════════════════
-# ۳. نگاشت نماد
-# ═══════════════════════════════════════════════════════════
-def map_symbol_to_nobitex(ticker: str) -> Optional[str]:
-    """تبدیل نماد داخلی به نماد نوبیتکس"""
-    if ticker in NOBITEX_SYMBOLS:
-        return NOBITEX_SYMBOLS[ticker]
-
-    # تبدیل خودکار
-    if ticker.endswith("-USD"):
-        base = ticker.replace("-USD", "").upper()
-        candidate = f"{base}USDT"
-
-        try:
-            stats = fetch_nobitex_stats(base.lower(), "usdt")
-            if stats and stats.get("price", 0) > 0:
-                NOBITEX_SYMBOLS[ticker] = candidate
-                return candidate
-        except Exception:
-            pass
-
-    return None
-
-
-# ═══════════════════════════════════════════════════════════
-# ۴. OHLCV برای نماد ما
-# ═══════════════════════════════════════════════════════════
 def fetch_nobitex_for_ticker(
     ticker: str,
     interval: str,
     period: str,
 ) -> Optional[pd.DataFrame]:
-    """دریافت OHLCV برای نماد داخلی ما"""
-    nobitex_symbol = map_symbol_to_nobitex(ticker)
-    if not nobitex_symbol:
-        if ticker.endswith("-USD"):
-            base = ticker.replace("-USD", "").upper()
-            nobitex_symbol = f"{base}USDT"
-        else:
-            print(f"[Nobitex] نماد {ticker} پشتیبانی نمی‌شه")
-            return None
+    """OHLCV برای نماد داخلی"""
+    if not ticker:
+        return None
+
+    nobitex_sym = map_symbol_to_nobitex(ticker)
+    if not nobitex_sym:
+        return None
 
     resolution = TIMEFRAME_MAP.get(interval)
     if not resolution:
-        print(f"[Nobitex] تایم‌فریم {interval} پشتیبانی نمی‌شه")
         return None
 
-    period_seconds = _period_to_seconds(period)
+    period_seconds = _PERIOD_SECONDS.get(period, 30 * 86400)
     to_ts = int(datetime.now(timezone.utc).timestamp())
     from_ts = to_ts - period_seconds
 
-    return fetch_nobitex_history(nobitex_symbol, resolution, from_ts, to_ts)
+    return fetch_nobitex_history(nobitex_sym, resolution, from_ts, to_ts)
 
 
 # ═══════════════════════════════════════════════════════════
-# ۵. لیست کامل نمادها
+# ۳. لیست کامل نمادها
 # ═══════════════════════════════════════════════════════════
 def fetch_all_nobitex_symbols(dst_currency: str = "usdt") -> list:
     """دریافت لیست کامل نمادهای نوبیتکس"""
@@ -415,35 +461,35 @@ def fetch_all_nobitex_symbols(dst_currency: str = "usdt") -> list:
             symbol = f"{base}{quote}"
 
             price = safe_num(info.get("latest"))
-
             if price <= 0:
                 continue
 
-            result.append({
-                "symbol": symbol,
-                "base": base,
-                "quote": quote,
-                "price": price,
-                "best_buy": safe_num(info.get("bestBuy")),
-                "best_sell": safe_num(info.get("bestSell")),
-                "volume_24h": safe_num(info.get("volumeDst")),
-                "volume_base": safe_num(info.get("volumeSrc")),
-                "trades_24h": 0,
-                "change_24h": safe_num(info.get("dayChange")),
-                "high_24h": safe_num(info.get("dayHigh")),
-                "low_24h": safe_num(info.get("dayLow")),
-            })
+            result.append(
+                {
+                    "symbol": symbol,
+                    "base": base,
+                    "quote": quote,
+                    "price": price,
+                    "best_buy": safe_num(info.get("bestBuy")),
+                    "best_sell": safe_num(info.get("bestSell")),
+                    "volume_24h": safe_num(info.get("volumeDst")),
+                    "volume_base": safe_num(info.get("volumeSrc")),
+                    "change_24h": safe_num(info.get("dayChange")),
+                    "high_24h": safe_num(info.get("dayHigh")),
+                    "low_24h": safe_num(info.get("dayLow")),
+                }
+            )
 
         result.sort(key=lambda x: x["volume_24h"], reverse=True)
         return result
 
     except (KeyError, TypeError) as e:
-        print(f"[Nobitex] Error fetching all symbols: {e}")
+        print(f"[Nobitex] fetch all symbols: {e}")
         return []
 
 
 # ═══════════════════════════════════════════════════════════
-# ۶. فیلتر نقدینگی
+# ۴. فیلتر نقدینگی
 # ═══════════════════════════════════════════════════════════
 def filter_liquid_symbols(
     symbols: list,
@@ -469,10 +515,10 @@ def filter_liquid_symbols(
 
 
 # ═══════════════════════════════════════════════════════════
-# ۷. Order Book
+# ۵. Order Book
 # ═══════════════════════════════════════════════════════════
 def fetch_nobitex_orderbook(symbol: str) -> Optional[dict]:
-    """دریافت Order Book از نوبیتکس"""
+    """Order Book نوبیتکس"""
     url = f"{NOBITEX_BASE}/v2/orderbook/{symbol}"
     data = _get(url)
 
@@ -515,8 +561,27 @@ def fetch_nobitex_orderbook(symbol: str) -> Optional[dict]:
             "asks": asks[:10],
         }
     except (IndexError, KeyError, TypeError) as e:
-        print(f"[Nobitex] Error parsing orderbook: {e}")
+        print(f"[Nobitex] parse orderbook: {e}")
         return None
+
+
+def fetch_nobitex_orderbook_for_ticker(ticker: str) -> Optional[dict]:
+    """Order Book برای نماد داخلی"""
+    nobitex_sym = map_symbol_to_nobitex(ticker)
+    if not nobitex_sym:
+        return None
+    return fetch_nobitex_orderbook(nobitex_sym)
+
+
+# ═══════════════════════════════════════════════════════════
+# ۶. قیمت لحظه‌ای (فقط قیمت)
+# ═══════════════════════════════════════════════════════════
+def fetch_nobitex_live_price(ticker: str) -> Optional[float]:
+    """قیمت لحظه‌ای برای نماد داخلی — سریع"""
+    stats = fetch_nobitex_stats_for_ticker(ticker)
+    if stats:
+        return stats.get("price")
+    return None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -524,49 +589,49 @@ def fetch_nobitex_orderbook(symbol: str) -> Optional[dict]:
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("=" * 70)
-    print("تست core/nobitex_fetcher.py (نسخه ۳.۰)")
+    print("تست core/nobitex_fetcher.py — نسخه ۴.۰")
     print("=" * 70)
     print()
 
-    print("۱) آمار بازار — BTC/USDT:")
-    stats = fetch_nobitex_stats("btc", "usdt")
+    print("۱) تعداد نمادهای پشتیبانی‌شده:")
+    print(f"   {len(NOBITEX_SYMBOLS)} نماد")
+    print(f"   USDT-IRT در دیکشنری؟ {'USDT-IRT' in NOBITEX_SYMBOLS}")
+    print()
+
+    print("۲) آمار بازار — USDT/RLS (تتر/تومان):")
+    stats = fetch_nobitex_stats("usdt", "rls")
     if stats:
-        print(f"   قیمت: ${stats['price']:,.2f}")
-        print(f"   Spread: {stats['spread_pct']:.4f}%")
+        print(f"   قیمت: {stats['price']:,.0f} ریال")
         print(f"   تغییر ۲۴س: {stats['change_24h']:+.2f}%")
-        print(f"   حجم به تتر: {stats['volume_dst']:,.2f} USDT")
     else:
         print("   ❌ خطا")
     print()
 
-    print("۲) OHLCV — BTC-USD 1h 5d:")
+    print("۳) آمار برای ticker=USDT-IRT:")
+    stats2 = fetch_nobitex_stats_for_ticker("USDT-IRT")
+    if stats2:
+        print(f"   قیمت: {stats2['price']:,.0f}")
+    else:
+        print("   ❌ خطا")
+    print()
+
+    print("۴) OHLCV — BTC-USD 1h 5d:")
     df = fetch_nobitex_for_ticker("BTC-USD", "1h", "5d")
     if df is not None and not df.empty:
-        print(f"   تعداد کندل: {len(df)}")
-        print(f"   آخرین قیمت: ${df['close'].iloc[-1]:,.2f}")
+        print(f"   تعداد: {len(df)}")
+        print(f"   آخرین: ${df['close'].iloc[-1]:,.2f}")
     else:
         print("   ❌ خطا")
     print()
 
-    print("۳) لیست کامل نمادها:")
-    all_syms = fetch_all_nobitex_symbols("usdt")
-    if all_syms:
-        print(f"   ✅ تعداد کل: {len(all_syms)}")
-        for s in all_syms[:5]:
-            print(f"   {s['symbol']:12} | ${s['price']:>12,.4f} | حجم: {s['volume_24h']:>15,.0f} USDT")
-    else:
-        print("   ❌ خطا")
+    print("۵) is_in_nobitex:")
+    for t in ["BTC-USD", "USDT-IRT", "GC=F", "PAXG-USD", "فولاد"]:
+        print(f"   {t:15} → {is_in_nobitex(t)}")
     print()
 
-    print("۴) فیلتر نقدینگی:")
-    liquid = filter_liquid_symbols(all_syms, min_volume=10000, max_count=50)
-    print(f"   ✅ تعداد بعد از فیلتر: {len(liquid)}")
-    print()
-
-    print("۵) Order Book — BTCUSDT:")
+    print("۶) Order Book — BTCUSDT:")
     ob = fetch_nobitex_orderbook("BTCUSDT")
     if ob:
-        print(f"   آخرین قیمت: ${ob['last_price']:,.2f}")
         print(f"   Spread: {ob['spread_pct']:.4f}%")
     else:
         print("   ❌ خطا")
