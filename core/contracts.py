@@ -118,16 +118,25 @@ class Regime(str, Enum):
     def display_fa(cls, regime: str) -> tuple[str, str]:
         """(icon, name_fa)"""
         return {
-            "trend": ("📈", "روند"),
-            "transitional": ("⚖️", "گذار"),
-            "range": ("📊", "رنج"),
-        }.get(regime, ("📊", "رنج"))
+            "trend": ("📈", "بازار جهت‌دار"),
+            "transitional": ("⚖️", "بازار در حال‌تغییر"),
+            "range": ("📊", "بازار بی‌جهت"),
+        }.get(regime, ("📊", "بازار بی‌جهت"))
 
     @classmethod
     def display_text(cls, regime: str) -> str:
         """فقط متن فارسی"""
         _, name = cls.display_fa(regime)
         return name
+
+    @classmethod
+    def display_short(cls, regime: str) -> str:
+        """متن کوتاه برای جدول"""
+        return {
+            "trend": "جهت‌دار",
+            "transitional": "در حال‌تغییر",
+            "range": "بی‌جهت",
+        }.get(regime, "بی‌جهت")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -372,15 +381,12 @@ class LogEntry(TypedDict, total=False):
     expired: bool
 
 
-# ═══════════════════════════════════════════════════════════
-# ۱۵. پیش‌فرض‌های اپ
-# ═══════════════════════════════════════════════════════════
 class AppDefaults:
     """پیش‌فرض‌های اپ"""
 
     THEME = "dark"
-    DATA_SOURCE = DataSource.GLOBAL.value
-    SYMBOL = "GC=F"
+    DATA_SOURCE = DataSource.NOBITEX.value  # ← از global به nobitex
+    SYMBOL = "BTC-USD"  # ← از GC=F به BTC-USD
     MARKET_TYPE = MarketType.FUTURES.value
     RISK_PROFILE = RiskProfile.AGGRESSIVE.value
     TIMEFRAME = "۵ دقیقه"
@@ -423,9 +429,13 @@ if __name__ == "__main__":
     print()
     print(f"get_tf_atr_mult('۵ دقیقه') = {get_tf_atr_mult('۵ دقیقه')}")
     print(f"get_tf_atr_mult('نامعلوم') = {get_tf_atr_mult('نامعلوم')}")
-    print()
-    print("[OK] تست کامل شد.")
-
+    print(f"Regime.display_fa('trend')       = {Regime.display_fa('trend')}")
+    print(f"Regime.display_text('trend')     = {Regime.display_text('trend')}")
+    print(f"Regime.display_short('trend')    = {Regime.display_short('trend')}")
+    print(f"Regime.display_fa('range')       = {Regime.display_fa('range')}")
+    print(f"Regime.display_fa('transitional')= {Regime.display_fa('transitional')}")
+    print(f"AppDefaults.DATA_SOURCE = {AppDefaults.DATA_SOURCE}")
+    print(f"AppDefaults.SYMBOL      = {AppDefaults.SYMBOL}")
     print("آستانه‌های تطبیقی:")
     for regime in ["trend", "transitional", "range"]:
         for adx in [15, 35, 50]:
@@ -433,3 +443,5 @@ if __name__ == "__main__":
         print(
             f"   {regime:12} ADX={adx:2} → mom={thresholds[0]:.2f} trend={thresholds[1]:.2f}"
         )
+    print()
+    print("[OK] تست کامل شد.")

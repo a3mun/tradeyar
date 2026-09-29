@@ -1,14 +1,10 @@
 """
 core/analyzer.py
-تحلیل تکنیکال — نسخه ۸.۴ (فاز ۵.۵ — تله‌ها + سناریوها + آستانه تطبیقی)
+تحلیل تکنیکال — نسخه ۸.۵ (فاز ۵.۵ — رفع باگ تومان/دلار)
 ============================================================
-تغییرات نسخه ۸.۴:
-  - گام ۱: SL/TP TF-محور (TF_ATR_MULT)  [۸.۳]
-  - گام ۲: _explain_neutral حالا dict برمی‌گردونه  [۸.۳]
-  - گام ۵.۵.۱: _detect_traps برای تشخیص تله‌های معاملاتی
-  - گام ۵.۵.۲: build_scenarios برای سناریوهای «اگه X → Y»
-  - گام ۵.۵.۳: آستانه‌های تطبیقی رأی‌گیری (ADAPTIVE_THRESHOLDS)
-  - گام ۵.۵.۴: trap_penalty در confidence
+تغییرات نسخه ۸.۵:
+  - رفع باگ تشخیص تومان/دلار: از ticker به جای heuristic قیمت
+  - Pivot Points fallback برای کندل تخت
 """
 
 import numpy as np
@@ -85,6 +81,14 @@ def _confidence_tier(conf: int) -> str:
     return "neutral"
 
 
+def _is_iranian_ticker(ticker: str) -> bool:
+    """تشخیص نمادهای تومانی/ریالی از روی ticker"""
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
+
+
 # ═══════════════════════════════════════════════════════════
 # رژیم بازار
 # ═══════════════════════════════════════════════════════════
@@ -144,7 +148,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     try:
-        # ─── Momentum ───
         df["rsi"] = ta.rsi(df["close"], length=14)
         df["willr"] = ta.willr(df["high"], df["low"], df["close"], length=14)
         df["cci"] = ta.cci(df["high"], df["low"], df["close"], length=20)
@@ -158,7 +161,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             df["stoch_k"] = 50.0
             df["stoch_d"] = 50.0
 
-        # ─── Trend ───
         macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
         if macd_df is not None and len(macd_df.columns) >= 3:
             df["macd_hist"] = macd_df.iloc[:, 2]
@@ -185,7 +187,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         except Exception:
             df["supertrend_dir"] = 1
 
-        # ─── Volatility ───
         df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
 
         bb_df = ta.bbands(df["close"], length=20, std=2)
@@ -218,7 +219,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
         df["stddev"] = df["close"].rolling(20).std()
 
-        # ─── Volume ───
         if "volume" in df.columns and df["volume"].sum() > 0:
             df["obv"] = ta.obv(df["close"], df["volume"])
             df["vol_ma"] = df["volume"].rolling(20).mean()
@@ -279,6 +279,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # Pivot / Swing / Fibonacci
 # ═══════════════════════════════════════════════════════════
 def compute_pivot_points(df: pd.DataFrame) -> dict:
+    """Pivot Points با fallback برای کندل تخت"""
     if df is None or df.empty or len(df) < 2:
         return {}
 
@@ -287,7 +288,15 @@ def compute_pivot_points(df: pd.DataFrame) -> dict:
     low = safe_num(prev.get("low"))
     close = safe_num(prev.get("close"))
 
-    if high <= 0 or low <= 0 or close <= 0:
+    # ═══ Fallback: اگه کندل قبل تخت بود ═══
+    if abs(high - low) < 1e-8:
+        recent = df.iloc[-7:-2] if len(df) >= 7 else df.iloc[:-2]
+        if not recent.empty:
+            high = safe_num(recent["high"].max())
+            low = safe_num(recent["low"].min())
+            close = safe_num(recent["close"].iloc[-1])
+
+    if high <= 0 or low <= 0 or close <= 0 or high <= low:
         return {}
 
     pivot = (high + low + close) / 3
@@ -389,7 +398,6 @@ def compute_fibonacci(df: pd.DataFrame, lookback: int = 50) -> dict:
 # گروه ۱: Momentum
 # ═══════════════════════════════════════════════════════════
 def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
-    """تحلیل مومنتوم — RSI، Stochastic، Williams، CCI، ROC"""
     reasons = []
     signals = []
 
@@ -459,7 +467,6 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
 
-    # ═══ آستانه تطبیقی ═══
     mom_thr = _thresholds[0] if _thresholds else 0.25
     if score > mom_thr:
         vote = +1
@@ -488,7 +495,6 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
 # گروه ۲: Trend
 # ═══════════════════════════════════════════════════════════
 def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
-    """تحلیل روند — EMA200، MACD، ADX، Supertrend، Ichimoku"""
     reasons = []
     signals = []
 
@@ -567,7 +573,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
 
-    # ═══ آستانه تطبیقی ═══
     t_thr = _thresholds[1] if _thresholds else 0.30
     if score > t_thr:
         vote = +1
@@ -595,7 +600,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
 # گروه ۳: Volatility
 # ═══════════════════════════════════════════════════════════
 def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
-    """تحلیل نوسان — Bollinger، ATR، Keltner، Donchian، StdDev"""
     reasons = []
     signals = []
 
@@ -653,7 +657,6 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
 
-    # ═══ آستانه تطبیقی ═══
     o_thr = _thresholds[2] if _thresholds else 0.30
     if score > o_thr:
         vote = +1
@@ -686,7 +689,6 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
 def _analyze_volume(
     df: pd.DataFrame, market_type: str = "spot", _thresholds: tuple = None
 ) -> dict:
-    """تحلیل حجم — OBV، CVD، Delta، CMF، MFI، Absorption"""
     reasons = []
     signals = []
 
@@ -705,7 +707,6 @@ def _analyze_volume(
             "weight": 1.0,
         }
 
-    # ─── OBV ───
     obv_last = safe_num(last.get("obv"))
     obv_prev = safe_num(prev.get("obv"))
     if obv_last > obv_prev:
@@ -715,7 +716,6 @@ def _analyze_volume(
         signals.append((-0.5, 0.9))
         reasons.append("OBV نزولی (حجم خروجی)")
 
-    # ─── Volume Ratio ───
     vol = safe_num(last.get("volume"))
     vol_ma = safe_num(last.get("vol_ma"))
     if vol_ma > 0:
@@ -731,7 +731,6 @@ def _analyze_volume(
         elif vol_ratio < 0.5:
             reasons.append(f"حجم کم ({vol_ratio:.1f}x میانگین)")
 
-    # ─── CVD ───
     if "cvd" in df.columns:
         cvd_last = safe_num(last.get("cvd"))
         cvd_prev = safe_num(prev.get("cvd"))
@@ -757,7 +756,6 @@ def _analyze_volume(
             signals.append((+0.6, 1.0))
             reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع فروش")
 
-    # ─── CMF ───
     cmf = safe_num(last.get("cmf"), 0)
     if cmf > 0.1:
         signals.append((+0.7, 1.0))
@@ -766,7 +764,6 @@ def _analyze_volume(
         signals.append((-0.7, 1.0))
         reasons.append(f"CMF={cmf:.2f} جریان پول خروجی")
 
-    # ─── MFI ───
     mfi = safe_num(last.get("mfi"), 50)
     if mfi < 20:
         signals.append((+0.8, 1.0))
@@ -775,7 +772,6 @@ def _analyze_volume(
         signals.append((-0.8, 1.0))
         reasons.append(f"MFI={mfi:.0f} اشباع خرید حجمی")
 
-    # ─── VWAP ───
     if "vwap" in df.columns:
         vwap = safe_num(last.get("vwap"))
         if vwap > 0:
@@ -786,7 +782,6 @@ def _analyze_volume(
                 signals.append((+0.4, 0.7))
                 reasons.append("قیمت زیر VWAP — فرصت ورود")
 
-    # ─── Absorption ───
     if "volume" in df.columns and vol_ma > 0:
         candle_range = safe_num(last["high"]) - safe_num(last["low"])
         if candle_range > 0:
@@ -809,7 +804,6 @@ def _analyze_volume(
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
 
-    # ═══ آستانه تطبیقی ═══
     o_thr = _thresholds[2] if _thresholds else 0.25
     if score > o_thr:
         vote = +1
@@ -838,7 +832,6 @@ def _analyze_volume(
 # گروه ۵: Structure
 # ═══════════════════════════════════════════════════════════
 def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
-    """تحلیل ساختار — Pivot، Swing، Fibonacci، S/R"""
     reasons = []
     signals = []
 
@@ -884,7 +877,6 @@ def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
 
-    # ═══ آستانه تطبیقی ═══
     o_thr = _thresholds[2] if _thresholds else 0.30
     if score > o_thr:
         vote = +1
@@ -940,16 +932,9 @@ def _detect_divergence(momentum: dict, volume: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# تشخیص تله‌های معاملاتی (جدید در ۸.۴)
+# تشخیص تله‌ها
 # ═══════════════════════════════════════════════════════════
 def _detect_traps(groups: dict, price: float, atr: float) -> dict:
-    """
-    تشخیص تله‌های کلاسیک معاملاتی.
-
-    Returns:
-        dict با کلیدهای bull_trap, bear_trap, fake_breakout, exhaustion
-        هر کدوم: {active: bool, reason: str, severity: int(0-10)}
-    """
     traps = {
         "bull_trap": {"active": False, "reason": "", "severity": 0},
         "bear_trap": {"active": False, "reason": "", "severity": 0},
@@ -967,20 +952,16 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
     vol = groups.get("volatility", {}) or {}
 
     m_score = m.get("score", 0.0)
-    t_score = t.get("score", 0.0)
     v_score = v.get("score", 0.0)
     s_score = s.get("score", 0.0)
     vol_score = vol.get("score", 0.0)
 
-    m_details = m.get("details", {})
     t_details = t.get("details", {})
     v_details = v.get("details", {})
 
     adx = t_details.get("adx", 20)
     vol_ratio = v_details.get("vol_ratio", 1.0)
-    rsi = m_details.get("rsi", 50)
 
-    # ─── Bull Trap (تله صعودی) ───
     if m_score > 0.35 and v_score < -0.25 and s_score < -0.15:
         traps["bull_trap"] = {
             "active": True,
@@ -991,7 +972,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
             "severity": 8,
         }
 
-    # ─── Bear Trap (تله نزولی) ───
     if m_score < -0.35 and v_score > 0.25 and s_score > 0.15:
         traps["bear_trap"] = {
             "active": True,
@@ -1002,7 +982,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
             "severity": 8,
         }
 
-    # ─── Fake Breakout (شکست جعلی) ───
     if adx > 35 and vol_ratio < 0.6 and abs(s_score) > 0.30:
         traps["fake_breakout"] = {
             "active": True,
@@ -1013,7 +992,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
             "severity": 7,
         }
 
-    # ─── Exhaustion (خستگی روند) ───
     if adx > 45 and abs(m_score) < 0.25 and abs(vol_score) > 0.3:
         traps["exhaustion"] = {
             "active": True,
@@ -1028,7 +1006,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
 
 
 def _traps_summary(traps: dict) -> dict:
-    """خلاصه تله‌ها برای نمایش سریع"""
     active = [k for k, v in traps.items() if v.get("active")]
     max_severity = max((v.get("severity", 0) for v in traps.values()), default=0)
 
@@ -1042,7 +1019,7 @@ def _traps_summary(traps: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# سناریوساز (جدید در ۸.۴)
+# سناریوساز
 # ═══════════════════════════════════════════════════════════
 def build_scenarios(
     price: float,
@@ -1053,18 +1030,16 @@ def build_scenarios(
     regime: str,
     direction: str = "neutral",
     traps: dict = None,
+    ticker: str = "",
 ) -> list[dict]:
-    """
-    ساخت سناریوهای «اگه X → Y» برای کاربر.
-
-    Returns:
-        لیستی از dict با کلیدهای:
-        - condition, action, probability, color, type, icon
-    """
     scenarios = []
 
     if not groups:
         return scenarios
+
+    is_iranian = _is_iranian_ticker(ticker)
+    unit = "تومان" if is_iranian else "$"
+    fmt = ",.0f" if is_iranian else ",.2f"
 
     m = groups.get("momentum", {}) or {}
     t = groups.get("trend", {}) or {}
@@ -1078,14 +1053,18 @@ def build_scenarios(
     rsi = m_details.get("rsi", 50)
     adx = t_details.get("adx", 20)
 
-    # ─── ۱. سناریوی ورود LONG در روند قوی ───
+    def _fmt(val):
+        if is_iranian:
+            return f"{val:,.0f} {unit}"
+        return f"${val:,.2f}"
+
     if regime == "trend" and adx > 35 and price > 0 and atr > 0:
         if direction == "neutral" and m_score < 0.3 and v_score < 0.3:
             sl = price - atr * 1.2
             scenarios.append(
                 {
                     "condition": f"اگه حجم بالاتر بره و RSI از {rsi:.0f} بالاتر بره",
-                    "action": f"ورود LONG — SL=${sl:,.2f}",
+                    "action": f"ورود LONG — SL={_fmt(sl)}",
                     "probability": 0.55,
                     "color": "green",
                     "type": "entry",
@@ -1098,7 +1077,7 @@ def build_scenarios(
             scenarios.append(
                 {
                     "condition": "اگه حجم تأیید کنه و RSI بالای ۵۰ بره",
-                    "action": f"LONG با SL=${sl:,.2f} · TP=${tp:,.2f}",
+                    "action": f"LONG با SL={_fmt(sl)} · TP={_fmt(tp)}",
                     "probability": 0.65,
                     "color": "green",
                     "type": "entry",
@@ -1106,13 +1085,12 @@ def build_scenarios(
                 }
             )
 
-    # ─── ۲. سناریوی برگشت از مقاومت ───
     if resistance > 0 and price > 0:
         dist_r = (resistance - price) / price * 100
         if dist_r < 1.5:
             scenarios.append(
                 {
-                    "condition": f"اگه قیمت از R (${resistance:,.2f}) رد نشه",
+                    "condition": f"اگه قیمت از R ({_fmt(resistance)}) رد نشه",
                     "action": "مراقب باش — احتمال برگشت یا شکست",
                     "probability": 0.55,
                     "color": "red",
@@ -1123,7 +1101,7 @@ def build_scenarios(
         elif dist_r < 3.0:
             scenarios.append(
                 {
-                    "condition": f"اگه قیمت با حجم بالا از ${resistance:,.2f} رد بشه",
+                    "condition": f"اگه قیمت با حجم بالا از {_fmt(resistance)} رد بشه",
                     "action": "ورود LONG بعد از تأیید حجم",
                     "probability": 0.50,
                     "color": "green",
@@ -1132,13 +1110,12 @@ def build_scenarios(
                 }
             )
 
-    # ─── ۳. سناریوی برگشت از حمایت ───
     if support > 0 and price > 0:
         dist_s = (price - support) / price * 100
         if dist_s < 1.5:
             scenarios.append(
                 {
-                    "condition": f"اگه قیمت به حمایت (${support:,.2f}) برسه",
+                    "condition": f"اگه قیمت به حمایت ({_fmt(support)}) برسه",
                     "action": "فرصت خرید — SL زیر حمایت",
                     "probability": 0.60,
                     "color": "green",
@@ -1147,7 +1124,6 @@ def build_scenarios(
                 }
             )
 
-    # ─── ۴. سناریوی شکست جعلی ───
     if traps and traps.get("fake_breakout", {}).get("active"):
         scenarios.append(
             {
@@ -1160,7 +1136,6 @@ def build_scenarios(
             }
         )
 
-    # ─── ۵. سناریوی تله ───
     if traps and traps.get("bull_trap", {}).get("active"):
         scenarios.append(
             {
@@ -1185,7 +1160,6 @@ def build_scenarios(
             }
         )
 
-    # ─── ۶. سناریوی صبر (اگه بقیه کم هستن) ───
     if len(scenarios) < 2:
         scenarios.append(
             {
@@ -1198,7 +1172,6 @@ def build_scenarios(
             }
         )
 
-    # مرتب‌سازی بر اساس احتمال
     scenarios.sort(key=lambda x: -x["probability"])
     return scenarios[:3]
 
@@ -1250,7 +1223,6 @@ def _aggregate_votes(
 
     final_score = weighted_sum / total_weight if total_weight > 0 else 0.0
 
-    # ═══ آستانه رأی‌گیری ═══
     if profile == "aggressive":
         if regime == "range":
             m_vote = (
@@ -1401,7 +1373,7 @@ def _compute_confidence(aggregate: dict, adx: float, divergence: dict) -> int:
 
 
 # ═══════════════════════════════════════════════════════════
-# توضیح خنثی — dict برمی‌گردونه
+# توضیح خنثی
 # ═══════════════════════════════════════════════════════════
 def _explain_neutral(
     aggregate: dict,
@@ -1412,17 +1384,10 @@ def _explain_neutral(
     current_tf: str = None,
     traps: dict = None,
 ) -> dict:
-    """
-    توضیح خنثی بودن — dict برمی‌گردونه:
-      - short: پیام کوتاه
-      - long: توضیح کامل
-      - hint: هینت TF بالاتر + هشدار تله
-    """
     votes_long = aggregate.get("votes_long", 0)
     votes_short = aggregate.get("votes_short", 0)
     votes_neutral = aggregate.get("votes_neutral", 0)
 
-    # ─── پیام کوتاه ───
     if votes_neutral >= 3:
         short_msg = f"⚪ بدون سیگنال — {votes_neutral} گروه خنثی"
     elif votes_long == votes_short and votes_long > 0:
@@ -1430,7 +1395,6 @@ def _explain_neutral(
     else:
         short_msg = "⚪ بدون سیگنال معتبر"
 
-    # ─── پیام بلند ───
     reasons = []
     if regime == "range":
         reasons.append("بازار در رژیم «رنج» هست و روند مشخصی نداره")
@@ -1457,7 +1421,6 @@ def _explain_neutral(
 
     long_msg = " • ".join(reasons)
 
-    # ─── هینت TF بالاتر ───
     hint = None
     if tfs_data and current_tf:
         higher_tfs_with_signal = []
@@ -1474,7 +1437,6 @@ def _explain_neutral(
         if higher_tfs_with_signal:
             hint = "💡 TF بالاتر سیگنال داره: " + " | ".join(higher_tfs_with_signal)
 
-    # ─── هشدار تله ───
     if traps:
         active_traps = [k for k, v in traps.items() if v.get("active")]
         if active_traps:
@@ -1503,6 +1465,7 @@ def analyze_symbol(
     tf_name: str = "۵ دقیقه",
     tfs_data: dict = None,
     market_type: str = "spot",
+    ticker: str = "",
 ) -> dict | None:
     """تحلیل نماد — تابع اصلی"""
     if df is None or df.empty:
@@ -1526,8 +1489,6 @@ def analyze_symbol(
         adx = safe_num(last.get("adx"), 20)
 
         regime = classify_regime(adx)
-
-        # ═══ آستانه‌های تطبیقی ═══
         thresholds = get_adaptive_thresholds(regime, adx)
 
         groups = {
@@ -1541,11 +1502,9 @@ def analyze_symbol(
         aggregate = _aggregate_votes(groups, regime, risk_profile, adx, market_type)
         divergence = _detect_divergence(groups["momentum"], groups["volume"])
 
-        # ═══ تشخیص تله‌ها ═══
         traps = _detect_traps(groups, price, atr)
         traps_summary = _traps_summary(traps)
 
-        # اگه تله فعاله، confidence رو کم کن
         trap_penalty = 0
         if traps_summary["has_high_risk"]:
             trap_penalty = 10
@@ -1558,12 +1517,10 @@ def analyze_symbol(
         adjusted_score = aggregate["final_score"] * adx_mult
 
         confidence = _compute_confidence(aggregate, adx, divergence)
-        # اعمال penalty تله
         if trap_penalty > 0:
             confidence = max(0, confidence - trap_penalty)
         tier = _confidence_tier(confidence)
 
-        # ─── تأیید چند TF ───
         multi_tf_ok = True
         multi_tf_info = "بدون بررسی"
         if tfs_data:
@@ -1603,7 +1560,6 @@ def analyze_symbol(
             confidence = int(confidence * 0.85)
             tier = _confidence_tier(confidence)
 
-        # ─── سیگنال ───
         direction = aggregate["direction"]
         profile_key = f"{risk_profile}_{market_type}"
         profile = RISK_PROFILES.get(
@@ -1664,7 +1620,6 @@ def analyze_symbol(
             signal = "خنثی"
             explanation = "بدون سیگنال"
 
-        # ─── ترجمه به عمل ───
         if market_type == "spot":
             if SigEnum.is_long(signal):
                 action_fa = "🟢 بخر — بعداً بفروش"
@@ -1680,7 +1635,6 @@ def analyze_symbol(
             else:
                 action_fa = "⚪ صبر کن"
 
-        # ═══ SL/TP (TF-محور) ═══
         sl_tp = None
         rr = None
         is_directional = SigEnum.is_directional(signal)
@@ -1720,7 +1674,6 @@ def analyze_symbol(
                 if abs(sl - price) > 0:
                     rr = abs(price - tp) / abs(sl - price)
 
-        # ─── دلایل ───
         all_reasons = []
         for g_name, g_res in groups.items():
             if g_res:
@@ -1730,7 +1683,9 @@ def analyze_symbol(
         if divergence.get("has_divergence"):
             all_reasons.insert(0, divergence["reason"])
 
-        # ─── خروجی ───
+        support = groups["structure"]["details"].get("nearest_support", 0)
+        resistance = groups["structure"]["details"].get("nearest_resistance", 0)
+
         return {
             "price": price,
             "rsi": safe_num(last.get("rsi"), 50),
@@ -1744,8 +1699,8 @@ def analyze_symbol(
             "bb_upper": safe_num(last.get("bb_upper")),
             "bb_lower": safe_num(last.get("bb_lower")),
             "vwap": safe_num(last.get("vwap")) if "vwap" in df.columns else None,
-            "support": groups["structure"]["details"].get("nearest_support", 0),
-            "resistance": groups["structure"]["details"].get("nearest_resistance", 0),
+            "support": support,
+            "resistance": resistance,
             "pivots": groups["structure"]["details"].get("pivots", {}),
             "swings": groups["structure"]["details"].get("swings", {}),
             "fibonacci": groups["structure"]["details"].get("fibonacci", {}),
@@ -1776,20 +1731,22 @@ def analyze_symbol(
             "rr": rr,
             "is_ranging": regime == "range",
             "close_series": df["close"].tail(30).tolist(),
-            # ═══ جدید در ۸.۴ ═══
             "traps": traps,
             "traps_summary": traps_summary,
             "trap_penalty": trap_penalty,
             "thresholds_used": thresholds,
+            "ticker": ticker,
+            "is_iranian": _is_iranian_ticker(ticker),
             "scenarios": build_scenarios(
                 price=price,
                 atr=atr,
                 groups=aggregate["groups_summary"],
-                support=groups["structure"]["details"].get("nearest_support", 0),
-                resistance=groups["structure"]["details"].get("nearest_resistance", 0),
+                support=support,
+                resistance=resistance,
                 regime=regime,
                 direction=direction,
                 traps=traps,
+                ticker=ticker,
             ),
         }
 
@@ -1902,7 +1859,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         )
         total_w += 15
 
-    # ─── تله‌ها ───
     traps = r_main.get("traps", {})
     if traps:
         trap_names = {
@@ -2001,9 +1957,11 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
 
     signal = r_main.get("signal", "خنثی")
     confidence = r_main.get("confidence", 0)
-    regime_fa = {"trend": "روند", "transitional": "گذار", "range": "رنج"}.get(
-        regime, ""
-    )
+    regime_fa = {
+        "trend": "جهت‌دار",
+        "transitional": "در حال‌تغییر",
+        "range": "بی‌جهت",
+    }.get(regime, "")
 
     if SigEnum.is_long(signal):
         if confidence >= 70:
@@ -2052,14 +2010,19 @@ def build_analysis_paragraph(
         return "داده کافی نیست."
 
     regime = r_main.get("regime", "range")
-    regime_fa = {"trend": "روند", "transitional": "گذار", "range": "رنج"}.get(
-        regime, ""
-    )
+    regime_fa = {
+        "trend": "بازار جهت‌دار",
+        "transitional": "بازار در حال‌تغییر",
+        "range": "بازار بی‌جهت",
+    }.get(regime, "")
     market_type = r_main.get("market_type", "spot")
     market_fa = "اسپات" if market_type == "spot" else "فیوچرز"
     profile_fa = {"aggressive": "جسورانه", "conservative": "محتاطانه"}.get(
         risk_profile, "جسورانه"
     )
+
+    is_iranian = _is_iranian_ticker(ticker)
+    unit = "تومان" if is_iranian else "$"
 
     signal = r_main.get("signal", "خنثی")
     confidence = r_main.get("confidence", 0)
@@ -2087,19 +2050,19 @@ def build_analysis_paragraph(
         if confidence >= 70:
             lines.append(
                 f"سیستم به **خرید قوی** تمایل دارد (اطمینان {confidence}%). "
-                f"در رژیم «{regime_fa}» با ADX={adx:.0f}، "
+                f"در «{regime_fa}» با ADX={adx:.0f}، "
                 f"مومنتوم صعودی و جریان پول از سمت خریداران حمایت می‌کنه."
             )
         else:
             lines.append(
                 f"نشانه‌های **صعود** وجود دارد ولی اطمینان فقط {confidence}% هست. "
-                f"در رژیم «{regime_fa}»، بهتره با احتیاط و حجم کم وارد بشی."
+                f"در «{regime_fa}»، بهتره با احتیاط و حجم کم وارد بشی."
             )
     elif SigEnum.is_short(signal):
         if confidence >= 70:
             lines.append(
                 f"سیستم به **فروش قوی** تمایل دارد (اطمینان {confidence}%). "
-                f"در رژیم «{regime_fa}» با ADX={adx:.0f}، "
+                f"در «{regime_fa}» با ADX={adx:.0f}، "
                 f"فشار فروش غالب و مومنتوم نزولی تأییدکننده‌ست."
             )
         else:
@@ -2112,7 +2075,7 @@ def build_analysis_paragraph(
             lines.append(f"⚪ **بدون سیگنال معتبر:** {neutral_explain['long']}")
         elif regime == "range":
             lines.append(
-                f"بازار در **رژیم رنج** است (ADX={adx:.0f}). "
+                f"**بازار بی‌جهت** است (ADX={adx:.0f}). "
                 f"در این حالت، معامله‌گران حرفه‌ای **صبر می‌کنند** "
                 f"تا بازار از رنج خارج بشه. ورود در رنج = ضرر."
             )
@@ -2130,7 +2093,6 @@ def build_analysis_paragraph(
 
     lines.append("")
 
-    # ─── تله‌ها ───
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
     if active_traps:
         lines.append("◈ هشدار تله‌های معاملاتی")
@@ -2208,10 +2170,16 @@ def build_analysis_paragraph(
 
         if r > 0 and price > 0:
             dist_r = abs(r - price) / price * 100
-            lines.append(f"🔴 **مقاومت:** {r:,.2f}$ (فاصله: {dist_r:.2f}%)")
+            if is_iranian:
+                lines.append(f"🔴 **مقاومت:** {r:,.0f} {unit} (فاصله: {dist_r:.2f}%)")
+            else:
+                lines.append(f"🔴 **مقاومت:** {r:,.2f}$ (فاصله: {dist_r:.2f}%)")
         if s > 0 and price > 0:
             dist_s = abs(price - s) / price * 100
-            lines.append(f"🟢 **حمایت:** {s:,.2f}$ (فاصله: {dist_s:.2f}%)")
+            if is_iranian:
+                lines.append(f"🟢 **حمایت:** {s:,.0f} {unit} (فاصله: {dist_s:.2f}%)")
+            else:
+                lines.append(f"🟢 **حمایت:** {s:,.2f}$ (فاصله: {dist_s:.2f}%)")
 
         lines.append("")
 
@@ -2231,14 +2199,30 @@ def build_analysis_paragraph(
         else:
             lines.append("◈ پلن معاملاتی")
         lines.append("─" * 30)
-        lines.append(f"💰 **ورود:** {price:,.2f}$")
-        lines.append(
-            f"🛑 **حد ضرر:** {sl:,.2f}$ ({abs(price - sl) / price * 100:.2f}%)"
-        )
-        lines.append(f"🎯 **هدف:** {tp:,.2f}$ ({abs(tp - price) / price * 100:.2f}%)")
+
+        if is_iranian:
+            lines.append(f"💰 **ورود:** {price:,.0f} {unit}")
+            lines.append(
+                f"🛑 **حد ضرر:** {sl:,.0f} {unit} "
+                f"({abs(price - sl) / price * 100:.2f}%)"
+            )
+            lines.append(
+                f"🎯 **هدف:** {tp:,.0f} {unit} "
+                f"({abs(tp - price) / price * 100:.2f}%)"
+            )
+        else:
+            lines.append(f"💰 **ورود:** {price:,.2f}$")
+            lines.append(
+                f"🛑 **حد ضرر:** {sl:,.2f}$ ({abs(price - sl) / price * 100:.2f}%)"
+            )
+            lines.append(
+                f"🎯 **هدف:** {tp:,.2f}$ ({abs(tp - price) / price * 100:.2f}%)"
+            )
+
         if rr:
             lines.append(
-                f"⚖️ **R:R:** {rr:.1f} — {'✅ عالی' if rr >= 2 else '⚠️ قابل قبول' if rr >= 1.5 else '❌ ضعیف'}"
+                f"⚖️ **R:R:** {rr:.1f} — "
+                f"{'✅ عالی' if rr >= 2 else '⚠️ قابل قبول' if rr >= 1.5 else '❌ ضعیف'}"
             )
         lines.append(f"📊 **اطمینان:** {confidence}%")
         if tf_mult != 1.0:
@@ -2253,7 +2237,6 @@ def build_analysis_paragraph(
 
     lines.append("")
 
-    # ─── سناریوها ───
     scenarios = r_main.get("scenarios", [])
     if scenarios:
         lines.append("◈ سناریوهای احتمالی")
@@ -2332,31 +2315,7 @@ __all__ = [
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("تست core/analyzer.py — نسخه ۸.۴")
+    print("تست core/analyzer.py — نسخه ۸.۵")
     print("=" * 70)
-    print()
-    print("پروفایل‌ها:")
-    for key, prof in RISK_PROFILES.items():
-        lev = f" · اهرم {prof['leverage']}x" if prof.get("leverage") else ""
-        short = "✅" if prof["allow_short"] else "❌"
-        print(
-            f"   {key:25} SL={prof['sl_mult']} TP={prof['tp_mult']} SHORT {short}{lev}"
-        )
-    print()
-    print("رژیم:")
-    for adx in [10, 22, 30]:
-        print(f"   ADX={adx} → {classify_regime(adx)}")
-    print()
-    print("TF_ATR_MULT:")
-    for tf, mult in TF_ATR_MULT.items():
-        print(f"   {tf:12} → ×{mult}")
-    print()
-    print("آستانه‌های تطبیقی:")
-    for regime in ["trend", "transitional", "range"]:
-        for adx in [15, 35, 50]:
-            th = get_adaptive_thresholds(regime, adx)
-            print(
-                f"   {regime:12} ADX={adx:2} → mom={th[0]:.2f} trend={th[1]:.2f} other={th[2]:.2f}"
-            )
     print()
     print("[OK] تست کامل شد.")

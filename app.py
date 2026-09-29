@@ -1,12 +1,14 @@
 """
 app.py
-AsemunYar (آسمون‌یار) — نسخه ۴۴.۰ (STABLE — بدون باگ)
+AsemunYar (آسمون‌یار) — نسخه ۴۵.۰
 ============================================================
-نسخه ساده و قابل اعتماد.
-- بدون URL state
-- سوییچ خودکار ساده
-- منبع قابل تغییر دستی
-- جدول TF همه تایم‌فریم‌ها
+تغییرات نسخه ۴۵.۰:
+  - سازگاری با analyzer 8.5 (ticker param)
+  - render_tf_table با ticker
+  - render_order_book با ticker
+  - build_ai_export بازنویسی‌شده (داده خام، اعداد ۲ رقم)
+  - پیش‌فرض نوبیتکس + BTC-USD
+  - دکمه کپی AI با JS
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,6 +17,7 @@ import json
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core.contracts import (
     AppDefaults,
@@ -115,15 +118,15 @@ def save_custom_symbols(symbols: list) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# session_state — ساده
+# session_state
 # ═══════════════════════════════════════════════════════════
 defaults = {
     "theme": AppDefaults.THEME,
-    "selected_symbol": AppDefaults.SYMBOL,  # GC=F
-    "selected_tf": AppDefaults.TIMEFRAME,  # ۵ دقیقه
-    "risk_profile": AppDefaults.RISK_PROFILE,  # aggressive
-    "market_type": AppDefaults.MARKET_TYPE,  # futures
-    "data_source": AppDefaults.DATA_SOURCE,  # global
+    "selected_symbol": AppDefaults.SYMBOL,
+    "selected_tf": AppDefaults.TIMEFRAME,
+    "risk_profile": AppDefaults.RISK_PROFILE,
+    "market_type": AppDefaults.MARKET_TYPE,
+    "data_source": AppDefaults.DATA_SOURCE,
     "custom_symbols": load_custom_symbols(),
     "last_update": datetime.now().strftime("%H:%M"),
     "last_data_refresh": datetime.now().strftime("%H:%M:%S"),
@@ -163,7 +166,7 @@ if st.session_state.refresh_seconds > 0:
 
 
 # ═══════════════════════════════════════════════════════════
-# Cache — بدون @st.cache_data روی analyze_symbol
+# Cache
 # ═══════════════════════════════════════════════════════════
 @st.cache_data(ttl=CacheTTL.ANALYSIS, show_spinner=False)
 def cached_history(ticker: str, interval: str, period: str, source: str):
@@ -377,43 +380,196 @@ def get_markets_info() -> list:
     return markets
 
 
+def _is_iranian_ticker(ticker: str) -> bool:
+    """تشخیص نمادهای تومانی/ریالی"""
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
+
+
 def build_ai_export(
     ticker: str, name: str, tf_name: str, analysis: dict, tfs_data: dict
 ) -> str:
+    """
+    خروجی برای AI — فقط داده خام، بدون تحلیل
+    """
     if not analysis:
         return ""
+
     lines = []
-    lines.append(f"# تحلیل {name} ({ticker})")
+
+    # ═══ هدر ═══
+    lines.append(f"# داده خام {name} ({ticker})")
     lines.append(f"## تایم‌فریم: {tf_name}")
     lines.append("")
+    lines.append(f"تاریخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append("")
+
+    # ═══ خلاصه ═══
+    regime_raw = analysis.get("regime", "range")
+    regime_fa = {
+        "trend": "بازار جهت‌دار",
+        "transitional": "بازار در حال‌تغییر",
+        "range": "بازار بی‌جهت",
+    }.get(regime_raw, regime_raw)
+
     lines.append("## خلاصه")
-    lines.append(f"- سیگنال: **{analysis.get('signal', '—')}**")
-    lines.append(f"- اطمینان: **{analysis.get('confidence', 0)}%**")
+    lines.append(f"- سیگنال: {analysis.get('signal', '—')}")
+    lines.append(f"- اطمینان: {analysis.get('confidence', 0):.0f}%")
+    lines.append(f"- بازار: {regime_fa} (ADX={analysis.get('adx', 0):.2f})")
+    lines.append(f"- قیمت: {analysis.get('price', 0):.2f}")
+    lines.append(f"- جهت پیشنهادی: {analysis.get('direction', 'neutral')}")
+    lines.append(f"- اجماع: {analysis.get('consensus', 'neutral')}")
     lines.append(
-        f"- رژیم: **{analysis.get('regime', '—')}** (ADX={analysis.get('adx', 0):.0f})"
+        f"- آرا: {analysis.get('votes_long', 0)} صعودی / "
+        f"{analysis.get('votes_neutral', 0)} خنثی / "
+        f"{analysis.get('votes_short', 0)} نزولی"
     )
-    lines.append(f"- قیمت: **{analysis.get('price', 0):.4f}**")
     lines.append("")
-    lines.append("## اندیکاتورها")
-    for k, label in [
-        ("rsi", "RSI"),
-        ("stoch_k", "Stoch K"),
-        ("stoch_d", "Stoch D"),
-        ("willr", "Williams %R"),
-        ("macd_hist", "MACD Hist"),
-        ("ema200", "EMA200"),
-        ("atr", "ATR"),
-        ("adx", "ADX"),
-    ]:
-        lines.append(f"- {label}: {analysis.get(k, 0)}")
+
+    # ═══ اندیکاتورها ═══
+    lines.append("## اندیکاتورها (TF فعلی)")
+    indicators = [
+        ("RSI", analysis.get("rsi")),
+        ("Stoch K", analysis.get("stoch_k")),
+        ("Stoch D", analysis.get("stoch_d")),
+        ("Williams %R", analysis.get("willr")),
+        ("MACD Hist", analysis.get("macd_hist")),
+        ("EMA200", analysis.get("ema200")),
+        ("ATR", analysis.get("atr")),
+        ("ADX", analysis.get("adx")),
+    ]
+    for label, val in indicators:
+        if val is None:
+            continue
+        try:
+            lines.append(f"- {label}: {float(val):.2f}")
+        except (TypeError, ValueError):
+            lines.append(f"- {label}: {val}")
     lines.append("")
-    lines.append("## TFها")
+
+    # ═══ سطوح کلیدی ═══
+    lines.append("## سطوح کلیدی")
+    r = analysis.get("resistance", 0) or 0
+    s = analysis.get("support", 0) or 0
+    if r > 0:
+        lines.append(f"- مقاومت نزدیک: {r:.2f}")
+    if s > 0:
+        lines.append(f"- حمایت نزدیک: {s:.2f}")
+
+    pivots = analysis.get("pivots", {}) or {}
+    if pivots:
+        values = [
+            pivots.get(k, 0) for k in ["r3", "r2", "r1", "pivot", "s1", "s2", "s3"]
+        ]
+        values = [v for v in values if v]
+        is_flat = len(values) >= 2 and (max(values) - min(values)) < 1e-6
+
+        if is_flat:
+            lines.append("- Pivot Points: (نامعتبر — کندل تخت)")
+        else:
+            lines.append("- Pivot Points:")
+            for k, label in [
+                ("r3", "R3"),
+                ("r2", "R2"),
+                ("r1", "R1"),
+                ("pivot", "Pivot"),
+                ("s1", "S1"),
+                ("s2", "S2"),
+                ("s3", "S3"),
+            ]:
+                v = pivots.get(k)
+                if v:
+                    lines.append(f"  - {label}: {float(v):.2f}")
+
+    fib = analysis.get("fibonacci", {}) or {}
+    if fib and fib.get("levels"):
+        lines.append("- Fibonacci:")
+        for ratio, val in fib["levels"].items():
+            lines.append(f"  - {ratio}: {float(val):.2f}")
+    lines.append("")
+
+    # ═══ SL/TP ═══
+    sl_tp = analysis.get("sl_tp")
+    if sl_tp:
+        lines.append("## حد ضرر و هدف")
+        lines.append(f"- حد ضرر: {sl_tp.get('sl', 0):.2f}")
+        lines.append(f"- هدف: {sl_tp.get('tp', 0):.2f}")
+        lines.append(f"- نوع: {sl_tp.get('type', '—')}")
+        rr = analysis.get("rr")
+        if rr:
+            lines.append(f"- R:R: {rr:.2f}")
+        lines.append("")
+
+    # ═══ TFها ═══
+    lines.append("## تحلیل همه TFها")
     for tf in TF_NAMES:
         if tf in tfs_data:
             a = tfs_data[tf]
+            sig = a.get("signal", "—")
+            conf = a.get("confidence", 0)
+            reg = a.get("regime", "—")
+            reg_fa = {
+                "trend": "جهت‌دار",
+                "transitional": "در حال‌تغییر",
+                "range": "بی‌جهت",
+            }.get(reg, reg)
             lines.append(
-                f"- **{tf}**: {a.get('signal', '—')} ({a.get('confidence', 0)}%)"
+                f"- {tf}: {sig} · {conf:.0f}% · {reg_fa} · ADX={a.get('adx', 0):.2f}"
             )
+    lines.append("")
+
+    # ═══ گروه‌ها ═══
+    lines.append("## دلایل گروه‌های تحلیل (TF فعلی)")
+    groups = analysis.get("groups", {}) or {}
+    for g_key, g_data in groups.items():
+        g_names = {
+            "momentum": "مومنتوم",
+            "trend": "روند",
+            "volatility": "نوسان",
+            "volume": "حجم",
+            "structure": "ساختار",
+        }
+        g_name = g_names.get(g_key, g_key)
+        vote = g_data.get("vote", 0)
+        score = g_data.get("score", 0.0)
+        lines.append(f"### {g_name}")
+        lines.append(f"- رای: {vote} · امتیاز: {score:.2f}")
+        for reason in g_data.get("reasons", []):
+            lines.append(f"  - {reason}")
+    lines.append("")
+
+    # ═══ تله‌ها ═══
+    traps = analysis.get("traps", {}) or {}
+    active_traps = [k for k, v in traps.items() if v.get("active")]
+    if active_traps:
+        lines.append("## هشدار تله‌ها")
+        trap_names = {
+            "bull_trap": "تله صعودی",
+            "bear_trap": "تله نزولی",
+            "fake_breakout": "شکست جعلی",
+            "exhaustion": "خستگی روند",
+        }
+        for trap_key in active_traps:
+            t_info = traps[trap_key]
+            lines.append(
+                f"- {trap_names.get(trap_key, trap_key)} "
+                f"(شدت {t_info.get('severity', 0)}/10)"
+            )
+            lines.append(f"  {t_info.get('reason', '')}")
+        lines.append("")
+
+    # ═══ سناریوها ═══
+    scenarios = analysis.get("scenarios", []) or []
+    if scenarios:
+        lines.append("## سناریوها")
+        for sc in scenarios:
+            prob = int(sc.get("probability", 0.5) * 100)
+            lines.append(f"- ({prob}%) {sc.get('condition', '')}")
+            lines.append(f"  → {sc.get('action', '')}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -541,7 +697,19 @@ if search_query and len(search_query.strip()) >= 2:
                 }.get(sug["source"], "•")
                 price_str = ""
                 if "price" in sug:
-                    price_str = f' · <span style="color:{t["fg"]}; font-family:\'JetBrains Mono\';">${sug["price"]:,.4f}</span>'
+                    is_ir = _is_iranian_ticker(sug["ticker"])
+                    if is_ir:
+                        price_str = (
+                            f' · <span style="color:{t["fg"]}; '
+                            f"font-family:'JetBrains Mono';\">"
+                            f'{sug["price"]:,.0f} تومان</span>'
+                        )
+                    else:
+                        price_str = (
+                            f' · <span style="color:{t["fg"]}; '
+                            f"font-family:'JetBrains Mono';\">"
+                            f'${sug["price"]:,.4f}</span>'
+                        )
                 st.markdown(
                     f'<div style="padding:6px 10px; background:{t["bg_card"]}; '
                     f'border:1px solid {t["border"]}; border-radius:8px; '
@@ -663,14 +831,14 @@ st.session_state.selected_tf = tf_choice
 
 
 # ═══════════════════════════════════════════════════════════
-# تحلیل — همه TFها
+# تحلیل
 # ═══════════════════════════════════════════════════════════
-current_source = st.session_state.get("data_source", "global")
+current_source = st.session_state.get("data_source", "nobitex")
 current_market_type = st.session_state.get("market_type", "futures")
 risk_profile = st.session_state.get("risk_profile", "aggressive")
 
 with st.spinner(f"⏳ تحلیل {sym_name}..."):
-    # ═══ تحلیل همه TFها موازی ═══
+
     def _analyze_one_tf(iv: str, p: str, n: str):
         try:
             df = cached_history(selected_ticker, iv, p, current_source)
@@ -682,6 +850,7 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
                 tf_name=n,
                 tfs_data=None,
                 market_type=current_market_type,
+                ticker=selected_ticker,
             )
             return (n, a)
         except Exception as e:
@@ -701,7 +870,6 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
             except Exception:
                 pass
 
-    # ═══ تحلیل اصلی ═══
     analysis = tfs_data.get(tf_choice)
 
     if not analysis:
@@ -710,15 +878,24 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
                 analysis = tfs_data[alt_tf]
                 break
 
-    # اگه هیچی نبود
     if not analysis:
         st.error(f"❌ داده کافی برای {sym_name} در هیچ TF نیست.")
-        st.info(
-            f"💡 **راه‌حل‌ها:**\n"
-            f"- یه نماد دیگه امتحان کن\n"
-            f"- منبع رو عوض کن\n"
-            f"- چند لحظه بعد دوباره امتحان کن"
-        )
+        if current_source == "global":
+            st.warning(
+                "**🔍 دلیل احتمالی:**\n\n"
+                "Yahoo Finance از IP ایران در دسترس نیست.\n\n"
+                "**✅ راه‌حل‌ها:**\n\n"
+                "1. **VPN روشن کن**\n"
+                "2. **از نمادهای کریپتو استفاده کن** — نوبیتکس\n"
+                "3. **چند دقیقه صبر کن**"
+            )
+        else:
+            st.info(
+                "**💡 راه‌حل‌ها:**\n"
+                "- یه نماد دیگه امتحان کن\n"
+                "- منبع رو عوض کن\n"
+                "- چند لحظه بعد دوباره امتحان کن"
+            )
         st.stop()
 
 
@@ -772,7 +949,7 @@ if current_source in ("nobitex", "abantether") and "-USD" in selected_ticker:
         if nobitex_sym:
             ob = fetch_nobitex_orderbook(nobitex_sym)
             if ob:
-                render_order_book(ob, sym_name=sym_name)
+                render_order_book(ob, sym_name=sym_name, ticker=selected_ticker)
     except Exception:
         pass
 
@@ -796,24 +973,77 @@ with col_a:
         selected_ticker, sym_name, tf_choice, analysis, tfs_data
     )
     if ai_export:
-        st.download_button(
-            label="📋 دانلود خروجی برای AI",
-            data=ai_export,
-            file_name=f"asemunyar_{selected_ticker}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
-            mime="text/markdown",
-            use_container_width=True,
-            key="ai_export_btn",
+        import html as _html
+
+        escaped_js = (
+            ai_export.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
         )
+
+        copy_button_html = f"""
+        <div style="direction:rtl; text-align:center; margin-top:8px;">
+            <button id="copy-ai-btn" style="
+                background:#3B82F6;
+                color:#fff;
+                border:none;
+                border-radius:10px;
+                padding:10px 24px;
+                font-family:IRANYekanX, Tahoma, sans-serif;
+                font-size:13px;
+                font-weight:700;
+                cursor:pointer;
+                width:100%;
+                transition:all 0.2s;
+                box-shadow:0 2px 8px rgba(59,130,246,0.3);
+            ">📋 کپی داده‌ها برای AI</button>
+            <div id="copy-ai-toast" style="
+                display:none;
+                margin-top:8px;
+                padding:8px 12px;
+                background:rgba(16,185,129,0.15);
+                border:1px solid #10B981;
+                border-radius:8px;
+                color:#10B981;
+                font-size:11px;
+                font-weight:600;
+            ">✅ داده‌ها در حافظه کپی شد</div>
+        </div>
+        <script>
+        (function() {{
+            const btn = document.getElementById('copy-ai-btn');
+            const toast = document.getElementById('copy-ai-toast');
+            const data = `{escaped_js}`;
+
+            if (!btn) return;
+
+            btn.addEventListener('click', function() {{
+                navigator.clipboard.writeText(data).then(function() {{
+                    toast.style.display = 'block';
+                    btn.textContent = '✅ کپی شد';
+                    btn.style.background = '#10B981';
+
+                    setTimeout(function() {{
+                        toast.style.display = 'none';
+                        btn.textContent = '📋 کپی داده‌ها برای AI';
+                        btn.style.background = '#3B82F6';
+                    }}, 3000);
+                }}).catch(function(err) {{
+                    alert('خطا در کپی: ' + err);
+                }});
+            }});
+        }})();
+        </script>
+        """
+
+        components.html(copy_button_html, height=110)
 
 with col_b:
     current_price = analysis.get("price", 0)
-    selected_tf_from_table = render_tf_table(tfs_data, sym_name, current_price)
-    if (
-        selected_tf_from_table
-        and selected_tf_from_table != st.session_state.selected_tf
-    ):
-        st.session_state.selected_tf = selected_tf_from_table
-        st.rerun()
+    render_tf_table(
+        tfs_data,
+        sym_name,
+        current_price,
+        ticker=selected_ticker,
+    )
 
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
     items, pct, final_text, final_color = build_checklist_weighted(
@@ -823,7 +1053,6 @@ with col_b:
 
     st.markdown("<div style='height:16px;'></div>", unsafe_allow_html=True)
 
-    # Fear & Greed
     df_for_fg = None
     for iv, p, n in TIMEFRAMES:
         if n == tf_choice:
@@ -964,7 +1193,7 @@ if log:
 # تیکر
 # ═══════════════════════════════════════════════════════════
 with ticker_placeholder:
-    gp = cached_ticker_data(st.session_state.get("data_source", "global"))
+    gp = cached_ticker_data(st.session_state.get("data_source", "nobitex"))
     markets_info = get_markets_info()
     render_top_ticker(gp, markets_info)
 
@@ -978,7 +1207,7 @@ render_back_to_top_fab()
 # ═══════════════════════════════════════════════════════════
 # فوتر
 # ═══════════════════════════════════════════════════════════
-source_info = get_source_info(st.session_state.get("data_source", "global"))
+source_info = get_source_info(st.session_state.get("data_source", "nobitex"))
 market_label = MarketType.display_fa(st.session_state.get("market_type", "futures"))
 
 st.markdown(

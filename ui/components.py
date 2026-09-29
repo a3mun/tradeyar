@@ -1,12 +1,14 @@
 """
 ui/components.py
-کامپوننت‌های رابط کاربری — نسخه ۱۶.۰ (فاز ۵ — گام ۱، ۲، ۳)
+کامپوننت‌های رابط کاربری — نسخه ۱۷.۱ (فاز ۵.۵)
 ============================================================
-تغییرات نسخه ۱۶.۰:
-  - گام ۲: sl_tp_note حالا از neutral_explain (short + long + hint) استفاده می‌کنه
-  - گام ۳: render_tf_table حالا کلیک‌پذیر است (st.dataframe selection)
-          + fallback با دکمه‌ها اگه Streamlit قدیمی بود
-  - مابقی توابع بدون تغییر
+تغییرات نسخه ۱۷.۱:
+  - رفع باگ تشخیص تومان/دلار: از ticker به جای heuristic قیمت
+  - _build_sr_rows پارامتر ticker می‌گیره
+  - render_tf_table پارامتر ticker می‌گیره
+  - sl_tp_note با neutral_explain (short + long + hint)
+  - جعبه تله‌ها (_render_traps_box)
+  - جعبه سناریوها (_render_scenarios_box)
 """
 
 from datetime import datetime
@@ -45,6 +47,14 @@ def _safe_num(v, default=0.0):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _is_iranian_ticker(ticker: str) -> bool:
+    """تشخیص نمادهای تومانی/ریالی از روی ticker"""
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -229,10 +239,9 @@ def render_header(jalali: str, weekday: str, miladi: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# پنل تنظیمات (جایگزین sidebar)
+# پنل تنظیمات
 # ═══════════════════════════════════════════════════════════
 def render_settings_panel_open_button() -> None:
-    """دکمه باز/بسته کردن پنل تنظیمات"""
     t = _t()
 
     state_key = "settings_open"
@@ -256,7 +265,6 @@ def render_settings_panel_open_button() -> None:
 
 
 def render_settings_panel() -> None:
-    """پنل تنظیمات کامل — درون صفحه"""
     t = _t()
 
     if not st.session_state.get("settings_open", False):
@@ -446,9 +454,6 @@ def render_settings_divider() -> None:
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# پروفایل
-# ═══════════════════════════════════════════════════════════
 def render_profile_selector(current_profile: str) -> None:
     is_aggressive = current_profile == "aggressive"
     is_conservative = current_profile == "conservative"
@@ -482,9 +487,6 @@ def render_profile_selector(current_profile: str) -> None:
                 st.rerun()
 
 
-# ═══════════════════════════════════════════════════════════
-# منبع
-# ═══════════════════════════════════════════════════════════
 def render_source_selector(current_source: str) -> None:
     t = _t()
 
@@ -559,9 +561,6 @@ def render_source_badge(source: str) -> str:
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# نوع بازار
-# ═══════════════════════════════════════════════════════════
 def render_market_type_selector(current_type: str) -> None:
     market_types = [
         {"key": "spot", "icon": "💵", "label": "اسپات"},
@@ -591,9 +590,9 @@ def render_market_type_selector(current_type: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════
-# S/R
+# S/R — با تشخیص تومان/دلار از ticker
 # ═══════════════════════════════════════════════════════════
-def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
+def _build_sr_rows(analysis: dict, max_levels: int = 3, ticker: str = "") -> tuple:
     t = _t()
     price = analysis.get("price", 0)
     pivots = analysis.get("pivots") or {}
@@ -605,6 +604,9 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
             f'color:{t["fg_dim"]}; font-size:10px;">داده کافی نیست</div>'
         )
         return empty, empty, empty
+
+    # ═══ تشخیص تومانی از روی ticker ═══
+    is_iranian = _is_iranian_ticker(ticker)
 
     resistances = []
     supports = []
@@ -645,7 +647,12 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
     resistances = resistances[:max_levels]
     supports = supports[:max_levels]
 
-    price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
+    # ═══ فرمت قیمت ═══
+    if is_iranian:
+        price_str = f"{price:,.0f} تومان"
+    else:
+        price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
+
     price_row = (
         f'<div style="display:flex; justify-content:space-between; align-items:center; '
         f"padding:10px 12px; margin:8px 0; "
@@ -656,7 +663,7 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
         f'<span style="font-size:12px; color:{t["fg"]}; font-weight:700;">قیمت فعلی</span>'
         f"</div>"
         f'<span style="font-size:14px; color:{t["primary"]}; '
-        f"font-family:'JetBrains Mono'; font-weight:700; direction:ltr;\">{price_str}</span>"
+        f"font-family:'JetBrains Mono'; font-weight:700; direction:rtl;\">{price_str}</span>"
         f"</div>"
     )
 
@@ -699,7 +706,13 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3) -> tuple:
             src_text = "W"
             src_color = t["purple"]
 
-        price_str = f"${lvl_price:,.2f}" if lvl_price < 10000 else f"${lvl_price:,.0f}"
+        # ═══ فرمت قیمت level ═══
+        if is_iranian:
+            price_str = f"{lvl_price:,.0f} تومان"
+        else:
+            price_str = (
+                f"${lvl_price:,.2f}" if lvl_price < 10000 else f"${lvl_price:,.0f}"
+            )
         sign = "▲" if dist_pct > 0 else "▼"
 
         return (
@@ -772,8 +785,8 @@ def _build_regime_badge(analysis: dict) -> str:
         <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:16px;">{regime_icon}</span>
             <div style="text-align:right;">
-                <div style="font-size:11px; color:{t['fg_muted']};">رژیم بازار</div>
-                <div style="font-size:13px; color:{regime_color}; font-weight:700;">{regime_fa} (ADX={adx:.0f})</div>
+                <div style="font-size:11px; color:{t['fg_muted']};">حالت بازار</div>
+                <div style="font-size:13px; color:{regime_color}; font-weight:700;">{regime_fa} · ADX={adx:.0f}</div>
             </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -889,10 +902,9 @@ def _build_voting_bar(analysis: dict) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# جعبه تله‌ها (گام ۵.۵)
+# جعبه تله‌ها
 # ═══════════════════════════════════════════════════════════
 def _render_traps_box(analysis: dict) -> str:
-    """نمایش تله‌های فعال در کارت سیگنال"""
     t = _t()
 
     traps = analysis.get("traps", {})
@@ -900,11 +912,9 @@ def _render_traps_box(analysis: dict) -> str:
         return ""
 
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
-
     if not active_traps:
         return ""
 
-    # ترتیب بر اساس severity
     sorted_traps = sorted(
         active_traps.items(),
         key=lambda x: -x[1].get("severity", 0),
@@ -923,7 +933,6 @@ def _render_traps_box(analysis: dict) -> str:
         severity = trap_info.get("severity", 5)
         reason = trap_info.get("reason", "")
 
-        # شدت رنگ بر اساس severity
         if severity >= 8:
             bg = f"{t['red']}20"
             border = t["red"]
@@ -964,10 +973,9 @@ def _render_traps_box(analysis: dict) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# جعبه سناریوها (گام ۵.۵)
+# جعبه سناریوها
 # ═══════════════════════════════════════════════════════════
 def _render_scenarios_box(analysis: dict) -> str:
-    """نمایش سناریوهای «اگه X → Y»"""
     t = _t()
 
     scenarios = analysis.get("scenarios", [])
@@ -1019,7 +1027,7 @@ def _render_scenarios_box(analysis: dict) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# کارت سیگنال (با live_price)
+# کارت سیگنال
 # ═══════════════════════════════════════════════════════════
 def render_unified_signal_card(
     analysis: dict,
@@ -1030,7 +1038,7 @@ def render_unified_signal_card(
     source: str = "global",
     market_type: str = "spot",
     live_price: float = None,
-    show_scenarios: bool = True,  # ← جدید
+    show_scenarios: bool = True,
 ) -> None:
     t = _t()
 
@@ -1049,7 +1057,9 @@ def render_unified_signal_card(
     sl_tp = analysis.get("sl_tp")
     rr = analysis.get("rr")
 
-    # قیمت نمایشی — اگه live_price هست، اون
+    # ═══ تشخیص تومانی ═══
+    is_iranian = _is_iranian_ticker(ticker) or analysis.get("is_iranian", False)
+
     display_price = live_price if live_price and live_price > 0 else price
 
     if SigEnum.is_long(signal):
@@ -1068,6 +1078,8 @@ def render_unified_signal_card(
     def _fmt_price(p):
         if not p or p <= 0:
             return "—"
+        if is_iranian:
+            return f"{p:,.0f} تومان"
         return f"${p:,.2f}" if p < 10000 else f"${p:,.0f}"
 
     price_str = _fmt_price(display_price)
@@ -1086,7 +1098,6 @@ def render_unified_signal_card(
         sl_color = t["fg_dim"]
         tp_color = t["fg_dim"]
 
-        # ═══ گام ۲: پیام خنثی جدید با short + long + hint ═══
         neutral_explain = analysis.get("neutral_explain", {})
         ne_short = neutral_explain.get("short") or analysis.get("explanation", "")
         ne_long = neutral_explain.get("long", "")
@@ -1121,7 +1132,9 @@ def render_unified_signal_card(
             f"</div>"
         )
 
-    res_rows, price_row, sup_rows = _build_sr_rows(analysis, max_levels=3)
+    res_rows, price_row, sup_rows = _build_sr_rows(
+        analysis, max_levels=3, ticker=ticker
+    )
     voting_bar = _build_voting_bar(analysis)
     regime_badge = _build_regime_badge(analysis)
 
@@ -1147,7 +1160,6 @@ def render_unified_signal_card(
             f'color:{t["cyan"]}; font-weight:600;">{last_update}</span>'
         )
 
-    # نشانگر live
     live_indicator = ""
     if live_price and live_price > 0:
         live_indicator = (
@@ -1175,6 +1187,9 @@ def render_unified_signal_card(
         )
 
     action_fa = analysis.get("action_fa", "")
+
+    traps_html = _render_traps_box(analysis)
+    scenarios_html = _render_scenarios_box(analysis) if show_scenarios else ""
 
     html = f"""
     <style>
@@ -1249,7 +1264,7 @@ def render_unified_signal_card(
             <div style="display:flex; align-items:center; gap:18px;">
                 <div style="text-align:center;">
                     <div style="font-size:9px; color:{t['fg_muted']}; margin-bottom:2px;">قیمت</div>
-                    <div style="font-family:'JetBrains Mono'; font-size:16px; color:{t['primary']}; font-weight:700; direction:ltr;">{price_str}</div>
+                    <div style="font-family:'JetBrains Mono'; font-size:16px; color:{t['primary']}; font-weight:700; direction:rtl;">{price_str}</div>
                 </div>
                 <div style="text-align:center;">
                     <div style="font-size:9px; color:{t['fg_muted']}; margin-bottom:2px;">اطمینان</div>
@@ -1289,15 +1304,15 @@ def render_unified_signal_card(
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; direction:rtl;">
                     <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px; text-align:center; border-right:3px solid {t['primary']};">
                         <div style="font-size:10px; color:{t['fg_muted']}; margin-bottom:5px;">💰 ورود</div>
-                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{t['fg']}; font-weight:700; direction:ltr;">{price_str}</div>
+                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{t['fg']}; font-weight:700; direction:rtl;">{price_str}</div>
                     </div>
                     <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px; text-align:center; border-right:3px solid {sl_color};">
                         <div style="font-size:10px; color:{t['fg_muted']}; margin-bottom:5px;">🛑 حد ضرر</div>
-                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{sl_color}; font-weight:700; direction:ltr;">{sl_str}</div>
+                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{sl_color}; font-weight:700; direction:rtl;">{sl_str}</div>
                     </div>
                     <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px; text-align:center; border-right:3px solid {tp_color};">
                         <div style="font-size:10px; color:{t['fg_muted']}; margin-bottom:5px;">🎯 هدف</div>
-                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{tp_color}; font-weight:700; direction:ltr;">{tp_str}</div>
+                        <div style="font-family:'JetBrains Mono'; font-size:13px; color:{tp_color}; font-weight:700; direction:rtl;">{tp_str}</div>
                     </div>
                     <div style="background:{t['bg_card']}; border:1px solid {t['border']}; border-radius:10px; padding:12px; text-align:center; border-right:3px solid {t['cyan']};">
                         <div style="font-size:10px; color:{t['fg_muted']}; margin-bottom:5px;">⚖️ سود/ضرر</div>
@@ -1307,10 +1322,10 @@ def render_unified_signal_card(
 
                 {sl_tp_note}
                 {voting_bar}
-                {_render_traps_box(analysis)}
-                {_render_scenarios_box(analysis) if show_scenarios else ""}
+                {traps_html}
+                {scenarios_html}
             </div>
-                                
+
             <div class="ty-sr-box">
                 <div style="
                     display:flex; justify-content:space-between; align-items:center;
@@ -1335,27 +1350,31 @@ def render_unified_signal_card(
 
 
 # ═══════════════════════════════════════════════════════════
-# جدول TF (نسخه بهبودیافته — بدون کلیک، با دکمه‌های کوچیک)
+# جدول TF
 # ═══════════════════════════════════════════════════════════
-def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str | None:
-    """
-    جدول تحلیل TFها — دسکتاپ: جدول کامل با تحلیل | موبایل: کارت
-    زیر جدول، ۶ دکمه کوچیک برای انتخاب سریع TF
-
-    Returns:
-        اگه کاربر روی دکمه TF کلیک کرد → TF انتخاب‌شده (str)
-        وگرنه → None
-    """
+def render_tf_table(
+    tfs_data: dict,
+    sym_name: str,
+    current_price: float,
+    ticker: str = "",
+) -> str | None:
     t = _t()
     if not tfs_data:
         return None
 
     from core.contracts import TF_NAMES, TF_SHORT
 
+    is_iranian = _is_iranian_ticker(ticker)
+
     tf_order = TF_NAMES
-    price_str = (
-        f"${current_price:,.2f}" if current_price < 10000 else f"${current_price:,.0f}"
-    )
+    if is_iranian:
+        price_str = f"{current_price:,.0f} تومان"
+    else:
+        price_str = (
+            f"${current_price:,.2f}"
+            if current_price < 10000
+            else f"${current_price:,.0f}"
+        )
 
     _render(
         f'<div style="font-size:13px; font-weight:700; color:{t["primary"]}; '
@@ -1375,7 +1394,6 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str 
         close_series = a.get("close_series", [])
         regime = a.get("regime", "range")
 
-        # ═══ بدون آیکون (فقط متن) ═══
         if SigEnum.is_long(signal):
             sig_text = "LONG"
             sig_color = t["green"]
@@ -1389,54 +1407,13 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str 
             sig_color = t["fg_muted"]
             trend = "flat"
 
-        # ═══ بدون آیکون رژیم ═══
-        _, regime_fa = Regime.display_fa(regime)
+        regime_fa = {
+            "trend": "جهت‌دار",
+            "transitional": "در حال‌تغییر",
+            "range": "بی‌جهت",
+        }.get(regime, regime)
 
-        # ═══ توضیح فارسی بهبودیافته (با تشخیص تله) ═══
-        traps = a.get("traps", {})
-        active_traps = [k for k, v in traps.items() if v.get("active")]
-
-        if active_traps:
-            trap_names_fa = {
-                "bull_trap": "تله صعودی",
-                "bear_trap": "تله نزولی",
-                "fake_breakout": "شکست جعلی",
-                "exhaustion": "خستگی روند",
-            }
-            trap_fa = trap_names_fa.get(active_traps[0], "هشدار")
-            expl_main = f"🚨 {trap_fa}"
-            expl_sub = "احتمال تله — احتیاط"
-        elif SigEnum.is_long(signal) and confidence >= 70:
-            expl_main = "فرصت خرید قوی"
-            expl_sub = "احتمال صعود بالاست"
-        elif SigEnum.is_long(signal) and confidence >= 50:
-            expl_main = "فرصت خرید"
-            expl_sub = "با حد ضرر وارد شو"
-        elif SigEnum.is_long(signal):
-            expl_main = "نشانه‌های صعود ضعیف"
-            expl_sub = "با احتیاط و حجم کم"
-        elif SigEnum.is_short(signal) and confidence >= 70:
-            expl_main = "فرصت فروش قوی"
-            expl_sub = "احتمال نزول بالاست"
-        elif SigEnum.is_short(signal) and confidence >= 50:
-            expl_main = "فرصت فروش"
-            expl_sub = "با حد ضرر وارد شو"
-        elif SigEnum.is_short(signal):
-            expl_main = "نشانه‌های نزول ضعیف"
-            expl_sub = "با احتیاط و حجم کم"
-        else:
-            if regime == "range":
-                expl_main = "بازار رنج"
-                expl_sub = "بدون روند — صبر کن"
-            elif regime == "trend":
-                expl_main = "بدون سیگنال معتبر"
-                expl_sub = "روند هست ولی گروه‌ها هم‌جهت نیستن"
-            else:
-                expl_main = "بدون سیگنال"
-                expl_sub = "منتظر تأیید باش"
-        ...
-
-        # ═══ توضیح فارسی سیگنال (بهبود یافته) ═══
+        # توضیح فارسی
         traps = a.get("traps", {})
         active_traps = [k for k, v in traps.items() if v.get("active")]
 
@@ -1494,7 +1471,7 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str 
             f'<td style="text-align:center; color:{sig_color}; font-weight:700; '
             f"font-size:12px; font-family:'JetBrains Mono';\">{sig_text}</td>"
             f'<td style="font-size:11px; color:{t["fg"]}; text-align:right; line-height:1.6;">'
-            f'{expl_main}<br><span style="font-size:9px; color:{t["fg_muted"]};">{expl_sub} · رژیم {regime_fa}</span></td>'
+            f'{expl_main}<br><span style="font-size:9px; color:{t["fg_muted"]};">{expl_sub} · حالت {regime_fa}</span></td>'
             f"<td style=\"text-align:center; font-family:'JetBrains Mono'; "
             f'color:{t["primary"]}; font-size:12px; font-weight:600;">{confidence}%</td>'
             f"</tr>"
@@ -1515,8 +1492,7 @@ def render_tf_table(tfs_data: dict, sym_name: str, current_price: float) -> str 
             f"</div>"
             f'<div style="font-size:11px; color:{t["fg"]}; text-align:right; margin-bottom:4px;">{expl_main}</div>'
             f'<div style="font-size:9px; color:{t["fg_muted"]}; text-align:right;">'
-            f'<div style="font-size:9px; color:{t["fg_muted"]}; text-align:right;">'
-            f"{expl_sub} · رژیم {regime_fa}</div>"
+            f"{expl_sub} · حالت {regime_fa}</div>"
             f"</div>"
         )
 
@@ -1956,6 +1932,8 @@ def _render_log_entry(entry: dict, t: dict) -> None:
     result_time = entry.get("result_time", "")
     exit_price = entry.get("exit_price")
 
+    is_iranian = _is_iranian_ticker(ticker)
+
     if SigEnum.is_long(sig):
         sig_color = t["green"]
         sig_icon = "🟢"
@@ -1995,9 +1973,13 @@ def _render_log_entry(entry: dict, t: dict) -> None:
         except Exception:
             result_time_str = result_time[:16]
 
-    exit_str = ""
-    if exit_price:
-        exit_str = f"→ ${_safe_num(exit_price):,.2f}"
+    # فرمت قیمت
+    if is_iranian:
+        price_str = f"{price:,.0f} تومان"
+        exit_str = f"→ {_safe_num(exit_price):,.0f} تومان" if exit_price else ""
+    else:
+        price_str = f"${price:,.2f}"
+        exit_str = f"→ ${_safe_num(exit_price):,.2f}" if exit_price else ""
 
     _render(
         f'<div style="background:{t["bg_card"]}; border:1px solid {t["border"]}; '
@@ -2018,7 +2000,7 @@ def _render_log_entry(entry: dict, t: dict) -> None:
         f'<span style="font-size:10px; color:{t["cyan"]}; padding:2px 6px; background:{t["cyan"]}15; border-radius:6px;">{tf}</span>'
         f"</div>"
         f'<div style="display:flex; justify-content:space-between; font-size:10px; color:{t["fg_muted"]};">'
-        f"<span style=\"font-family:'JetBrains Mono'; direction:ltr;\">💰 ${price:,.2f} {exit_str}</span>"
+        f"<span style=\"font-family:'JetBrains Mono'; direction:rtl;\">💰 {price_str} {exit_str}</span>"
         f"<span>🕐 ثبت: {ts_str}</span>"
         f"</div>"
         f'{f"<div style=\'font-size:9px; color:{result_color}; margin-top:4px; text-align:left; direction:ltr;\'>✅ تأیید: {result_time_str}</div>" if result_time_str else ""}'
@@ -2111,6 +2093,8 @@ def render_scanner(
         confidence = item.get("confidence", 0)
         rr = item.get("rr")
 
+        is_iranian = _is_iranian_ticker(ticker)
+
         if SigEnum.is_long(signal):
             sig_color = t["green"]
             sig_icon = "🟢"
@@ -2132,7 +2116,12 @@ def render_scanner(
             score_color = t["orange"]
 
         medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(idx, f"{idx}.")
-        price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
+
+        if is_iranian:
+            price_str = f"{price:,.0f} تومان"
+        else:
+            price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
+
         rr_str = f"{rr:.1f}" if rr else "—"
 
         row_cols = st.columns([1, 10])
@@ -2172,7 +2161,7 @@ def render_scanner(
                 <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
                     <div style="background:{t['bg_mid']}; border-radius:6px; padding:5px; text-align:center;">
                         <div style="font-size:8px; color:{t['fg_muted']};">قیمت</div>
-                        <div style="font-family:'JetBrains Mono'; font-size:10px; color:{t['fg']}; font-weight:600; direction:ltr;">{price_str}</div>
+                        <div style="font-family:'JetBrains Mono'; font-size:10px; color:{t['fg']}; font-weight:600; direction:rtl;">{price_str}</div>
                     </div>
                     <div style="background:{t['bg_mid']}; border-radius:6px; padding:5px; text-align:center;">
                         <div style="font-size:8px; color:{t['fg_muted']};">اطمینان</div>
@@ -2290,11 +2279,15 @@ def render_checklist(
 # ═══════════════════════════════════════════════════════════
 # Order Book
 # ═══════════════════════════════════════════════════════════
-def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
+def render_order_book(
+    orderbook_data: dict, sym_name: str = "", ticker: str = ""
+) -> None:
     t = _t()
 
     if not orderbook_data:
         return
+
+    is_iranian = _is_iranian_ticker(ticker)
 
     spread_pct = orderbook_data.get("spread_pct", 0)
     bids = orderbook_data.get("bids", [])[:5]
@@ -2320,6 +2313,15 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
 
     buy_color = t["green"] if buy_pressure > sell_pressure else t["red"]
 
+    def _fmt(price):
+        try:
+            p = float(price)
+            if is_iranian:
+                return f"{p:,.0f}"
+            return f"${p:,.4f}" if p < 1000 else f"${p:,.2f}"
+        except (TypeError, ValueError):
+            return "—"
+
     ask_rows = ""
     for a in reversed(asks):
         try:
@@ -2327,10 +2329,10 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
             vol = float(a[1])
             ask_rows += (
                 f'<div style="display:flex; justify-content:space-between; '
-                f"padding:4px 10px; font-size:10px; direction:ltr; "
+                f"padding:4px 10px; font-size:10px; direction:rtl; "
                 f'font-family:\'JetBrains Mono\'; color:{t["red"]}; '
                 f'border-bottom:1px solid {t["border"]}20;">'
-                f"<span>${price:,.4f}</span><span>{vol:.4f}</span></div>"
+                f"<span>{_fmt(price)}</span><span>{vol:.4f}</span></div>"
             )
         except (IndexError, ValueError, TypeError):
             continue
@@ -2342,10 +2344,10 @@ def render_order_book(orderbook_data: dict, sym_name: str = "") -> None:
             vol = float(b[1])
             bid_rows += (
                 f'<div style="display:flex; justify-content:space-between; '
-                f"padding:4px 10px; font-size:10px; direction:ltr; "
+                f"padding:4px 10px; font-size:10px; direction:rtl; "
                 f'font-family:\'JetBrains Mono\'; color:{t["green"]}; '
                 f'border-bottom:1px solid {t["border"]}20;">'
-                f"<span>${price:,.4f}</span><span>{vol:.4f}</span></div>"
+                f"<span>{_fmt(price)}</span><span>{vol:.4f}</span></div>"
             )
         except (IndexError, ValueError, TypeError):
             continue

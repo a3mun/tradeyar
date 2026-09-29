@@ -1,15 +1,14 @@
 """
 core/nobitex_fetcher.py
 اتصال به API نوبیتکس — قیمت لحظه‌ای، OHLCV، Order Book
-نسخه ۴.۰ (فاز ۵)
+نسخه ۴.۱ (فاز ۵ — اصلاح ریال/تومان)
 ============================================================
-تغییرات نسخه ۴.۰:
-  - اضافه شدن USDT-IRT (تتر/تومان) به عنوان نماد ویژه
-  - تابع is_in_nobitex برای چک سریع
-  - fetch_nobitex_stats رفع باگ (usdt→rls درست کار می‌کنه)
-  - تابع get_nobitex_symbols_map برای دسترسی سریع
-  - حذف کدهای مرده
-  - add: fetch_nobitex_usdt_irt (پیش‌فرض جدید)
+تغییرات نسخه ۴.۱:
+  - اصلاح تبدیل ریال به تومان (فقط یک بار)
+  - /10 در fetch_nobitex_history (بر اساس symbol endswith IRT/RLS)
+  - /10 در fetch_nobitex_stats (بر اساس dst_currency == rls)
+  - حذف /10 تکراری از wrapper ها
+  - رفع باگ ۱۰ برابر کوچک‌تر شدن USDT-IRT
 
 API عمومی نوبیتکس (بدون نیاز به توکن):
   - /market/stats?srcCurrency=...&dstCurrency=...
@@ -211,6 +210,17 @@ def _resolution_to_seconds(resolution: str) -> int:
         return 3600
 
 
+def _is_rial_pair(symbol: str) -> bool:
+    """
+    آیا این نماد به ریال معامله می‌شه؟
+    نمادهای نوبیتکس که به ریال هستن: USDTIRT، BTCIRT، ...
+    """
+    if not symbol:
+        return False
+    upper = symbol.upper()
+    return upper.endswith("IRT") or upper.endswith("RLS")
+
+
 # ═══════════════════════════════════════════════════════════
 # نگاشت نماد
 # ═══════════════════════════════════════════════════════════
@@ -256,6 +266,8 @@ def fetch_nobitex_stats(
 
     Returns:
         dict با price, best_buy, best_sell, ... یا None
+
+    ⚠️ اگه dst_currency == "rls"، قیمت‌ها از ریال به تومان تبدیل می‌شن.
     """
     url = f"{NOBITEX_BASE}/market/stats"
     params = {"srcCurrency": src_currency, "dstCurrency": dst_currency}
@@ -276,6 +288,22 @@ def fetch_nobitex_stats(
         best_buy = safe_num(info.get("bestBuy"))
         best_sell = safe_num(info.get("bestSell"))
         day_change = safe_num(info.get("dayChange"))
+        day_high = safe_num(info.get("dayHigh"))
+        day_low = safe_num(info.get("dayLow"))
+        day_open = safe_num(info.get("dayOpen"))
+        day_close = safe_num(info.get("dayClose"))
+        mark = safe_num(info.get("mark"))
+
+        # ═══ تبدیل ریال به تومان ═══
+        if dst_currency.lower() == "rls":
+            price = price / 10
+            best_buy = best_buy / 10
+            best_sell = best_sell / 10
+            day_high = day_high / 10
+            day_low = day_low / 10
+            day_open = day_open / 10
+            day_close = day_close / 10
+            mark = mark / 10
 
         if best_buy > 0 and best_sell > 0 and best_buy <= best_sell:
             spread = best_sell - best_buy
@@ -292,13 +320,13 @@ def fetch_nobitex_stats(
             "spread": spread,
             "spread_pct": spread_pct,
             "change_24h": day_change,
-            "high_24h": safe_num(info.get("dayHigh")),
-            "low_24h": safe_num(info.get("dayLow")),
-            "open_24h": safe_num(info.get("dayOpen")),
-            "close_24h": safe_num(info.get("dayClose")),
+            "high_24h": day_high,
+            "low_24h": day_low,
+            "open_24h": day_open,
+            "close_24h": day_close,
             "volume_src": safe_num(info.get("volumeSrc")),
             "volume_dst": safe_num(info.get("volumeDst")),
-            "mark_price": safe_num(info.get("mark")),
+            "mark_price": mark,
             "is_closed": bool(info.get("isClosed", False)),
         }
     except (KeyError, TypeError) as e:
@@ -310,7 +338,7 @@ def fetch_nobitex_stats_for_ticker(ticker: str) -> Optional[dict]:
     """
     دریافت آمار برای نماد داخلی.
 
-    - USDT-IRT → usdt/rls
+    - USDT-IRT → usdt/rls (خودکار /10 می‌شه)
     - BTC-USD → btc/usdt
     """
     if not ticker:
@@ -318,6 +346,7 @@ def fetch_nobitex_stats_for_ticker(ticker: str) -> Optional[dict]:
 
     # ─── ویژه: USDT-IRT ───
     if ticker == "USDT-IRT":
+        # /10 داخل fetch_nobitex_stats اعمال می‌شه
         return fetch_nobitex_stats("usdt", "rls")
 
     # ─── عادی ───
@@ -329,6 +358,11 @@ def fetch_nobitex_stats_for_ticker(ticker: str) -> Optional[dict]:
     if nobitex_sym.endswith("USDT"):
         base = nobitex_sym.replace("USDT", "").lower()
         return fetch_nobitex_stats(base, "usdt")
+
+    # BTCIRT → base=BTC, quote=RLS
+    if nobitex_sym.endswith("IRT"):
+        base = nobitex_sym.replace("IRT", "").lower()
+        return fetch_nobitex_stats(base, "rls")
 
     return None
 
@@ -346,8 +380,12 @@ def fetch_nobitex_history(
     دریافت OHLCV از نوبیتکس.
 
     Args:
-        symbol: نماد نوبیتکس (BTCUSDT, USDTIRT, ...)
+        symbol: نماد نوبیتکس (BTCUSDT, USDTIRT, BTCIRT, ...)
         resolution: 1, 5, 15, 30, 60, 240, 720, 1D, 1W
+
+    Returns:
+        DataFrame با open, high, low, close, volume
+        ⚠️ اگه نماد IRT/RLS باشه، قیمت‌ها از ریال به تومان تبدیل می‌شن.
     """
     if to_ts is None:
         to_ts = int(datetime.now(timezone.utc).timestamp())
@@ -368,7 +406,6 @@ def fetch_nobitex_history(
     if not data:
         return None
 
-    # نوبیتکس ممکنه s=no_data برگردونه
     if data.get("s") != "ok":
         if "t" not in data or not data["t"]:
             return None
@@ -403,6 +440,12 @@ def fetch_nobitex_history(
         if df.empty:
             return None
 
+        # ⚠️ نکته مهم:
+        # OHLCV نوبیتکس برای نمادهای IRT/RLS از قبل به تومان هست
+        # و نیازی به /10 نداره.
+        # فقط API /market/stats (قیمت لحظه‌ای) به ریال هست که
+        # توی fetch_nobitex_stats تبدیل می‌شه.
+
         return df
 
     except (KeyError, TypeError, ValueError) as e:
@@ -431,6 +474,7 @@ def fetch_nobitex_for_ticker(
     to_ts = int(datetime.now(timezone.utc).timestamp())
     from_ts = to_ts - period_seconds
 
+    # /10 داخل fetch_nobitex_history اعمال می‌شه (بر اساس symbol endswith IRT/RLS)
     return fetch_nobitex_history(nobitex_sym, resolution, from_ts, to_ts)
 
 
@@ -464,19 +508,32 @@ def fetch_all_nobitex_symbols(dst_currency: str = "usdt") -> list:
             if price <= 0:
                 continue
 
+            # ═══ تبدیل ریال به تومان برای RLS ═══
+            if quote == "RLS":
+                price = price / 10
+                best_buy = safe_num(info.get("bestBuy")) / 10
+                best_sell = safe_num(info.get("bestSell")) / 10
+                high_24h = safe_num(info.get("dayHigh")) / 10
+                low_24h = safe_num(info.get("dayLow")) / 10
+            else:
+                best_buy = safe_num(info.get("bestBuy"))
+                best_sell = safe_num(info.get("bestSell"))
+                high_24h = safe_num(info.get("dayHigh"))
+                low_24h = safe_num(info.get("dayLow"))
+
             result.append(
                 {
                     "symbol": symbol,
                     "base": base,
                     "quote": quote,
                     "price": price,
-                    "best_buy": safe_num(info.get("bestBuy")),
-                    "best_sell": safe_num(info.get("bestSell")),
+                    "best_buy": best_buy,
+                    "best_sell": best_sell,
                     "volume_24h": safe_num(info.get("volumeDst")),
                     "volume_base": safe_num(info.get("volumeSrc")),
                     "change_24h": safe_num(info.get("dayChange")),
-                    "high_24h": safe_num(info.get("dayHigh")),
-                    "low_24h": safe_num(info.get("dayLow")),
+                    "high_24h": high_24h,
+                    "low_24h": low_24h,
                 }
             )
 
@@ -529,8 +586,12 @@ def fetch_nobitex_orderbook(symbol: str) -> Optional[dict]:
         bids = data.get("bids", []) or []
         asks = data.get("asks", []) or []
 
-        bid_prices = [safe_num(b[0]) for b in bids if b and len(b) >= 1]
-        ask_prices = [safe_num(a[0]) for a in asks if a and len(a) >= 1]
+        # ═══ تبدیل ریال به تومان برای IRT ═══
+        is_rial = _is_rial_pair(symbol)
+        divisor = 10 if is_rial else 1
+
+        bid_prices = [safe_num(b[0]) / divisor for b in bids if b and len(b) >= 1]
+        ask_prices = [safe_num(a[0]) / divisor for a in asks if a and len(a) >= 1]
 
         bid_prices = [p for p in bid_prices if p > 0]
         ask_prices = [p for p in ask_prices if p > 0]
@@ -551,14 +612,18 @@ def fetch_nobitex_orderbook(symbol: str) -> Optional[dict]:
             spread = 0.0
             spread_pct = 0.0
 
+        # نرمال‌سازی levels
+        bids_norm = [[safe_num(b[0]) / divisor, safe_num(b[1])] for b in bids[:10] if b]
+        asks_norm = [[safe_num(a[0]) / divisor, safe_num(a[1])] for a in asks[:10] if a]
+
         return {
             "last_price": last_price,
             "best_bid": best_bid,
             "best_ask": best_ask,
             "spread": spread,
             "spread_pct": spread_pct,
-            "bids": bids[:10],
-            "asks": asks[:10],
+            "bids": bids_norm,
+            "asks": asks_norm,
         }
     except (IndexError, KeyError, TypeError) as e:
         print(f"[Nobitex] parse orderbook: {e}")
@@ -589,7 +654,7 @@ def fetch_nobitex_live_price(ticker: str) -> Optional[float]:
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("=" * 70)
-    print("تست core/nobitex_fetcher.py — نسخه ۴.۰")
+    print("تست core/nobitex_fetcher.py — نسخه ۴.۱")
     print("=" * 70)
     print()
 
@@ -601,8 +666,10 @@ if __name__ == "__main__":
     print("۲) آمار بازار — USDT/RLS (تتر/تومان):")
     stats = fetch_nobitex_stats("usdt", "rls")
     if stats:
-        print(f"   قیمت: {stats['price']:,.0f} ریال")
+        print(f"   قیمت: {stats['price']:,.0f} تومان")
         print(f"   تغییر ۲۴س: {stats['change_24h']:+.2f}%")
+        print(f"   best_buy: {stats['best_buy']:,.0f}")
+        print(f"   best_sell: {stats['best_sell']:,.0f}")
     else:
         print("   ❌ خطا")
     print()
@@ -610,7 +677,7 @@ if __name__ == "__main__":
     print("۳) آمار برای ticker=USDT-IRT:")
     stats2 = fetch_nobitex_stats_for_ticker("USDT-IRT")
     if stats2:
-        print(f"   قیمت: {stats2['price']:,.0f}")
+        print(f"   قیمت: {stats2['price']:,.0f} تومان")
     else:
         print("   ❌ خطا")
     print()
@@ -624,12 +691,21 @@ if __name__ == "__main__":
         print("   ❌ خطا")
     print()
 
-    print("۵) is_in_nobitex:")
+    print("۵) OHLCV — USDT-IRT 5m 5d:")
+    df2 = fetch_nobitex_for_ticker("USDT-IRT", "5m", "5d")
+    if df2 is not None and not df2.empty:
+        print(f"   تعداد: {len(df2)}")
+        print(f"   آخرین: {df2['close'].iloc[-1]:,.0f} تومان")
+    else:
+        print("   ❌ خطا")
+    print()
+
+    print("۶) is_in_nobitex:")
     for t in ["BTC-USD", "USDT-IRT", "GC=F", "PAXG-USD", "فولاد"]:
         print(f"   {t:15} → {is_in_nobitex(t)}")
     print()
 
-    print("۶) Order Book — BTCUSDT:")
+    print("۷) Order Book — BTCUSDT:")
     ob = fetch_nobitex_orderbook("BTCUSDT")
     if ob:
         print(f"   Spread: {ob['spread_pct']:.4f}%")
