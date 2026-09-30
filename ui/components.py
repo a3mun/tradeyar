@@ -139,7 +139,7 @@ def render_section_header(
         {anchor_html}
         <div style="
             display:flex; align-items:center; gap:14px;
-            padding:16px 22px; margin:22px 0 14px 0;
+            padding:12px 18px; margin:14px 0 10px 0;
             background:linear-gradient(135deg, {c}20, {c}08);
             border:2px solid {c}66;
             border-right:6px solid {c};
@@ -277,10 +277,12 @@ def render_settings_panel() -> None:
 
     with st.container(border=True):
         st.markdown(
-            f'<div style="text-align:center; padding:8px 0 16px 0; direction:rtl;">'
-            f'<div style="font-size:16px; font-weight:700; color:{t["primary"]};">⚙️ تنظیمات اپ</div>'
-            f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-top:4px;">'
-            f"پروفایل · بازار · منبع · بروزرسانی</div></div>",
+            f'<div style="text-align:center; padding:12px 0 20px 0; direction:rtl; '
+            f'border-bottom:2px solid {t["primary"]}33; margin-bottom:16px;">'
+            f'<div style="font-size:18px; font-weight:700; color:{t["primary"]};">'
+            f"⚙️ تنظیمات اپ</div>"
+            f'<div style="font-size:11px; color:{t["fg_muted"]}; margin-top:6px;">'
+            f"همه چیز رو از اینجا کنترل کن</div></div>",
             unsafe_allow_html=True,
         )
 
@@ -860,6 +862,8 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3, ticker: str = "") -> tup
 
     # ═══ تشخیص تومانی از روی ticker ═══
     is_iranian = _is_iranian_ticker(ticker)
+    # ═══ تشخیص بورس تهران ═══
+    is_tsetmc = st.session_state.get("data_source") == "tsetmc"
 
     resistances = []
     supports = []
@@ -901,7 +905,9 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3, ticker: str = "") -> tup
     supports = supports[:max_levels]
 
     # ═══ فرمت قیمت ═══
-    if is_iranian:
+    if is_tsetmc:
+        price_str = f"{price:,.0f} ریال"
+    elif is_iranian:
         price_str = f"{price:,.0f} تومان"
     else:
         price_str = f"${price:,.2f}" if price < 10000 else f"${price:,.0f}"
@@ -960,12 +966,15 @@ def _build_sr_rows(analysis: dict, max_levels: int = 3, ticker: str = "") -> tup
             src_color = t["purple"]
 
         # ═══ فرمت قیمت level ═══
-        if is_iranian:
+        if is_tsetmc:
+            price_str = f"{lvl_price:,.0f} ریال"
+        elif is_iranian:
             price_str = f"{lvl_price:,.0f} تومان"
         else:
             price_str = (
                 f"${lvl_price:,.2f}" if lvl_price < 10000 else f"${lvl_price:,.0f}"
             )
+
         sign = "▲" if dist_pct > 0 else "▼"
 
         return (
@@ -1310,8 +1319,9 @@ def render_unified_signal_card(
     sl_tp = analysis.get("sl_tp")
     rr = analysis.get("rr")
 
-    # ═══ تشخیص تومانی ═══
+    # ═══ تشخیص تومانی/ریالی ═══
     is_iranian = _is_iranian_ticker(ticker) or analysis.get("is_iranian", False)
+    is_tsetmc = st.session_state.get("data_source") == "tsetmc"
 
     display_price = live_price if live_price and live_price > 0 else price
 
@@ -1331,6 +1341,8 @@ def render_unified_signal_card(
     def _fmt_price(p):
         if not p or p <= 0:
             return "—"
+        if is_tsetmc:
+            return f"{p:,.0f} ریال"
         if is_iranian:
             return f"{p:,.0f} تومان"
         return f"${p:,.2f}" if p < 10000 else f"${p:,.0f}"
@@ -1618,9 +1630,12 @@ def render_tf_table(
     from core.contracts import TF_NAMES, TF_SHORT
 
     is_iranian = _is_iranian_ticker(ticker)
+    is_tsetmc = st.session_state.get("data_source") == "tsetmc"
 
     tf_order = TF_NAMES
-    if is_iranian:
+    if is_tsetmc:
+        price_str = f"{current_price:,.0f} ریال"
+    elif is_iranian:
         price_str = f"{current_price:,.0f} تومان"
     else:
         price_str = (

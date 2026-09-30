@@ -1018,6 +1018,14 @@ def _traps_summary(traps: dict) -> dict:
     }
 
 
+def _is_iranian_ticker(ticker: str) -> bool:
+    """تشخیص نمادهای تومانی/ریالی"""
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
+
+
 # ═══════════════════════════════════════════════════════════
 # سناریوساز
 # ═══════════════════════════════════════════════════════════
@@ -1038,8 +1046,16 @@ def build_scenarios(
         return scenarios
 
     is_iranian = _is_iranian_ticker(ticker)
-    unit = "تومان" if is_iranian else "$"
-    fmt = ",.0f" if is_iranian else ",.2f"
+    is_tsetmc = bool(ticker) and not ticker[0].isascii()
+
+    if is_tsetmc:
+        unit = "ریال"
+    elif is_iranian:
+        unit = "تومان"
+    else:
+        unit = "$"
+
+    fmt = ",.0f" if (is_iranian or is_tsetmc) else ",.2f"
 
     m = groups.get("momentum", {}) or {}
     t = groups.get("trend", {}) or {}
@@ -2015,6 +2031,16 @@ def build_analysis_paragraph(
         "transitional": "بازار در حال‌تغییر",
         "range": "بازار بی‌جهت",
     }.get(regime, "")
+    # ═══ تشخیص ریال/تومان/دلار ═══
+    is_iranian = _is_iranian_ticker(ticker)
+    is_tsetmc = bool(ticker) and not ticker[0].isascii()
+
+    if is_tsetmc:
+        unit = "ریال"
+    elif is_iranian:
+        unit = "تومان"
+    else:
+        unit = "$"
     market_type = r_main.get("market_type", "spot")
     market_fa = "اسپات" if market_type == "spot" else "فیوچرز"
     profile_fa = {"aggressive": "جسورانه", "conservative": "محتاطانه"}.get(
@@ -2022,7 +2048,15 @@ def build_analysis_paragraph(
     )
 
     is_iranian = _is_iranian_ticker(ticker)
-    unit = "تومان" if is_iranian else "$"
+    # ═══ تشخیص بورس تهران از روی ticker ═══
+    is_tsetmc = bool(ticker) and not ticker[0].isascii()
+
+    if is_tsetmc:
+        unit = "ریال"
+    elif is_iranian:
+        unit = "تومان"
+    else:
+        unit = "$"
 
     signal = r_main.get("signal", "خنثی")
     confidence = r_main.get("confidence", 0)
@@ -2170,16 +2204,21 @@ def build_analysis_paragraph(
 
         if r > 0 and price > 0:
             dist_r = abs(r - price) / price * 100
-            if is_iranian:
-                lines.append(f"🔴 **مقاومت:** {r:,.0f} {unit} (فاصله: {dist_r:.2f}%)")
+            if is_tsetmc:
+                lines.append(f"🔴 **مقاومت:** {r:,.0f} ریال (فاصله: {dist_r:.2f}%)")
+            elif is_iranian:
+                lines.append(f"🔴 **مقاومت:** {r:,.0f} تومان (فاصله: {dist_r:.2f}%)")
             else:
                 lines.append(f"🔴 **مقاومت:** {r:,.2f}$ (فاصله: {dist_r:.2f}%)")
+
         if s > 0 and price > 0:
             dist_s = abs(price - s) / price * 100
-            if is_iranian:
-                lines.append(f"🟢 **حمایت:** {s:,.0f} {unit} (فاصله: {dist_s:.2f}%)")
+            if is_tsetmc:
+                lines.append(f"🔴 **مقاومت:** {r:,.0f} ریال (فاصله: {dist_r:.2f}%)")
+            elif is_iranian:
+                lines.append(f"🔴 **مقاومت:** {r:,.0f} تومان (فاصله: {dist_r:.2f}%)")
             else:
-                lines.append(f"🟢 **حمایت:** {s:,.2f}$ (فاصله: {dist_s:.2f}%)")
+                lines.append(f"🔴 **مقاومت:** {r:,.2f}$ (فاصله: {dist_r:.2f}%)")
 
         lines.append("")
 

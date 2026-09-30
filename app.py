@@ -98,6 +98,30 @@ st.set_page_config(
 # ═══════════════════════════════════════════════════════════
 CUSTOM_SYMBOLS_FILE = Path("data/custom_symbols.json")
 
+PREFERENCES_FILE = Path("data/user_prefs.json")
+
+
+def load_preferences() -> dict:
+    """بارگذاری تنظیمات کاربر"""
+    if not PREFERENCES_FILE.exists():
+        return {}
+    try:
+        with open(PREFERENCES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_preferences(prefs: dict) -> None:
+    """ذخیره تنظیمات کاربر"""
+    try:
+        PREFERENCES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(PREFERENCES_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[App] خطا در ذخیره preferences: {e}")
+
 
 def load_custom_symbols() -> list:
     if not CUSTOM_SYMBOLS_FILE.exists():
@@ -122,18 +146,22 @@ def save_custom_symbols(symbols: list) -> None:
 # ═══════════════════════════════════════════════════════════
 # session_state
 # ═══════════════════════════════════════════════════════════
+# ═══ بارگذاری تنظیمات ذخیره‌شده ═══
+_saved_prefs = load_preferences()
+
+# ═══ تنظیمات پیش‌فرض (اولویت: saved > AppDefaults) ═══
 defaults = {
-    "theme": AppDefaults.THEME,
-    "selected_symbol": AppDefaults.SYMBOL,
-    "selected_tf": AppDefaults.TIMEFRAME,
-    "risk_profile": AppDefaults.RISK_PROFILE,
-    "market_type": AppDefaults.MARKET_TYPE,
-    "data_source": AppDefaults.DATA_SOURCE,
+    "theme": _saved_prefs.get("theme", AppDefaults.THEME),
+    "selected_symbol": _saved_prefs.get("selected_symbol", AppDefaults.SYMBOL),
+    "selected_tf": _saved_prefs.get("selected_tf", AppDefaults.TIMEFRAME),
+    "risk_profile": _saved_prefs.get("risk_profile", AppDefaults.RISK_PROFILE),
+    "market_type": _saved_prefs.get("market_type", AppDefaults.MARKET_TYPE),
+    "data_source": _saved_prefs.get("data_source", AppDefaults.DATA_SOURCE),
     "custom_symbols": load_custom_symbols(),
     "last_update": datetime.now().strftime("%H:%M"),
     "last_data_refresh": datetime.now().strftime("%H:%M:%S"),
     "scanner_last_update": "",
-    "refresh_seconds": AppDefaults.REFRESH_SECONDS,
+    "refresh_seconds": _saved_prefs.get("refresh_seconds", AppDefaults.REFRESH_SECONDS),
     "bt_time_filter": "all",
     "bt_confirm_reset": False,
     "scanner_filter": "all",
@@ -141,13 +169,29 @@ defaults = {
     "scanner_tf": "۵ دقیقه",
     "scanner_key": "",
     "settings_open": False,
-    "bt_last_check": 0,  # ═══ جدید: آخرین بک‌تست ═══
-    "bt_last_auto_update": "",  # ═══ جدید ═══
-    "bt_last_auto_result": {},  # ═══ جدید ═══
+    "bt_last_check": 0,
+    "bt_last_auto_update": "",
+    "bt_last_auto_result": {},
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+
+# ═══ ذخیره خودکار تنظیمات حیاتی ═══
+def _persist_prefs():
+    """ذخیره تنظیمات کاربر در فایل"""
+    save_preferences(
+        {
+            "theme": st.session_state.get("theme", "dark"),
+            "selected_symbol": st.session_state.get("selected_symbol", ""),
+            "selected_tf": st.session_state.get("selected_tf", ""),
+            "risk_profile": st.session_state.get("risk_profile", "aggressive"),
+            "market_type": st.session_state.get("market_type", "futures"),
+            "data_source": st.session_state.get("data_source", "nobitex"),
+            "refresh_seconds": st.session_state.get("refresh_seconds", 60),
+        }
+    )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -521,21 +565,26 @@ def build_ai_export(
     ticker: str, name: str, tf_name: str, analysis: dict, tfs_data: dict
 ) -> str:
     """
-    خروجی برای AI — فقط داده خام، بدون تحلیل
+    خروجی برای AI — داده خام کامل
+    شامل: اندیکاتورها، سطوح، TFها، گروه‌ها، تله‌ها، سناریوها
     """
     if not analysis:
         return ""
 
     lines = []
 
-    # ═══ هدر ═══
+    # ═══════════════════════════════════════════════════════════
+    # هدر
+    # ═══════════════════════════════════════════════════════════
     lines.append(f"# داده خام {name} ({ticker})")
     lines.append(f"## تایم‌فریم: {tf_name}")
     lines.append("")
     lines.append(f"تاریخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append("")
 
-    # ═══ خلاصه ═══
+    # ═══════════════════════════════════════════════════════════
+    # خلاصه
+    # ═══════════════════════════════════════════════════════════
     regime_raw = analysis.get("regime", "range")
     regime_fa = {
         "trend": "بازار جهت‌دار",
@@ -555,9 +604,16 @@ def build_ai_export(
         f"{analysis.get('votes_neutral', 0)} خنثی / "
         f"{analysis.get('votes_short', 0)} نزولی"
     )
+
+    # ═══ تأیید چند TF ═══
+    multi_tf = analysis.get("multi_tf_info", "")
+    if multi_tf and multi_tf != "بدون بررسی":
+        lines.append(f"- تأیید TF: {multi_tf}")
     lines.append("")
 
-    # ═══ اندیکاتورها ═══
+    # ═══════════════════════════════════════════════════════════
+    # اندیکاتورها
+    # ═══════════════════════════════════════════════════════════
     lines.append("## اندیکاتورها (TF فعلی)")
     indicators = [
         ("RSI", analysis.get("rsi")),
@@ -566,6 +622,8 @@ def build_ai_export(
         ("Williams %R", analysis.get("willr")),
         ("MACD Hist", analysis.get("macd_hist")),
         ("EMA200", analysis.get("ema200")),
+        ("BB Upper", analysis.get("bb_upper")),
+        ("BB Lower", analysis.get("bb_lower")),
         ("ATR", analysis.get("atr")),
         ("ADX", analysis.get("adx")),
     ]
@@ -578,7 +636,9 @@ def build_ai_export(
             lines.append(f"- {label}: {val}")
     lines.append("")
 
-    # ═══ سطوح کلیدی ═══
+    # ═══════════════════════════════════════════════════════════
+    # سطوح کلیدی
+    # ═══════════════════════════════════════════════════════════
     lines.append("## سطوح کلیدی")
     r = analysis.get("resistance", 0) or 0
     s = analysis.get("support", 0) or 0
@@ -617,9 +677,18 @@ def build_ai_export(
         lines.append("- Fibonacci:")
         for ratio, val in fib["levels"].items():
             lines.append(f"  - {ratio}: {float(val):.2f}")
+
+    swings = analysis.get("swings", {}) or {}
+    if swings:
+        if swings.get("nearest_resistance"):
+            lines.append(f"- Swing Resistance: {swings['nearest_resistance']:.2f}")
+        if swings.get("nearest_support"):
+            lines.append(f"- Swing Support: {swings['nearest_support']:.2f}")
     lines.append("")
 
-    # ═══ SL/TP ═══
+    # ═══════════════════════════════════════════════════════════
+    # SL/TP
+    # ═══════════════════════════════════════════════════════════
     sl_tp = analysis.get("sl_tp")
     if sl_tp:
         lines.append("## حد ضرر و هدف")
@@ -631,7 +700,9 @@ def build_ai_export(
             lines.append(f"- R:R: {rr:.2f}")
         lines.append("")
 
-    # ═══ TFها ═══
+    # ═══════════════════════════════════════════════════════════
+    # TFها
+    # ═══════════════════════════════════════════════════════════
     lines.append("## تحلیل همه TFها")
     for tf in TF_NAMES:
         if tf in tfs_data:
@@ -644,12 +715,13 @@ def build_ai_export(
                 "transitional": "در حال‌تغییر",
                 "range": "بی‌جهت",
             }.get(reg, reg)
-            lines.append(
-                f"- {tf}: {sig} · {conf:.0f}% · {reg_fa} · ADX={a.get('adx', 0):.2f}"
-            )
+            adx = a.get("adx", 0)
+            lines.append(f"- {tf}: {sig} · {conf:.0f}% · {reg_fa} · ADX={adx:.2f}")
     lines.append("")
 
-    # ═══ گروه‌ها ═══
+    # ═══════════════════════════════════════════════════════════
+    # گروه‌های تحلیل
+    # ═══════════════════════════════════════════════════════════
     lines.append("## دلایل گروه‌های تحلیل (TF فعلی)")
     groups = analysis.get("groups", {}) or {}
     for g_key, g_data in groups.items():
@@ -663,13 +735,25 @@ def build_ai_export(
         g_name = g_names.get(g_key, g_key)
         vote = g_data.get("vote", 0)
         score = g_data.get("score", 0.0)
+        strength = g_data.get("strength_fa", "")
         lines.append(f"### {g_name}")
-        lines.append(f"- رای: {vote} · امتیاز: {score:.2f}")
+        lines.append(f"- رای: {vote} · امتیاز: {score:.2f} · قدرت: {strength}")
         for reason in g_data.get("reasons", []):
             lines.append(f"  - {reason}")
     lines.append("")
 
-    # ═══ تله‌ها ═══
+    # ═══════════════════════════════════════════════════════════
+    # واگرایی
+    # ═══════════════════════════════════════════════════════════
+    divergence = analysis.get("divergence", {}) or {}
+    if divergence.get("has_divergence"):
+        lines.append("## واگرایی")
+        lines.append(f"- {divergence.get('reason', '')}")
+        lines.append("")
+
+    # ═══════════════════════════════════════════════════════════
+    # تله‌ها
+    # ═══════════════════════════════════════════════════════════
     traps = analysis.get("traps", {}) or {}
     active_traps = [k for k, v in traps.items() if v.get("active")]
     if active_traps:
@@ -689,7 +773,9 @@ def build_ai_export(
             lines.append(f"  {t_info.get('reason', '')}")
         lines.append("")
 
-    # ═══ سناریوها ═══
+    # ═══════════════════════════════════════════════════════════
+    # سناریوها
+    # ═══════════════════════════════════════════════════════════
     scenarios = analysis.get("scenarios", []) or []
     if scenarios:
         lines.append("## سناریوها")
@@ -1010,7 +1096,7 @@ POPULAR_LABELS = {s[0]: s[1] for s in POPULAR_SYMBOLS}
 popular_syms = [(k, sym_opts.get(k, POPULAR_LABELS.get(k, k))) for k in POPULAR]
 
 if popular_syms:
-    pop_cols = st.columns(len(popular_syms))
+    pop_cols = st.columns(len(popular_syms), gap="small")
     for i, (tkr, name) in enumerate(popular_syms):
         with pop_cols[i]:
             is_active = tkr == st.session_state.selected_symbol
@@ -1382,104 +1468,130 @@ render_section_header(
     anchor_id="sec_scanner",
 )
 
-categories = get_categories_with_tickers()
-cat_keys = list(categories.keys())
+# ═══ جمع شدن اسکنر (پیش‌فرض بسته) ═══
+if "scanner_open" not in st.session_state:
+    st.session_state["scanner_open"] = False
 
-if cat_keys:
-    if st.session_state.scanner_category not in cat_keys:
-        st.session_state.scanner_category = cat_keys[0]
-
-    n_cols = min(len(cat_keys), 6)
-    cat_cols = st.columns(n_cols)
-    for i, key in enumerate(cat_keys):
-        cat = categories[key]
-        short_name = (
-            cat["name"].split(" ", 1)[-1] if " " in cat["name"] else cat["name"]
-        )
-        with cat_cols[i % n_cols]:
-            is_active = st.session_state.scanner_category == key
-            if st.button(
-                f"{cat['icon']} {short_name}",
-                key=f"cat_btn_{key}",
-                use_container_width=True,
-                type="primary" if is_active else "secondary",
-            ):
-                st.session_state.scanner_category = key
-                st.rerun()
-
-    fc = st.columns([1.2, 1.2, 1, 1])
-    with fc[0]:
-        filt_opt = st.selectbox(
-            "فیلتر",
-            options=[("همه", "all"), ("LONG", "long"), ("SHORT", "short")],
-            format_func=lambda x: x[0],
-            index=0,
-            key="scanner_filter_opt",
-            label_visibility="collapsed",
-        )
-        st.session_state.scanner_filter = filt_opt[1]
-    with fc[1]:
-        scanner_tf = st.selectbox(
-            "TF",
-            options=TF_NAMES,
-            index=(
-                TF_NAMES.index(st.session_state.scanner_tf)
-                if st.session_state.scanner_tf in TF_NAMES
-                else 1
-            ),
-            key="scanner_tf_select",
-            label_visibility="collapsed",
-        )
-        st.session_state.scanner_tf = scanner_tf
-    with fc[2]:
-        if st.button("🔄 اسکن مجدد", key="rescan_btn", use_container_width=True):
-            st.cache_data.clear()
-            st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
-            st.session_state.scanner_key = ""
-            st.rerun()
-    with fc[3]:
-        st.markdown(
-            f'<div style="text-align:center; padding:6px; font-size:10px; color:{t["fg_muted"]};">⏱ <b style="color:{t["cyan"]};">{st.session_state.scanner_tf}</b></div>',
-            unsafe_allow_html=True,
-        )
-
-    scanner_tf_index = 0
-    for i, (iv, p, n) in enumerate(TIMEFRAMES):
-        if n == st.session_state.scanner_tf:
-            scanner_tf_index = i
-            break
-
-    current_cat = st.session_state.scanner_category
-    current_cat_name = categories[current_cat]["name"]
-
-    with st.spinner(f"⏳ اسکن {current_cat_name}..."):
-        scan_data = cached_scan(current_cat, scanner_tf_index, current_market_type)
-
-    scan_key = f"{current_cat}_{scanner_tf_index}"
-    if st.session_state.get("scanner_key", "") != scan_key:
-        st.session_state.scanner_key = scan_key
-        st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
-    if not st.session_state.get("scanner_last_update", ""):
-        st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
-
-    selected_from_scan = render_scanner(
-        scan_data=scan_data,
-        filter_signal=st.session_state.scanner_filter,
-        last_update=st.session_state.scanner_last_update,
-    )
-
-    if selected_from_scan:
-        tkr = selected_from_scan
-        if tkr not in st.session_state.custom_symbols and tkr not in SYMBOLS:
-            if len(st.session_state.custom_symbols) < AppDefaults.MAX_CUSTOM_SYMBOLS:
-                st.session_state.custom_symbols.append(tkr)
-                save_custom_symbols(st.session_state.custom_symbols)
-        st.session_state.selected_symbol = tkr
-        st.session_state.data_source = detect_source_for_ticker(tkr)
-        if detect_source_for_ticker(tkr) == "tsetmc":
-            st.session_state.market_type = "spot"
-            st.session_state.selected_tf = "روزانه"
+_scan_cols = st.columns([4, 1])
+with _scan_cols[1]:
+    _scan_label = "❌ بستن" if st.session_state["scanner_open"] else "🔽 باز کردن"
+    if st.button(
+        _scan_label,
+        key="scanner_toggle",
+        use_container_width=True,
+        type="primary" if st.session_state["scanner_open"] else "secondary",
+    ):
+        st.session_state["scanner_open"] = not st.session_state["scanner_open"]
         st.rerun()
+
+if not st.session_state["scanner_open"]:
+    st.info("💡 برای مشاهده فرصت‌ها، روی «🔽 باز کردن» کلیک کن.")
+else:
+    categories = get_categories_with_tickers()
+    cat_keys = list(categories.keys())
+
+    if cat_keys:
+        # ═══ همه کد اسکنر اینجا (indented با ۸ فاصله) ═══
+
+        if st.session_state.scanner_category not in cat_keys:
+            st.session_state.scanner_category = cat_keys[0]
+
+        n_cols = min(len(cat_keys), 6)
+        cat_cols = st.columns(n_cols)
+        for i, key in enumerate(cat_keys):
+            cat = categories[key]
+            short_name = (
+                cat["name"].split(" ", 1)[-1] if " " in cat["name"] else cat["name"]
+            )
+            with cat_cols[i % n_cols]:
+                is_active = st.session_state.scanner_category == key
+                if st.button(
+                    f"{cat['icon']} {short_name}",
+                    key=f"cat_btn_{key}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary",
+                ):
+                    st.session_state.scanner_category = key
+                    st.rerun()
+
+        fc = st.columns([1.2, 1.2, 1, 1])
+        with fc[0]:
+            filt_opt = st.selectbox(
+                "فیلتر",
+                options=[("همه", "all"), ("LONG", "long"), ("SHORT", "short")],
+                format_func=lambda x: x[0],
+                index=0,
+                key="scanner_filter_opt",
+                label_visibility="collapsed",
+            )
+            st.session_state.scanner_filter = filt_opt[1]
+        with fc[1]:
+            scanner_tf = st.selectbox(
+                "TF",
+                options=TF_NAMES,
+                index=(
+                    TF_NAMES.index(st.session_state.scanner_tf)
+                    if st.session_state.scanner_tf in TF_NAMES
+                    else 1
+                ),
+                key="scanner_tf_select",
+                label_visibility="collapsed",
+            )
+            st.session_state.scanner_tf = scanner_tf
+        with fc[2]:
+            if st.button("🔄 اسکن مجدد", key="rescan_btn", use_container_width=True):
+                st.cache_data.clear()
+                st.session_state.scanner_last_update = datetime.now().strftime(
+                    "%H:%M:%S"
+                )
+                st.session_state.scanner_key = ""
+                st.rerun()
+        with fc[3]:
+            st.markdown(
+                f'<div style="text-align:center; padding:6px; font-size:10px; color:{t["fg_muted"]};">⏱ <b style="color:{t["cyan"]};">{st.session_state.scanner_tf}</b></div>',
+                unsafe_allow_html=True,
+            )
+
+        scanner_tf_index = 0
+        for i, (iv, p, n) in enumerate(TIMEFRAMES):
+            if n == st.session_state.scanner_tf:
+                scanner_tf_index = i
+                break
+
+        current_cat = st.session_state.scanner_category
+        current_cat_name = categories[current_cat]["name"]
+
+        with st.spinner(f"⏳ اسکن {current_cat_name}..."):
+            scan_data = cached_scan(current_cat, scanner_tf_index, current_market_type)
+
+        scan_key = f"{current_cat}_{scanner_tf_index}"
+        if st.session_state.get("scanner_key", "") != scan_key:
+            st.session_state.scanner_key = scan_key
+            st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
+        if not st.session_state.get("scanner_last_update", ""):
+            st.session_state.scanner_last_update = datetime.now().strftime("%H:%M:%S")
+
+        selected_from_scan = render_scanner(
+            scan_data=scan_data,
+            filter_signal=st.session_state.scanner_filter,
+            last_update=st.session_state.scanner_last_update,
+        )
+
+        if selected_from_scan:
+            tkr = selected_from_scan
+            if tkr not in st.session_state.custom_symbols and tkr not in SYMBOLS:
+                if (
+                    len(st.session_state.custom_symbols)
+                    < AppDefaults.MAX_CUSTOM_SYMBOLS
+                ):
+                    st.session_state.custom_symbols.append(tkr)
+                    save_custom_symbols(st.session_state.custom_symbols)
+            st.session_state.selected_symbol = tkr
+            st.session_state.data_source = detect_source_for_ticker(tkr)
+            if detect_source_for_ticker(tkr) == "tsetmc":
+                st.session_state.market_type = "spot"
+                st.session_state.selected_tf = "روزانه"
+            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1523,3 +1635,6 @@ st.markdown(
     f"</div>",
     unsafe_allow_html=True,
 )
+
+# ═══ ذخیره خودکار تنظیمات ═══
+_persist_prefs()

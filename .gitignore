@@ -13,3 +13,16 @@ ENV/
 data/signals_log.json
 fonts/*.ttf
 fonts/*.otf
+
+# API Keys (محرمانه)
+api-keys*.txt
+*.key
+*.secret
+
+# User preferences
+data/user_prefs.json
+
+# Test files
+test_*.py
+check_*.py
+debug_*.py

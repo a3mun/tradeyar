@@ -332,8 +332,14 @@ def map_symbol_to_nobitex(ticker: str) -> Optional[str]:
     """تبدیل نماد داخلی به نوبیتکس (BTC-USD → BTCUSDT)"""
     if not ticker:
         return None
+
     if ticker in NOBITEX_SYMBOLS:
-        return NOBITEX_SYMBOLS[ticker]
+        nob = NOBITEX_SYMBOLS[ticker]
+        # ═══ اصلاح: RLS → IRT ═══
+        if nob.endswith("RLS"):
+            nob = nob[:-3] + "IRT"
+        return nob
+
     return None
 
 

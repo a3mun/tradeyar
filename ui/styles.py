@@ -181,10 +181,10 @@ def get_custom_css(theme_name: str = "dark") -> str:
     }}
 
     .main .block-container {{
-        padding: 1rem 1.5rem !important;
+        padding: 0.75rem 1rem !important;
         max-width: 100% !important;
     }}
-
+    
     /* ═══ رفع باگ: فقط MainMenu و footer، نه header ═══ */
     #MainMenu {{
         visibility: hidden;
@@ -293,7 +293,7 @@ def get_custom_css(theme_name: str = "dark") -> str:
         border: 1px solid {t['border']};
         border-radius: 14px;
         padding: 12px 20px;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         gap: 12px;
         width: 100%;
         min-height: 70px;

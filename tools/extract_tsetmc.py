@@ -1,12 +1,14 @@
 """
 extract_tsetmc.py
-استخراج نمادهای بورس تهران از TSETMC API
+استخراج نمادهای بورس تهران از TSETMC API — نسخه ۲
 """
 
 import json
 import time
-import requests
+import urllib.parse
 from pathlib import Path
+
+import requests
 
 TSETMC_API = "https://cdn.tsetmc.com/api"
 
@@ -21,8 +23,9 @@ HEADERS = {
 
 
 def fetch_instrument_search(query: str) -> list:
-    """جستجو در TSETMC — endpoint که قبلاً کار کرده"""
-    url = f"{TSETMC_API}/Instrument/GetInstrumentSearch/{query}"
+    """جستجو در TSETMC — با encode دستی برای فارسی"""
+    encoded_query = urllib.parse.quote(query, safe="")
+    url = f"{TSETMC_API}/Instrument/GetInstrumentSearch/{encoded_query}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
         r.raise_for_status()
@@ -33,14 +36,31 @@ def fetch_instrument_search(query: str) -> list:
         return []
 
 
+def _is_valid_stock_symbol(symbol: str) -> bool:
+    """
+    فیلتر نمادهای مفید:
+    - حذف حق تقدم (به «ح» ختم می‌شن)
+    - حذف اوراق (به عدد ختم می‌شن)
+    - حذف نمادهای کوتاه (کمتر از ۲ حرف)
+    """
+    if not symbol:
+        return False
+    if len(symbol) < 2:
+        return False
+    if symbol.endswith("ح"):
+        return False
+    if symbol[-1].isdigit():
+        return False
+    return True
+
+
 def main():
     print("=" * 70)
-    print("استخراج نمادهای بورس تهران")
+    print("استخراج نمادهای بورس تهران — نسخه ۲")
     print("=" * 70)
     print()
 
-    # ═══ استراتژی: جستجوی حروف مختلف الفبا + اعداد ═══
-    # این روش نمادهای بیشتری رو پیدا می‌کنه
+    # ═══ استراتژی: جستجوی حروف مختلف الفبا + پیشوندهای صندوق ═══
     queries = [
         # الفبای فارسی
         "آ",
@@ -117,68 +137,44 @@ def main():
 
     for i, q in enumerate(queries, 1):
         results = fetch_instrument_search(q)
-        time.sleep(0.5)  # ← delay بین کوئری‌ها
+
         new_count = 0
         for inst in results:
             symbol = inst.get("lVal18AFC", "").strip()
             name = inst.get("lVal30", "").strip()
             isin = inst.get("isin", "")
 
-        if symbol and symbol not in mapping:
-            # ═══ حجم معاملات (برای رتبه‌بندی) ═══
-            qtot = inst.get("qTotTran5J") or 0  # حجم معاملات
-            try:
-                qtot = float(qtot)
-            except (TypeError, ValueError):
-                qtot = 0
+            if not symbol or symbol in mapping:
+                continue
+            if not _is_valid_stock_symbol(symbol):
+                continue
 
             mapping[symbol] = {
                 "name_fa": name,
                 "isin": isin,
-                "volume": qtot,
             }
             new_count += 1
 
-        if new_count > 0:
-            print(
-                f"   [{i:>2}/{len(queries)}] '{q}': +{new_count} (کل: {len(mapping)})"
-            )
+        print(
+            f"   [{i:>2}/{len(queries)}] '{q}': {len(results):>3} خام → +{new_count:>3} (کل: {len(mapping)})"
+        )
+        time.sleep(0.6)
 
     print()
-    print(f"✅ کل نمادها: {len(mapping)}")
+    print(f"✅ کل نمادهای معتبر: {len(mapping)}")
     print()
 
-    if not mapping:
-        print("❌ هیچ نمادی پیدا نشد — احتمالاً TSETMC در دسترس نیست")
-        return
-
-    # ═══ ادغام با فایل موجود ═══
+    # ═══ ذخیره ═══
     out_path = Path("data/tsetmc_symbols_full.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = {}
-    if out_path.exists():
-        try:
-            with open(out_path, "r", encoding="utf-8") as f:
-                existing = json.load(f) or {}
-            if not isinstance(existing, dict):
-                existing = {}
-        except Exception:
-            existing = {}
-
-    # ادغام: mapping جدید بر existing غلبه می‌کنه
-    merged = {**existing, **mapping}
-
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=2)
+        json.dump(mapping, f, ensure_ascii=False, indent=2)
 
     print(f"💾 ذخیره شد: {out_path}")
-    print(f"   جدید: {len(mapping)} نماد")
-    print(f"   قبلی: {len(existing)} نماد")
-    print(f"   ادغام‌شده: {len(merged)} نماد")
     print()
 
-    # نمونه
+    # ═══ نمونه ═══
     print("نمونه (۲۰ مورد اول):")
     for sym in list(mapping.keys())[:20]:
         print(f"  {sym} → {mapping[sym]['name_fa']}")
