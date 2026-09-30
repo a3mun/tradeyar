@@ -2,15 +2,9 @@
 core/__init__.py
 بسته‌ی core پروژه Trademun
 ============================================================
-همه‌ی توابع و کلاس‌های کلیدی اینجان و از هرجای پروژه
-قابل import هستن:
-
-    from core import analyze_symbol, DataSource, AppDefaults
 """
 
-# ═══════════════════════════════════════════════════════════
-# Contracts (Enum، Type، Constant)
-# ═══════════════════════════════════════════════════════════
+# ═══ Contracts ═══
 from .contracts import (
     DataSource,
     MarketType,
@@ -24,6 +18,7 @@ from .contracts import (
     TIMEFRAMES,
     TF_NAMES,
     TF_SHORT,
+    TF_ATR_MULT,
     SIGNAL_TIMEOUT,
     POPULAR_SYMBOLS,
     CacheTTL,
@@ -34,11 +29,11 @@ from .contracts import (
     TickerItem,
     MarketInfo,
     LogEntry,
+    get_tf_atr_mult,
+    get_adaptive_thresholds,
 )
 
-# ═══════════════════════════════════════════════════════════
-# Utils
-# ═══════════════════════════════════════════════════════════
+# ═══ Utils ═══
 from .utils import (
     IRAN_TZ,
     to_english_digits,
@@ -52,6 +47,7 @@ from .utils import (
     get_jalali_datetime,
     get_weekday_fa,
     get_iran_clock,
+    get_miladi_date,
     time_ago,
     format_time_short,
     market_status,
@@ -59,8 +55,28 @@ from .utils import (
     extract_close_series,
 )
 
-# ═══════════════════════════════════════════════════════════
-# نسخه
-# ═══════════════════════════════════════════════════════════
+# ═══ Analyzer ═══
+from .analyzer import (
+    analyze_symbol,
+    compute_indicators,
+    compute_fear_greed,
+    build_checklist_weighted,
+    build_analysis_paragraph,
+    build_scenarios,
+    classify_regime,
+    RISK_PROFILES,
+)
+
+# ═══ Sources ═══
+from .sources import (
+    get_source_info,
+    detect_source_for_ticker,
+    is_symbol_available_in_source,
+    resolve_source,
+    resolve_symbol_and_source,
+    get_default_symbol_for_source,
+)
+
+# ═══ نسخه ═══
 __version__ = "45.0"
 __brand__ = "Trademun"
