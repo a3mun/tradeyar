@@ -83,47 +83,6 @@ def get_source_keys() -> list[str]:
 # ═══════════════════════════════════════════════════════════
 # تشخیص نوع نماد
 # ═══════════════════════════════════════════════════════════
-def is_crypto_symbol(ticker: str) -> bool:
-    """آیا نماد کریپتو هست؟ (دقیق‌تر)"""
-    if not ticker:
-        return False
-
-    # ═══ ویژه: USDT-IRT ═══
-    if ticker == "USDT-IRT":
-        return True
-
-    # ═══ جفت‌ارزهای تومانی نوبیتکس (BTC-IRT، ETH-IRT، ...) ═══
-    if ticker.endswith("-IRT"):
-        try:
-            from .nobitex_fetcher import is_in_nobitex
-
-            if is_in_nobitex(ticker):
-                return True
-        except Exception:
-            pass
-        return False
-
-    # ═══ USDT pairs ═══
-    if ticker.endswith("-USD"):
-        try:
-            from .nobitex_fetcher import is_in_nobitex
-
-            if is_in_nobitex(ticker):
-                return True
-        except Exception:
-            pass
-        try:
-            from .abantether_fetcher import is_in_abantether
-
-            if is_in_abantether(ticker):
-                return True
-        except Exception:
-            pass
-        return False
-
-    return False
-
-
 def is_iran_stock(ticker: str) -> bool:
     """آیا نماد بورس تهران هست؟"""
     if not ticker:

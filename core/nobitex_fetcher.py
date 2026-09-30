@@ -16,7 +16,9 @@ API عمومی نوبیتکس (بدون نیاز به توکن):
   - /v2/orderbook/{symbol}
 """
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -147,23 +149,110 @@ NOBITEX_SYMBOLS = {
     # ─── فلزات دیجیتال ───
     "PAXG-USD": "PAXGUSDT",
     "XAUT-USD": "XAUTUSDT",
-    # ─── جفت‌ارزهای تومانی (جدید) ───
-    "BTC-IRT": "BTCIRT",
-    "ETH-IRT": "ETHIRT",
-    "BNB-IRT": "BNBIRT",
-    "SOL-IRT": "SOLIRT",
-    "XRP-IRT": "XRPIRT",
-    "ADA-IRT": "ADAIRT",
-    "DOGE-IRT": "DOGEIRT",
-    "TRX-IRT": "TRXIRT",
-    "TON-IRT": "TONIRT",
-    "MATIC-IRT": "MATICIRT",
-    "LINK-IRT": "LINKIRT",
-    "AVAX-IRT": "AVAXIRT",
-    "SHIB-IRT": "SHIBIRT",
-    "PAXG-IRT": "PAXGIRT",
-    "XAUT-IRT": "XAUTIRT",
+    # ─── نمادهای پرطرفدار اضافه ───
+    "ATOM-USD": "ATOMUSDT",
+    "FIL-USD": "FILUSDT",
+    "IMX-USD": "IMXUSDT",
+    "INJ-USD": "INJUSDT",
+    "LDO-USD": "LDOUSDT",
+    "TIA-USD": "TIAUSDT",
+    "SEI-USD": "SEIUSDT",
+    "RUNE-USD": "RUNEUSDT",
+    "AAVE-USD": "AAVEUSDT",
+    "MKR-USD": "MKRUSDT",
+    "CRV-USD": "CRVUSDT",
+    "SNX-USD": "SNXUSDT",
+    "LRC-USD": "LRCUSDT",
+    "ZRX-USD": "ZRXUSDT",
+    "OMG-USD": "OMGUSDT",
+    "BAT-USD": "BATUSDT",
+    "STORJ-USD": "STORJUSDT",
+    "GRT-USD": "GRTUSDT",
+    "SAND-USD": "SANDUSDT",
+    "MANA-USD": "MANAUSDT",
+    "AXS-USD": "AXSUSDT",
+    "GALA-USD": "GALAUSDT",
+    "ENJ-USD": "ENJUSDT",
+    "CHZ-USD": "CHZUSDT",
+    "FLOW-USD": "FLOWUSDT",
+    "XTZ-USD": "XTZUSDT",
+    "EOS-USD": "EOSUSDT",
+    "IOTA-USD": "IOTAUSDT",
+    "NEO-USD": "NEOUSDT",
+    "DASH-USD": "DASHUSDT",
+    "ZIL-USD": "ZILUSDT",
+    "ONE-USD": "ONEUSDT",
+    "QTUM-USD": "QTUMUSDT",
+    "WAVES-USD": "WAVESUSDT",
+    "KSM-USD": "KSMUSDT",
+    "EGLD-USD": "EGLDUSDT",
+    "THETA-USD": "THETAUSDT",
+    "XTZ-USD": "XTZUSDT",
+    "RNDR-USD": "RNDRUSDT",
+    "SUSHI-USD": "SUSHIUSDT",
+    "COMP-USD": "COMPUSDT",
+    "YFI-USD": "YFIUSDT",
+    "UNI-USD": "UNIUSDT",
+    "1INCH-USD": "1INCHUSDT",
+    "ENS-USD": "ENSUSDT",
+    "DYDX-USD": "DYDXUSDT",
+    "GMX-USD": "GMXUSDT",
+    "BLUR-USD": "BLURUSDT",
+    "PEPE-USD": "PEPEUSDT",
+    "WIF-USD": "WIFUSDT",
+    "BONK-USD": "BONKUSDT",
+    "JUP-USD": "JUPUSDT",
+    "STX-USD": "STXUSDT",
+    "ALGO-USD": "ALGOUSDT",
+    "VET-USD": "VETUSDT",
+    "ICP-USD": "ICPUSDT",
+    "HBAR-USD": "HBARUSDT",
+    "QNT-USD": "QNTUSDT",
+    "ZEC-USD": "ZECUSDT",
+    "XMR-USD": "XMRUSDT",
+    "KAVA-USD": "KAVAUSDT",
+    "ANKR-USD": "ANKRUSDT",
+    "OCEAN-USD": "OCEANUSDT",
+    "BAND-USD": "BANDUSDT",
+    "CTSI-USD": "CTSIUSDT",
+    "RSR-USD": "RSRUSDT",
+    "BAL-USD": "BALUSDT",
+    "RLC-USD": "RLCUSDT",
+    "NKN-USD": "NKNUSDT",
+    "OGN-USD": "OGNUSDT",
+    "TRB-USD": "TRBUSDT",
+    "MLN-USD": "MLNUSDT",
+    "POWR-USD": "POWRUSDT",
 }
+# ═══════════════════════════════════════════════════════════
+# بارگذاری نمادهای اضافی از فایل JSON
+# ═══════════════════════════════════════════════════════════
+SYMBOLS_MASTER_FILE = Path("data/symbols_master.json")
+
+
+def _load_extra_symbols() -> dict:
+    """بارگذاری نمادهای اضافی از data/symbols_master.json"""
+    if not SYMBOLS_MASTER_FILE.exists():
+        return {}
+    try:
+        with open(SYMBOLS_MASTER_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        print(f"[Nobitex] خطا در بارگذاری {SYMBOLS_MASTER_FILE}: {e}")
+    return {}
+
+
+# ادغام با NOBITEX_SYMBOLS
+_EXTRA_SYMBOLS = _load_extra_symbols()
+if _EXTRA_SYMBOLS:
+    # نمادهای دستی اولویت دارن (override نمی‌شن)
+    for k, v in _EXTRA_SYMBOLS.items():
+        if k not in NOBITEX_SYMBOLS:
+            NOBITEX_SYMBOLS[k] = v
+    print(f"[Nobitex] {len(_EXTRA_SYMBOLS)} نماد اضافی از JSON بارگذاری شد")
+
 
 # نگاشت معکوس
 _NOBITEX_REVERSE = {v: k for k, v in NOBITEX_SYMBOLS.items()}

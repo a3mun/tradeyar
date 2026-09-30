@@ -33,9 +33,9 @@ def _get_nobitex_symbols_for_scanner() -> list[tuple]:
 
         liquid = filter_liquid_symbols(
             all_syms,
-            min_volume=10000.0,
-            min_trades=100,
-            max_count=50,
+            min_volume=1000.0,  # ← از ۱۰,۰۰۰ به ۱,۰۰۰
+            min_trades=20,  # ← از ۱۰۰ به ۲۰
+            max_count=100,  # ← از ۵۰ به ۱۰۰
         )
 
         result = []

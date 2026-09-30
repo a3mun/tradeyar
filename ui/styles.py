@@ -285,7 +285,7 @@ def get_custom_css(theme_name: str = "dark") -> str:
     /* ═══════════════════════════════════════════════════════
        هدر
        ═══════════════════════════════════════════════════════ */
-    .asemunyar-header {{
+    .trademun-header {{
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -705,7 +705,7 @@ def get_custom_css(theme_name: str = "dark") -> str:
     @media (max-width: 900px) {{
         .main .block-container {{ padding: 0.5rem 0.75rem !important; }}
 
-        .asemunyar-header {{
+        .trademun-header {{
             padding: 10px 14px;
             gap: 8px;
             flex-wrap: wrap;

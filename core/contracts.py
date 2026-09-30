@@ -309,9 +309,9 @@ def get_adaptive_thresholds(regime: str, adx: float) -> tuple:
 # ═══════════════════════════════════════════════════════════
 POPULAR_SYMBOLS = [
     ("USDT-IRT", "💵 تتر/تومان", "nobitex"),
-    ("GC=F", "🥇 طلا", "global"),
-    ("PAXG-USD", "🪙 پکس گلد", "nobitex"),
     ("BTC-USD", "₿ بیت‌کوین", "nobitex"),
+    ("PAXG-USD", "🪙 پکس گلد", "nobitex"),
+    ("GC=F", "🥇 طلا", "global"),
     ("BZ=F", "🛢 نفت برنت", "global"),
     ("SI=F", "🥈 نقره", "global"),
 ]

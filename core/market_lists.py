@@ -242,21 +242,84 @@ def get_category_source(category_key: str) -> str:
     return cat.get("source", "global") if cat else "global"
 
 
+def _is_valid_stock_symbol(symbol: str) -> bool:
+    """
+    چک کن نماد مفیده یا نه.
+
+    حذف می‌کنه:
+    - حق تقدم‌ها (به «ح» ختم می‌شن)
+    - اوراق (به عدد ختم می‌شن)
+    - نمادهای کوتاه (کمتر از ۲ حرف)
+    """
+    if not symbol:
+        return False
+    if len(symbol) < 2:
+        return False
+    # ختم به «ح» = حق تقدم
+    if symbol.endswith("ح"):
+        return False
+    # ختم به عدد = اوراق
+    if symbol[-1].isdigit():
+        return False
+    # «ح» در آخر با فاصله
+    if "ح" in symbol and symbol.strip().endswith("ح"):
+        return False
+    return True
+
+
 def get_iran_stock_symbols() -> list[str]:
-    """لیست کل نمادهای بورس تهران"""
+    """لیست کل نمادهای بورس تهران — فیلترشده"""
     cat = MARKET_CATEGORIES.get("iran_stocks", {})
     static = [t[0] for t in cat.get("tickers", [])]
 
-    # اضافه نمادهای cache شده از API
+    # ═══ فایل جدید ═══
+    full_file = Path("data/tsetmc_symbols_full.json")
+    full_syms = []
+    if full_file.exists():
+        try:
+            with open(full_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    full_syms = list(data.keys())
+                elif isinstance(data, list):
+                    full_syms = data
+        except Exception as e:
+            print(f"[MarketLists] خطا در خواندن tsetmc_symbols_full: {e}")
+
+    # ═══ cache قدیمی ═══
     cached = _load_tsetmc_cache()
-    all_syms = list(set(static + cached))
-    return all_syms
+
+    # ═══ ادغام + فیلتر ═══
+    all_syms = set(static + full_syms + cached)
+    filtered = [s for s in all_syms if _is_valid_stock_symbol(s)]
+
+    return sorted(filtered)
 
 
 def get_iran_stock_map() -> dict:
+    """نگاشت نماد → نام فارسی — فیلترشده"""
     cat = MARKET_CATEGORIES.get("iran_stocks", {})
     static_map = {t[0]: t[1] for t in cat.get("tickers", [])}
-    return static_map
+
+    full_file = Path("data/tsetmc_symbols_full.json")
+    if full_file.exists():
+        try:
+            with open(full_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    for sym, info in data.items():
+                        if sym not in static_map:
+                            if isinstance(info, dict):
+                                static_map[sym] = info.get("name_fa", sym)
+                            else:
+                                static_map[sym] = str(info)
+        except Exception as e:
+            print(f"[MarketLists] خطا در خواندن map: {e}")
+
+    # ═══ فیلتر ═══
+    filtered_map = {s: n for s, n in static_map.items() if _is_valid_stock_symbol(s)}
+
+    return filtered_map
 
 
 def get_crypto_symbols() -> list[str]:

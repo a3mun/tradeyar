@@ -184,11 +184,11 @@ def render_header(jalali: str, weekday: str, miladi: str) -> None:
             .header-logo {{ width: 42px !important; height: 42px !important; }}
         }}
     </style>
-    <div class="asemunyar-header">
+    <div class="trademun-header">
         <div class="header-left">
             {logo_html}
             <div class="header-brand">
-                <div class="header-brand-fa">آسمون‌یار</div>
+                <div class="header-brand-fa">تریدمون</div>
                 <div class="header-brand-en">AsemunYar</div>
             </div>
         </div>
@@ -401,19 +401,19 @@ def render_help_panel() -> None:
         st.markdown(
             f'<div style="text-align:center; padding:8px 0 20px 0; direction:rtl;">'
             f'<div style="font-size:20px; font-weight:700; color:{t["primary"]};">'
-            f"📖 راهنمای آسمون‌یار</div>"
+            f"📖 راهنمای تریدمون</div>"
             f'<div style="font-size:12px; color:{t["fg_muted"]}; margin-top:6px;">'
             f"هر چیزی که برای استفاده از اپ لازمه بدونی</div></div>",
             unsafe_allow_html=True,
         )
 
-        # ═══ بخش ۱: آسمون‌یار چیه؟ ═══
-        with st.expander("🎯 آسمون‌یار چیه؟", expanded=True):
+        # ═══ بخش ۱: تریدمون چیه؟ ═══
+        with st.expander("🎯 تریدمون چیه؟", expanded=True):
             _render(
                 f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
                 f'direction:rtl; text-align:right; padding:8px 12px;">'
                 f"<b>یه دستیار هوشمند تحلیل بازار که برای معامله‌گر ایرانی ساخته شده.</b><br><br>"
-                f"آسمون‌یار به جای اینکه شما ساعت‌ها چارت و اندیکاتور چک کنی، خودش:<br>"
+                f"تریدمون به جای اینکه شما ساعت‌ها چارت و اندیکاتور چک کنی، خودش:<br>"
                 f"• بازار رو تحلیل می‌کنه<br>"
                 f"• ۵ گروه تحلیلی مختلف رو با هم ترکیب می‌کنه<br>"
                 f"• سیگنال خرید یا فروش با حد ضرر و هدف می‌ده<br>"
@@ -429,7 +429,7 @@ def render_help_panel() -> None:
             _render(
                 f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
                 f'direction:rtl; text-align:right; padding:8px 12px;">'
-                f"<b>آسمون‌یار ۴ بازار رو پوشش می‌ده:</b><br><br>"
+                f"<b>تریدمون ۴ بازار رو پوشش می‌ده:</b><br><br>"
                 f"<b style='color:{t['nobitex']};'>🟣 نوبیتکس</b> — بزرگ‌ترین صرافی ایرانی<br>"
                 f"• ۲۲۷ نماد کریپتو (USDT pairs)<br>"
                 f"• جفت‌ارزهای تومانی (تتر/تومان، بیت‌کوین/تومان)<br><br>"
@@ -472,7 +472,7 @@ def render_help_panel() -> None:
             _render(
                 f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
                 f'direction:rtl; text-align:right; padding:8px 12px;">'
-                f"آسمون‌یار به جای تکیه بر یه اندیکاتور، "
+                f"تریدمون به جای تکیه بر یه اندیکاتور، "
                 f"<b>۵ گروه تحلیلی</b> رو با هم ترکیب می‌کنه:<br><br>"
                 f"<b style='color:{t['primary']};'>📈 ۱. روند (Trend)</b><br>"
                 f"می‌فهمه قیمت در چه جهتی حرکت می‌کنه.<br>"
@@ -504,7 +504,7 @@ def render_help_panel() -> None:
             _render(
                 f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
                 f'direction:rtl; text-align:right; padding:8px 12px;">'
-                f"آسمون‌یار اول می‌فهمه بازار در چه حالتیه (با ADX):<br><br>"
+                f"تریدمون اول می‌فهمه بازار در چه حالتیه (با ADX):<br><br>"
                 f"<b style='color:{t['green']};'>📈 بازار جهت‌دار</b> (ADX ≥ ۲۵)<br>"
                 f"• روند قوی داره<br>"
                 f"• <b>استراتژی:</b> ورود در جهت روند<br><br>"
@@ -547,7 +547,7 @@ def render_help_panel() -> None:
             _render(
                 f'<div style="font-size:13px; line-height:2; color:{t["fg"]}; '
                 f'direction:rtl; text-align:right; padding:8px 12px;">'
-                f"<b>آسمون‌یار تله‌های معاملاتی رو تشخیص می‌ده:</b><br><br>"
+                f"<b>تریدمون تله‌های معاملاتی رو تشخیص می‌ده:</b><br><br>"
                 f"<b style='color:{t['red']};'>🚨 تله صعودی</b><br>"
                 f"مومنتوم صعودی ولی حجم خروجی → «صعود جعلیه»<br><br>"
                 f"<b style='color:{t['red']};'>🚨 تله نزولی</b><br>"

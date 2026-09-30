@@ -1,6 +1,6 @@
 """
 app.py
-AsemunYar (آسمون‌یار) — نسخه ۴۵.۰
+Trademun (تریدمون) — نسخه ۴۵.۰
 ============================================================
 تغییرات نسخه ۴۵.۰:
   - سازگاری با analyzer 8.5 (ticker param)
@@ -12,7 +12,7 @@ AsemunYar (آسمون‌یار) — نسخه ۴۵.۰
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
@@ -86,7 +86,7 @@ from ui.components import (
 # Config
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="AsemunYar — آسمون‌یار",
+    page_title="Trademun — تریدمون",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -332,12 +332,8 @@ def cached_ticker_data(source: str):
 
 
 def get_markets_info() -> list:
-    """
-    اطلاعات ساعت بازارهای جهانی.
-    محاسبه‌ی دقیق: باز/بسته + زمان بعدی (باز شدن یا بسته شدن).
-    """
-    # ═══ زمان ایران ═══
-    now_iran = datetime.utcnow() + timedelta(hours=3, minutes=30)
+    """..."""
+    now_iran = datetime.now(timezone.utc) + timedelta(hours=3, minutes=30)
     h, m, wd = now_iran.hour, now_iran.minute, now_iran.weekday()
     tm = h * 60 + m
 
@@ -820,6 +816,37 @@ if search_query and len(search_query.strip()) >= 2:
     except Exception:
         pass
 
+    # ═══ جستجو در NOBITEX_SYMBOLS (دیکشنری کامل — برای نمادهای نوبیتکس که در API نیستن) ═══
+    try:
+        from core.nobitex_fetcher import NOBITEX_SYMBOLS
+
+        existing_tickers = {s["ticker"] for s in suggestions}
+        for ticker, nobitex_sym in NOBITEX_SYMBOLS.items():
+            if ticker in existing_tickers:
+                continue
+            # انطباق در ticker یا nobitex_sym یا base
+            tkr_upper = ticker.upper()
+            nob_upper = nobitex_sym.upper()
+            if q_upper in tkr_upper or q_upper in nob_upper:
+                # تعیین نام نمایشی
+                if ticker.endswith("-IRT"):
+                    display = ticker.replace("-IRT", "/تومان")
+                elif ticker.endswith("-USD"):
+                    display = ticker.replace("-USD", "/USDT")
+                else:
+                    display = ticker
+
+                suggestions.append(
+                    {
+                        "ticker": ticker,
+                        "name": display,
+                        "source": "nobitex",
+                    }
+                )
+                existing_tickers.add(ticker)
+    except Exception:
+        pass
+
     # ═══ بورس تهران: static + cache ═══
     try:
         from core.market_lists import get_iran_stock_symbols, get_iran_stock_map
@@ -885,14 +912,21 @@ if search_query and len(search_query.strip()) >= 2:
         for i, sug in enumerate(suggestions[:8]):
             cols = st.columns([4, 1])
             with cols[0]:
-                source_icon = {
-                    "global": "🌍",
-                    "nobitex": "🟣",
-                    "tsetmc": "🇮🇷",
-                    "custom": "⭐",
-                }.get(sug["source"], "•")
+                # ═══ منبع خودکار ═══
+                auto_source = detect_source_for_ticker(sug["ticker"])
+                source_info = {
+                    "global": ("🌍", "جهانی", t["cyan"]),
+                    "nobitex": ("🟣", "نوبیتکس", t["nobitex"]),
+                    "abantether": ("🔵", "آبان‌تتر", t["abantether"]),
+                    "tsetmc": ("🇮🇷", "بورس تهران", t["tsetmc"]),
+                    "custom": ("⭐", "سفارشی", t["fg_muted"]),
+                }.get(auto_source, ("•", "—", t["fg_muted"]))
+
+                source_icon, source_name, source_color = source_info
+
+                # ═══ قیمت (اگه هست) ═══
                 price_str = ""
-                if "price" in sug:
+                if "price" in sug and sug.get("price"):
                     is_ir = _is_iranian_ticker(sug["ticker"])
                     if is_ir:
                         price_str = (
@@ -906,12 +940,23 @@ if search_query and len(search_query.strip()) >= 2:
                             f"font-family:'JetBrains Mono';\">"
                             f'${sug["price"]:,.4f}</span>'
                         )
+
+                # ═══ نمایش با بج منبع ═══
                 st.markdown(
-                    f'<div style="padding:6px 10px; background:{t["bg_card"]}; '
+                    f'<div style="padding:8px 12px; background:{t["bg_card"]}; '
                     f'border:1px solid {t["border"]}; border-radius:8px; '
-                    f'direction:rtl; text-align:right; font-size:11px;">'
-                    f'{source_icon} <b style="color:{t["primary"]};">{sug["ticker"]}</b> '
-                    f'— <span style="color:{t["fg_muted"]};">{sug["name"]}</span>{price_str}</div>',
+                    f"direction:rtl; text-align:right; font-size:11px; "
+                    f'display:flex; justify-content:space-between; align-items:center; gap:8px;">'
+                    f"<div>"
+                    f'<b style="color:{t["primary"]};">{sug["ticker"]}</b> '
+                    f'<span style="color:{t["fg_muted"]};">{sug["name"]}</span>'
+                    f"{price_str}"
+                    f"</div>"
+                    f'<span style="font-size:9px; color:{source_color}; '
+                    f"background:{source_color}15; padding:2px 8px; "
+                    f'border-radius:6px; white-space:nowrap; font-weight:600;">'
+                    f"{source_icon} {source_name}</span>"
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -923,6 +968,8 @@ if search_query and len(search_query.strip()) >= 2:
                     help=f"نمایش تحلیل {sug['ticker']}",
                 ):
                     tkr = sug["ticker"]
+
+                    # اضافه به لیست سفارشی (اگه نبود)
                     if (
                         tkr not in st.session_state.custom_symbols
                         and tkr not in SYMBOLS
@@ -933,11 +980,16 @@ if search_query and len(search_query.strip()) >= 2:
                         ):
                             st.session_state.custom_symbols.append(tkr)
                             save_custom_symbols(st.session_state.custom_symbols)
-                        st.session_state.selected_symbol = tkr
-                        st.session_state.data_source = detect_source_for_ticker(tkr)
-                        if detect_source_for_ticker(tkr) == "tsetmc":
-                            st.session_state.market_type = "spot"
-                        st.rerun()
+
+                    # ═══ انتخاب نماد (همیشه) ═══
+                    st.session_state.selected_symbol = tkr
+                    st.session_state.data_source = detect_source_for_ticker(tkr)
+                    if detect_source_for_ticker(tkr) == "tsetmc":
+                        st.session_state.market_type = "spot"
+                        st.session_state.selected_tf = "روزانه"
+
+                    st.rerun()
+
     else:
         st.info(f"نتیجه‌ای برای «{q}» پیدا نشد")
 
@@ -1001,6 +1053,7 @@ if other_syms:
                         st.session_state.data_source = detect_source_for_ticker(tkr)
                         if detect_source_for_ticker(tkr) == "tsetmc":
                             st.session_state.market_type = "spot"
+                            st.session_state.selected_tf = "روزانه"
                         st.rerun()
 
 if st.session_state.custom_symbols:
@@ -1058,8 +1111,13 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
     def _analyze_one_tf(iv: str, p: str, n: str):
         try:
             df = cached_history(selected_ticker, iv, p, current_source)
-            if df is None or df.empty:
+            if df is None:
+                print(f"[DEBUG] {n}: df None")
                 return (n, None)
+            if df.empty:
+                print(f"[DEBUG] {n}: df empty")
+                return (n, None)
+            print(f"[DEBUG] {n}: {len(df)} کندل")
             a = analyze_symbol(
                 df,
                 risk_profile=risk_profile,
@@ -1068,9 +1126,16 @@ with st.spinner(f"⏳ تحلیل {sym_name}..."):
                 market_type=current_market_type,
                 ticker=selected_ticker,
             )
+            if a is None:
+                print(f"[DEBUG] {n}: analyze returned None")
+            else:
+                print(f"[DEBUG] {n}: signal={a.get('signal')}")
             return (n, a)
         except Exception as e:
+            import traceback
+
             print(f"[App] خطا در TF {n}: {e}")
+            traceback.print_exc()
             return (n, None)
 
     tfs_data = {}
@@ -1413,6 +1478,7 @@ if cat_keys:
         st.session_state.data_source = detect_source_for_ticker(tkr)
         if detect_source_for_ticker(tkr) == "tsetmc":
             st.session_state.market_type = "spot"
+            st.session_state.selected_tf = "روزانه"
         st.rerun()
 
 
@@ -1450,7 +1516,7 @@ st.markdown(
     f'<div style="text-align:center; padding:12px 0;'
     f' border-top:1px solid {t["border"]}; margin-top:8px;'
     f' color:{t["fg_dim"]}; font-size:9px; direction:rtl;">'
-    f"آسمون‌یار © ۲۰۲۶"
+    f"تریدمون © ۲۰۲۶"
     f' | منبع: <b style="color:{t["cyan"]};">{source_info["icon"]} {source_info["full_name"]}</b>'
     f' | بازار: <b style="color:{t["cyan"]};">{market_label}</b>'
     f' | آخرین: <b style="color:{t["cyan"]};">{st.session_state.last_update}</b>'
