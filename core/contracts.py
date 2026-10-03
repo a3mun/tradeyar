@@ -20,6 +20,8 @@ class DataSource(str, Enum):
     GLOBAL = "global"
     NOBITEX = "nobitex"
     ABANTETHER = "abantether"
+    BITPIN = "bitpin"
+    WALLEX = "wallex"
     TSETMC = "tsetmc"
 
     @classmethod
@@ -29,9 +31,11 @@ class DataSource(str, Enum):
     @classmethod
     def display_name(cls, source: str) -> str:
         return {
-            "global": "🌍 جهانی (yfinance)",
+            "global": "🌍 جهانی",
             "nobitex": "🟣 نوبیتکس",
-            "abantether": "🔵 آبان‌تتر",
+            "abantether": "⚪ آبان‌تتر",
+            "bitpin": "🟢 بیت‌پین",
+            "wallex": "🔵 والکس",
             "tsetmc": "🇮🇷 بورس تهران",
         }.get(source, "—")
 
@@ -249,13 +253,15 @@ SIGNAL_TIMEOUT = {
 # این ضریب در analyzer.py در محاسبه SL/TP ضرب می‌شه:
 #     effective_sl = atr * profile_sl_mult * TF_ATR_MULT[tf]
 #     effective_tp = atr * profile_tp_mult * TF_ATR_MULT[tf]
+# ─── نسخه ۱.۳: افزایش ضریب برای TF های پایین ───
+# دلیل: نویز بالا در TF پایین + SL/TP تنگ باعث باخت می‌شد
 TF_ATR_MULT = {
-    "۱ دقیقه": 0.5,
-    "۵ دقیقه": 0.8,
-    "۱۵ دقیقه": 1.0,
-    "۳۰ دقیقه": 1.2,
-    "۱ ساعت": 1.5,
-    "روزانه": 2.5,
+    "۱ دقیقه": 1.8,  # ← 3.6 برابر (0.5 → 1.8)
+    "۵ دقیقه": 1.5,  # ← 1.9 برابر (0.8 → 1.5)
+    "۱۵ دقیقه": 1.3,  # ← 1.3 برابر
+    "۳۰ دقیقه": 1.3,  # ← 1.1 برابر
+    "۱ ساعت": 1.4,  # ← 0.9 برابر
+    "روزانه": 1.8,  # ← کاهش (خیلی بزرگ بود)
 }
 
 
@@ -308,12 +314,12 @@ def get_adaptive_thresholds(regime: str, adx: float) -> tuple:
 # ۱۲. نمادهای Popular
 # ═══════════════════════════════════════════════════════════
 POPULAR_SYMBOLS = [
+    ("BTC-USD", "₿ بیت‌کوین (USDT)", "nobitex"),
+    ("BTC-IRT", "₿ بیت‌کوین (تومان)", "nobitex"),
     ("USDT-IRT", "💵 تتر/تومان", "nobitex"),
-    ("BTC-USD", "₿ بیت‌کوین", "nobitex"),
-    ("PAXG-USD", "🪙 پکس گلد", "nobitex"),
-    ("GC=F", "🥇 طلا", "global"),
-    ("BZ=F", "🛢 نفت برنت", "global"),
-    ("SI=F", "🥈 نقره", "global"),
+    ("ETH-USD", "Ξ اتریوم", "nobitex"),
+    ("PAXG-USD", "🪙 پکس گلد (USDT)", "nobitex"),
+    ("PAXG-IRT", "🪙 پکس گلد (تومان)", "nobitex"),
 ]
 
 

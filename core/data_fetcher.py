@@ -1,48 +1,33 @@
 """
 core/data_fetcher.py
-لایه‌ی دریافت داده — نسخه ۵.۰ (فاز ۵)
+لایه دریافت داده — نسخه ۶.۰ (فقط صرافی‌های ایرانی)
 ============================================================
-بازنویسی کامل با استفاده از:
-  - core.sources برای سوییچ خودکار
-  - core.contracts برای enumها
-  - core.nobitex_fetcher برای نوبیتکس
-  - yfinance برای بازارهای جهانی
-
-تغییرات:
-  - fetch_history_by_source با USDT-IRT پشتیبانی می‌کنه
-  - resolve_symbol_and_source برای سوییچ خودکار
-  - حذف تکراری‌های get_default_symbol_for_source
-  - fetch_iran_prices حفظ شده (AlanChand + TGJU)
-  - search_symbol فقط برای global (نوبیتکس جستجو داره جدا)
+تغییرات نسخه ۶.۰:
+  - حذف کامل yfinance
+  - اضافه Bitpin, Wallex
+  - نگه‌داشتن AlanChand/TGJU برای قیمت‌های ایران
+  - fallback خودکار بین صرافی‌ها
 """
 
+import logging
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 import requests
-import yfinance as yf
 from bs4 import BeautifulSoup
 
-from .contracts import DataSource
-from .sources import (
+from core.contracts import DataSource
+from core.sources import (
     get_default_symbol_for_source,
     is_symbol_available_in_source,
     resolve_source,
     resolve_symbol_and_source,
 )
-from .utils import (
-    normalize_df_columns,
-    parse_number,
-    safe_num,
-    to_english_digits,
-)
+from core.utils import parse_number, to_english_digits
 
-# ═══════════════════════════════════════════════════════════
-# تنظیمات
-# ═══════════════════════════════════════════════════════════
+logger = logging.getLogger(__name__)
+
 ALANCHAND_URL = "https://alanchand.com/"
 TGJU_URL = "https://www.tgju.org/"
 
@@ -56,14 +41,12 @@ HEADERS = {
 }
 
 TIMEOUT = 20
-RETRIES = 2
 
 
 # ═══════════════════════════════════════════════════════════
 # قیمت‌های ایران (AlanChand + TGJU)
 # ═══════════════════════════════════════════════════════════
-def fetch_html(url: str, timeout: int = TIMEOUT, retries: int = RETRIES):
-    """دریافت HTML امن با retry"""
+def fetch_html(url, timeout=TIMEOUT, retries=2):
     for attempt in range(retries + 1):
         try:
             r = requests.get(url, headers=HEADERS, timeout=timeout)
@@ -72,16 +55,14 @@ def fetch_html(url: str, timeout: int = TIMEOUT, retries: int = RETRIES):
             return r.text
         except Exception as e:
             if attempt == retries:
-                print(f"[Fetcher] خطا در {url}: {e}")
+                logger.warning(f"[Fetcher] {url}: {e}")
                 return None
     return None
 
 
-def extract_alanchand(html: str) -> dict:
-    """استخراج قیمت‌ها از AlanChand"""
+def extract_alanchand(html):
     if not html:
         return {}
-
     results = {}
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -93,7 +74,6 @@ def extract_alanchand(html: str) -> dict:
             "سکه امامی": "sekee",
             "انس طلا": "ons",
         }
-
         for card in soup.find_all(class_="goldCard"):
             card_text = to_english_digits(card.get_text(" ", strip=True))
             for name, key in name_map.items():
@@ -103,14 +83,7 @@ def extract_alanchand(html: str) -> dict:
                         price = parse_number(m.group(1))
                         if price:
                             results[key] = price
-                    else:
-                        nums = re.findall(r"[\d,]{4,}", card_text)
-                        candidates = [parse_number(n) for n in nums]
-                        candidates = [c for c in candidates if c and c > 100]
-                        if candidates:
-                            results[key] = max(candidates)
                     break
-
         for table in soup.find_all("table"):
             for row in table.find_all("tr"):
                 cells = row.find_all("td")
@@ -123,16 +96,13 @@ def extract_alanchand(html: str) -> dict:
                         results["dollar"] = sell
                     break
     except Exception as e:
-        print(f"[Fetcher] AlanChand: {e}")
-
+        logger.warning(f"[Fetcher] AlanChand: {e}")
     return results
 
 
-def extract_tgju(html: str) -> dict:
-    """استخراج قیمت‌ها از TGJU"""
+def extract_tgju(html):
     if not html:
         return {}
-
     results = {}
     try:
         soup = BeautifulSoup(html, "html.parser")
@@ -143,7 +113,6 @@ def extract_tgju(html: str) -> dict:
             "price_dollar_rl": "dollar",
             "ons": "ons",
         }
-
         for row in soup.find_all("tr", attrs={"data-market-row": True}):
             raw_key = row.get("data-market-row", "").strip()
             if raw_key not in key_map:
@@ -151,31 +120,25 @@ def extract_tgju(html: str) -> dict:
             key = key_map[raw_key]
             if key in results:
                 continue
-
             nf_cells = row.find_all("td", class_="nf")
             if not nf_cells:
                 continue
-
             price = parse_number(nf_cells[0].get_text(strip=True))
             if price:
-                # TGJU ریال می‌ده — تبدیل به تومان
                 if key != "ons":
                     price = price / 10
                 results[key] = price
     except Exception as e:
-        print(f"[Fetcher] TGJU: {e}")
-
+        logger.warning(f"[Fetcher] TGJU: {e}")
     return results
 
 
-def fetch_iran_prices() -> dict:
-    """دریافت قیمت‌های لحظه‌ای ایران (AlanChand → TGJU)"""
+def fetch_iran_prices():
     result = {
         "prices": {},
         "source": "None",
         "timestamp": datetime.now().strftime("%H:%M:%S"),
     }
-
     html = fetch_html(ALANCHAND_URL)
     if html:
         prices = extract_alanchand(html)
@@ -183,7 +146,6 @@ def fetch_iran_prices() -> dict:
             result["prices"] = prices
             result["source"] = "AlanChand"
             return result
-
     html = fetch_html(TGJU_URL)
     if html:
         prices = extract_tgju(html)
@@ -191,419 +153,218 @@ def fetch_iran_prices() -> dict:
             result["prices"] = prices
             result["source"] = "TGJU"
             return result
-
     return result
 
 
 # ═══════════════════════════════════════════════════════════
-# yfinance — OHLCV
-# ═══════════════════════════════════════════════════════════
-def fetch_history_yfinance(ticker: str, interval: str, period: str):
-    """دریافت OHLCV از yfinance"""
-    try:
-        df = yf.download(
-            ticker,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-    except Exception as e:
-        print(f"[Fetcher] yfinance {ticker}: {e}")
-        return None
-
-    if df is None or df.empty:
-        return None
-
-    df = normalize_df_columns(df)
-
-    needed = ["open", "high", "low", "close"]
-    if not all(c in df.columns for c in needed):
-        return None
-
-    keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
-    df = df[keep].copy()
-    df.index = pd.to_datetime(df.index)
-    df.dropna(inplace=True)
-
-    if len(df) < 20:
-        return None
-
-    return df
-
-
-# ═══════════════════════════════════════════════════════════
-# نقطه ورود اصلی — fetch_history_by_source
+# سوییچ اصلی
 # ═══════════════════════════════════════════════════════════
 def fetch_history_by_source(
     ticker: str,
     interval: str,
     period: str,
-    source: str = "global",
+    source: str = "nobitex",
+    tf_name: str = "",
 ):
     """
     دریافت OHLCV بر اساس منبع.
-
-    Args:
-        ticker: نماد داخلی
-        interval: 1m/5m/15m/30m/1h/1d
-        period: 1d/5d/1mo/3mo/6mo
-        source: global/nobitex/abantether/tsetmc
+    source: nobitex, abantether, bitpin, wallex, tsetmc
     """
     if not ticker:
         return None
 
-    # ═══ جهانی ═══
-    if source == DataSource.GLOBAL.value:
-        return fetch_history_yfinance(ticker, interval, period)
-
     # ═══ نوبیتکس ═══
-    if source == DataSource.NOBITEX.value:
+    if source == "nobitex":
         try:
-            from .nobitex_fetcher import fetch_nobitex_for_ticker
+            from core.nobitex_fetcher import fetch_nobitex_for_ticker
 
             df = fetch_nobitex_for_ticker(ticker, interval, period)
             if df is not None and not df.empty:
                 return df
         except Exception as e:
-            print(f"[Fetcher] nobitex {ticker}: {e}")
-        # fallback به yfinance
-        return fetch_history_yfinance(ticker, interval, period)
+            logger.warning(f"[Fetcher] nobitex {ticker}: {e}")
+        # fallback به بیت‌پین
+        return fetch_history_by_source(ticker, interval, period, "bitpin", tf_name)
 
-    # ═══ آبان‌تتر (OHLCV نداره — fallback به yfinance) ═══
-    if source == DataSource.ABANTETHER.value:
-        return fetch_history_yfinance(ticker, interval, period)
-
-    # ═══ TSETMC (بورس تهران) ═══
-    if source == DataSource.TSETMC.value:
+    # ═══ بیت‌پین ═══
+    if source == "bitpin":
         try:
-            from .tsetmc_fetcher import fetch_tsetmc_for_symbol
+            from core.bitpin_fetcher import fetch_bitpin_candles
+
+            df = fetch_bitpin_candles(ticker, tf_name)
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            logger.warning(f"[Fetcher] bitpin {ticker}: {e}")
+        # fallback به والکس
+        return fetch_history_by_source(ticker, interval, period, "wallex", tf_name)
+
+    # ═══ والکس ═══
+    if source == "wallex":
+        try:
+            from core.wallex_fetcher import fetch_wallex_candles
+
+            df = fetch_wallex_candles(ticker, tf_name)
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            logger.warning(f"[Fetcher] wallex {ticker}: {e}")
+        # fallback به نوبیتکس
+        try:
+            from core.nobitex_fetcher import fetch_nobitex_for_ticker
+
+            df = fetch_nobitex_for_ticker(ticker, interval, period)
+            if df is not None and not df.empty:
+                return df
+        except Exception:
+            pass
+        return None
+
+    # ═══ آبان‌تتر — OHLCV نداره، fallback به نوبیتکس ═══
+    if source == "abantether":
+        # ─── فقط TF های >= 5m رو پشتیبانی کن ───
+        if interval == "1m":
+            logger.info(f"[Fetcher] آبان‌تتر ۱ دقیقه نداره → None")
+            return None
+        try:
+            from core.nobitex_fetcher import fetch_nobitex_for_ticker
+
+            return fetch_nobitex_for_ticker(ticker, interval, period)
+        except Exception as e:
+            logger.warning(f"[Fetcher] abantether→nobitex {ticker}: {e}")
+            return None
+
+    # ═══ بورس تهران ═══
+    if source == "tsetmc":
+        try:
+            from core.tsetmc_fetcher import fetch_tsetmc_for_symbol
 
             df = fetch_tsetmc_for_symbol(ticker)
             if df is not None and not df.empty:
-                # TSETMC روزانه‌ست — برای TF های پایین‌تر از روزانه fallback
                 if interval == "1d":
                     return df
-                # برای TF پایین‌تر، fallback به yfinance
-                return fetch_history_yfinance(ticker, interval, period)
+                return df  # fallback: استفاده از روزانه
         except Exception as e:
-            print(f"[Fetcher] tsetmc {ticker}: {e}")
+            logger.warning(f"[Fetcher] tsetmc {ticker}: {e}")
         return None
 
-    # پیش‌فرض
-    return fetch_history_yfinance(ticker, interval, period)
+    return None
 
 
 # ═══════════════════════════════════════════════════════════
-# fetch_history — سازگاری با کدهای قدیمی
+# قیمت لحظه‌ای (Quote)
 # ═══════════════════════════════════════════════════════════
-def fetch_history(ticker: str, interval: str, period: str):
-    """سازگاری با کدهای قدیمی — معادل global"""
-    return fetch_history_yfinance(ticker, interval, period)
-
-
-# ═══════════════════════════════════════════════════════════
-# fetch_all_history (برای تیکر/صفحه اصلی)
-# ═══════════════════════════════════════════════════════════
-def fetch_all_history(symbols: dict, timeframes: list) -> dict:
-    """دریافت موازی OHLCV همه نمادها (برای global)"""
-    results = {ticker: {} for ticker in symbols}
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {}
-        for ticker in symbols:
-            for interval, period, tf_name in timeframes:
-                future = executor.submit(
-                    fetch_history_yfinance, ticker, interval, period
-                )
-                futures[future] = (ticker, tf_name)
-
-        for future in as_completed(futures):
-            ticker, tf_name = futures[future]
-            try:
-                df = future.result()
-                if df is not None and not df.empty:
-                    results[ticker][tf_name] = df
-            except Exception as e:
-                print(f"[Fetcher] {ticker} {tf_name}: {e}")
-
-    return results
-
-
-# ═══════════════════════════════════════════════════════════
-# جستجوی نماد (فقط جهانی)
-# ═══════════════════════════════════════════════════════════
-def search_symbol(query: str) -> Optional[str]:
+def fetch_quote_by_source(ticker: str, source: str = "nobitex") -> dict | None:
     """
-    جستجوی نماد در yfinance.
-    (نوبیتکس جستجوی جداگانه داره)
+    قیمت لحظه‌ای — همیشه از صرافی انتخاب‌شده.
+    اگه صرافی مورد نظر جواب نداد، None برگردون (نه fallback).
     """
-    if not query:
+    if not ticker:
         return None
 
-    query = query.upper().strip()
-    candidates = [query]
+    normalized = ticker.upper().replace("_USDT", "-USD").replace("_IRT", "-IRT")
+    normalized = normalized.replace("_", "-")
 
-    # فارکس
-    if len(query) == 6 and query.isalpha():
-        candidates.append(f"{query}=X")
-        candidates.append(f"{query[:3]}/{query[3:]}")
+    source = source.lower()
 
-    # کریپتو
-    crypto_list = [
-        "BTC",
-        "ETH",
-        "SOL",
-        "XRP",
-        "DOGE",
-        "ADA",
-        "BNB",
-        "TON",
-        "TRX",
-        "USDT",
-        "USDC",
-        "MATIC",
-        "DOT",
-        "AVAX",
-        "LINK",
-        "UNI",
-        "ATOM",
-        "LTC",
-        "BCH",
-        "XLM",
-    ]
-    if query in crypto_list:
-        candidates.insert(0, f"{query}-USD")
-
-    # شاخص‌ها
-    index_map = {
-        "SPX": "^GSPC",
-        "SP500": "^GSPC",
-        "NASDAQ": "^IXIC",
-        "DOW": "^DJI",
-        "VIX": "^VIX",
-        "DXY": "DX-Y.NYB",
-    }
-    if query in index_map:
-        candidates.insert(0, index_map[query])
-
-    # نفت
-    if query in ("WTI", "OIL"):
-        candidates.insert(0, "CL=F")
-    if query in ("BRENT", "BZ"):
-        candidates.insert(0, "BZ=F")
-
-    # طلا و نقره
-    if query in ("XAUUSD", "GOLD"):
-        candidates.insert(0, "GC=F")
-    if query in ("XAGUSD", "SILVER"):
-        candidates.insert(0, "SI=F")
-
-    for cand in candidates:
+    # ═══ نوبیتکس ═══
+    if source == "nobitex":
         try:
-            df = yf.download(
-                cand,
-                period="5d",
-                interval="1d",
-                progress=False,
-                auto_adjust=True,
-                threads=False,
-            )
-            if df is not None and not df.empty:
-                return cand
-        except Exception:
-            continue
+            from core.nobitex_fetcher import fetch_nobitex_stats_for_ticker
 
-    return None
-
-
-# ═══════════════════════════════════════════════════════════
-# همبستگی (برای تحلیل طلا)
-# ═══════════════════════════════════════════════════════════
-def fetch_correlation(t1: str, t2: str, period: str = "1mo", interval: str = "1d"):
-    """محاسبه همبستگی بین دو نماد"""
-    try:
-        df1 = yf.download(
-            t1,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-        df2 = yf.download(
-            t2,
-            period=period,
-            interval=interval,
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-
-        if df1 is None or df2 is None or df1.empty or df2.empty:
-            return None
-
-        df1 = normalize_df_columns(df1)
-        df2 = normalize_df_columns(df2)
-
-        if "close" not in df1.columns or "close" not in df2.columns:
-            return None
-
-        s1 = df1["close"].squeeze()
-        s2 = df2["close"].squeeze()
-        m = pd.concat([s1, s2], axis=1).dropna()
-
-        if len(m) < 10:
-            return None
-
-        corr = m.iloc[:, 0].corr(m.iloc[:, 1])
-        return float(corr) if pd.notna(corr) else None
-    except Exception as e:
-        print(f"[Fetcher] correlation: {e}")
+            stats = fetch_nobitex_stats_for_ticker(normalized)
+            if stats and stats.get("price"):
+                return {
+                    "ticker": normalized,
+                    "price": float(stats["price"]),
+                    "change_pct": float(stats.get("change_24h") or 0),
+                    "source": "nobitex",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] nobitex {normalized}: {e}")
         return None
 
+    # ═══ بیت‌پین ═══
+    if source == "bitpin":
+        try:
+            from core.bitpin_fetcher import fetch_bitpin_candles
 
-def fetch_all_correlations(correlation_symbols: dict) -> dict:
-    """محاسبه موازی همبستگی طلا با نمادهای دیگه"""
-    results = {}
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(fetch_correlation, "GC=F", ticker): ticker
-            for ticker in correlation_symbols
-        }
-        for future in as_completed(futures):
-            ticker = futures[future]
+            df = fetch_bitpin_candles(normalized, "۵ دقیقه")
+            if df is not None and not df.empty:
+                return {
+                    "ticker": normalized,
+                    "price": float(df["close"].iloc[-1]),
+                    "change_pct": 0.0,
+                    "source": "bitpin",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] bitpin {normalized}: {e}")
+        return None
+
+    # ═══ والکس ═══
+    if source == "wallex":
+        try:
+            from core.wallex_fetcher import fetch_wallex_candles
+
+            df = fetch_wallex_candles(normalized, "۵ دقیقه")
+            if df is not None and not df.empty:
+                return {
+                    "ticker": normalized,
+                    "price": float(df["close"].iloc[-1]),
+                    "change_pct": 0.0,
+                    "source": "wallex",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] wallex {normalized}: {e}")
+        return None
+
+    # ═══ آبان‌تتر — فقط تومانی ═══
+    if source == "abantether":
+        # اگه نماد USDT/USD هست، آبان‌تتر نداره → نوبیتکس
+        if normalized.upper().endswith("-USD") or normalized.upper().endswith("-USDT"):
             try:
-                results[ticker] = future.result()
-            except Exception:
-                results[ticker] = None
-    return results
+                from core.nobitex_fetcher import fetch_nobitex_stats_for_ticker
 
-
-# ═══════════════════════════════════════════════════════════
-# نسبت طلا به نقره
-# ═══════════════════════════════════════════════════════════
-def fetch_gold_silver_ratio():
-    """نسبت طلا به نقره"""
-    try:
-        g = yf.download(
-            "GC=F",
-            period="1mo",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-        s = yf.download(
-            "SI=F",
-            period="1mo",
-            interval="1d",
-            progress=False,
-            auto_adjust=True,
-            threads=False,
-        )
-
-        if g is None or s is None or g.empty or s.empty:
+                stats = fetch_nobitex_stats_for_ticker(normalized)
+                if stats and stats.get("price"):
+                    return {
+                        "ticker": normalized,
+                        "price": float(stats["price"]),
+                        "change_pct": float(stats.get("change_24h") or 0),
+                        "source": "abantether",  # ← برچسب آبان‌تتر (کاربر اینو انتخاب کرده)
+                    }
+            except Exception as e:
+                logger.warning(f"[Quote] abantether→nobitex {normalized}: {e}")
             return None
 
-        g = normalize_df_columns(g)
-        s = normalize_df_columns(s)
+        # تومانی → از خود آبان‌تتر
+        try:
+            from core.abantether_fetcher import fetch_abantether_price
 
-        if "close" not in g.columns or "close" not in s.columns:
-            return None
+            price = fetch_abantether_price(normalized)
+            if price:
+                return {
+                    "ticker": normalized,
+                    "price": float(price),
+                    "change_pct": 0.0,
+                    "source": "abantether",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] abantether {normalized}: {e}")
+        return None
 
-        gold_price = safe_num(g["close"].iloc[-1])
-        silver_price = safe_num(s["close"].iloc[-1])
-
-        if silver_price > 0:
-            return gold_price / silver_price
-    except Exception as e:
-        print(f"[Fetcher] GSR: {e}")
     return None
 
 
 # ═══════════════════════════════════════════════════════════
-# exports سازگاری
+# exports
 # ═══════════════════════════════════════════════════════════
 __all__ = [
     "fetch_iran_prices",
-    "fetch_history",
-    "fetch_history_yfinance",
     "fetch_history_by_source",
-    "fetch_all_history",
-    "fetch_correlation",
-    "fetch_all_correlations",
-    "fetch_gold_silver_ratio",
-    "search_symbol",
+    "fetch_quote_by_source",
     "get_default_symbol_for_source",
     "is_symbol_available_in_source",
     "resolve_source",
     "resolve_symbol_and_source",
 ]
-
-
-# ═══════════════════════════════════════════════════════════
-# تست
-# ═══════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    print("=" * 70)
-    print("تست core/data_fetcher.py — نسخه ۵.۰")
-    print("=" * 70)
-    print()
-
-    print("۱) قیمت‌های ایران:")
-    iran = fetch_iran_prices()
-    print(f"   منبع: {iran['source']}")
-    print(f"   تعداد: {len(iran['prices'])}")
-    print()
-
-    print("۲) OHLCV طلا (global):")
-    df = fetch_history_by_source("GC=F", "5m", "5d", "global")
-    if df is not None:
-        print(f"   تعداد: {len(df)}")
-        print(f"   آخرین: ${safe_num(df['close'].iloc[-1]):,.2f}")
-    else:
-        print("   ❌ خطا")
-    print()
-
-    print("۳) OHLCV BTC (nobitex):")
-    df2 = fetch_history_by_source("BTC-USD", "1h", "5d", "nobitex")
-    if df2 is not None:
-        print(f"   تعداد: {len(df2)}")
-        print(f"   آخرین: ${safe_num(df2['close'].iloc[-1]):,.2f}")
-    else:
-        print("   ❌ خطا")
-    print()
-
-    print("۴) OHLCV USDT-IRT (nobitex):")
-    df3 = fetch_history_by_source("USDT-IRT", "1h", "5d", "nobitex")
-    if df3 is not None:
-        print(f"   تعداد: {len(df3)}")
-        print(f"   آخرین: {safe_num(df3['close'].iloc[-1]):,.0f}")
-    else:
-        print("   ❌ خطا (این طبیعیه اگه نوبیتکس OHLCV برای USDTIRT نداشته باشه)")
-    print()
-
-    print("۵) سوییچ خودکار:")
-    cases = [
-        ("USDT-IRT", "global"),
-        ("GC=F", "nobitex"),
-        ("BTC-USD", "nobitex"),
-        ("فولاد", "global"),
-    ]
-    for ticker, src in cases:
-        ft, fs, msg = resolve_symbol_and_source(ticker, src)
-        icon = "🔄" if msg else "✅"
-        print(f"   {icon} {ticker:15} از {src:10} → {fs}")
-    print()
-
-    print("۶) نسبت طلا به نقره:")
-    gsr = fetch_gold_silver_ratio()
-    if gsr:
-        print(f"   GSR = {gsr:.2f}")
-    else:
-        print("   ❌ خطا")
-    print()
-
-    print("[OK] تست کامل شد.")

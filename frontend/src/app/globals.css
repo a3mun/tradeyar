@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════
+   Trademun — Global Styles (فاز ۶)
+   ═══════════════════════════════════════════════════════════ */
+
+@theme {
+  --font-sans: var(--font-vazirmatn), system-ui, sans-serif;
+
+  /* ─── رنگ‌های اصلی (تم تاریک) ─── */
+  --color-background: #0a0e1a;
+  --color-foreground: #e6edf3;
+  --color-card: #101624;
+  --color-card-foreground: #e6edf3;
+  --color-popover: #101624;
+  --color-popover-foreground: #e6edf3;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #e6edf3;
+  --color-muted: #1e293b;
+  --color-muted-foreground: #94a3b8;
+  --color-accent: #1e293b;
+  --color-accent-foreground: #e6edf3;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #1e293b;
+  --color-input: #1e293b;
+  --color-ring: #3b82f6;
+
+  /* ─── رنگ‌های سیگنال (فقط برای Trademun) ─── */
+  --color-long: #22c55e;
+  --color-short: #ef4444;
+  --color-neutral: #eab308;
+  --color-resistance: #ef4444;
+  --color-support: #22c55e;
+}
+
+/* ═══ Base ═══ */
+* {
+  border-color: var(--color-border);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "ss01", "ss02";
+}
+
+/* ═══ Scrollbar ═══ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* ═══ اعداد فارسی/انگلیسی ═══ */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ═══ انیمیشن‌ها ═══ */
+@keyframes pulse-green {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.pulse-green {
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.3s ease-out;
+}

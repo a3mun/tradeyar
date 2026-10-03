@@ -1,0 +1,9 @@
+{
+  "theme": "dark",
+  "selected_symbol": "PAXG-USD",
+  "selected_tf": "۱ دقیقه",
+  "risk_profile": "aggressive",
+  "market_type": "futures",
+  "data_source": "nobitex",
+  "refresh_seconds": 30
+}

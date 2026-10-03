@@ -1,16 +1,35 @@
-streamlit>=1.35.0
-pandas>=2.0.0
-numpy>=1.24.0
+# ═══════════════════════════════════════════════════════════
+# Trademun — requirements.txt (فاز ۶: FastAPI Backend)
+# ═══════════════════════════════════════════════════════════
+
+# ─── Core تحلیل ───
+pandas>=2.2.0
+numpy>=1.26.0
 pandas-ta-classic>=0.3.0
+
+# ─── دیتا ───
 yfinance>=0.2.40
-requests>=2.31.0
-jdatetime>=4.1.0
-streamlit-autorefresh>=1.0.1
-ccxt>=4.0.0
-python-dotenv>=1.0.0
+requests>=2.32.0
 beautifulsoup4>=4.12.0
-lxml>=5.0.0
-cloudscraper>=1.2.71
-feedparser>=6.0.10
-plotly>=5.18.0
-pytz>=2024.1
+
+# ─── Backend ───
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.0
+
+# ─── Database ───
+sqlmodel>=0.0.22
+alembic>=1.14.0
+
+# ─── Scheduler ───
+apscheduler>=3.10.4
+
+# ─── Auth (فاز ۷) ───
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# ─── Dev ───
+pytest>=8.3.0
+httpx>=0.27.0
