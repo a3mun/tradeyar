@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Heart, AlertTriangle, Shield, Globe, Mail } from "lucide-react";
+import { Heart, AlertTriangle, Shield, Globe, Send } from "lucide-react";
 
 export function Footer() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -76,22 +76,22 @@ export function Footer() {
       <footer className="border-t border-border/40 bg-background/60 mt-8">
         <div className="container mx-auto px-4 py-6">
           {/* ═══ ردیف بالا: لوگو + اطلاعات + لینک ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 text-center md:text-right">
             {/* ─── ستون ۱: برند ─── */}
-            <div className="flex items-start gap-3">
+            <div className="flex flex-col md:flex-row items-center gap-3 md:items-start md:justify-start">
               <img
                 src="/icon-512.png"
                 alt="Trademun"
                 className="h-16 w-16 rounded-xl object-contain shrink-0"
               />
-              <div className="flex-1">
+              <div className="flex-1 text-center md:text-right">
                 <h3 className="text-lg font-bold text-foreground leading-none">
                   تریدمون
                 </h3>
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Trademun
                 </p>
-                <div className="flex items-center gap-1.5 mt-2">
+                <div className="flex items-center gap-1.5 mt-2 justify-center md:justify-start">
                   <span className="rounded-md bg-muted/50 px-2 py-0.5 text-[9px] text-muted-foreground">
                     v6.0
                   </span>
@@ -109,17 +109,19 @@ export function Footer() {
                 href="https://trademun.ir"
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center gap-2 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                className="flex items-center gap-2 text-[11px] text-muted-foreground transition-colors hover:text-primary justify-center md:justify-start"
               >
                 <Globe className="h-3.5 w-3.5" />
                 <span dir="ltr">trademun.ir</span>
               </a>
               <a
-                href="mailto:info@trademun.ir"
-                className="flex items-center gap-2 text-[11px] text-muted-foreground transition-colors hover:text-primary"
+                href="https://t.me/trademun"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 text-[11px] text-muted-foreground transition-colors hover:text-primary justify-center md:justify-start"
               >
-                <Mail className="h-3.5 w-3.5" />
-                <span dir="ltr">info@trademun.ir</span>
+                <Send className="h-3.5 w-3.5" />
+                <span dir="ltr">t.me/trademun</span>
               </a>
               <p className="text-[10px] text-muted-foreground pt-2">
                 © {year} · همه حقوق محفوظ است
@@ -127,10 +129,10 @@ export function Footer() {
             </div>
 
             {/* ─── ستون ۳: سلب مسئولیت ─── */}
-            <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3">
+            <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-right">
               <div className="flex items-start gap-2">
                 <Shield className="h-4 w-4 shrink-0 mt-0.5 text-yellow-500" />
-                <div className="text-[10px] leading-relaxed text-yellow-500/90">
+                <div className="text-[10px] leading-relaxed text-yellow-500/90 text-right">
                   <strong className="block mb-1 text-yellow-500">
                     ⚠️ سلب مسئولیت
                   </strong>
@@ -143,7 +145,7 @@ export function Footer() {
 
           {/* ═══ خط جداکننده ═══ */}
           <div className="border-t border-border/30 pt-4">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <div className="flex flex-col md:flex-row items-center justify-center md:justify-between gap-2 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <span>طراحی و ساخت با</span>
                 <Heart className="h-3.5 w-3.5 fill-red-500 text-red-500 animate-pulse" />

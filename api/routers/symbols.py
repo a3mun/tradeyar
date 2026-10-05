@@ -4,12 +4,20 @@ Endpointهای نمادها
 ============================================================
 - GET /symbols              → لیست همه نمادها
 - GET /symbols/popular      → نمادهای محبوب
+- GET /symbols/search       → جستجوی هوشمند
 - GET /symbols/iran-prices  → قیمت‌های ایران
+
+باگ ۶ (نسخه ۱.۵): ``get_iran_prices`` دو درخواست HTTP اسکرپینگ
+(AlanChand + TGJU) می‌زند و ``search_symbols`` ممکن است
+``NOBITEX_SYMBOLS`` را بارگذاری کند — هر دو sync. پس threadpool.
 """
 
 import logging
-from fastapi import APIRouter
 
+from fastapi import APIRouter, Query, Request
+from fastapi.concurrency import run_in_threadpool
+
+from api.deps import rate_limit_for
 from api.schemas import SymbolItem, SymbolsResponse
 from core.contracts import POPULAR_SYMBOLS, SYMBOLS
 from services.data_service import get_iran_prices
@@ -70,7 +78,11 @@ async def popular_symbols():
 # GET /symbols/search — جستجوی هوشمند
 # ═══════════════════════════════════════════════════════════
 @router.get("/search")
-async def search_symbols(q: str = "", limit: int = 10):
+async def search_symbols(
+    request: Request,
+    q: str = "",
+    limit: int = Query(default=10, ge=1, le=50),
+):
     """
     جستجوی نماد در همه منابع.
     - انگلیسی: BTC, ETH, PAXG
@@ -79,6 +91,14 @@ async def search_symbols(q: str = "", limit: int = 10):
     if not q or len(q.strip()) < 2:
         return {"ok": True, "total": 0, "items": []}
 
+    rate_limit_for(request, "symbols_search", limit=120, window_sec=60)
+
+    # ─── جستجو در thread جدا (ممکن است بارگذاری JSON و لاگ کند باشد) ───
+    return await run_in_threadpool(_search_sync, q, limit)
+
+
+def _search_sync(q: str, limit: int) -> dict:
+    """بدنه‌ی sync جستجو — در threadpool اجرا می‌شود"""
     query = q.strip().lower()
     results: list[dict] = []
     seen: set[str] = set()
@@ -108,7 +128,7 @@ async def search_symbols(q: str = "", limit: int = 10):
                 if query in symbol.lower() or query in name.lower():
                     _add(symbol, f"{symbol} — {name}", "tsetmc")
         except Exception:
-            pass
+            logger.warning("[Symbols] جستجوی TSETMC ناموفق", exc_info=True)
 
     # ═══ ۳. نوبیتکس (نمادهای اضافی) ═══
     if len(results) < limit:
@@ -122,15 +142,45 @@ async def search_symbols(q: str = "", limit: int = 10):
                     display = ticker.replace("-IRT", "/تومان").replace("-USD", "/USDT")
                     _add(ticker, display, "nobitex")
         except Exception:
-            pass
+            logger.warning("[Symbols] جستجوی نوبیتکس ناموفق", exc_info=True)
 
     return {"ok": True, "total": len(results), "items": results}
+
+
+# ═══════════════════════════════════════════════════════════
+# GET /symbols/sources — لیست صرافی‌ها با وضعیت
+# ═══════════════════════════════════════════════════════════
+@router.get("/sources")
+async def list_sources():
+    """
+    لیست همه‌ی صرافی‌ها — فعال و برنامه‌ریزی‌شده.
+
+    برای پر کردن SettingsPanel استفاده می‌شود. صرافی‌های
+    ``planned=True`` باید در فرانت غیرفعال با بج «به‌زودی»
+    نمایش داده شوند.
+    """
+    from core.sources import get_all_sources_info
+
+    items = get_all_sources_info()
+    return {
+        "ok": True,
+        "total": len(items),
+        "items": items,
+        "active_count": sum(1 for i in items if i["active"]),
+        "planned_count": sum(1 for i in items if i["planned"]),
+    }
 
 
 # ═══════════════════════════════════════════════════════════
 # GET /symbols/iran-prices — قیمت‌های ایران
 # ═══════════════════════════════════════════════════════════
 @router.get("/iran-prices")
-async def iran_prices():
-    """قیمت‌های لحظه‌ای ایران (AlanChand/TGJU)"""
-    return get_iran_prices()
+async def iran_prices(request: Request):
+    """
+    قیمت‌های لحظه‌ای ایران (AlanChand/TGJU).
+
+    ⚠️ این تابع تا ۲ درخواست HTTP اسکرپینگ با timeout=20 می‌زند.
+       در event loop یعنی قفل تا ۴۰ ثانیه. پس threadpool.
+    """
+    rate_limit_for(request, "iran_prices", limit=30, window_sec=60)
+    return await run_in_threadpool(get_iran_prices)

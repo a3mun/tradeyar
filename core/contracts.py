@@ -10,34 +10,92 @@ core/contracts.py
 
 from enum import Enum
 from datetime import timedelta
-from typing import TypedDict, Literal, Optional
+from typing import TypedDict, Literal, NamedTuple, Optional
 
 
 # ═══════════════════════════════════════════════════════════
 # ۱. منبع دیتا
 # ═══════════════════════════════════════════════════════════
 class DataSource(str, Enum):
-    GLOBAL = "global"
+    """صرافی‌ها و منابع داده.
+
+    ─── فعال (دارای fetcher) ───
+        NOBITEX, BITPIN, WALLEX, TABDEAL, TSETMC
+
+    ─── برنامه‌ریزی‌شده برای فاز ۷ (placeholder) ───
+        RAMZINEX, TOOBIT, BINGX
+
+    ─── حذف‌شده در نسخه ۱.۸ ───
+        ABANTETHER — کندل نداشت، فقط قیمت تومانی. با تبدیل
+        (Tabdeal) جایگزین شد که هم قیمت دارد هم عمق بازار و
+        هم بازار تتری.
+
+    ⚠️ اعضای placeholder fetcher ندارند. اگر صدا زده شوند،
+       ``resolve_source`` به نوبیتکس fallback می‌کند.
+    """
+
+    # ─── فعال ───
+    GLOBAL = "global"  # منسوخ — فقط برای سازگاری
     NOBITEX = "nobitex"
-    ABANTETHER = "abantether"
     BITPIN = "bitpin"
     WALLEX = "wallex"
+    TABDEAL = "tabdeal"
     TSETMC = "tsetmc"
+
+    # ─── placeholder فاز ۷ ───
+    RAMZINEX = "ramzinex"
+    TOOBIT = "toobit"
+    BINGX = "bingx"
+    BIT24 = "bit24"
 
     @classmethod
     def all(cls) -> list[str]:
         return [s.value for s in cls]
 
     @classmethod
+    def active(cls) -> list[str]:
+        """منابعی که **واقعاً** کار می‌کنند (بدون placeholder)"""
+        return ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"]
+
+    @classmethod
+    def planned(cls) -> list[str]:
+        """منابع برنامه‌ریزی‌شده برای فاز ۷"""
+        return ["ramzinex", "toobit", "bingx", "bit24"]
+
+    @classmethod
     def display_name(cls, source: str) -> str:
         return {
             "global": "🌍 جهانی",
             "nobitex": "🟣 نوبیتکس",
-            "abantether": "⚪ آبان‌تتر",
             "bitpin": "🟢 بیت‌پین",
             "wallex": "🔵 والکس",
+            "tabdeal": "🟠 تبدیل",
             "tsetmc": "🇮🇷 بورس تهران",
+            # ─── به‌زودی ───
+            "ramzinex": "🟡 رمزینکس (به‌زودی)",
+            "toobit": "🟤 توبیت (به‌زودی)",
+            "bingx": "🔶 بینگ‌ایکس (به‌زودی)",
+            "bit24": "🔹 بیت۲۴ (به‌زودی)",
         }.get(source, "—")
+
+
+# ─── صرافی‌های placeholder (به‌زودی) ───
+PLANNED_SOURCES: frozenset[str] = frozenset({"ramzinex", "toobit", "bingx", "bit24"})
+
+# ─── صرافی‌های فعال ───
+ACTIVE_SOURCES: frozenset[str] = frozenset(
+    {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"}
+)
+
+
+def is_planned_source(source: str) -> bool:
+    """آیا این صرافی هنوز پیاده‌سازی نشده (placeholder)؟"""
+    return (source or "").lower() in PLANNED_SOURCES
+
+
+def is_active_source(source: str) -> bool:
+    """آیا این صرافی فعال است (fetcher دارد)؟"""
+    return (source or "").lower() in ACTIVE_SOURCES
 
 
 # ═══════════════════════════════════════════════════════════
@@ -209,18 +267,188 @@ class AnalysisGroup(str, Enum):
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱۰. تایم‌فریم‌ها
+# ۱۰. تایم‌فریم‌ها — جدول واحد حقیقت (نسخه ۱.۶)
 # ═══════════════════════════════════════════════════════════
-TIMEFRAMES = [
-    ("1m", "1d", "۱ دقیقه"),
-    ("5m", "5d", "۵ دقیقه"),
-    ("15m", "5d", "۱۵ دقیقه"),
-    ("30m", "1mo", "۳۰ دقیقه"),
-    ("1h", "3mo", "۱ ساعت"),
-    ("1d", "6mo", "روزانه"),
-]
+# ⚠️ اصلاح مهم (نسخه ۱.۶): سخت‌گیری TF حذف شد.
+#
+# نسخه‌ی پیشین یک whitelist سخت داشت (``is_tf_supported``) که
+# **قبل** از درخواست، ترکیب‌های «ممنوع» را رد می‌کرد:
+#
+#     walnut + ۵ دقیقه  → None (بدون حتی یک درخواست)
+#     walnut + ۱۵ دقیقه → None  ← 🔴 این غلط بود! والکس ۱۵ دارد
+#
+# دو ایراد:
+#   ۱. پشتیبانی TF **per-نماد** است، نه per-صرافی. ممکن است
+#      BTC-USDT همه‌ی TFها را بدهد ولی SHIB-USDT فقط چند تا.
+#      پس whitelist صرافی محور از اساس اشتباه است.
+#   ۲. والکس resolution «15» را دارد، پس «۱۵ دقیقه» نباید رد شود.
+#
+# قاعده‌ی جدید:
+#   • فقط قیدهایی که **واقعاً** وجود دارند در کد می‌مانند:
+#       - TSETMC  → فقط «روزانه»
+#       - والکس   → «۳۰ دقیقه» ندارد (نه به‌عنوان ۳۰ و نه معادلش)
+#       - آبان‌تتر → OHLCV ندارد (فقط قیمت)
+#   • بقیه: درخواست می‌فرستیم و **پاسخ صرافی** تصمیم می‌گیرد.
+#   • اگر صرافی دیتا نداد → ``None`` (که با کش منفی سریع می‌شود).
+#
+# ─── پشتیبانی واقعی (کشف‌شده از API، ۲۰۲۶-۱۰-۰۳) ───
+#
+#   TF        نوبیتکس  بیت‌پین  والکس
+#   ─────────────────────────────────────
+#   ۱ دقیقه      ✓        ✓       ✗   (res=1 → no_data)
+#   ۵ دقیقه      ✓        ✓       ✗   (res=5 → error)
+#   ۱۵ دقیقه     ✓        ✓       ✓   (res=15)  ✅ اصلاح‌شده
+#   ۳۰ دقیقه     ✓        ✓       ✗   (res=30 → error)
+#   ۱ ساعت       ✓        ✓       ✓   (res=60)
+#   روزانه       ✓        ✓       ✓   (res=1D)
+#
+# ⚠️ نقشه‌ی والکس فقط برای TFهایی است که **خود والکس مستقیم**
+#    دارد. هیچ تبدیل بی‌صدایی انجام نمی‌شود: اگر والکس TF را
+#    نداشته باشد، ``None`` می‌دهد و زنجیره‌ی fallback به
+#    نوبیتکس می‌رود — که داده‌ی **درست** می‌دهد.
 
-TF_NAMES = [tf[2] for tf in TIMEFRAMES]
+
+class TFSpec(NamedTuple):
+    """
+    مشخصات کامل یک تایم‌فریم.
+
+    Attributes:
+        name_fa:    نام فارسی (کلید همه‌ی لایه‌ها) — "۵ دقیقه"
+        interval:   فرمت داخلی نوبیتکس/contracts — "5m"
+        udf_res:    resolution در UDF history — "5" یا "1D"
+        bitpin_res: resolution بیت‌پین — "5m" یا "1d"
+        wallex_res: resolution والکس — "15" یا "1D"؛ None = پشتیبانی نمی‌شود
+        period:     بازه‌ی نوبیتکس — "5d"
+        period_days: بازه به روز (برای بیت‌پین/والکس) — 10
+        timeout_min: مهلت سیگنال به دقیقه
+    """
+
+    name_fa: str
+    interval: str
+    udf_res: str
+    bitpin_res: str
+    wallex_res: Optional[str]
+    period: str
+    period_days: int
+    timeout_min: int
+
+
+TIMEFRAME_SPECS: dict[str, TFSpec] = {
+    "۱ دقیقه": TFSpec("۱ دقیقه", "1m", "1", "1m", "1", "1d", 2, 30),
+    "۵ دقیقه": TFSpec("۵ دقیقه", "5m", "5", "5m", None, "5d", 10, 120),  # ← والکس ندارد
+    "۱۵ دقیقه": TFSpec("۱۵ دقیقه", "15m", "15", "15m", "15", "5d", 20, 360),
+    "۳۰ دقیقه": TFSpec(
+        "۳۰ دقیقه", "30m", "30", "30m", None, "1mo", 30, 720
+    ),  # ← والکس ندارد
+    "۱ ساعت": TFSpec("۱ ساعت", "1h", "60", "1h", "60", "3mo", 180, 2880),
+    "روزانه": TFSpec("روزانه", "1d", "1D", "1d", "1D", "6mo", 730, 10080),
+}
+
+TF_NAMES = list(TIMEFRAME_SPECS)
+
+# ─── سازگاری عقب‌رو ───
+# کدهای قدیمی (app.py، scanner، backtester) این را به‌صورت
+# (interval, period, tf_name) باز می‌کنند.
+TIMEFRAMES = [(s.interval, s.period, s.name_fa) for s in TIMEFRAME_SPECS.values()]
+
+# ─── نقشه‌ی معکوس ───
+TF_BY_INTERVAL: dict[str, str] = {
+    s.interval: s.name_fa for s in TIMEFRAME_SPECS.values()
+}
+
+
+def get_tf_spec(tf_name: str) -> TFSpec:
+    """
+    مشخصات تایم‌فریم را برمی‌گرداند.
+
+    ⚠️ برای نام ناشناخته، **پیش‌فرض ۵ دقیقه** می‌دهد ولی هشدار
+       لاگ می‌کند — تا اشتباه تایپی بی‌صدا رد نشود.
+    """
+    import logging
+
+    spec = TIMEFRAME_SPECS.get(tf_name)
+    if spec is None:
+        logging.getLogger(__name__).warning(
+            f"[Contracts] تایم‌فریم ناشناخته {tf_name!r} — پیش‌فرض «۵ دقیقه»"
+        )
+        return TIMEFRAME_SPECS["۵ دقیقه"]
+    return spec
+
+
+# ═══════════════════════════════════════════════════════════
+# قیدهای واقعی (نسخه ۱.۶)
+# ═══════════════════════════════════════════════════════════
+# ⚠️ اینجا فقط قیدهایی است که **قطعاً** وجود دارند.
+#    هیچ whitelist صرافی‌محوری اینجا نیست — تصمیم با صرافی است.
+
+
+def source_lacks_ohlcv(source: str) -> bool:
+    """
+    آیا این منبع OHLCV خودش را ندارد (کندل نمی‌دهد)؟
+
+    • **تبدیل (Tabdeal)** — API عمومی‌اش endpoint OHLCV ندارد
+      (۱۲ مسیر مختلف تست شد، همه ۴۰۴). ولی قیمت و عمق بازار
+      دارد. برای تحلیل، کندل از صرافی دیگر می‌آید.
+    • **آبان‌تتر** — حذف شد (نسخه ۱.۸).
+
+    ⚠️ این تابع «کندل ندارد» را می‌گوید، نه «تحلیل نمی‌شود».
+       زنجیره‌ی fallback خودکار کندل را از منبع دیگر می‌گیرد.
+    """
+    return source == "tabdeal"
+
+
+def is_ohlcv_supported(tf_name: str, source: str) -> bool:
+    """
+    آیا این منبع **قطعاً** از این تایم‌فریم OHLCV نمی‌دهد؟
+
+    این تابع فقط «قیدهای سخت» را چک می‌کند، نه یک whitelist:
+
+      • TSETMC  → فقط «روزانه» (بورس تهران intraday ندارد)
+      • والکس   → «۳۰ دقیقه» ندارد (پشتیبانی خود API نه)
+      • تبدیل   → OHLCV عمومی ندارد (بدون توجه به TF)
+
+    بقیه‌ی ترکیب‌ها ``True`` می‌گیرند و درخواست فرستاده می‌شود؛
+    اگر صرافی دیتا نداد، ``None`` برمی‌گردد (و کش منفی سریعش
+    می‌کند). این‌طوری پشتیبانی **per-نماد** به‌درستی کار می‌کند.
+
+    Returns:
+        False اگر قطعاً پشتیبانی نشود، True در غیر این صورت.
+    """
+    if not tf_name or source not in TIMEFRAME_SOURCES:
+        return False
+
+    # ─── TSETMC: فقط روزانه ───
+    if source == "tsetmc":
+        return tf_name == "روزانه"
+
+    # ─── تبدیل: OHLCV عمومی ندارد (فقط قیمت + عمق) ───
+    if source == "tabdeal":
+        return False
+
+    # ─── والکس: «۳۰ دقیقه» را ندارد ───
+    # (res=30 روی API خطا می‌دهد؛ 60 هم معادل ۳۰ دقیقه نیست)
+    if source == "wallex" and tf_name == "۳۰ دقیقه":
+        return False
+
+    # ─── نوبیتکس / بیت‌پین / والکس بقیه: درخواست بفرست ───
+    return True
+
+
+# ─── منابع شناخته‌شده ───
+TIMEFRAME_SOURCES = frozenset({"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"})
+
+
+def is_tf_supported(tf_name: str, source: str) -> bool:
+    """
+    نام قدیمی ``is_ohlcv_supported`` — برای سازگاری عقب‌رو.
+
+    ⚠️ در نسخه ۱.۶ این تابع **دیگر whitelist نیست**. فقط
+    قیدهای قطعی را چک می‌کند. کد جدید باید
+    ``is_ohlcv_supported`` را صدا بزند.
+    """
+    return is_ohlcv_supported(tf_name, source)
+
+
 TF_SHORT = {
     "۱ دقیقه": "1m",
     "۵ دقیقه": "5m",
@@ -232,42 +460,352 @@ TF_SHORT = {
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱۱. Timeout مخصوص هر TF
+# ۱۱. Timeout مخصوص هر TF (نسخه ۲.۰ — بر اساس کندل + نوع بازار)
 # ═══════════════════════════════════════════════════════════
-SIGNAL_TIMEOUT = {
-    "۱ دقیقه": timedelta(minutes=30),
-    "۵ دقیقه": timedelta(hours=2),
-    "۱۵ دقیقه": timedelta(hours=6),
-    "۳۰ دقیقه": timedelta(hours=12),
-    "۱ ساعت": timedelta(days=2),
-    "روزانه": timedelta(days=7),
+# ═══ چرا بر اساس کندل، نه ساعت ثابت؟ ═══
+#
+# مهلت ساعت ثابت **غیرمنطقی** است:
+#   • ۱ دقیقه با مهلت ۳۰ دقیقه = ۳۰ کندل
+#   • ۱ ساعت با مهلت ۲ روز = ۴۸ کندل
+#   • روزانه با مهلت ۷ روز = ۷ کندل — **خیلی کم!**
+#
+# ═══ چرا تفکیک فیوچرز و اسپات؟ ═══
+#
+# فیوچرز:
+#   • اهرم (۲-۱۰x) → حساس به نوسان
+#   • بهره روزانه → هزینه انتظار
+#   • افق کوتاه → ۵ کندل
+#
+# اسپات:
+#   • بدون اهرم → تحمل بالاتر
+#   • بدون بهره → بدون هزینه انتظار
+#   • افق بلندتر → ۱۰ کندل
+#
+# ═══ چرا این اعداد؟ ═══
+#
+#   ۵ کندل فیوچرز:  از معیار ATR (میانگین نوسان در ۱۴ کندل)
+#                   اگه در ۵ کندل TP نخورد، تحلیل غلط بوده
+#
+#   ۱۰ کندل اسپات:  تعادل بین «زود expire» و «جا ماندن»
+#                   برای بازار نوسانی ایران منطقی
+#
+# ═══ جدول محاسبه ═══
+#
+#   TF        فیوچرز (۵ کندل)     اسپات (۱۰ کندل)
+#   ─────────────────────────────────────────
+#   ۱ دقیقه     ۵ دقیقه               ۱۰ دقیقه
+#   ۵ دقیقه     ۲۵ دقیقه              ۵۰ دقیقه
+#   ۱۵ دقیقه    ۱ ساعت ۱۵ دقیقه       ۲ ساعت ۳۰ دقیقه
+#   ۳۰ دقیقه    ۲ ساعت ۳۰ دقیقه       ۵ ساعت
+#   ۱ ساعت      ۵ ساعت                ۱۰ ساعت
+#   روزانه      ۵ روز                 ۱۰ روز
+SIGNAL_MAX_CANDLES_FUTURES = 5
+SIGNAL_MAX_CANDLES_SPOT = 10
+
+# ─── مدت هر کندل به دقیقه ───
+_TF_DURATION_MINUTES = {
+    "۱ دقیقه": 1,
+    "۵ دقیقه": 5,
+    "۱۵ دقیقه": 15,
+    "۳۰ دقیقه": 30,
+    "۱ ساعت": 60,
+    "روزانه": 1440,
 }
 
 
+def get_signal_timeout(tf_name: str, market_type: str = "spot") -> timedelta:
+    """
+    محاسبه مهلت سیگنال بر اساس TF و نوع بازار.
+
+    Args:
+        tf_name: نام فارسی تایم‌فریم
+        market_type: ``"spot"`` یا ``"futures"``
+
+    Returns:
+        timedelta مهلت سیگنال.
+
+    Examples:
+        >>> get_signal_timeout("۵ دقیقه", "futures")
+        timedelta(minutes=25)
+        >>> get_signal_timeout("روزانه", "spot")
+        timedelta(days=10)
+    """
+    duration_min = _TF_DURATION_MINUTES.get(tf_name, 5)
+    if (market_type or "").lower() == "futures":
+        n_candles = SIGNAL_MAX_CANDLES_FUTURES
+    else:
+        n_candles = SIGNAL_MAX_CANDLES_SPOT
+    return timedelta(minutes=duration_min * n_candles)
+
+
+# ─── سازگاری عقب‌رو (نام قدیمی که دیکشنری بود) ───
+# ⚠️ این فقط برای کدهای قدیمی است. کد جدید باید از
+#    ``get_signal_timeout()`` استفاده کند.
+SIGNAL_TIMEOUT = {tf: get_signal_timeout(tf, "spot") for tf in _TF_DURATION_MINUTES}
+
+
 # ═══════════════════════════════════════════════════════════
-# ۱۱.۵ ضریب ATR برای SL/TP بر اساس TF (جدید در ۱.۲)
+# ۱۱.۵ ضریب ATR برای SL/TP بر اساس TF
 # ═══════════════════════════════════════════════════════════
 # در TF پایین، ATR نویزی‌تره → ضریب کمتر (SL/TP تنگ‌تر)
 # در TF بالا، ATR پایدارتره → ضریب بیشتر (SL/TP بازتر)
-#
-# این ضریب در analyzer.py در محاسبه SL/TP ضرب می‌شه:
-#     effective_sl = atr * profile_sl_mult * TF_ATR_MULT[tf]
-#     effective_tp = atr * profile_tp_mult * TF_ATR_MULT[tf]
-# ─── نسخه ۱.۳: افزایش ضریب برای TF های پایین ───
-# دلیل: نویز بالا در TF پایین + SL/TP تنگ باعث باخت می‌شد
 TF_ATR_MULT = {
-    "۱ دقیقه": 1.8,  # ← 3.6 برابر (0.5 → 1.8)
-    "۵ دقیقه": 1.5,  # ← 1.9 برابر (0.8 → 1.5)
-    "۱۵ دقیقه": 1.3,  # ← 1.3 برابر
-    "۳۰ دقیقه": 1.3,  # ← 1.1 برابر
-    "۱ ساعت": 1.4,  # ← 0.9 برابر
-    "روزانه": 1.8,  # ← کاهش (خیلی بزرگ بود)
+    "۱ دقیقه": 1.8,
+    "۵ دقیقه": 1.5,
+    "۱۵ دقیقه": 1.3,
+    "۳۰ دقیقه": 1.3,
+    "۱ ساعت": 1.4,
+    "روزانه": 1.8,
 }
 
 
 def get_tf_atr_mult(tf_name: str) -> float:
     """دریافت ضریب ATR برای یه TF (با fallback به ۱.۰)"""
     return TF_ATR_MULT.get(tf_name, 1.0)
+
+
+# ═══════════════════════════════════════════════════════════
+# ۱۱.۵ کارمزد صرافی‌ها (نسخه ۳.۰) — 🔴 جدایی IRT و USDT
+# ═══════════════════════════════════════════════════════════
+# ═══ چرا نسخه ۳.۰ ═══
+#
+# 🔴 کشف مهم از جدول رسمی صرافی‌ها:
+#   کارمزد **USDT** و **IRT** در یک صرافی **یکسان نیست**:
+#
+#     نوبیتکس USDT: 0.10% / 0.13%
+#     نوبیتکس IRT:  0.25% / 0.25%   ← دو برابر!
+#
+#   نسخه‌ی قبلی فقط یک نرخ داشت و همیشه محافظه‌کارانه 0.15/0.25
+#   می‌گرفت. حالا بر اساس **ticker** تشخیص می‌ده.
+#
+# ═══ چه چیزی محاسبه می‌شود ═══
+#   فقط **ورود و خروج** (باز و بستن پوزیشن).
+#   کارمزد نگهداری (فاندینگ/بهره) **محاسبه نمی‌شود** —
+#   کاربر خودش از صرافی چک می‌کند.
+#
+# ═══ بیت‌پین و تعهدی ═══
+#   بیت‌پین محصول تعهدی/فیوچرز استاندارد نداره. برای
+#   market_type=futures روی بیت‌پین، **کارمزد اسپات** حساب
+#   می‌شود. سیگنال داده می‌شود ولی هزینه صادقانه است.
+
+EXCHANGE_FEES: dict[str, dict] = {
+    "nobitex": {
+        "spot_usdt": {"maker": 0.0010, "taker": 0.0013},  # ۰.۱۰٪ / ۰.۱۳٪
+        "spot_irt": {"maker": 0.0025, "taker": 0.0025},  # ۰.۲۵٪ / ۰.۲۵٪
+        "futures": {"maker": 0.0010, "taker": 0.0013},  # تعهدی نوبیتکس
+    },
+    "bitpin": {
+        "spot_usdt": {"maker": 0.0030, "taker": 0.0035},  # ۰.۳۰٪ / ۰.۳۵٪
+        "spot_irt": {"maker": 0.0030, "taker": 0.0035},
+        # ─── بیت‌پین تعهدی استاندارد ندارد → اسپات ───
+        "futures": {"maker": 0.0030, "taker": 0.0035},
+    },
+    "wallex": {
+        "spot_usdt": {"maker": 0.0020, "taker": 0.0020},  # ۰.۲۰٪ / ۰.۲۰٪
+        "spot_irt": {"maker": 0.0035, "taker": 0.0035},  # ۰.۳۵٪ / ۰.۳۵٪
+        "futures": {"maker": 0.0020, "taker": 0.0020},
+    },
+    "tabdeal": {
+        "spot_usdt": {"maker": 0.0033, "taker": 0.0035},  # ۰.۳۳٪ / ۰.۳۵٪
+        "spot_irt": {"maker": 0.0033, "taker": 0.0035},
+        "futures": {"maker": 0.0033, "taker": 0.0035},
+    },
+    "tsetmc": {
+        "spot_usdt": {"maker": 0.0012, "taker": 0.0012},  # کارگزار بورس
+        "spot_irt": {"maker": 0.0012, "taker": 0.0012},
+        "futures": {"maker": 0.0012, "taker": 0.0012},
+    },
+}
+
+# ─── پیش‌فرض محافظه‌کارانه (منبع ناشناخته) ───
+DEFAULT_FEES = {
+    "spot_usdt": {"maker": 0.0025, "taker": 0.0030},
+    "spot_irt": {"maker": 0.0025, "taker": 0.0030},
+    "futures": {"maker": 0.0025, "taker": 0.0030},
+}
+
+FEE_MODE_TYPICAL = "typical"  # limit ورود، market خروج
+FEE_MODE_WORST = "worst"  # market ↔ market
+FEE_MODE_BEST = "best"  # limit ↔ limit
+
+
+def _detect_irt(ticker: str) -> bool:
+    """
+    آیا این نماد تومانی/ریالی است؟
+
+    ─── تشخیص ───
+        BTC-IRT, USDT-IRT, PAXG-IRT → True
+        BTC-USD, ETH-USD            → False
+        فولاد (بورس)                → True  (به ریال است)
+    """
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    if "-IRT" in upper or "-RLS" in upper or upper.endswith("IRT"):
+        return True
+    # ─── نماد بورس تهران (شروع با حرف غیرلاتین) ───
+    return not ticker[0].isascii()
+
+
+def get_fee_table(
+    source: str,
+    market_type: str = "spot",
+    ticker: str = "",
+    **kwargs,
+) -> dict:
+    """
+    جدول کارمزد برای صرافی + بازار + نوع ارز.
+
+    Args:
+        source: کلید صرافی
+        market_type: spot/futures
+        ticker: نماد — برای تشخیص IRT در برابر USDT
+
+    Returns:
+        ``{"maker": float, "taker": float}``
+    """
+    entry = EXCHANGE_FEES.get((source or "").lower())
+    if not entry:
+        entry = DEFAULT_FEES
+
+    mt = "futures" if (market_type or "").lower() == "futures" else "spot"
+
+    # ─── برای فیوچرز: نرخ مستقیم ───
+    if mt == "futures":
+        table = entry.get("futures")
+        if table:
+            return {
+                "maker": float(table.get("maker", 0.0025)),
+                "taker": float(table.get("taker", 0.0030)),
+            }
+
+    # ─── برای اسپات: تفکیک IRT / USDT ───
+    is_irt = _detect_irt(ticker)
+    key = "spot_irt" if is_irt else "spot_usdt"
+    table = entry.get(key) or entry.get("spot_usdt")
+    if not table:
+        table = DEFAULT_FEES[key]
+
+    return {
+        "maker": float(table.get("maker", 0.0025)),
+        "taker": float(table.get("taker", 0.0030)),
+    }
+
+
+def get_fee_rate(
+    source: str,
+    mode: str = FEE_MODE_TYPICAL,
+    market_type: str = "spot",
+    ticker: str = "",
+    **kwargs,  # ← سازگاری با hold_hours قدیمی
+) -> float:
+    """
+    کارمزد **رفت‌وبرگشتی** به‌صورت اعشاری.
+
+    ═══ نحوه‌ی محاسبه ═══
+        typical: maker + taker  (limit ورود، market خروج)
+        worst:   taker × 2      (هر دو market)
+        best:    maker × 2      (هر دو limit)
+
+    ═══ چه چیزی محاسبه نمی‌شود ═══
+        ❌ کارمزد نگهداری (فاندینگ فیوچرز، بهره تعهدی)
+        ❌ شارژ روزانه
+    دلیل: کاربر فقط می‌خواهد بداند ورود و خروج چقدر هزینه دارد.
+
+    Args:
+        source: کلید صرافی
+        mode: typical/worst/best
+        market_type: spot/futures
+        ticker: نماد — برای تشخیص IRT
+
+    Returns:
+        کارمزد کل رفت‌وبرگشتی (مثلاً 0.0023 = ۰.۲۳٪)
+    """
+    table = get_fee_table(source, market_type, ticker)
+    maker, taker = table["maker"], table["taker"]
+
+    if mode == FEE_MODE_WORST:
+        return taker * 2
+    if mode == FEE_MODE_BEST:
+        return maker * 2
+    return maker + taker  # typical
+
+
+def compute_net_rr(
+    entry: float,
+    sl: float,
+    tp: float,
+    fee_rate: float,
+) -> dict:
+    """
+    محاسبه‌ی R:R **خام** و **واقعی** (بعد از هزینه).
+
+    ═══ منطق ═══
+    هزینه روی **هر دو طرف** اعمال می‌شود:
+        سود خالص = (TP − entry) − هزینه
+        ضرر خالص = (entry − SL) + هزینه
+    """
+    if not (entry > 0 and sl > 0 and tp > 0):
+        return {}
+
+    risk_gross = abs(entry - sl)
+    reward_gross = abs(tp - entry)
+
+    if risk_gross <= 0:
+        return {}
+
+    rr_gross = reward_gross / risk_gross
+    fee_abs = entry * fee_rate
+
+    reward_net = reward_gross - fee_abs
+    risk_net = risk_gross + fee_abs
+
+    rr_net = (reward_net / risk_net) if risk_net > 0 else 0.0
+
+    reward_pct = reward_gross / entry * 100
+    fee_pct = fee_rate * 100
+    fee_ratio = (reward_pct / fee_pct) if fee_pct > 0 else 0.0
+    breakeven_pct = fee_rate * 100
+
+    is_worthwhile = rr_net >= 1.0 and fee_ratio >= 3.0
+    timeframe_viable = rr_net >= 1.3
+
+    return {
+        "rr_gross": round(rr_gross, 3),
+        "rr_net": round(rr_net, 3),
+        "fee_pct": round(fee_pct, 4),
+        "fee_ratio": round(fee_ratio, 2),
+        "breakeven_pct": round(breakeven_pct, 4),
+        "is_worthwhile": is_worthwhile,
+        "timeframe_viable": timeframe_viable,
+        "rr_decay_pct": (
+            round((rr_gross - rr_net) / rr_gross * 100, 1) if rr_gross > 0 else 0.0
+        ),
+    }
+
+
+def get_fee_info(
+    source: str,
+    market_type: str = "spot",
+    ticker: str = "",
+) -> dict:
+    """اطلاعات کارمزد صرافی برای نمایش در فرانت"""
+    table = get_fee_table(source, market_type, ticker)
+    maker, taker = table["maker"], table["taker"]
+
+    return {
+        "source": source,
+        "market_type": market_type,
+        "is_irt": _detect_irt(ticker),
+        "maker_pct": round(maker * 100, 4),
+        "taker_pct": round(taker * 100, 4),
+        "round_trip_typical_pct": round((maker + taker) * 100, 4),
+        "round_trip_worst_pct": round(taker * 2 * 100, 4),
+    }
+
+
+# ─── نام‌های قدیمی (سازگاری عقب‌رو) ───
+DEFAULT_FEE = DEFAULT_FEES["spot_usdt"]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -385,6 +923,56 @@ class LogEntry(TypedDict, total=False):
     result_time: Optional[str]
     exit_price: Optional[float]
     expired: bool
+
+
+# ═══════════════════════════════════════════════════════════
+# ۱۴.۵ Order Book — فاز ۶.۵ (فقط Type، بدون منطق)
+# ═══════════════════════════════════════════════════════════
+# ⚠️ این قرارداد است، نه پیاده‌سازی. در فاز ۶.۵ پر می‌شود.
+#
+# چرا در contracts: تا لایه‌های مختلف (fetcher، analyzer، API،
+# فرانت) قرارداد **یکسان** داشته باشند.
+
+
+class OrderBookLevel(TypedDict, total=False):
+    """یک سطح قیمت در عمق بازار"""
+
+    price: float
+    quantity: float
+    orders: Optional[int]
+
+
+class OrderBookDict(TypedDict, total=False):
+    """
+    عمق بازار — قرارداد لایه‌ی داده (فاز ۶.۵).
+
+    فیلدهای مشتق که تحلیل از آن‌ها استفاده می‌کند:
+      • spread / spread_pct  → هزینه‌ی واقعی ورود و خروج
+      • imbalance            → فشار خرید/فروش لحظه‌ای (۰..۱)
+      • bid_wall / ask_wall  → دیوار سفارش (حجم غیرعادی)
+    """
+
+    ticker: str
+    source: str
+    timestamp: str  # ISO UTC-aware
+    bids: list[OrderBookLevel]
+    asks: list[OrderBookLevel]
+
+    best_bid: float
+    best_ask: float
+    spread: float
+    spread_pct: float
+    imbalance: float
+
+
+class OrderBookSummary(TypedDict, total=False):
+    """خلاصه‌ی عمق بازار برای نمایش سبک (فاز ۶.۵)"""
+
+    imbalance: float
+    spread_pct: float
+    has_bid_wall: bool
+    has_ask_wall: bool
+    pressure_fa: str  # «فشار خرید» / «فشار فروش» / «متعادل»
 
 
 class AppDefaults:

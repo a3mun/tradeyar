@@ -11,10 +11,14 @@ Endpoints:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 import pandas as pd
 import requests
+
+from core.contracts import TIMEFRAME_SPECS, get_tf_spec
+from core.tz import ensure_utc_index
+from core.utils import parse_number
 
 logger = logging.getLogger(__name__)
 
@@ -58,29 +62,29 @@ def map_bitpin_to_symbol(bitpin_sym: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# نقشه TF (ایران → Bitpin)
+# نقشه TF (نام فارسی → بیت‌پین)
 # ═══════════════════════════════════════════════════════════
-TF_MAP = {
-    "۱ دقیقه": "1m",
-    "۵ دقیقه": "5m",
-    "۱۵ دقیقه": "15m",
-    "۳۰ دقیقه": "30m",
-    "۱ ساعت": "1h",
-    "روزانه": "1d",
-}
-
-PERIOD_MAP = {
-    "۱ دقیقه": 1,
-    "۵ دقیقه": 3,
-    "۱۵ دقیقه": 5,
-    "۳۰ دقیقه": 7,
-    "۱ ساعت": 14,
-    "روزانه": 90,
+# بیت‌پین همه‌ی تایم‌فریم‌های ما را دارد؛ جدول از contracts می‌آید
+# تا یک منبع حقیقت باشد.
+TF_MAP: dict[str, str] = {
+    s.name_fa: s.bitpin_res for s in TIMEFRAME_SPECS.values()
 }
 
 
-def map_tf(tf_name: str) -> str:
-    return TF_MAP.get(tf_name, "5m")
+def map_tf(tf_name: str) -> str | None:
+    """
+    نام فارسی → resolution بیت‌پین.
+
+    Returns:
+        resolution، یا ``None`` اگر ناشناخته باشد (به‌جای پیش‌فرض
+        بی‌صدا به "5m").
+    """
+    return TF_MAP.get(tf_name)
+
+
+def supports_tf(tf_name: str) -> bool:
+    """آیا بیت‌پین از این تایم‌فریم پشتیبانی می‌کند؟"""
+    return tf_name in TF_MAP
 
 
 # ═══════════════════════════════════════════════════════════
@@ -90,16 +94,33 @@ def fetch_bitpin_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
     """
     دریافت کندل‌های بیت‌پین.
     symbol=BTC_USDT, res=5m, from, to (Unix seconds)
+
+    ⚠️ tf_name باید نام فارسی باشد («۵ دقیقه»، «۱ ساعت»، ...).
+       پیش از این، اگر tf_name انگلیسی ("5m") پاس می‌شد،
+       ``TF_MAP.get`` شکست می‌خورد و **بی‌صدا** به ۵ دقیقه
+       برمی‌گشت — یعنی «روزانه» روی کندل ۵ دقیقه تحلیل می‌شد.
     """
     symbol = map_symbol_to_bitpin(ticker)
     if not symbol:
         return None
 
-    res = map_tf(tf_name)
-    days = PERIOD_MAP.get(tf_name, 3)
+    if not tf_name:
+        logger.error("[Bitpin] tf_name خالی — تایم‌فریم مشخص نیست")
+        return None
 
-    to_ts = int(datetime.now().timestamp())
-    from_ts = int((datetime.now() - timedelta(days=days)).timestamp())
+    res = map_tf(tf_name)
+    if res is None:
+        logger.warning(
+            f"[Bitpin] تایم‌فریم ناشناخته {tf_name!r} "
+            f"(پشتیبانی‌شده: {list(TF_MAP)}) — None برمی‌گردد"
+        )
+        return None
+
+    spec = get_tf_spec(tf_name)
+    days = spec.period_days
+
+    to_ts = int(datetime.now(timezone.utc).timestamp())
+    from_ts = to_ts - days * 86400
 
     url = f"{BASE_URL}/api/v1/mkt/candles/"
     params = {
@@ -122,7 +143,13 @@ def fetch_bitpin_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
 
     try:
         df = pd.DataFrame(data)
-        df["time"] = pd.to_datetime(df["ts"], unit="s")
+
+        # ═══ ایندکس زمانی ═══
+        # epoch بیت‌پین UTC است (تأیید تجربی: ts=1791030600 → 12:30Z)
+        # پس صریحاً utc=True می‌دهیم. بدون آن، pandas آن را به وقت
+        # محلی سرور تفسیر می‌کند و مقایسه با timestampهای UTC
+        # در backtest_service ۳:۳۰ ساعت شیفت می‌خورد.
+        df["time"] = pd.to_datetime(df["ts"], unit="s", utc=True)
         df.set_index("time", inplace=True)
 
         # ─── تبدیل نوع (open/close عدد، low/high/volume رشته) ───
@@ -132,7 +159,13 @@ def fetch_bitpin_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
 
         df = df[["open", "high", "low", "close", "volume"]].copy()
         df.dropna(inplace=True)
+        df = df[~df.index.duplicated(keep="last")]
         df.sort_index(inplace=True)
+
+        # ─── تضمین نهایی UTC-aware ───
+        df = ensure_utc_index(df)
+        if df is None or df.empty:
+            return None
 
         if len(df) < 20:
             return None
@@ -169,15 +202,18 @@ def fetch_bitpin_ticker(ticker: str) -> dict | None:
 
     for item in data:
         if item.get("symbol") == symbol:
-            try:
-                return {
-                    "price": float(item.get("price", 0)),
-                    "change_24h": float(item.get("daily_change_price", 0)),
-                    "high": float(item.get("high", 0)),
-                    "low": float(item.get("low", 0)),
-                }
-            except Exception:
+            # ⚠️ بیت‌پین قیمت‌ها را **رشته** می‌دهد (مثلاً '4151.31').
+            #    برای مقاومت در برابر تغییر فرمت (کاما، ارقام فارسی)
+            #    از parse_number استفاده می‌کنیم، نه float() خام.
+            price = parse_number(item.get("price"))
+            if price is None or price <= 0:
                 return None
+            return {
+                "price": price,
+                "change_24h": parse_number(item.get("daily_change_price")) or 0.0,
+                "high": parse_number(item.get("high")) or 0.0,
+                "low": parse_number(item.get("low")) or 0.0,
+            }
 
     return None
 

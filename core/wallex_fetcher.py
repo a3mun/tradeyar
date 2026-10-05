@@ -10,10 +10,14 @@ Endpoints:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 import pandas as pd
 import requests
+
+from core.contracts import get_tf_spec
+from core.tz import ensure_utc_index
+from core.utils import parse_number
 
 logger = logging.getLogger(__name__)
 
@@ -57,29 +61,65 @@ def map_wallex_to_symbol(wallex_sym: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════
-# نقشه TF (ایران → Wallex)
+# نقشه TF (نام فارسی → والکس)
 # ═══════════════════════════════════════════════════════════
-TF_MAP = {
-    "۱ دقیقه": "1",
-    "۵ دقیقه": "15",  # Wallex ۵ دقیقه نداره → نزدیک‌ترین ۱۵
-    "۱۵ دقیقه": "15",
-    "۳۰ دقیقه": "60",  # Wallex ۳۰ نداره → ۱ ساعت
-    "۱ ساعت": "60",
-    "روزانه": "1D",
+# ⚠️ کشف‌شده از خود API با بررسی **بازه‌ی واقعی کندل‌ها**
+#    (۲۰۲۶-۱۰-۰۳) — نه فقط کد HTTP:
+#
+#   res=1  → 200 ولی no_data          → ندارد
+#   res=5  → 200 ولی کندل ۱ دقیقه‌ای  → ❌ دروغین
+#   res=15 → 200 ولی کندل ۱ دقیقه‌ای  → ❌ دروغین
+#   res=30 → error                    → ندارد
+#   res=60 → کندل ۱ ساعته ✅
+#   res=1D → کندل روزانه ✅
+#
+# 🔴 نکته‌ی حیاتی:
+#   والکس برای res=5 و res=15 کد 200 می‌دهد ولی **کندل ۱ دقیقه**
+#   برمی‌گرداند! اگر فقط کد HTTP را چک کنیم، ATR و SL/TP روی
+#   کندل ۱ دقیقه محاسبه می‌شود ولی برچسب «۱۵ دقیقه» می‌خورد.
+#   پس این‌ها در نقشه **نیستند** و لایه‌ی `data_service` هم
+#   بازه را دوباره اعتبارسنجی می‌کند (دفاع دو لایه).
+#
+# نتیجه: والکس مستقیم فقط «۱ ساعت» و «روزانه» را واقعاً دارد.
+# برای بقیه‌ی TFها به نوبیتکس می‌رویم (fallback شفاف) که
+# داده‌ی **درست** می‌دهد.
+WALLEX_RESOLUTIONS: dict[str, str] = {
+    "۱ دقیقه": "1",  # ─── مستند، ولی فعلاً no_data ───
+    "۵ دقیقه": "5",  # ─── 200 می‌دهد ولی کندل اشتباه ───
+    "۱۵ دقیقه": "15",  # ─── 200 می‌دهد ولی کندل اشتباه ───
+    "۳۰ دقیقه": "30",  # ─── error ───
+    "۱ ساعت": "60",  # ✅
+    "روزانه": "1D",  # ✅
 }
 
-PERIOD_MAP = {
-    "۱ دقیقه": 1,
-    "۵ دقیقه": 5,
-    "۱۵ دقیقه": 5,
-    "۳۰ دقیقه": 14,
-    "۱ ساعت": 14,
-    "روزانه": 90,
+# ─── resolution هایی که والکس **واقعاً با بازه‌ی درست** می‌دهد ───
+# ⚠️ «15» عمداً حذف شده: کد 200 می‌دهد ولی محتوایش ۱ دقیقه است.
+_WALLEX_WORKING_RES = frozenset({"60", "1D"})
+
+# ─── نقشه‌ی صریح: نام فارسی → resolution (فقط معتبرها) ───
+TF_MAP: dict[str, str] = {
+    tf: res for tf, res in WALLEX_RESOLUTIONS.items() if res in _WALLEX_WORKING_RES
 }
+# نتیجه: {"۱ ساعت": "60", "روزانه": "1D"}
 
 
-def map_tf(tf_name: str) -> str:
-    return TF_MAP.get(tf_name, "15")
+def map_tf(tf_name: str) -> str | None:
+    """
+    نام فارسی → resolution والکس.
+
+    Returns:
+        resolution والکس، یا ``None`` اگر والکس مستقیم نداشته باشد.
+
+    ⚠️ ``None`` یعنی «والکس این TF را ندارد» — نه اینکه
+       «resolution پیش‌فرض بده». برای TF غایب هیچ درخواستی
+       فرستاده نمی‌شود.
+    """
+    return TF_MAP.get(tf_name)
+
+
+def supports_tf(tf_name: str) -> bool:
+    """آیا والکس مستقیماً از این تایم‌فریم پشتیبانی می‌کند؟"""
+    return tf_name in TF_MAP
 
 
 # ═══════════════════════════════════════════════════════════
@@ -89,16 +129,32 @@ def fetch_wallex_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
     """
     دریافت کندل‌های والکس (UDF format).
     Response: {s, t: [...], o: [...], h: [...], l: [...], c: [...], v: [...]}
+
+    ⚠️ tf_name باید نام فارسی باشد («۵ دقیقه»، «۱ ساعت»، ...).
+       اگر والکس آن TF را نداشته باشد، ``None`` برمی‌گردد —
+       بدون درخواست، تا زنجیره‌ی fallback سریع به نوبیتکس برود.
     """
     symbol = map_symbol_to_wallex(ticker)
     if not symbol:
         return None
 
-    res = map_tf(tf_name)
-    days = PERIOD_MAP.get(tf_name, 3)
+    if not tf_name:
+        logger.error("[Wallex] tf_name خالی — تایم‌فریم مشخص نیست")
+        return None
 
-    to_ts = int(datetime.now().timestamp())
-    from_ts = int((datetime.now() - timedelta(days=days)).timestamp())
+    res = map_tf(tf_name)
+    if res is None:
+        # ─── والکس این TF را ندارد؛ درخواست بی‌فایده نزن ───
+        logger.debug(
+            f"[Wallex] «{tf_name}» ندارد (موجود: {list(TF_MAP)}) — None"
+        )
+        return None
+
+    spec = get_tf_spec(tf_name)
+    days = spec.period_days
+
+    to_ts = int(datetime.now(timezone.utc).timestamp())
+    from_ts = to_ts - days * 86400
 
     url = f"{BASE_URL}/v1/udf/history"
     params = {
@@ -122,7 +178,11 @@ def fetch_wallex_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
     try:
         df = pd.DataFrame(
             {
-                "time": pd.to_datetime(data["t"], unit="s"),
+                # ═══ ایندکس زمانی ═══
+                # epoch والکس UTC است (تأیید تجربی: ts=1791032400 → 13:00Z).
+                # صریحاً utc=True می‌دهیم تا با timestampهای UTC
+                # قابل مقایسه باشد.
+                "time": pd.to_datetime(data["t"], unit="s", utc=True),
                 "open": data["o"],
                 "high": data["h"],
                 "low": data["l"],
@@ -134,7 +194,13 @@ def fetch_wallex_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df.dropna(inplace=True)
+        df = df[~df.index.duplicated(keep="last")]
         df.sort_index(inplace=True)
+
+        # ─── تضمین نهایی UTC-aware ───
+        df = ensure_utc_index(df)
+        if df is None or df.empty:
+            return None
 
         if len(df) < 20:
             return None
@@ -149,7 +215,13 @@ def fetch_wallex_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
 # قیمت لحظه‌ای
 # ═══════════════════════════════════════════════════════════
 def fetch_wallex_ticker(ticker: str) -> dict | None:
-    """دریافت قیمت لحظه‌ای از markets"""
+    """
+    دریافت قیمت لحظه‌ای از ``/v1/markets``.
+
+    ⚠️ والکس قیمت‌ها را **رشته** می‌دهد (مثلاً '4062.51000...').
+       از ``parse_number`` استفاده می‌کنیم تا فرمت‌های مختلف
+       (کاما، ارقام فارسی) هم کار کنند.
+    """
     symbol = map_symbol_to_wallex(ticker)
     if not symbol:
         return None
@@ -169,17 +241,24 @@ def fetch_wallex_ticker(ticker: str) -> dict | None:
     symbols = data.get("result", {}).get("symbols", {})
     item = symbols.get(symbol)
     if not item:
+        logger.debug(f"[Wallex] «{symbol}» در markets نیست")
         return None
 
     try:
         stats = item.get("stats", {})
+
+        price = parse_number(stats.get("lastPrice"))
+        if price is None or price <= 0:
+            return None
+
         return {
-            "price": float(stats.get("lastPrice", 0)),
-            "change_24h": float(stats.get("24h_ch", 0)),
-            "high": float(stats.get("24h_highPrice", 0)),
-            "low": float(stats.get("24h_lowPrice", 0)),
+            "price": price,
+            "change_24h": parse_number(stats.get("24h_ch")) or 0.0,
+            "high": parse_number(stats.get("24h_highPrice")) or 0.0,
+            "low": parse_number(stats.get("24h_lowPrice")) or 0.0,
         }
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[Wallex] parse ticker {ticker}: {e}")
         return None
 
 

@@ -17,6 +17,8 @@ API عمومی نوبیتکس (بدون نیاز به توکن):
 """
 
 import json
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -284,18 +286,85 @@ _PERIOD_SECONDS = {
 
 
 # ═══════════════════════════════════════════════════════════
+# بلک‌لیست نمادهای نامعتبر — یادگیری از پاسخ API
+# ═══════════════════════════════════════════════════════════
+# باگ ۶ (نسخه ۱.۵): فایل محلی NOBITEX_SYMBOLS قدیمی است و نمادهایی
+# مثل TONUSDT و MATICUSDT را «معتبر» می‌داند، ولی API نوبیتکس
+# برای آن‌ها 400 با code="InvalidSymbol" می‌دهد.
+#
+# چون هیچ حافظه‌ای از شکست نبود، هر اسکن همان 400ها را تکرار
+# می‌کرد و یک اسکن ۱۵ نمادی **۲۴۸ ثانیه** طول می‌کشید.
+#
+# حالا پاسخ 400 با InvalidSymbol باعث می‌شود آن نماد برای مدتی
+# بلک‌لیست شود و درخواست بعدی مستقیماً به بیت‌پین برود.
+_INVALID_SYMBOLS: dict[str, float] = {}  # symbol → expiry timestamp
+_INVALID_LOCK = threading.Lock()
+_INVALID_TTL = 3600  # یک ساعت
+
+
+def mark_symbol_invalid(symbol: str, ttl: int = _INVALID_TTL) -> None:
+    """ثبت نماد نامعتبر — درخواست بعدی برایش ارسال نمی‌شود"""
+    if not symbol:
+        return
+    with _INVALID_LOCK:
+        _INVALID_SYMBOLS[symbol] = time.time() + ttl
+    print(f"[Nobitex] ⛔ نماد نامعتبر بلک‌لیست شد: {symbol} (تا {ttl}s)")
+
+
+def is_symbol_invalid(symbol: str) -> bool:
+    """آیا این نماد اخیراً نامعتبر تشخیص داده شده؟"""
+    if not symbol:
+        return False
+    with _INVALID_LOCK:
+        expiry = _INVALID_SYMBOLS.get(symbol)
+        if expiry is None:
+            return False
+        if time.time() > expiry:
+            del _INVALID_SYMBOLS[symbol]
+            return False
+        return True
+
+
+def clear_invalid_symbols() -> None:
+    """پاک‌سازی بلک‌لیست — برای تست"""
+    with _INVALID_LOCK:
+        _INVALID_SYMBOLS.clear()
+
+
+# ═══════════════════════════════════════════════════════════
 # ابزار
 # ═══════════════════════════════════════════════════════════
-def _get(url: str, params: dict = None) -> Optional[dict]:
-    """درخواست GET امن"""
+def _get(url: str, params: dict = None, *, symbol: str = "") -> Optional[dict]:
+    """
+    درخواست GET امن.
+
+    Args:
+        symbol: اگر بدهی و API خطای InvalidSymbol بدهد، نماد
+                بلک‌لیست می‌شود (جلوگیری از تکرار 400).
+    """
     try:
         r = requests.get(url, params=params, headers=HEADERS, timeout=NOBITEX_TIMEOUT)
         r.raise_for_status()
         return r.json()
+
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else 0
+        # ─── 400 = نماد یا resolution نامعتبر → یاد بگیر ───
+        if status == 400 and symbol:
+            try:
+                body = e.response.json()
+                code = body.get("code", "")
+                if code == "InvalidSymbol":
+                    mark_symbol_invalid(symbol)
+                else:
+                    print(f"[Nobitex] HTTP 400 ({code}): symbol={symbol}")
+            except Exception:
+                print(f"[Nobitex] HTTP 400: symbol={symbol}")
+        else:
+            print(f"[Nobitex] HTTP {status}: {url}")
+
     except requests.exceptions.Timeout:
         print(f"[Nobitex] Timeout: {url}")
-    except requests.exceptions.HTTPError as e:
-        print(f"[Nobitex] HTTP {e.response.status_code}: {url}")
     except requests.exceptions.RequestException as e:
         print(f"[Nobitex] Request: {e}")
     except ValueError as e:
@@ -511,7 +580,8 @@ def fetch_nobitex_history(
         "to": to_ts,
     }
 
-    data = _get(url, params)
+    # ─── نماد به _get پاس می‌شود تا در صورت InvalidSymbol بلک‌لیست شود ───
+    data = _get(url, params, symbol=symbol)
 
     if not data:
         return None
@@ -574,6 +644,10 @@ def fetch_nobitex_for_ticker(
 
     nobitex_sym = map_symbol_to_nobitex(ticker)
     if not nobitex_sym:
+        return None
+
+    # ─── اگر نماد قبلاً نامعتبر تشخیص داده شده، درخواست نزن ───
+    if is_symbol_invalid(nobitex_sym):
         return None
 
     resolution = TIMEFRAME_MAP.get(interval)

@@ -5,29 +5,36 @@ Endpointهای تحلیل
 - POST /analyze              → تحلیل یک نماد (کامل)
 - POST /analyze/multi        → تحلیل چند TF
 - GET  /analyze/deep         → پاراگراف تحلیل عمیق
+- GET  /analyze/quote        → قیمت لحظه‌ای
 - GET  /analyze/fear-greed   → شاخص ترس و طمع
+
+باگ ۶ (نسخه ۱.۵):
+    بدنه‌ی همه‌ی این endpointها sync است (requests + pandas +
+    SQLModel) ولی امضای آن‌ها ``async def`` بود. یعنی هر تحلیل،
+    **event loop را قفل می‌کرد** و تا تمام شدنش هیچ درخواست
+    دیگری — حتی ``GET /health`` — جواب نمی‌گرفت.
+
+    حالا همه‌ی فراخوانی‌های sync با ``run_in_threadpool`` به
+    thread جدا می‌روند.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
 
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
+
+from api.deps import rate_limit_for
 from api.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
     FearGreedResponse,
     QuoteResponse,
 )
-
-from api.schemas import (
-    AnalyzeRequest,
-    AnalyzeResponse,
-    FearGreedResponse,
-)
 from services.analyzer_service import (
     analyze,
     analyze_multi_tf,
-    deep_analysis,
     checklist,
+    deep_analysis,
     fear_greed,
 )
 
@@ -39,9 +46,13 @@ router = APIRouter(prefix="/analyze", tags=["Analyze"])
 # POST /analyze — تحلیل کامل یک نماد
 # ═══════════════════════════════════════════════════════════
 @router.post("", response_model=AnalyzeResponse)
-async def analyze_endpoint(req: AnalyzeRequest):
+async def analyze_endpoint(req: AnalyzeRequest, request: Request):
     """تحلیل کامل یک نماد (شامل پاراگراف، چک‌لیست، AI export)"""
-    result = analyze(
+    rate_limit_for(request, "analyze", limit=60, window_sec=60)
+
+    # ─── sync → threadpool ───
+    result = await run_in_threadpool(
+        analyze,
         ticker=req.ticker,
         source=req.source,
         tf_name=req.timeframe,
@@ -64,9 +75,18 @@ async def analyze_endpoint(req: AnalyzeRequest):
 # POST /analyze/multi — تحلیل چند TF
 # ═══════════════════════════════════════════════════════════
 @router.post("/multi")
-async def analyze_multi_endpoint(req: AnalyzeRequest):
-    """تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF)"""
-    tfs = analyze_multi_tf(
+async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
+    """
+    تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF).
+
+    ⚠️ این endpoint ۶ تحلیل کامل انجام می‌دهد — سنگین‌ترین
+       مسیر پروژه. ``analyze_multi_tf`` خودش هر TF را در
+       thread جدا اجرا می‌کند، پس اینجا فقط یک hop لازم است.
+    """
+    rate_limit_for(request, "analyze_multi", limit=20, window_sec=60)
+
+    tfs = await run_in_threadpool(
+        analyze_multi_tf,
         ticker=req.ticker,
         source=req.source,
         market_type=req.market_type,
@@ -77,8 +97,8 @@ async def analyze_multi_endpoint(req: AnalyzeRequest):
     if not tfs:
         raise HTTPException(status_code=404, detail="تحلیل چند TF ناموفق بود")
 
-    # ─── چک‌لیست وزنی ───
-    cl = checklist(tfs, main_tf=req.timeframe)
+    # ─── چک‌لیست وزنی (سبک، ولی sync) ───
+    cl = await run_in_threadpool(checklist, tfs, req.timeframe)
 
     return {
         "ok": True,
@@ -94,15 +114,19 @@ async def analyze_multi_endpoint(req: AnalyzeRequest):
 # ═══════════════════════════════════════════════════════════
 @router.get("/deep")
 async def deep_analyze_endpoint(
+    request: Request,
     ticker: str,
-    source: str = "global",
+    source: str = "nobitex",
     timeframe: str = "۵ دقیقه",
     market_type: str = "spot",
     risk_profile: str = "aggressive",
     ticker_name: str = "",
 ):
     """تحلیل عمیق به صورت پاراگراف (تکنیکال + روانشناسی)"""
-    tfs = analyze_multi_tf(
+    rate_limit_for(request, "analyze_deep", limit=20, window_sec=60)
+
+    tfs = await run_in_threadpool(
+        analyze_multi_tf,
         ticker=ticker,
         source=source,
         market_type=market_type,
@@ -113,12 +137,15 @@ async def deep_analyze_endpoint(
     if not tfs:
         raise HTTPException(status_code=404, detail="تحلیل ناموفق بود")
 
-    paragraph = deep_analysis(
-        ticker=ticker,
-        name=ticker_name or ticker,
-        tfs=tfs,
-        risk_profile=risk_profile,
-        tf_name=timeframe,
+    # ─── امضای deep_analysis: (ticker, name, tfs, gsr, risk_profile, tf_name) ───
+    paragraph = await run_in_threadpool(
+        deep_analysis,
+        ticker,                 # ticker
+        ticker_name or ticker,  # name
+        tfs,                    # tfs
+        None,                   # gsr
+        risk_profile,           # risk_profile
+        timeframe,              # tf_name
     )
 
     return {
@@ -134,13 +161,23 @@ async def deep_analyze_endpoint(
 # ═══════════════════════════════════════════════════════════
 @router.get("/quote", response_model=QuoteResponse)
 async def quote_endpoint(
+    request: Request,
     ticker: str,
-    source: str = "global",
+    source: str = "nobitex",
 ):
-    """قیمت لحظه‌ای — برای poll هر ۵ ثانیه"""
+    """
+    قیمت لحظه‌ای — برای poll هر ۵ ثانیه.
+
+    ⚠️ چون فرانت هر ۵ ثانیه poll می‌کند، این endpoint باید
+       سبک بماند؛ ولی حتی همین یک ``requests.get`` هم نباید
+       event loop را بگیرد — پس threadpool.
+    """
     from services.analyzer_service import quote as get_quote
 
-    result = get_quote(ticker=ticker, source=source)
+    # ─── سقف بالاتر چون polling مکرر است ───
+    rate_limit_for(request, "quote", limit=180, window_sec=60)
+
+    result = await run_in_threadpool(get_quote, ticker=ticker, source=source)
     if result is None:
         raise HTTPException(status_code=404, detail=f"قیمت {ticker} در دسترس نیست")
 
@@ -152,11 +189,14 @@ async def quote_endpoint(
 # ═══════════════════════════════════════════════════════════
 @router.get("/fear-greed", response_model=FearGreedResponse)
 async def fear_greed_endpoint(
+    request: Request,
     ticker: str,
-    source: str = "global",
+    source: str = "nobitex",
 ):
     """شاخص ترس و طمع برای یه نماد (0-100)"""
-    result = fear_greed(ticker=ticker, source=source)
+    rate_limit_for(request, "fear_greed", limit=60, window_sec=60)
+
+    result = await run_in_threadpool(fear_greed, ticker, source)
 
     if result is None:
         raise HTTPException(

@@ -15,9 +15,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { regimeFa, signalColor, confidenceColor } from "@/lib/display";
-import type { AnalyzeResponse } from "@/lib/types";
+import { sourceSupportsPair } from "@/lib/sources";
+import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 
-const TIMEFRAMES = [
+const TIMEFRAMES: Timeframe[] = [
   "۱ دقیقه",
   "۵ دقیقه",
   "۱۵ دقیقه",
@@ -39,9 +40,9 @@ const SOURCE_BADGE: Record<string, { color: string; label: string }> = {
     color: "bg-blue-500/15 text-blue-400 border-blue-500/30",
     label: "🔵 والکس",
   },
-  abantether: {
-    color: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-    label: "🔷 آبان‌تتر",
+  tabdeal: {
+    color: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    label: "🟠 تبدیل",
   },
   tsetmc: {
     color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -64,8 +65,23 @@ export function TFTable() {
 
   // ═══ Fetch multi-TF ═══
   useEffect(() => {
-    if (!ticker) return;
-    setLoading(true);
+    // ─── 🔴 جفت ناهماهنگ (مثلاً tsetmc + BTC-USD) → درخواست نزن ───
+    if (!ticker || !sourceSupportsPair(source, ticker)) {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setData({});
+        setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
 
     api
       .post("/analyze/multi", {
@@ -77,21 +93,24 @@ export function TFTable() {
         ticker_name: tickerName,
       })
       .then((res) => {
-        const timeframes = res.data.timeframes || {};
-        console.log("[TFTable] fetched", {
-          source,
-          marketType,
-          riskProfile,
-          timeframes: Object.keys(timeframes),
-        });
-        setData(timeframes);
+        if (cancelled) return;
+        setData(res.data.timeframes || {});
       })
-      .catch(() => setData({}))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) setData({});
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [ticker, tickerName, source, marketType, riskProfile]);
 
   const handleRowClick = (tf: string) => {
-    setTimeframe(tf as any);
+    // ─── TFهای جدول دقیقاً همان Timeframeهای معتبرند ───
+    setTimeframe(tf as Timeframe);
   };
 
   const src = SOURCE_BADGE[source] || SOURCE_BADGE.nobitex;

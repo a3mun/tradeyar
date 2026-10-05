@@ -1,7 +1,20 @@
 "use client";
 
+/**
+ * SymbolSelector — انتخاب نماد (نسخه ۲.۰)
+ * ============================================================
+ * 🔴 تغییر نسخه ۲.۰:
+ *   بخش «واچ‌لیست چیپ‌ها» حذف شد. دلیل:
+ *   ``WatchlistCard`` نسخه‌ی مرتب‌تر و جمع‌وجورتر داره.
+ *   نگه‌داشتن هر دو یعنی UI تکراری.
+ *
+ * ═══ ساختار ═══
+ *   ۱. جستجو (با dropdown نتایج)
+ *   ۲. ۶ نماد برتر (popular) — grid چیپ‌ها
+ */
+
 import { useEffect, useRef, useState } from "react";
-import { Search, TrendingUp, Loader2, Star, X } from "lucide-react";
+import { Search, TrendingUp, Loader2, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -17,11 +30,10 @@ const POPULAR_FALLBACK: SymbolItem[] = [
   { ticker: "PAXG-IRT", name: "🪙 پکس گلد (تومان)", source: "nobitex" },
 ];
 
-// ═══ نرمال‌سازی متن (نیم‌فاصله، ی عربی، ک عربی) ═══
 function normalize(text: string): string {
   return text
     .trim()
-    .replace(/\u200c/g, "") // نیم‌فاصله
+    .replace(/\u200c/g, "")
     .replace(/\s+/g, "")
     .replace(/ي/g, "ی")
     .replace(/ك/g, "ک")
@@ -67,7 +79,6 @@ export function SymbolSelector() {
       api
         .get("/symbols/search", { params: { q: query.trim(), limit: 12 } })
         .then((res) => {
-          // ─── فیلتر سمت کلاینت (نیم‌فاصله) ───
           const q = normalize(query);
           const filtered = (res.data.items || []).filter(
             (item: SymbolItem) =>
@@ -86,7 +97,10 @@ export function SymbolSelector() {
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setShowDropdown(false);
       }
     };
@@ -95,44 +109,39 @@ export function SymbolSelector() {
   }, []);
 
   const handleSelect = (item: SymbolItem) => {
-    // ═══ صرافی فعلی کاربر حفظ می‌شه (نه صرافی item) ═══
-    // ─── استثنا: نماد بورسی → صرافی باید tsetmc بشه ───
     const isIranianStock = !item.ticker[0]?.match(/[A-Za-z]/);
     const finalSource = isIranianStock ? "tsetmc" : source;
 
-    selectSymbol(item.ticker, item.name, finalSource as any);
+    selectSymbol(item.ticker, item.name, finalSource as never);
     setQuery("");
     setResults([]);
     setShowDropdown(false);
   };
-  
-  // ═══ تغییر صرافی به TSETMC → نماد کریپتو رو پاک کن ═══
+
   useEffect(() => {
-    // اگه source=tsetmc و ticker انگلیسی هست، برو سراغ فولاد
     if (source === "tsetmc" && /^[A-Z]/.test(ticker)) {
       setTicker("فولاد", "فولاد مبارکه");
     }
-    // اگه source کریپتویی و ticker فارسی هست، برو سراغ BTC
     if (
-      ["nobitex", "bitpin", "wallex", "abantether"].includes(source) &&
+      ["nobitex", "bitpin", "wallex", "tabdeal"].includes(source) &&
       !/^[A-Z]/.test(ticker)
     ) {
       setTicker("BTC-USD", "بیت‌کوین (USDT)");
     }
   }, [source, ticker, setTicker]);
-  
+
   const handleManualSubmit = () => {
     if (!query.trim()) return;
     const tk = query.trim().toUpperCase();
     const isIranianStock = !tk[0]?.match(/[A-Za-z]/);
     const finalSource = isIranianStock ? "tsetmc" : source;
 
-    selectSymbol(tk, tk, finalSource as any);
+    selectSymbol(tk, tk, finalSource as never);
     setQuery("");
     setResults([]);
     setShowDropdown(false);
   };
-  
+
   return (
     <div className="space-y-3">
       {/* ═══ Search ═══ */}
@@ -161,7 +170,9 @@ export function SymbolSelector() {
         {showDropdown && results.length > 0 && (
           <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
             {results.map((item) => {
-              const inWatchlist = watchlist.some((w) => w.ticker === item.ticker);
+              const inWatchlist = watchlist.some(
+                (w) => w.ticker === item.ticker
+              );
               return (
                 <div
                   key={item.ticker}
@@ -172,22 +183,30 @@ export function SymbolSelector() {
                     className="flex-1 text-right"
                   >
                     <p className="font-medium">{item.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.ticker}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {item.ticker}
+                    </p>
                   </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      inWatchlist
-                        ? removeFromWatchlist(item.ticker)
-                        : addToWatchlist(item.ticker, item.name, item.source);
+                      if (inWatchlist) removeFromWatchlist(item.ticker);
+                      else addToWatchlist(item.ticker, item.name, item.source);
                     }}
                     className={`rounded p-1 ${
                       inWatchlist
                         ? "text-yellow-500"
                         : "text-muted-foreground hover:text-yellow-500"
                     }`}
+                    aria-label={
+                      inWatchlist ? "حذف از واچ‌لیست" : "افزودن به واچ‌لیست"
+                    }
                   >
-                    <Star className={`h-3.5 w-3.5 ${inWatchlist ? "fill-current" : ""}`} />
+                    <Star
+                      className={`h-3.5 w-3.5 ${
+                        inWatchlist ? "fill-current" : ""
+                      }`}
+                    />
                   </button>
                 </div>
               );
@@ -196,62 +215,22 @@ export function SymbolSelector() {
         )}
       </div>
 
-      {/* ═══ Popular ═══ */}
-      <div className="flex flex-wrap gap-2">
-        {popular.map((item) => (
+      {/* ═══ Popular — ۶ نماد برتر ═══ */}
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {popular.slice(0, 6).map((item) => (
           <button
             key={item.ticker}
             onClick={() => handleSelect(item)}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:bg-muted ${
+            className={`flex min-w-0 items-center justify-center gap-1 truncate rounded-lg border px-1.5 py-1.5 text-[10px] font-medium transition-all hover:bg-muted ${
               ticker === item.ticker
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border"
             }`}
           >
-            <TrendingUp className="h-3 w-3" />
-            <span>{item.name}</span>
+            <span className="truncate">{item.name}</span>
           </button>
         ))}
       </div>
-
-      {/* ═══ Watchlist ═══ */}
-      {watchlist.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <Star className="h-3 w-3" />
-            واچ‌لیست ({watchlist.length})
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {watchlist.map((item) => (
-              <div
-                key={item.ticker}
-                className={`group flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs transition-all hover:bg-muted ${
-                  ticker === item.ticker
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border"
-                }`}
-              >
-                <button
-                  onClick={() => handleSelect({
-                    ticker: item.ticker,
-                    name: item.name,
-                    source: item.source,
-                  })}
-                  className="font-medium"
-                >
-                  {item.name}
-                </button>
-                <button
-                  onClick={() => removeFromWatchlist(item.ticker)}
-                  className="opacity-0 transition-opacity group-hover:opacity-100"
-                >
-                  <X className="h-3 w-3 text-destructive" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

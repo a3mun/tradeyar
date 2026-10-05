@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { HelpCircle, X, Book, Zap, BarChart3, Shield, Sparkles } from "lucide-react";
+import { HelpCircle, Book, Zap, BarChart3, Shield, Sparkles, Layers, AlertTriangle, TrendingUp } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -14,20 +14,21 @@ const SECTIONS = [
     title: "شروع سریع",
     content: [
       "نماد رو از جستجو یا Popular انتخاب کن",
-      "صرافی مورد نظرت رو از تنظیمات انتخاب کن",
-      "تایم‌فریم و پروفایل ریسک رو تنظیم کن",
+      "صرافی، تایم‌فریم و پروفایل ریسک رو تنظیم کن",
       "سیگنال توی کارت وسط صفحه نمایش داده می‌شه",
+      "برای دیدن ۶ نماد برتر، زیر جستجو نگاه کن",
     ],
   },
   {
     icon: <BarChart3 className="h-4 w-4 text-green-400" />,
     title: "تحلیل ۵ گروهی",
     content: [
-      "مومنتوم: RSI, Stochastic, Williams, CCI, ROC",
-      "روند: EMA200, MACD, ADX, Supertrend",
-      "نوسان: Bollinger, ATR, Keltner, Donchian",
-      "حجم: OBV, CVD, Delta, CMF, MFI",
-      "ساختار: Pivot, Swing, Fibonacci, S/R",
+      "⚡ مومنتوم: RSI، Stochastic، Williams، CCI، ROC",
+      "📈 روند: EMA200، MACD، ADX، Supertrend",
+      "📊 نوسان: Bollinger، ATR، Keltner، Donchian",
+      "💧 حجم: OBV، CVD، Delta، CMF، MFI",
+      "🏗 ساختار: Pivot، Swing، Fibonacci، S/R",
+      "هر گروه رأی صعودی/نزولی/خنثی می‌ده — اگه ۳ گروه هم‌جهت باشن → سیگنال",
     ],
   },
   {
@@ -35,30 +36,74 @@ const SECTIONS = [
     title: "مدیریت ریسک",
     content: [
       "هر سیگنال حد ضرر (SL) و هدف (TP) داره",
-      "R:R = 2 یعنی ۱ ریسک، ۲ سود",
-      "پروفایل جسورانه: ۲-۳٪ سرمایه",
-      "پروفایل محتاطانه: ۱-۲٪ سرمایه",
+      "R:R خام = ۲ یعنی ۱ ریسک، ۲ سود",
+      "⚠️ R:R **خالص** (بعد از کارمزد) مهم‌تره",
+      "پروفایل جسورانه: ۲-۳٪ سرمایه · محتاطانه: ۱-۲٪",
       "هیچ‌وقت بدون SL وارد نشو",
+    ],
+  },
+  {
+    icon: <TrendingUp className="h-4 w-4 text-cyan-400" />,
+    title: "کارمزد و R:R خالص",
+    content: [
+      "کارمزد رفت‌وبرگشتی صرافی‌های ایران: ۰.۲-۰.۶٪",
+      "USD: ۰.۲۳٪ · IRT: ۰.۵۰٪ (نوبیتکس)",
+      "R:R خام ۲ می‌تونه بعد کارمزد بشه ۱.۷ یا کمتر",
+      "⚠️ در TF کوتاه (۱-۵ دقیقه)، کارمزد می‌تونه کل سود رو بخوره",
+      "روی خط هزینه بزن تا جزئیات ببینی",
+    ],
+  },
+  {
+    icon: <Layers className="h-4 w-4 text-orange-400" />,
+    title: "عمق بازار (Order Book)",
+    content: [
+      "imbalance = نسبت حجم خرید به فروش",
+      "بالای ۰.۵۵ = فشار خرید · زیر ۰.۴۵ = فشار فروش",
+      "اسپرد کم = نقدینگی خوب · اسپرد زیاد = ریسک اسلیپیج",
+      "🧱 دیوار سفارش = سطح با حجم غیرعادی",
+      "⚠️ عمق بازار لحظه‌ای است و بین صرافی‌ها فرق می‌کنه — فقط تأییدکننده، نه توصیه",
+    ],
+  },
+  {
+    icon: <AlertTriangle className="h-4 w-4 text-red-400" />,
+    title: "هشدار تله‌ها",
+    content: [
+      "🚨 تله صعودی: مومنتوم صعودی ولی جریان پول خروجی",
+      "🚨 تله نزولی: مومنتوم نزولی ولی جریان پول ورودی",
+      "⚠️ شکست جعلی: ADX قوی ولی حجم کم",
+      "😮‍💨 خستگی روند: ADX قوی ولی مومنتوم ضعیف",
+      "⚠️ وقتی تله فعاله، سیگنال ریسک‌داره — با احتیاط بیشتر",
     ],
   },
   {
     icon: <Sparkles className="h-4 w-4 text-yellow-400" />,
     title: "تحلیل هوش مصنوعی",
     content: [
-      "کلید DeepSeek خودت رو وارد کن (رایگان)",
-      "دکمه «تحلیل با AI» بزن",
-      "AI با لحن خودمونی راهنمایی می‌کنه",
-      "به‌عنوان مشاوره، نه تصمیم نهایی",
+      "دو راه داری:",
+      "۱. کپی داده‌ها برای AI — ببر توی ChatGPT/Gemini/Claude",
+      "۲. کلید DeepSeek/OpenAI خودت رو وارد کن",
+      "⚠️ AI فقط مشاوره‌ست، نه تصمیم نهایی",
     ],
   },
   {
-    icon: <Book className="h-4 w-4 text-cyan-400" />,
-    title: "راستی‌آزمایی",
+    icon: <Book className="h-4 w-4 text-emerald-400" />,
+    title: "راستی‌آزمایی خودکار",
     content: [
-      "سیگنال‌ها خودکار ثبت می‌شن",
-      "سیستم روی هر بار باز شدن بررسی می‌کنه",
+      "سیگنال‌های LONG/SHORT خودکار ثبت می‌شن",
+      "سیستم هر ۵ دقیقه بررسی می‌کنه که به SL/TP رسیدن",
       "برد/باخت/منقضی خودکار تشخیص داده می‌شه",
       "آمار توی صفحه پایین نمایش داده می‌شه",
+    ],
+  },
+  {
+    icon: <TrendingUp className="h-4 w-4 text-pink-400" />,
+    title: "شاخص ترس و طمع",
+    content: [
+      "۰-۲۵: ترس شدید (احتمال کف)",
+      "۲۵-۴۵: ترس",
+      "۴۵-۵۵: خنثی",
+      "۵۵-۷۵: طمع",
+      "۷۵-۱۰۰: طمع شدید (احتمال سقف)",
     ],
   },
 ];
@@ -68,10 +113,11 @@ export function HelpPanel() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger className="inline-flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
-        <HelpCircle className="h-4 w-4" />
+      <SheetTrigger className="inline-flex h-8 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:h-9 md:px-3 md:text-sm">
+        <HelpCircle className="h-3.5 w-3.5 md:h-4 md:w-4" />
+        <span>راهنما</span>
       </SheetTrigger>
-      <SheetContent side="left" className="w-96 overflow-y-auto">
+      <SheetContent side="left" className="w-full max-w-md overflow-y-auto sm:w-96">
         <div className="mt-6 space-y-4">
           <div className="text-center">
             <h2 className="text-lg font-bold">راهنما</h2>
@@ -102,6 +148,9 @@ export function HelpPanel() {
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
             <p className="text-[10px] text-muted-foreground">
               Trademun v6.0 · دستیار هوشمند معامله‌گر
+            </p>
+            <p className="mt-1 text-[9px] text-muted-foreground/70">
+              ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن — تصمیم نهایی با خودته
             </p>
           </div>
         </div>

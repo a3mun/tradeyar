@@ -1,11 +1,15 @@
 """
 api/models.py
 مدل‌های دیتابیس — SQLModel
+============================================================
+نسخه ۱.۴: اضافه شدن ``dedup_key`` + UniqueConstraint
+          برای جلوگیری از ثبت تکراری (باگ ۵).
 """
 
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -20,6 +24,9 @@ def _utcnow() -> datetime:
 class SignalLog(SQLModel, table=True):
     __tablename__ = "signals_log"
 
+    __table_args__ = (UniqueConstraint("dedup_key", name="uq_signals_log_dedup_key"),)
+
+    # ═══ این خط حیاتیه ═══
     id: Optional[int] = Field(default=None, primary_key=True)
 
     timestamp: datetime = Field(default_factory=_utcnow, index=True)
@@ -48,40 +55,31 @@ class SignalLog(SQLModel, table=True):
     exit_price: Optional[float] = None
     expired: bool = False
 
-    # ═══ جدید: traps ═══
+    # ═══ traps ═══
     had_trap: bool = False
     trap_type: Optional[str] = None
 
+    # ═══ dedup ═══
+    dedup_key: Optional[str] = Field(default=None, index=True)
 
-# ═══════════════════════════════════════════════════════════
-# ۲. تنظیمات کاربر
-# ═══════════════════════════════════════════════════════════
-class UserPrefs(SQLModel, table=True):
-    __tablename__ = "user_prefs"
+    # ═══ کارمزد و R:R واقعی (نسخه ۲.۰) ═══
+    rr_net: Optional[float] = None
+    fee_pct: Optional[float] = None
+    fee_ratio: Optional[float] = None
+    breakeven_pct: Optional[float] = None
+    is_worthwhile: Optional[bool] = None
+    timeframe_viable: Optional[bool] = None
+    rr_decay_pct: Optional[float] = None
+    execution_cost_json: Optional[str] = None
+    trade_side_irt: bool = False
 
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: str = Field(default="default", index=True, unique=True)
+    # ═══ عمق بازار ═══
+    orderbook_available: bool = False
 
-    theme: str = "dark"
-    source: str = "nobitex"
-    symbol: str = "BTC-USD"
-    market_type: str = "futures"
-    risk_profile: str = "aggressive"
-    timeframe: str = "۵ دقیقه"
-    refresh_seconds: int = 60
+    # ═══ بسته شدن با مهلت (نسخه ۲.۰) ═══
+    expired_at_price: Optional[float] = None
+    expired_pnl_pct: Optional[float] = None
+    expired_bias: Optional[str] = None  # "win" | "loss" | "flat"
 
-    updated_at: datetime = Field(default_factory=_utcnow)
-
-
-# ═══════════════════════════════════════════════════════════
-# ۳. نمادهای سفارشی
-# ═══════════════════════════════════════════════════════════
-class CustomSymbol(SQLModel, table=True):
-    __tablename__ = "custom_symbols"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: str = Field(default="default", index=True)
-    ticker: str = Field(index=True)
-    name: str = ""
-    source: str = "nobitex"
-    created_at: datetime = Field(default_factory=_utcnow)
+    # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
+    trend_correct: Optional[bool] = None  # آیا روند درست بود؟

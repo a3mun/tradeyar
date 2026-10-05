@@ -20,8 +20,6 @@ DATA_DIR.mkdir(exist_ok=True)
 # تنظیمات اصلی
 # ═══════════════════════════════════════════════════════════
 class Settings(BaseSettings):
-    """تنظیمات اپ — از .env خوانده می‌شود"""
-
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
@@ -38,16 +36,22 @@ class Settings(BaseSettings):
     # ─── Database ───
     DATABASE_URL: str = f"sqlite:///{DATA_DIR / 'trademun.db'}"
 
-    # ─── CORS (برای React) ───
+    # ─── CORS (برای فرانت + موبایل + production) ───
     CORS_ORIGINS: list[str] = [
+        # ─── Development ───
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.1.7:3000",
         "http://localhost:5173",
+        # ─── Production ───
+        "https://trademun.ir",
+        "https://www.trademun.ir",
         "https://trademun.pages.dev",
     ]
 
     # ─── Scheduler ───
     SCHEDULER_ENABLED: bool = True
-    BACKTEST_INTERVAL_MINUTES: int = 30
+    BACKTEST_INTERVAL_MINUTES: int = 5
 
     # ─── Cache TTL (ثانیه) ───
     CACHE_TTL_ANALYZE: int = 60
@@ -55,9 +59,15 @@ class Settings(BaseSettings):
 
     # ─── نوبیتکس (فاز ۷) ───
     NOBITEX_API_KEY: str = ""
+    NOBITEX_SECRET_KEY: str = ""
 
     # ─── Telegram Bot (فاز ۷) ───
     TELEGRAM_BOT_TOKEN: str = ""
+
+    # ─── Admin API Key (باگ ۴) ───
+    # عملیات مخرب مثل DELETE /backtest/reset با هدر X-API-Key محافظت می‌شود.
+    # در .env با `openssl rand -hex 32` بساز. خالی = عملیات admin مسدود.
+    ADMIN_API_KEY: str = ""
 
     # ─── JWT (فاز ۷) ───
     JWT_SECRET: str = "change-me-in-production"

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, Clock, Zap } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Clock } from "lucide-react";
 import { HelpPanel } from "./HelpPanel";
 
 export function Header() {
@@ -40,20 +39,9 @@ export function Header() {
           </div>
         </div>
 
-        {/* ─── وضعیت + ساعت + راهنما ─── */}
+        {/* ─── راهنما + ساعت ─── */}
         <div className="flex items-center gap-2">
           <HelpPanel />
-          <Badge
-            variant="outline"
-            className="gap-1.5 border-green-500/30 bg-green-500/10 text-green-500"
-          >
-
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-            </span>
-            زنده
-          </Badge>
 
           <div className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2 py-1 text-[10px] md:px-3 md:py-1.5 md:text-sm">
             <Clock className="h-3 w-3 text-muted-foreground md:h-3.5 md:w-3.5" />

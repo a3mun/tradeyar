@@ -1,14 +1,16 @@
 # ═══════════════════════════════════════════════════════════
-# Trademun — requirements.txt (فاز ۶: FastAPI Backend)
+# Trademun — requirements.txt
+# فاز ۶: FastAPI Backend + Next.js Frontend
 # ═══════════════════════════════════════════════════════════
+# ⚠️ فقط پکیج‌های **واقعاً استفاده‌شده**.
+#    هر پکیج جدید را با دلیل اضافه کن، نه به‌صورت احتیاطی.
 
-# ─── Core تحلیل ───
+# ─── تحلیل تکنیکال ───
 pandas>=2.2.0
 numpy>=1.26.0
 pandas-ta-classic>=0.3.0
 
-# ─── دیتا ───
-yfinance>=0.2.40
+# ─── دیتا (صرافی‌ها + اسکرپینگ AlanChand/TGJU) ───
 requests>=2.32.0
 beautifulsoup4>=4.12.0
 
@@ -21,15 +23,10 @@ python-dotenv>=1.0.0
 
 # ─── Database ───
 sqlmodel>=0.0.22
-alembic>=1.14.0
 
 # ─── Scheduler ───
 apscheduler>=3.10.4
 
-# ─── Auth (فاز ۷) ───
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-
-# ─── Dev ───
+# ─── Dev / تست ───
 pytest>=8.3.0
 httpx>=0.27.0

@@ -28,6 +28,14 @@ async def backtest_stats(
     time_filter: str = "all",
 ):
     stats = compute_stats(tf=tf, source=source, time_filter=time_filter)
+    # ─── اطمینان از وجود فیلدهای جدید ───
+    stats.setdefault("avg_rr_net", 0.0)
+    stats.setdefault("trend_correct", 0)
+    stats.setdefault("trend_wrong", 0)
+    stats.setdefault("trend_accuracy", 0.0)
+    stats.setdefault("expired_win", 0)
+    stats.setdefault("expired_loss", 0)
+    stats.setdefault("expired_flat", 0)
     return BacktestResponse(
         stats=BacktestStats(**stats),
         items=[],
@@ -82,12 +90,28 @@ async def backtest_history(
                 "sl": r.sl,
                 "tp": r.tp,
                 "rr": r.rr,
+                "rr_net": r.rr_net,
+                "fee_pct": r.fee_pct,
+                "fee_ratio": r.fee_ratio,
+                "breakeven_pct": r.breakeven_pct,
+                "is_worthwhile": r.is_worthwhile,
+                "timeframe_viable": r.timeframe_viable,
+                "rr_decay_pct": r.rr_decay_pct,
                 "tf": r.tf,
                 "market_type": r.market_type,
                 "result": r.result,
                 "result_time": r.result_time.isoformat() if r.result_time else None,
                 "exit_price": r.exit_price,
                 "expired": r.expired,
+                # ─── بسته شدن با مهلت (نسخه ۲.۰) ───
+                "expired_at_price": r.expired_at_price,
+                "expired_pnl_pct": r.expired_pnl_pct,
+                "expired_bias": r.expired_bias,
+                "had_trap": r.had_trap,
+                "trap_type": r.trap_type,
+                "orderbook_available": r.orderbook_available,
+                "trade_side_irt": r.trade_side_irt,
+                "trend_correct": getattr(r, "trend_correct", None),
             }
             for r in rows
         ],
@@ -116,3 +140,19 @@ async def backtest_reset(session: Session = Depends(get_session)):
         session.delete(r)
     session.commit()
     return {"ok": True, "deleted": count}
+
+
+@router.get("/by-tf")
+async def backtest_stats_by_tf(
+    time_filter: str = Query(default="all", description="all | 7d | 30d"),
+):
+    """
+    آمار راستی‌آزمایی به تفکیک TF (نسخه ۳.۰).
+
+    Query params:
+        time_filter: "all" | "7d" | "30d"
+    """
+    from services.backtest_service import compute_stats_by_tf
+
+    data = compute_stats_by_tf(time_filter=time_filter)
+    return {"ok": True, "items": data}

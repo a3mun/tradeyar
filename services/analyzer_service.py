@@ -2,10 +2,11 @@
 services/analyzer_service.py
 لایه تحلیل — با کش + fingerprint
 ============================================================
-نسخه ۳.۰: کش تحلیل بر اساس کندل آخر
+نسخه ۳.۱: کارمزد واقعی per IRT/USDT
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -19,8 +20,292 @@ from core.contracts import TF_NAMES
 
 from services.cache import analysis_cache, get_ttl, make_fingerprint
 from services.data_service import fetch_ohlcv, fetch_quote
+from core.data_fetcher import get_data_source
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════
+# عمق بازار — فعال/غیرفعال
+# ═══════════════════════════════════════════════════════════
+_ORDERBOOK_ENABLED = True
+
+
+def _orderbook_enabled() -> bool:
+    return _ORDERBOOK_ENABLED
+
+
+def set_orderbook_enabled(enabled: bool) -> None:
+    """روشن/خاموش کردن عمق بازار (برای تست یا بار سنگین)"""
+    global _ORDERBOOK_ENABLED
+    _ORDERBOOK_ENABLED = bool(enabled)
+
+
+def _is_iranian(ticker: str) -> bool:
+    """آیا این نماد ایرانی است (تومانی/ریالی)؟"""
+    if not ticker:
+        return False
+    upper = ticker.upper()
+    if upper.endswith("-IRT") or upper.endswith("-RLS"):
+        return True
+    return not ticker[0].isascii()
+
+
+def _build_ai_export(
+    ticker: str,
+    name: str,
+    tf_name: str,
+    analysis: dict,
+    tfs_data: dict | None = None,
+) -> str:
+    """خروجی **خام** برای هوش مصنوعی — نسخه ۳.۱"""
+    if not analysis:
+        return ""
+
+    lines: list[str] = []
+    L = lines.append
+
+    L(f"# تحلیل خام: {name} ({ticker}) — {tf_name}")
+    L("")
+
+    price = analysis.get("price", 0)
+    signal = analysis.get("signal", "—")
+    confidence = analysis.get("confidence", 0)
+    direction = analysis.get("direction", "neutral")
+    regime = analysis.get("regime", "range")
+    consensus = analysis.get("consensus", "neutral")
+    market_type = analysis.get("market_type", "spot")
+    source = analysis.get("source_used") or analysis.get("source") or "—"
+
+    L("## قیمت و وضعیت")
+    L(f"- قیمت فعلی: {price}")
+    L(f"- تایم‌فریم: {tf_name}")
+    L(f"- بازار: {'اسپات' if market_type == 'spot' else 'فیوچرز'}")
+    L(f"- منبع دیتا: {source}")
+    L(f"- سیگنال فعلی سیستم: {signal} ({confidence}%)")
+    L(f"- جهت سیستم: {direction}")
+    L(f"- وضعیت بازار: {regime}")
+    L(f"- اجماع سیستم: {consensus}")
+    L("")
+
+    # ═══ اندیکاتورهای تکنیکال (خام) ═══
+    L("## اندیکاتورهای تکنیکال (خام)")
+
+    L("### مومنتوم")
+    _mom_keys = [
+        ("rsi", "RSI(14)"),
+        ("stoch_k", "Stochastic %K"),
+        ("stoch_d", "Stochastic %D"),
+        ("willr", "Williams %R"),
+    ]
+    for key, label in _mom_keys:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+
+    L("### روند")
+    _trend_keys = [
+        ("ema200", "EMA200"),
+        ("macd_hist", "MACD Histogram"),
+        ("adx", "ADX(14)"),
+    ]
+    for key, label in _trend_keys:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+
+    L("### نوسان")
+    _vol_keys = [
+        ("atr", "ATR(14)"),
+        ("bb_upper", "Bollinger Upper"),
+        ("bb_lower", "Bollinger Lower"),
+    ]
+    for key, label in _vol_keys:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+
+    L("### حجم و جریان پول")
+    _has_vol = False
+    _vwap = analysis.get("vwap")
+    if _vwap is not None:
+        L(f"- VWAP: {_vwap}")
+        _has_vol = True
+    if not _has_vol:
+        L("- (داده‌ی حجم در دسترس نیست)")
+    L("")
+
+    # ═══ سطوح کلیدی ═══
+    support = analysis.get("support")
+    resistance = analysis.get("resistance")
+    L("## سطوح کلیدی")
+    if resistance is not None and price:
+        L(f"- مقاومت نزدیک: {resistance} ({(resistance - price) / price * 100:+.3f}%)")
+    if support is not None and price:
+        L(f"- حمایت نزدیک: {support} ({(support - price) / price * 100:+.3f}%)")
+
+    pivots = analysis.get("pivots") or {}
+    if pivots:
+        L("- Pivot Points:")
+        for k, v in pivots.items():
+            L(f"  - {k}: {v}")
+    L("")
+
+    # ═══ ATR ═══
+    atr = analysis.get("atr")
+    if atr:
+        L("## ATR (نوسان)")
+        L(f"- ATR: {atr}")
+        if price:
+            L(f"- ATR%: {atr / price * 100:.3f}%")
+        L("")
+
+    # ═══ عمق بازار ═══
+    ob = analysis.get("orderbook")
+    if ob and ob.get("imbalance") is not None:
+        L("## عمق بازار")
+        L(f"- imbalance: {ob['imbalance']}")
+        L(f"- فشار: {ob.get('pressure_fa', '—')}")
+        L(f"- spread_pct: {ob.get('spread_pct', 0)}%")
+        bb = ob.get("best_bid")
+        ba = ob.get("best_ask")
+        if bb:
+            L(f"- best_bid: {bb}")
+        if ba:
+            L(f"- best_ask: {ba}")
+        wall = ob.get("wall")
+        if wall:
+            L(
+                f"- دیوار سفارش: سمت {wall.get('side')} در "
+                f"{wall.get('price')} ({wall.get('ratio')}x)"
+            )
+        L("")
+
+    # ═══ اقتصاد معامله ═══
+    L("## اقتصاد معامله")
+    fee_pct = analysis.get("fee_pct")
+    if fee_pct is not None:
+        L(f"- کارمزد رفت‌وبرگشتی: {fee_pct}%")
+        exec_cost = analysis.get("execution_cost")
+        if exec_cost:
+            L(f"- کارمزد خالص: {exec_cost.get('fee_pct')}%")
+            L(f"- هزینه اسپرد: {exec_cost.get('spread_cost_pct')}%")
+            L(f"- اسلیپیج: {exec_cost.get('slippage_pct')}%")
+            L(f"- مجموع هزینه: {exec_cost.get('total_pct')}%")
+        be = analysis.get("breakeven_pct")
+        if be is not None:
+            L(f"- نقطه سربه‌سر: {be}%")
+    else:
+        L("- (سیگنال خنثی — هزینه‌ی معامله محاسبه نشد)")
+    L("")
+
+    # ═══ SL/TP ═══
+    sl = analysis.get("sl")
+    tp = analysis.get("tp")
+    if sl is not None and tp is not None and price:
+        L("## SL/TP")
+        L(f"- ورود: {price}")
+        L(f"- حد ضرر: {sl} ({(sl - price) / price * 100:+.2f}%)")
+        L(f"- هدف: {tp} ({(tp - price) / price * 100:+.2f}%)")
+        rr_gross = analysis.get("rr_gross") or analysis.get("rr")
+        rr_net = analysis.get("rr_net")
+        if rr_gross is not None:
+            L(f"- R:R خام: {rr_gross}")
+        if rr_net is not None:
+            L(f"- R:R خالص: {rr_net}")
+        L("")
+
+    # ═══ موقعیت در بازه ═══
+    fundamental = analysis.get("fundamental_lines") or []
+    fund_raw = [f for f in fundamental if "📍" in f or "سقف" in f or "فضای" in f]
+    if fund_raw:
+        L("## موقعیت و فضای حرکت")
+        for line in fund_raw:
+            clean = line.replace("**", "").replace("*", "").replace("ℹ️", "").strip()
+            if clean:
+                L(f"- {clean}")
+        L("")
+
+    # ═══ تله‌ها ═══
+    traps = analysis.get("traps") or {}
+    active_traps = [
+        k for k, v in traps.items() if isinstance(v, dict) and v.get("active")
+    ]
+    if active_traps:
+        L("## تله‌های شناسایی‌شده")
+        for k in active_traps:
+            info = traps[k]
+            L(f"- {k}: {info.get('reason', '')}")
+        L("")
+
+    L("---")
+    L("⚠️ این داده خام است. تحلیل نهایی رو خودت بر اساس این اعداد و دانش انجام بده.")
+
+    return "\n".join(lines)
+
+
+def _refresh_live_fields(cached: dict, df) -> dict:
+    """فیلدهای قیمت‌محور را از دیتافریم تازه به نتیجه‌ی کش‌شده می‌چسباند."""
+    try:
+        if df is None or df.empty:
+            return cached
+
+        fresh_price = float(df["close"].iloc[-1])
+    except Exception:
+        return cached
+
+    out = dict(cached)
+    out["price"] = fresh_price
+
+    try:
+        out["close_series"] = [float(x) for x in df["close"].tail(30).tolist()]
+    except Exception as e:
+        logger.warning(f"[Analyzer] _refresh: {e!r}")
+
+    # ═══ زمینه‌ی بنیادی/ساختاری ═══
+    try:
+        from core.analyzer import _build_fundamental_context
+        from core.contracts import get_fee_rate as _gfr
+
+        _fee = cached.get("fee_pct")
+        if _fee is None:
+            _mt = cached.get("market_type", "spot")
+            _fee = (
+                _gfr(
+                    cached.get("source_used") or cached.get("source") or "nobitex",
+                    market_type=_mt,
+                    ticker=cached.get("ticker", ""),
+                )
+                * 100
+            )
+
+        out["fundamental_lines"] = _build_fundamental_context(
+            df=df,
+            r_main=cached,
+            ticker=cached.get("ticker", ""),
+            is_iranian=_is_iranian(cached.get("ticker", "")),
+            unit="تومان",
+            fee_pct=_fee,
+        )
+    except Exception as e:
+        logger.warning(f"[Analyzer] _refresh fundamental: {e!r}")
+
+    # ═══ ai_export بازتولید ═══
+    try:
+        out["ai_export"] = _build_ai_export(
+            ticker=cached.get("ticker", ""),
+            name=cached.get("name", ""),
+            tf_name=cached.get("timeframe", "۵ دقیقه"),
+            analysis=out,
+            tfs_data=None,
+        )
+    except Exception as e:
+        logger.warning(f"[Analyzer] _refresh ai_export: {e!r}")
+
+    return out
 
 
 def _fear_greed_label(value: float) -> tuple[str, str, str]:
@@ -36,30 +321,6 @@ def _fear_greed_label(value: float) -> tuple[str, str, str]:
         return ("طمع شدید", "green", "🚀")
 
 
-def _build_ai_export(ticker, name, tf_name, analysis, tfs_data) -> str:
-    """خروجی AI — خلاصه نسخه"""
-    if not analysis:
-        return ""
-    lines = [
-        f"# {name} ({ticker}) — {tf_name}",
-        f"سیگنال: {analysis.get('signal', '—')} · "
-        f"اطمینان: {analysis.get('confidence', 0):.0f}% · "
-        f"قیمت: {analysis.get('price', 0):.2f}",
-        f"رژیم: {analysis.get('regime', '—')} · "
-        f"اجماع: {analysis.get('consensus', '—')}",
-        "",
-        "## دلایل گروه‌ها:",
-    ]
-    for g_key, g_data in (analysis.get("groups") or {}).items():
-        lines.append(
-            f"- {g_key}: رأی={g_data.get('vote', 0)} "
-            f"قدرت={g_data.get('strength_fa', '')}"
-        )
-        for r in g_data.get("reasons", [])[:3]:
-            lines.append(f"  · {r}")
-    return "\n".join(lines)
-
-
 # ═══════════════════════════════════════════════════════════
 # تحلیل با کش هوشمند
 # ═══════════════════════════════════════════════════════════
@@ -73,23 +334,34 @@ def analyze(
     include_extras: bool = True,
     use_cache: bool = True,
 ) -> Optional[dict]:
-    """تحلیل با کش بر اساس fingerprint کندل"""
+    """تحلیل یک نماد در یک تایم‌فریم — با کش بر پایه‌ی fingerprint کندل بسته."""
+    if not ticker:
+        return None
 
-    # ═══ ۰. چک TSETMC (فقط روزانه) ═══
-    is_iranian_stock = bool(ticker) and not ticker[0].isascii()
+    # ═══ ۰. اعتبارسنجی منبع ═══
+    from core.contracts import is_active_source, is_planned_source
+
+    if not is_active_source(source) and not is_planned_source(source):
+        logger.warning(f"[Analyzer] منبع ناشناخته «{source}» — تحلیل رد شد")
+        return None
+
+    # ═══ ۰.۱ TSETMC: فقط روزانه ═══
+    is_iranian_stock = not ticker[0].isascii()
     if is_iranian_stock:
         if tf_name != "روزانه":
             logger.debug(f"[Analyzer] TSETMC فقط روزانه — رد {ticker} {tf_name}")
             return None
-        source = "tsetmc"  # ─── اصلاح خودکار منبع ───
+        source = "tsetmc"
 
     # ═══ ۱. دیتا ═══
     df = fetch_ohlcv(ticker, tf_name, source, use_cache=use_cache)
     if df is None or df.empty:
         return None
 
-    # ═══ ۲. fingerprint ───
-    fingerprint = make_fingerprint(df) if use_cache else ""
+    data_source = get_data_source(df, source)
+
+    # ═══ ۲. fingerprint ═══
+    fingerprint = make_fingerprint(df, tf_name) if use_cache else ""
     cache_key = f"analysis:{ticker}:{source}:{tf_name}:{market_type}:{risk_profile}"
     fp_key = f"{cache_key}:fp"
 
@@ -99,7 +371,21 @@ def analyze(
             cached_result = analysis_cache.get(cache_key)
             if cached_result is not None:
                 logger.debug(f"[Analyzer] کش hit: {ticker} {tf_name}")
-                return cached_result
+                out = _refresh_live_fields(cached_result, df)
+                out["source_used"] = data_source
+                out["is_fallback"] = data_source != source
+                out.pop("orderbook", None)
+                return out
+
+    # ═══ ۲.۵ عمق بازار ═══
+    orderbook = None
+    if include_extras and _orderbook_enabled():
+        try:
+            from core.orderbook import get_orderbook
+
+            orderbook = get_orderbook(ticker, data_source, depth=20)
+        except Exception:
+            logger.debug(f"[Analyzer] عمق بازار {ticker} در دسترس نبود")
 
     # ═══ ۳. تحلیل ═══
     try:
@@ -110,6 +396,8 @@ def analyze(
             tfs_data=None,
             market_type=market_type,
             ticker=ticker,
+            source=data_source,
+            orderbook=orderbook,
         )
     except Exception as e:
         logger.error(f"[Analyzer] خطا در analyze_symbol: {e}")
@@ -120,11 +408,44 @@ def analyze(
 
     sl_tp = result.get("sl_tp") or {}
 
+    # ═══ زمینه‌ی بنیادی/ساختاری ═══
+    if include_extras:
+        try:
+            from core.analyzer import _build_fundamental_context
+            from core.contracts import get_fee_rate as _gfr
+
+            effective_fee_pct = sl_tp.get("fee_pct")
+            if effective_fee_pct is None:
+                # ─── cost پایه (بدون اسپرد چون عمق بازار نداریم
+                #     یا سیگنال خنثی است) ───
+                effective_fee_pct = (
+                    _gfr(
+                        data_source or "nobitex",
+                        market_type=market_type,
+                        ticker=ticker,
+                    )
+                    * 100
+                )
+
+            result["fundamental_lines"] = _build_fundamental_context(
+                df=df,
+                r_main=result,
+                ticker=ticker,
+                is_iranian=_is_iranian(ticker),
+                unit="تومان",
+                fee_pct=effective_fee_pct,
+            )
+        except Exception as e:
+            logger.warning(f"[Analyzer] زمینه‌ی بنیادی محاسبه نشد: {e!r}")
+
     output = {
         "ok": True,
         "ticker": ticker,
         "name": ticker_name or ticker,
         "source": source,
+        "source_requested": source,
+        "source_used": data_source,
+        "is_fallback": data_source != source,
         "timeframe": tf_name,
         "market_type": market_type,
         "risk_profile": risk_profile,
@@ -140,12 +461,24 @@ def analyze(
         "sl": sl_tp.get("sl"),
         "tp": sl_tp.get("tp"),
         "rr": result.get("rr"),
-        "atr": float(result.get("atr", 0.0)),
-        "atr_mult_sl": float(sl_tp.get("effective_sl_mult", 1.0)),
-        "atr_mult_tp": float(sl_tp.get("effective_tp_mult", 1.5)),
-        "atr": result.get("atr", 0.0),
-        "atr_mult_sl": sl_tp.get("effective_sl_mult", 1.0),
-        "atr_mult_tp": sl_tp.get("effective_tp_mult", 1.5),
+        "rr_gross": sl_tp.get("rr_gross"),
+        "rr_net": sl_tp.get("rr_net"),
+        "fee_pct": sl_tp.get("fee_pct"),
+        "fee_ratio": sl_tp.get("fee_ratio"),
+        "breakeven_pct": sl_tp.get("breakeven_pct"),
+        "is_worthwhile": sl_tp.get("is_worthwhile"),
+        "timeframe_viable": sl_tp.get("timeframe_viable"),
+        "sl_tp_scaled": sl_tp.get("sl_tp_scaled", False),
+        "scale_factor": sl_tp.get("scale_factor"),
+        "scale_reason": sl_tp.get("scale_reason"),
+        "original_sl": sl_tp.get("original_sl"),
+        "original_tp": sl_tp.get("original_tp"),
+        "rr_decay_pct": sl_tp.get("rr_decay_pct"),
+        "execution_cost": sl_tp.get("execution_cost"),
+        "sl_tp_type": sl_tp.get("type"),
+        "atr": float(result.get("atr") or 0.0),
+        "atr_mult_sl": float(sl_tp.get("effective_sl_mult") or 1.0),
+        "atr_mult_tp": float(sl_tp.get("effective_tp_mult") or 1.5),
         "support": result.get("support", 0.0),
         "resistance": result.get("resistance", 0.0),
         "pivots": result.get("pivots", {}),
@@ -160,6 +493,8 @@ def analyze(
         "traps": result.get("traps", {}),
         "traps_summary": result.get("traps_summary", {}),
         "divergence": result.get("divergence", {}),
+        "orderbook": result.get("orderbook"),
+        "fundamental_lines": result.get("fundamental_lines") or [],
         "multi_tf_info": result.get("multi_tf_info", ""),
         "multi_tf_ok": result.get("multi_tf_ok", True),
         "neutral_explain": result.get("neutral_explain", {}),
@@ -203,20 +538,25 @@ def analyze(
                 ticker=ticker,
                 name=ticker_name or ticker,
                 tf_name=tf_name,
-                analysis=result,
+                analysis={**result, **output},
                 tfs_data={tf_name: result},
             )
         except Exception as e:
             logger.warning(f"[Analyzer] ai_export: {e}")
 
-    # ═══ override market_type و risk_profile (فقط برای خروجی) ═══
     output["market_type"] = market_type
     output["risk_profile"] = risk_profile
 
-    # ═══ ۴. ذخیره در کش ═══
-    # ═══ ثبت خودکار سیگنال در دیتابیس ═══
+    # ═══ ثبت خودکار سیگنال ═══
     try:
         from services.signal_recorder import record_signal
+
+        # ─── تشخیص IRT ───
+        _is_irt = bool(ticker) and (
+            "-IRT" in ticker.upper()
+            or "-RLS" in ticker.upper()
+            or (ticker and not ticker[0].isascii())
+        )
 
         record_signal(
             ticker=ticker,
@@ -238,13 +578,23 @@ def analyze(
             regime=output.get("regime", "range"),
             rr=output.get("rr"),
             traps=output.get("traps", {}),
+            rr_net=output.get("rr_net"),
+            fee_pct=output.get("fee_pct"),
+            fee_ratio=output.get("fee_ratio"),
+            breakeven_pct=output.get("breakeven_pct"),
+            is_worthwhile=output.get("is_worthwhile"),
+            timeframe_viable=output.get("timeframe_viable"),
+            rr_decay_pct=output.get("rr_decay_pct"),
+            execution_cost=output.get("execution_cost"),
+            orderbook_available=bool(output.get("orderbook")),
+            trade_side_irt=_is_irt,
         )
+
     except Exception as e:
         logger.debug(f"[Analyzer] record_signal: {e}")
 
     if use_cache:
         ttl = get_ttl(tf_name)
-        # ─── فقط اگه extras داشت، کش کن ───
         if include_extras:
             analysis_cache.set(cache_key, output, ttl)
         analysis_cache.set(fp_key, fingerprint, ttl)
@@ -255,6 +605,9 @@ def analyze(
 # ═══════════════════════════════════════════════════════════
 # چند TF
 # ═══════════════════════════════════════════════════════════
+_MAX_TF_WORKERS = 4
+
+
 def analyze_multi_tf(
     ticker: str,
     source: str = "nobitex",
@@ -263,11 +616,15 @@ def analyze_multi_tf(
     risk_profile: str = "aggressive",
     ticker_name: str = "",
 ) -> dict:
+    """تحلیل نماد در چند تایم‌فریم — به‌صورت موازی."""
     if tf_list is None:
         tf_list = list(TF_NAMES)
 
-    results = {}
-    for tf in tf_list:
+    if not ticker or not tf_list:
+        return {}
+
+    if len(tf_list) == 1:
+        tf = tf_list[0]
         try:
             r = analyze(
                 ticker=ticker,
@@ -278,10 +635,47 @@ def analyze_multi_tf(
                 ticker_name=ticker_name,
                 include_extras=False,
             )
-            if r:
-                results[tf] = r
-        except Exception as e:
-            logger.warning(f"[Analyzer] {tf}: {e}")
+            return {tf: r} if r else {}
+        except Exception:
+            logger.warning(f"[Analyzer] {tf} شکست خورد", exc_info=True)
+            return {}
+
+    def _one(tf: str):
+        try:
+            return analyze(
+                ticker=ticker,
+                source=source,
+                tf_name=tf,
+                market_type=market_type,
+                risk_profile=risk_profile,
+                ticker_name=ticker_name,
+                include_extras=False,
+            )
+        except Exception:
+            logger.warning(f"[Analyzer] {tf} شکست خورد", exc_info=True)
+            return None
+
+    raw: dict[str, Optional[dict]] = {}
+    try:
+        with ThreadPoolExecutor(
+            max_workers=min(_MAX_TF_WORKERS, len(tf_list))
+        ) as executor:
+            future_to_tf = {executor.submit(_one, tf): tf for tf in tf_list}
+            for future in as_completed(future_to_tf):
+                tf = future_to_tf[future]
+                try:
+                    raw[tf] = future.result()
+                except Exception:
+                    logger.warning(f"[Analyzer] future {tf} شکست خورد", exc_info=True)
+                    raw[tf] = None
+    except Exception:
+        logger.exception("[Analyzer] خطا در اجرای موازی TFها")
+
+    results: dict[str, dict] = {}
+    for tf in tf_list:
+        r = raw.get(tf)
+        if r:
+            results[tf] = r
 
     return results
 

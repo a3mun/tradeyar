@@ -25,6 +25,7 @@ import pandas as pd
 import requests
 
 from .market_lists import get_iran_stock_map, get_iran_stock_symbols
+from .tz import TEHRAN, ensure_utc_index
 from .utils import safe_num
 
 TSETMC_BASE = "https://cdn.tsetmc.com/api"
@@ -219,6 +220,15 @@ def fetch_tsetmc_ohlcv(ins_code: str, days: int = 200) -> Optional[pd.DataFrame]
 
         # فیلتر کندل‌های صفر (روزهای تعطیل/بدون معامله)
         df = df[(df["close"] > 0) & (df["high"] > 0) & (df["low"] > 0)]
+
+        # ═══ ایندکس زمانی ═══
+        # TSETMC فقط تاریخ تقویمی می‌دهد (بدون ساعت). آن را نیمه‌شب
+        # به وقت تهران در نظر می‌گیریم و به UTC تبدیل می‌کنیم تا با
+        # بقیه‌ی منابع و با timestampهای UTC دیتابیس قابل مقایسه باشد.
+        # نتیجه: تاریخ 2026-10-03 → 2026-10-02T20:30:00Z
+        df = ensure_utc_index(df, assume_tz=TEHRAN)
+        if df is None or df.empty:
+            return None
 
         # آخرین N روز
         df = df.tail(days)

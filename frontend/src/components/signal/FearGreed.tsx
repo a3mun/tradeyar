@@ -6,30 +6,96 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { fearGreedColor } from "@/lib/display";
+import { sourceSupportsPair } from "@/lib/sources";
 import type { FearGreedResponse } from "@/lib/types";
+
+// ═══ تحلیل متنی بر اساس مقدار ═══
+function fearGreedHint(value: number): {
+  text: string;
+  advice: string;
+  icon: string;
+} {
+  if (value <= 20) {
+    return {
+      text: "ترس شدید",
+      advice: "احتمال کف — فرصت خرید بلندمدت",
+      icon: "😱",
+    };
+  }
+  if (value <= 40) {
+    return {
+      text: "ترس",
+      advice: "احتمال ضعف — صبر کن برای تأیید",
+      icon: "😰",
+    };
+  }
+  if (value <= 60) {
+    return {
+      text: "خنثی",
+      advice: "بازار بی‌جهت — صبر کن",
+      icon: "😐",
+    };
+  }
+  if (value <= 80) {
+    return {
+      text: "طمع",
+      advice: "احتمال رشد — مراقب اشباع",
+      icon: "🤑",
+    };
+  }
+  return {
+    text: "طمع شدید",
+    advice: "احتمال سقف — فروش پله‌ای",
+    icon: "🚀",
+  };
+}
 
 export function FearGreed() {
   const { ticker, source } = useAppStore();
   const [data, setData] = useState<FearGreedResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!ticker) return;
+  const coherent = sourceSupportsPair(source, ticker);
 
-    setLoading(true);
+  useEffect(() => {
+    if (!ticker || !coherent) {
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setData(null);
+        setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLoading(true);
+    });
+
     api
-      .get("/analyze/fear-greed", {
-        params: { ticker, source },
+      .get("/analyze/fear-greed", { params: { ticker, source } })
+      .then((res) => {
+        if (!cancelled) setData(res.data);
       })
-      .then((res) => setData(res.data))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, [ticker, source]);
+      .catch(() => {
+        if (!cancelled) setData(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker, source, coherent]);
 
   if (loading) {
     return (
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <Skeleton className="h-5 w-40" />
         </CardHeader>
         <CardContent>
@@ -43,13 +109,14 @@ export function FearGreed() {
 
   const color = fearGreedColor(data.value);
   const percentage = Math.max(0, Math.min(100, data.value));
+  const hint = fearGreedHint(data.value);
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-base">
+        <CardTitle className="flex items-center justify-between text-sm">
           <span>😱 شاخص ترس و طمع</span>
-          <span className="text-2xl">{data.icon}</span>
+          <span className="text-xl">{hint.icon}</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -61,7 +128,7 @@ export function FearGreed() {
             </p>
             <p className="text-xs text-muted-foreground">{data.label}</p>
           </div>
-          <p className="text-[10px] text-muted-foreground">۰ ← ۱۰۰</p>
+          <p className="num text-[10px] text-muted-foreground">0 ← 100</p>
         </div>
 
         {/* ═══ نوار رنگی ═══ */}
@@ -80,6 +147,22 @@ export function FearGreed() {
           <span>🚀 طمع شدید</span>
           <span>😐 خنثی</span>
           <span>😱 ترس شدید</span>
+        </div>
+
+        {/* ═══ تحلیل متنی (خط جدید) ═══ */}
+        <div
+          className="rounded-md border p-2"
+          style={{
+            borderColor: `${color}33`,
+            backgroundColor: `${color}0a`,
+          }}
+        >
+          <p className="text-[10px] font-bold" style={{ color }}>
+            💡 {hint.text}
+          </p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+            {hint.advice}
+          </p>
         </div>
       </CardContent>
     </Card>

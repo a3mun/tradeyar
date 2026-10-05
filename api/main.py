@@ -12,8 +12,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
-from api.database import init_db
-from api.routers import analyze, backtest, scan, symbols
+from api.database import init_db, migrate_db
+from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.scheduler import start_scheduler, stop_scheduler
 
 # ═══════════════════════════════════════════════════════════
@@ -34,6 +34,8 @@ async def lifespan(app: FastAPI):
     # ─── Startup ───
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} در حال شروع...")
     init_db()
+    # ─── migration سبک: اضافه کردن ستون‌های جدید به جداول موجود ───
+    migrate_db()
     logger.info("✅ دیتابیس آماده")
     start_scheduler()
     yield
@@ -59,7 +61,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=False,  # ← از True به False (چون از cookie/token استفاده نمی‌کنی)
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -69,10 +71,11 @@ app.add_middleware(
 # Routers
 # ═══════════════════════════════════════════════════════════
 app.include_router(analyze.router)
-# (analyze router قبلاً اضافه شده — quote توی همون فایل هست)
 app.include_router(symbols.router)
 app.include_router(scan.router)
 app.include_router(backtest.router)
+# ─── 🔜 فاز ۶.۵: عمق بازار (فعلاً 501) ───
+app.include_router(orderbook.router)
 
 
 # ═══════════════════════════════════════════════════════════

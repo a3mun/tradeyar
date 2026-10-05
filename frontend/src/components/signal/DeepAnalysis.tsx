@@ -8,72 +8,110 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
+import { SOURCE_BY_KEY } from "@/lib/sources";
 
-const SOURCE_BADGE: Record<string, { color: string; label: string }> = {
-  nobitex: { color: "bg-purple-500/15 text-purple-400 border-purple-500/30", label: "🟣 نوبیتکس" },
-  bitpin: { color: "bg-green-500/15 text-green-400 border-green-500/30", label: "🟢 بیت‌پین" },
-  wallex: { color: "bg-blue-500/15 text-blue-400 border-blue-500/30", label: "🔵 والکس" },
-  abantether: { color: "bg-sky-500/15 text-sky-400 border-sky-500/30", label: "🔷 آبان‌تتر" },
-  tsetmc: { color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", label: "🇮🇷 بورس" },
-};
+/**
+ * بخش‌بندی متن تحلیل عمیق به سه قسمت:
+ *   1. تکنیکال — از ابتدا تا marker «◈ زمینه‌ی بنیادی»
+ *   2. بنیادی  — از marker تا marker «◈ جمع‌بندی صادقانه»
+ *   3. نتیجه  — از marker «◈ جمع‌بندی صادقانه» تا آخر
+ */
+function splitSections(raw: string) {
+  if (!raw) return { tech: "", fund: "", concl: "" };
+
+  const fundMarker = "◈ زمینه‌ی بنیادی";
+  const conclMarker = "◈ جمع‌بندی صادقانه";
+
+  const fundIdx = raw.indexOf(fundMarker);
+  const conclIdx = raw.indexOf(conclMarker);
+
+  let tech = raw;
+  let fund = "";
+  let concl = "";
+
+  if (fundIdx !== -1) {
+    tech = raw.slice(0, fundIdx).trim();
+    const rest = raw.slice(fundIdx);
+    if (conclIdx !== -1) {
+      const relConcl = conclIdx - fundIdx;
+      fund = rest.slice(0, relConcl).trim();
+      concl = rest.slice(relConcl).trim();
+    } else {
+      fund = rest.trim();
+    }
+  } else if (conclIdx !== -1) {
+    tech = raw.slice(0, conclIdx).trim();
+    concl = raw.slice(conclIdx).trim();
+  }
+
+  return { tech, fund, concl };
+}
 
 export function DeepAnalysis() {
-  const { ticker, tickerName, source, timeframe, marketType, riskProfile } = useAppStore();
+  const { ticker, tickerName, source, timeframe, marketType, riskProfile } =
+    useAppStore();
   const [text, setText] = useState("");
   const [aiExport, setAiExport] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // ═══ AI state ═══
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
   const [aiError, setAiError] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [apiKey, setApiKey] = useState("");
 
-  // ═══ Load API key ═══
   useEffect(() => {
     const saved = localStorage.getItem("deepseek_api_key") || "";
     setApiKey(saved);
   }, []);
 
-  // ═══ Fetch deep analysis ═══
   useEffect(() => {
     if (!ticker) return;
     setLoading(true);
     setText("");
     api
       .get("/analyze/deep", {
-        params: { ticker, source, timeframe, market_type: marketType, risk_profile: riskProfile, ticker_name: tickerName },
+        params: {
+          ticker,
+          source,
+          timeframe,
+          market_type: marketType,
+          risk_profile: riskProfile,
+          ticker_name: tickerName,
+        },
       })
       .then((res) => setText(res.data.paragraph || ""))
       .catch(() => setText(""))
       .finally(() => setLoading(false));
   }, [ticker, tickerName, source, timeframe, marketType, riskProfile]);
 
-  // ═══ Fetch ai_export ═══
   useEffect(() => {
     if (!ticker) return;
     api
       .post("/analyze", {
-        ticker, source, timeframe,
-        market_type: marketType, risk_profile: riskProfile, ticker_name: tickerName,
+        ticker,
+        source,
+        timeframe,
+        market_type: marketType,
+        risk_profile: riskProfile,
+        ticker_name: tickerName,
       })
       .then((res) => setAiExport(res.data.ai_export || ""))
       .catch(() => setAiExport(""));
   }, [ticker, tickerName, source, timeframe, marketType, riskProfile]);
 
-  // ═══ Copy ═══
   const handleCopy = async () => {
     if (!aiExport) return;
     try {
       await navigator.clipboard.writeText(aiExport);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // ═══ AI Analysis ═══
   const handleAiAnalyze = async () => {
     const key = apiKey || localStorage.getItem("deepseek_api_key") || "";
     if (!key) {
@@ -93,7 +131,7 @@ export function DeepAnalysis() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${key}`,
+          Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
           model: "deepseek-chat",
@@ -108,13 +146,12 @@ export function DeepAnalysis() {
 - توصیه‌محور: آخرش یه جمله «الان چیکار کنم؟»
 - اگه سیگنال ضعیفه، صریح بگو «الان نخر، صبر کن»
 - اگه تله‌ای هست، هشدار بده
-- از اعداد مشخص استفاده کن (قیمت، درصد)
-- به هیچ وجه تحلیل تکنیکال رو با فاندامنتال قاطی نکن`,
+- از اعداد مشخص استفاده کن (قیمت، درصد)`,
             },
             { role: "user", content: aiExport },
           ],
           temperature: 0.7,
-          max_tokens: 800,
+          max_tokens: 500,
         }),
       });
       if (!res.ok) {
@@ -136,7 +173,10 @@ export function DeepAnalysis() {
     setAiError("");
   };
 
-  const src = SOURCE_BADGE[source] || SOURCE_BADGE.nobitex;
+  const { tech, fund, concl } = splitSections(text);
+  const meta = SOURCE_BY_KEY[source];
+  const srcLabel = meta ? `${meta.icon} ${meta.label}` : source;
+  const srcClass = meta?.badgeClass ?? "";
 
   return (
     <div className="space-y-3">
@@ -147,8 +187,9 @@ export function DeepAnalysis() {
             <Brain className="h-4 w-4" />
             تحلیل عمیق
           </CardTitle>
-          <Badge className={`text-[10px] border ${src.color}`}>{src.label}</Badge>
+          <Badge className={`text-[10px] border ${srcClass}`}>{srcLabel}</Badge>
         </CardHeader>
+
         <CardContent className="space-y-3">
           {loading ? (
             <div className="space-y-2">
@@ -157,9 +198,50 @@ export function DeepAnalysis() {
               <Skeleton className="h-4 w-3/4" />
             </div>
           ) : text ? (
-            <div className="rounded-lg bg-muted/30 p-3">
-              <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">{text}</pre>
-            </div>
+            <>
+              {/* ═══ تکنیکال ═══ */}
+              <section className="space-y-2">
+                <h3 className="flex items-center gap-2 border-b border-border/50 pb-1.5 text-sm font-bold">
+                  <span>📊</span>
+                  تحلیل تکنیکال
+                </h3>
+                <div className="rounded-lg bg-muted/30 p-3">
+                  <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">
+                    {tech}
+                  </pre>
+                </div>
+              </section>
+
+              {/* ═══ بنیادی ═══ */}
+              {fund && (
+                <section className="space-y-2">
+                  <h3 className="flex items-center gap-2 border-b border-border/50 pb-1.5 text-sm font-bold">
+                    <span>🧭</span>
+                    تحلیل بنیادی و ساختاری
+                  </h3>
+                  <div className="rounded-lg bg-muted/30 p-3">
+                    <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground">
+                      {fund.replace("◈ زمینه‌ی بنیادی و ساختاری\n" + "─".repeat(30) + "\n", "")}
+                    </pre>
+                  </div>
+                </section>
+              )}
+
+              {/* ═══ نتیجه‌گیری ═══ */}
+              {concl && (
+                <section className="space-y-2">
+                  <h3 className="flex items-center gap-2 border-b border-border/50 pb-1.5 text-sm font-bold text-primary">
+                    <span>🎯</span>
+                    نتیجه‌گیری — چیکار کنم؟
+                  </h3>
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                    <pre className="whitespace-pre-wrap break-words font-sans text-xs font-medium leading-relaxed text-foreground">
+                      {concl.replace("◈ جمع‌بندی صادقانه\n" + "─".repeat(30) + "\n", "")}
+                    </pre>
+                  </div>
+                </section>
+              )}
+            </>
           ) : (
             <p className="text-xs text-muted-foreground text-center py-4">
               ⏳ تحلیل برای {timeframe} در دسترس نیست
@@ -173,7 +255,15 @@ export function DeepAnalysis() {
             size="sm"
             disabled={!aiExport}
           >
-            {copied ? (<><Check className="h-3.5 w-3.5" /> کپی شد</>) : (<><Copy className="h-3.5 w-3.5" /> کپی داده‌ها برای AI</>)}
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5" /> کپی شد
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" /> کپی داده‌ها برای AI
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>
@@ -185,17 +275,27 @@ export function DeepAnalysis() {
             <Sparkles className="h-4 w-4" />
             تحلیل هوش مصنوعی
           </CardTitle>
-          <button onClick={() => setShowKeyInput(!showKeyInput)} className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={() => setShowKeyInput(!showKeyInput)}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <Settings className="h-3.5 w-3.5" />
           </button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* ═══ API Key ═══ */}
           {showKeyInput && (
             <div className="space-y-2 rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
               <p className="text-[10px] text-muted-foreground">
                 کلید DeepSeek خودت رو وارد کن (رایگان از{" "}
-                <a href="https://platform.deepseek.com/" target="_blank" rel="noreferrer" className="text-purple-400 underline">platform.deepseek.com</a>)
+                <a
+                  href="https://platform.deepseek.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-purple-400 underline"
+                >
+                  platform.deepseek.com
+                </a>
+                )
               </p>
               <div className="flex gap-2">
                 <input
@@ -206,30 +306,41 @@ export function DeepAnalysis() {
                   className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
                   dir="ltr"
                 />
-                <Button size="sm" onClick={handleSaveKey}>ذخیره</Button>
+                <Button size="sm" onClick={handleSaveKey}>
+                  ذخیره
+                </Button>
               </div>
             </div>
           )}
 
-          {/* ═══ Button ═══ */}
           <Button
             onClick={handleAiAnalyze}
             disabled={aiLoading || !aiExport}
             className="w-full bg-purple-600 hover:bg-purple-700"
             size="sm"
           >
-            {aiLoading ? (<><Loader2 className="h-3.5 w-3.5 animate-spin" /> در حال تحلیل...</>) : (<><Sparkles className="h-3.5 w-3.5" /> تحلیل با AI</>)}
+            {aiLoading ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> در حال تحلیل...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3.5 w-3.5" /> تحلیل با AI
+              </>
+            )}
           </Button>
 
-          {/* ═══ Error ═══ */}
           {aiError && (
-            <p className="rounded-lg bg-red-500/10 p-2 text-[10px] text-red-400">⚠️ {aiError}</p>
+            <p className="rounded-lg bg-red-500/10 p-2 text-[10px] text-red-400">
+              ⚠️ {aiError}
+            </p>
           )}
 
-          {/* ═══ Result ═══ */}
           {aiResult && (
             <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-              <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">{aiResult}</pre>
+              <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">
+                {aiResult}
+              </pre>
             </div>
           )}
         </CardContent>
