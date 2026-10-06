@@ -322,6 +322,67 @@ def _fear_greed_label(value: float) -> tuple[str, str, str]:
 
 
 # ═══════════════════════════════════════════════════════════
+# ثبت سیگنال — تابع امن برای استفاده در چندجا
+# ═══════════════════════════════════════════════════════════
+def _record_signal_safe(
+    ticker: str,
+    ticker_name: str,
+    tf_name: str,
+    source: str,
+    market_type: str,
+    risk_profile: str,
+    output: dict,
+    skip_record: bool,
+) -> None:
+    """ثبت سیگنال با catch خطا — برای cache miss و cache hit."""
+    if skip_record:
+        return
+
+    try:
+        from services.signal_recorder import record_signal
+
+        _is_irt = bool(ticker) and (
+            "-IRT" in ticker.upper()
+            or "-RLS" in ticker.upper()
+            or (ticker and not ticker[0].isascii())
+        )
+
+        record_signal(
+            ticker=ticker,
+            name=ticker_name or ticker,
+            signal=output.get("signal", ""),
+            price=output.get("price", 0),
+            tf_name=tf_name,
+            source=source,
+            market_type=market_type,
+            risk_profile=risk_profile,
+            sl_tp={
+                "sl": output.get("sl"),
+                "tp": output.get("tp"),
+                "type": output.get("direction"),
+            },
+            direction=output.get("direction", "neutral"),
+            confidence=output.get("confidence", 0),
+            consensus=output.get("consensus", "neutral"),
+            regime=output.get("regime", "range"),
+            rr=output.get("rr"),
+            traps=output.get("traps", {}),
+            rr_net=output.get("rr_net"),
+            fee_pct=output.get("fee_pct"),
+            fee_ratio=output.get("fee_ratio"),
+            breakeven_pct=output.get("breakeven_pct"),
+            is_worthwhile=output.get("is_worthwhile"),
+            timeframe_viable=output.get("timeframe_viable"),
+            rr_decay_pct=output.get("rr_decay_pct"),
+            execution_cost=output.get("execution_cost"),
+            orderbook_available=bool(output.get("orderbook")),
+            trade_side_irt=_is_irt,
+        )
+    except Exception as e:
+        logger.debug(f"[Analyzer] record_signal: {e}")
+
+
+# ═══════════════════════════════════════════════════════════
 # تحلیل با کش هوشمند
 # ═══════════════════════════════════════════════════════════
 def analyze(
@@ -333,6 +394,7 @@ def analyze(
     ticker_name: str = "",
     include_extras: bool = True,
     use_cache: bool = True,
+    skip_record: bool = False,
 ) -> Optional[dict]:
     """تحلیل یک نماد در یک تایم‌فریم — با کش بر پایه‌ی fingerprint کندل بسته."""
     if not ticker:
@@ -375,6 +437,20 @@ def analyze(
                 out["source_used"] = data_source
                 out["is_fallback"] = data_source != source
                 out.pop("orderbook", None)
+
+                # 🔴 نسخه ۳.۰: روی cache hit هم ثبت کن
+                # dedup_key جلوی تکرار رو می‌گیره
+                _record_signal_safe(
+                    ticker,
+                    ticker_name,
+                    tf_name,
+                    source,
+                    market_type,
+                    risk_profile,
+                    out,
+                    skip_record,
+                )
+
                 return out
 
     # ═══ ۲.۵ عمق بازار ═══
@@ -416,8 +492,6 @@ def analyze(
 
             effective_fee_pct = sl_tp.get("fee_pct")
             if effective_fee_pct is None:
-                # ─── cost پایه (بدون اسپرد چون عمق بازار نداریم
-                #     یا سیگنال خنثی است) ───
                 effective_fee_pct = (
                     _gfr(
                         data_source or "nobitex",
@@ -548,50 +622,16 @@ def analyze(
     output["risk_profile"] = risk_profile
 
     # ═══ ثبت خودکار سیگنال ═══
-    try:
-        from services.signal_recorder import record_signal
-
-        # ─── تشخیص IRT ───
-        _is_irt = bool(ticker) and (
-            "-IRT" in ticker.upper()
-            or "-RLS" in ticker.upper()
-            or (ticker and not ticker[0].isascii())
-        )
-
-        record_signal(
-            ticker=ticker,
-            name=ticker_name or ticker,
-            signal=output["signal"],
-            price=output["price"],
-            tf_name=tf_name,
-            source=source,
-            market_type=market_type,
-            risk_profile=risk_profile,
-            sl_tp={
-                "sl": output.get("sl"),
-                "tp": output.get("tp"),
-                "type": output.get("direction"),
-            },
-            direction=output.get("direction", "neutral"),
-            confidence=output.get("confidence", 0),
-            consensus=output.get("consensus", "neutral"),
-            regime=output.get("regime", "range"),
-            rr=output.get("rr"),
-            traps=output.get("traps", {}),
-            rr_net=output.get("rr_net"),
-            fee_pct=output.get("fee_pct"),
-            fee_ratio=output.get("fee_ratio"),
-            breakeven_pct=output.get("breakeven_pct"),
-            is_worthwhile=output.get("is_worthwhile"),
-            timeframe_viable=output.get("timeframe_viable"),
-            rr_decay_pct=output.get("rr_decay_pct"),
-            execution_cost=output.get("execution_cost"),
-            orderbook_available=bool(output.get("orderbook")),
-            trade_side_irt=_is_irt,
-        )
-
-    except Exception as e:
-        logger.debug(f"[Analyzer] record_signal: {e}")
+    _record_signal_safe(
+        ticker,
+        ticker_name,
+        tf_name,
+        source,
+        market_type,
+        risk_profile,
+        output,
+        skip_record,
+    )
 
     if use_cache:
         ttl = get_ttl(tf_name)
@@ -602,9 +642,6 @@ def analyze(
     return output
 
 
-# ═══════════════════════════════════════════════════════════
-# چند TF
-# ═══════════════════════════════════════════════════════════
 _MAX_TF_WORKERS = 4
 
 
@@ -675,7 +712,11 @@ def analyze_multi_tf(
     for tf in tf_list:
         r = raw.get(tf)
         if r:
-            results[tf] = r
+            if r:
+                # ─── اطمینان از وجود close_series ───
+                if "close_series" not in r or not r["close_series"]:
+                    r["close_series"] = []
+                results[tf] = r
 
     return results
 

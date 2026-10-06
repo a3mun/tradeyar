@@ -15,7 +15,6 @@ interface AppState {
   timeframe: Timeframe;
   marketType: MarketType;
   riskProfile: RiskProfile;
-  refreshSeconds: number;
   watchlist: WatchlistItem[];
 
   setSource: (s: Source) => void;
@@ -24,7 +23,6 @@ interface AppState {
   setTimeframe: (t: Timeframe) => void;
   setMarketType: (m: MarketType) => void;
   setRiskProfile: (r: RiskProfile) => void;
-  setRefreshSeconds: (s: number) => void;
   addToWatchlist: (ticker: string, name: string, source: string) => void;
   removeFromWatchlist: (ticker: string) => void;
   reset: () => void;
@@ -37,7 +35,6 @@ const DEFAULTS = {
   timeframe: "۵ دقیقه" as Timeframe,
   marketType: "futures" as MarketType,
   riskProfile: "aggressive" as RiskProfile,
-  refreshSeconds: 60,
   watchlist: [] as WatchlistItem[],
 };
 
@@ -55,7 +52,6 @@ export const useAppStore = create<AppState>()(
       setTimeframe: (timeframe) => set({ timeframe }),
       setMarketType: (marketType) => set({ marketType }),
       setRiskProfile: (riskProfile) => set({ riskProfile }),
-      setRefreshSeconds: (refreshSeconds) => set({ refreshSeconds }),
       addToWatchlist: (ticker, name, source) => {
         const current = get().watchlist;
         if (current.some((w) => w.ticker === ticker)) return;
@@ -69,7 +65,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "trademun-store",
-      version: 3,
+      version: 4,
       partialize: (state) => ({
         source: state.source,
         ticker: state.ticker,
@@ -77,7 +73,6 @@ export const useAppStore = create<AppState>()(
         timeframe: state.timeframe,
         marketType: state.marketType,
         riskProfile: state.riskProfile,
-        refreshSeconds: state.refreshSeconds,
         watchlist: state.watchlist,
       }),
     }

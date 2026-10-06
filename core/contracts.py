@@ -852,12 +852,12 @@ def get_adaptive_thresholds(regime: str, adx: float) -> tuple:
 # ۱۲. نمادهای Popular
 # ═══════════════════════════════════════════════════════════
 POPULAR_SYMBOLS = [
-    ("BTC-USD", "₿ بیت‌کوین (USDT)", "nobitex"),
-    ("BTC-IRT", "₿ بیت‌کوین (تومان)", "nobitex"),
-    ("USDT-IRT", "💵 تتر/تومان", "nobitex"),
-    ("ETH-USD", "Ξ اتریوم", "nobitex"),
-    ("PAXG-USD", "🪙 پکس گلد (USDT)", "nobitex"),
-    ("PAXG-IRT", "🪙 پکس گلد (تومان)", "nobitex"),
+    ("BTC-USD", "بیت‌کوین (USDT)", "nobitex"),
+    ("BTC-IRT", "بیت‌کوین (تومان)", "nobitex"),
+    ("USDT-IRT", "تتر/تومان", "nobitex"),
+    ("ETH-USD", "اتریوم", "nobitex"),
+    ("PAXG-USD", "پکس گلد (USDT)", "nobitex"),
+    ("PAXG-IRT", "پکس گلد (تومان)", "nobitex"),
 ]
 
 

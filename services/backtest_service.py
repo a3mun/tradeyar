@@ -232,18 +232,21 @@ def _check_one(log: SignalLog) -> str | None:
                 log.result = "loss"
                 log.result_time = candle_time
                 log.exit_price = log.sl
+                log.trend_correct = False  # 🔴 جدید
                 return "loss"
 
             if tp_hit:
                 log.result = "win"
                 log.result_time = candle_time
                 log.exit_price = log.tp
+                log.trend_correct = True  # 🔴 جدید
                 return "win"
 
             if sl_hit:
                 log.result = "loss"
                 log.result_time = candle_time
                 log.exit_price = log.sl
+                log.trend_correct = False  # 🔴 جدید
                 return "loss"
 
         # ─── SHORT ───
@@ -255,18 +258,21 @@ def _check_one(log: SignalLog) -> str | None:
                 log.result = "loss"
                 log.result_time = candle_time
                 log.exit_price = log.sl
+                log.trend_correct = False  # 🔴 جدید
                 return "loss"
 
             if tp_hit:
                 log.result = "win"
                 log.result_time = candle_time
                 log.exit_price = log.tp
+                log.trend_correct = True  # 🔴 جدید
                 return "win"
 
             if sl_hit:
                 log.result = "loss"
                 log.result_time = candle_time
                 log.exit_price = log.sl
+                log.trend_correct = False  # 🔴 جدید
                 return "loss"
 
     # ═══ ۶. هیچ‌کدوم لمس نشد — چک timeout ═══

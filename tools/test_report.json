@@ -1,0 +1,135 @@
+{
+  "timestamp": "2026-10-06T16:21:18.797590+00:00",
+  "passed": 21,
+  "failed": 0,
+  "total": 21,
+  "success": true,
+  "results": [
+    {
+      "name": "GET /health",
+      "ok": true,
+      "detail": "status=200",
+      "duration_ms": 2825
+    },
+    {
+      "name": "POST /analyze [BTC-USD/nobitex/۵ دقیقه]",
+      "ok": true,
+      "detail": "signal=SHORT (50%) · 2104ms",
+      "duration_ms": 2104
+    },
+    {
+      "name": "POST /analyze/multi [BTC-USD]",
+      "ok": true,
+      "detail": "6 TF · 2407ms",
+      "duration_ms": 2407
+    },
+    {
+      "name": "GET /analyze/quote [BTC-USD/nobitex]",
+      "ok": true,
+      "detail": "price=85800.0 · 2072ms",
+      "duration_ms": 2072
+    },
+    {
+      "name": "GET /orderbook/BTC-USD/summary",
+      "ok": true,
+      "detail": "imbalance=0.4417 · spread=0.0492%",
+      "duration_ms": 2403
+    },
+    {
+      "name": "GET /analyze/fear-greed [BTC-USD]",
+      "ok": true,
+      "detail": "value=63.2 · 2150ms",
+      "duration_ms": 2150
+    },
+    {
+      "name": "POST /backtest/record [BTC-USD/۵ دقیقه]",
+      "ok": true,
+      "detail": "recorded=True · 2092ms",
+      "duration_ms": 2092
+    },
+    {
+      "name": "POST /analyze [PAXG-IRT/nobitex/۱۵ دقیقه]",
+      "ok": true,
+      "detail": "signal=خنثی (0%) · 2303ms",
+      "duration_ms": 2303
+    },
+    {
+      "name": "POST /analyze/multi [PAXG-IRT]",
+      "ok": true,
+      "detail": "6 TF · 2480ms",
+      "duration_ms": 2480
+    },
+    {
+      "name": "GET /analyze/quote [PAXG-IRT/nobitex]",
+      "ok": true,
+      "detail": "price=1119988800.0 · 2245ms",
+      "duration_ms": 2245
+    },
+    {
+      "name": "GET /orderbook/PAXG-IRT/summary",
+      "ok": true,
+      "detail": "imbalance=0.513 · spread=0.1753%",
+      "duration_ms": 2227
+    },
+    {
+      "name": "POST /backtest/record [PAXG-IRT/۱۵ دقیقه]",
+      "ok": true,
+      "detail": "recorded=True · 2140ms",
+      "duration_ms": 2140
+    },
+    {
+      "name": "POST /analyze [فولاد/tsetmc/روزانه]",
+      "ok": true,
+      "detail": "signal=خنثی (0%) · 2824ms",
+      "duration_ms": 2824
+    },
+    {
+      "name": "POST /analyze/multi [فولاد]",
+      "ok": true,
+      "detail": "1 TF · 2089ms",
+      "duration_ms": 2089
+    },
+    {
+      "name": "GET /analyze/quote [فولاد/tsetmc]",
+      "ok": true,
+      "detail": "price=3770.0 · 2646ms",
+      "duration_ms": 2646
+    },
+    {
+      "name": "POST /backtest/record [فولاد/روزانه]",
+      "ok": true,
+      "detail": "recorded=True · 2095ms",
+      "duration_ms": 2095
+    },
+    {
+      "name": "POST /scan [nobitex]",
+      "ok": true,
+      "detail": "16 نتیجه · 6425ms",
+      "duration_ms": 6425
+    },
+    {
+      "name": "GET /backtest",
+      "ok": true,
+      "detail": "total=7 · win_rate=0.0%",
+      "duration_ms": 2049
+    },
+    {
+      "name": "GET /backtest/history",
+      "ok": true,
+      "detail": "7 سیگنال",
+      "duration_ms": 2102
+    },
+    {
+      "name": "POST /backtest/run",
+      "ok": true,
+      "detail": "checked=7 · updated=0",
+      "duration_ms": 2363
+    },
+    {
+      "name": "GET /backtest/by-tf",
+      "ok": true,
+      "detail": "5 TF",
+      "duration_ms": 2094
+    }
+  ]
+}

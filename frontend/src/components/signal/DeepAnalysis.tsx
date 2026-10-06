@@ -1,21 +1,36 @@
 "use client";
 
+/**
+ * DeepAnalysis — تحلیل عمیق + AI
+ * ============================================================
+ * نسخه ۲.۰ · فاز ۷
+ *
+ * 🔴 تغییرات نسخه ۲.۰:
+ *   • حذف GET /analyze/deep (تکراری با WS signal)
+ *   • حذف POST /analyze (تکراری با SignalDataProvider)
+ *   • استفاده از useSignalData (منبع واحد حقیقت)
+ *
+ * ─── نتیجه ───
+ *   ✅ صفر درخواست اضافه
+ *   ✅ داده همیشه با SignalCard سازگار
+ *   ✅ سرعت بالاتر
+ *
+ * ═══ بخش‌بندی متن ═══
+ *   1. تکنیکال — از ابتدا تا marker «◈ زمینه‌ی بنیادی»
+ *   2. بنیادی  — از marker تا marker «◈ جمع‌بندی صادقانه»
+ *   3. نتیجه  — از marker تا آخر
+ */
+
 import { useEffect, useState } from "react";
 import { Copy, Check, Brain, Sparkles, Loader2, Settings } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
+import { useSignalData } from "@/hooks/useSignalData";
 import { SOURCE_BY_KEY } from "@/lib/sources";
 
-/**
- * بخش‌بندی متن تحلیل عمیق به سه قسمت:
- *   1. تکنیکال — از ابتدا تا marker «◈ زمینه‌ی بنیادی»
- *   2. بنیادی  — از marker تا marker «◈ جمع‌بندی صادقانه»
- *   3. نتیجه  — از marker «◈ جمع‌بندی صادقانه» تا آخر
- */
 function splitSections(raw: string) {
   if (!raw) return { tech: "", fund: "", concl: "" };
 
@@ -48,13 +63,14 @@ function splitSections(raw: string) {
 }
 
 export function DeepAnalysis() {
-  const { ticker, tickerName, source, timeframe, marketType, riskProfile } =
-    useAppStore();
-  const [text, setText] = useState("");
-  const [aiExport, setAiExport] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { source, timeframe } = useAppStore();
+  const { data, loading } = useSignalData();
 
+  // ─── استخراج متن و ai_export از منبع واحد ───
+  const text = (data as { deep_analysis?: string } | null)?.deep_analysis || "";
+  const aiExport = data?.ai_export || "";
+
+  const [copied, setCopied] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
   const [aiError, setAiError] = useState("");
@@ -65,41 +81,6 @@ export function DeepAnalysis() {
     const saved = localStorage.getItem("deepseek_api_key") || "";
     setApiKey(saved);
   }, []);
-
-  useEffect(() => {
-    if (!ticker) return;
-    setLoading(true);
-    setText("");
-    api
-      .get("/analyze/deep", {
-        params: {
-          ticker,
-          source,
-          timeframe,
-          market_type: marketType,
-          risk_profile: riskProfile,
-          ticker_name: tickerName,
-        },
-      })
-      .then((res) => setText(res.data.paragraph || ""))
-      .catch(() => setText(""))
-      .finally(() => setLoading(false));
-  }, [ticker, tickerName, source, timeframe, marketType, riskProfile]);
-
-  useEffect(() => {
-    if (!ticker) return;
-    api
-      .post("/analyze", {
-        ticker,
-        source,
-        timeframe,
-        market_type: marketType,
-        risk_profile: riskProfile,
-        ticker_name: tickerName,
-      })
-      .then((res) => setAiExport(res.data.ai_export || ""))
-      .catch(() => setAiExport(""));
-  }, [ticker, tickerName, source, timeframe, marketType, riskProfile]);
 
   const handleCopy = async () => {
     if (!aiExport) return;
@@ -158,10 +139,10 @@ export function DeepAnalysis() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error?.message || `HTTP ${res.status}`);
       }
-      const data = await res.json();
-      setAiResult(data.choices?.[0]?.message?.content || "پاسخی دریافت نشد");
-    } catch (e: any) {
-      setAiError(e.message || "خطا در ارتباط با AI");
+      const resData = await res.json();
+      setAiResult(resData.choices?.[0]?.message?.content || "پاسخی دریافت نشد");
+    } catch (e: unknown) {
+      setAiError((e as Error).message || "خطا در ارتباط با AI");
     } finally {
       setAiLoading(false);
     }
@@ -191,7 +172,7 @@ export function DeepAnalysis() {
         </CardHeader>
 
         <CardContent className="space-y-3">
-          {loading ? (
+          {loading && !text ? (
             <div className="space-y-2">
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-full" />

@@ -14,6 +14,8 @@ import {
   Share2,
   Loader2,
   Info,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,13 +28,16 @@ import {
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { useAnalysisCapability } from "@/lib/hooks/useAnalysisCapability";
+import { useWebSocket } from "@/lib/hooks/useWebSocket";
 import {
   SOURCE_BY_KEY,
   sourceBadgeClass,
   sourceSupportsPair,
 } from "@/lib/sources";
 import { AnalysisUnavailable } from "@/components/signal/AnalysisUnavailable";
-import type { AnalyzeResponse, QuoteResponse } from "@/lib/types";
+import { Sparkline } from "@/components/ui/sparkline";
+import { CryptoIcon } from "@/components/ui/crypto-icon";
+import type { AnalyzeResponse } from "@/lib/types";
 import {
   regimeIcon,
   regimeFullFa,
@@ -73,56 +78,6 @@ const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
   },
 };
 
-
-// ═══ بازه‌ی به‌روزرسانی خودکار (ثانیه) ═══
-// چرا ثابت: سیستم همیشه زنده باید باشه، کاربر نیازی به تنظیم نداره.
-const REFRESH_SECONDS = 60;
-
-function useLiveQuote(ticker: string, source: string, enabled: boolean) {
-  const [price, setPrice] = useState<number | null>(null);
-  const [change, setChange] = useState<number>(0);
-  const [available, setAvailable] = useState<boolean>(true);
-
-  useEffect(() => {
-    if (!enabled || !ticker) return;
-
-    let cancelled = false;
-
-    const fetchQuote = () => {
-      if (document.hidden) return;
-      api
-        .get<QuoteResponse>("/analyze/quote", { params: { ticker, source } })
-        .then((res) => {
-          if (cancelled) return;
-          setPrice(res.data.price);
-          setChange(res.data.change_pct || 0);
-          setAvailable(true);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setPrice(null);
-          setChange(0);
-          setAvailable(false);
-        });
-    };
-
-    fetchQuote();
-    const id = setInterval(fetchQuote, 5000);
-    const onVisible = () => {
-      if (!document.hidden) fetchQuote();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [ticker, source, enabled]);
-
-  return { price, change, available };
-}
-
 export function SignalCard() {
   const {
     ticker,
@@ -135,40 +90,25 @@ export function SignalCard() {
     addToWatchlist,
     removeFromWatchlist,
   } = useAppStore();
-    
+
   const capability = useAnalysisCapability(source);
+  const { quote, signal: wsSignal, status: wsStatus } = useWebSocket();
 
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState("");
   const [sharing, setSharing] = useState(false);
+
+  // ═══ Flash + Count-up state ═══
+  const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
+  const [animPrice, setAnimPrice] = useState<number>(0);
+  const [dotPulse, setDotPulse] = useState(false);
+  const prevPriceRef = useRef<number | null>(null);
+  const animRef = useRef<number>(0);
 
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const {
-    price: livePrice,
-    change: liveChange,
-    available: quoteAvailable,
-  } = useLiveQuote(ticker, source, !!ticker);
-
-  // ═══ آپدیت ساعت هر ثانیه ═══
-  useEffect(() => {
-    const update = () => {
-      setLastUpdate(
-        new Intl.DateTimeFormat("fa-IR", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }).format(new Date())
-      );
-    };
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // ═══ دریافت تحلیل (با Timer خودکار) ═══
+  // ═══ بار اول: fetch analysis ═══
   useEffect(() => {
     if (!ticker) return;
 
@@ -187,16 +127,14 @@ export function SignalCard() {
 
     let cancelled = false;
 
-    const loadAnalysis = async (showLoading: boolean) => {
-      if (showLoading) {
-        queueMicrotask(() => {
-          if (!cancelled) {
-            setLoading(true);
-            setError(null);
-          }
-        });
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setError(null);
       }
+    });
 
+    (async () => {
       try {
         const res = await api.post<AnalyzeResponse>("/analyze", {
           ticker,
@@ -222,23 +160,12 @@ export function SignalCard() {
         setError(msg);
         setData(null);
       } finally {
-        if (!cancelled && showLoading) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
+    })();
 
-    // ─── بار اول: با loading ───
-    loadAnalysis(true);
-
-    // ─── Timer خودکار: اگه refreshSeconds > 0 ───
-    const intervalId = setInterval(() => {
-      if (!document.hidden) {
-        loadAnalysis(false);
-      }
-    }, REFRESH_SECONDS * 1000);
-    
     return () => {
       cancelled = true;
-      if (intervalId) clearInterval(intervalId);
     };
   }, [
     ticker,
@@ -249,6 +176,73 @@ export function SignalCard() {
     riskProfile,
     capability.planned,
   ]);
+
+  // ═══ WS signal → جایگزینی data ═══
+  useEffect(() => {
+    if (wsSignal) {
+      setData(wsSignal as unknown as AnalyzeResponse);
+    }
+  }, [wsSignal]);
+
+  // ═══ Flash + Count-up وقتی قیمت عوض می‌شه ═══
+  const entryPrice = data?.price ?? 0;
+  const livePrice = quote?.price ?? entryPrice ?? 0;
+
+  useEffect(() => {
+    if (!livePrice || livePrice <= 0) return;
+
+    const prev = prevPriceRef.current;
+
+    if (prev != null && prev !== livePrice) {
+      // ─── Flash ───
+      const dir = livePrice > prev ? "up" : "down";
+      setPriceFlash(dir);
+      setDotPulse(true);
+
+      // ─── Count-up از prev به livePrice ───
+      const start = performance.now();
+      const from = animRef.current || prev;
+      const to = livePrice;
+      const duration = 400;
+
+      let rafId: number;
+      const tick = (now: number) => {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const val = from + (to - from) * eased;
+
+        setAnimPrice(val);
+        animRef.current = val;
+
+        if (progress < 1) {
+          rafId = requestAnimationFrame(tick);
+        } else {
+          setAnimPrice(to);
+          animRef.current = to;
+        }
+      };
+
+      rafId = requestAnimationFrame(tick);
+
+      // ─── پاک کردن flash ───
+      const flashTimer = setTimeout(() => setPriceFlash(null), 400);
+      const pulseTimer = setTimeout(() => setDotPulse(false), 700);
+      prevPriceRef.current = livePrice;
+
+      return () => {
+        clearTimeout(flashTimer);
+        clearTimeout(pulseTimer);
+        cancelAnimationFrame(rafId);
+      };
+    } else {
+      prevPriceRef.current = livePrice;
+      if (animRef.current === 0) {
+        setAnimPrice(livePrice);
+        animRef.current = livePrice;
+      }
+    }
+  }, [livePrice]);
 
   // ═══ اشتراک‌گذاری ═══
   const handleShare = async () => {
@@ -339,21 +333,20 @@ export function SignalCard() {
 
   if (!data) return null;
 
-  const entryPrice = data.price ?? 0;
   const sl = data.sl;
   const tp = data.tp;
   const rr = data.rr;
 
-  const displayPrice = livePrice ?? entryPrice;
-  const displayChange = livePrice != null ? liveChange : null;
+  // ─── قیمت زنده از WS ───
+  const displayChange = quote != null ? quote.change_pct : null;
 
   const distToSl =
-    sl != null && displayPrice > 0
-      ? ((displayPrice - sl) / displayPrice) * 100
+    sl != null && livePrice > 0
+      ? ((livePrice - sl) / livePrice) * 100
       : null;
   const distToTp =
-    tp != null && displayPrice > 0
-      ? ((tp - displayPrice) / displayPrice) * 100
+    tp != null && livePrice > 0
+      ? ((tp - livePrice) / livePrice) * 100
       : null;
 
   const SignalIcon =
@@ -462,16 +455,44 @@ export function SignalCard() {
     </div>
   );
 
+  const wsConnected = wsStatus === "connected";
+
   return (
-    <div ref={cardRef}>
+    <div ref={cardRef} data-signal-card>
       <Card className={`border ${signalBg(data.signal)}`}>
         <div className="space-y-2 p-3 pb-2">
           {/* خط ۱: نام + دکمه‌ها */}
           <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <CryptoIcon ticker={data.ticker} size="md" />
               <p className="truncate text-sm font-bold">{data.name}</p>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger>
+                  <span
+                    className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] ${
+                      wsConnected ? "text-green-500" : "text-orange-400"
+                    }`}
+                  >
+                    {wsConnected ? (
+                      <Wifi className="h-3 w-3" />
+                    ) : (
+                      <WifiOff className="h-3 w-3" />
+                    )}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-[10px]">
+                    {wsConnected
+                      ? "اتصال زنده فعال"
+                      : wsStatus === "reconnecting"
+                        ? "در حال اتصال مجدد…"
+                        : "اتصال زنده قطع است"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+
               <button
                 onClick={handleShare}
                 disabled={sharing}
@@ -581,13 +602,30 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* قیمت + سیگنال */}
+          {/* ═══ قیمت + سیگنال ═══ */}
           <div className="rounded-lg bg-muted/40 p-2.5">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[9px] text-muted-foreground">قیمت زنده</p>
-                <p className="num truncate text-lg font-bold leading-tight tracking-tight sm:text-xl">
-                  {formatNumber(displayPrice)}
+                <p className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                  <span>قیمت زنده</span>
+                  {wsConnected && (
+                    <span
+                      className={`inline-block h-1.5 w-1.5 rounded-full bg-green-500 ${
+                        dotPulse ? "animate-ping" : ""
+                      }`}
+                    />
+                  )}
+                </p>
+                <p
+                  className={`num truncate text-lg font-bold leading-tight tracking-tight transition-colors duration-300 sm:text-xl ${
+                    priceFlash === "up"
+                      ? "text-green-500"
+                      : priceFlash === "down"
+                        ? "text-red-500"
+                        : ""
+                  }`}
+                >
+                  {formatNumber(animPrice || livePrice)}
                 </p>
                 {displayChange != null && displayChange !== 0 && (
                   <p
@@ -617,23 +655,64 @@ export function SignalCard() {
 
               <div className="h-9 w-px shrink-0 bg-border/40" />
 
-              <div
-                className={`shrink-0 text-center ${signalColor(data.signal)}`}
-              >
-                <SignalIcon className="mx-auto h-3.5 w-3.5" />
-                <p className="text-[13px] font-bold leading-none">
-                  {data.signal}
-                </p>
-                <p
-                  className={`num mt-0.5 text-[10px] font-bold ${confidenceColor(data.confidence)}`}
+              <div className="shrink-0 text-center">
+                {/* ─── سیگنال: سبز/قرمز/خاکستری ─── */}
+                <div
+                  className={
+                    data.direction === "long"
+                      ? "text-green-500"
+                      : data.direction === "short"
+                        ? "text-red-500"
+                        : "text-slate-400"
+                  }
                 >
+                  <SignalIcon className="mx-auto h-3.5 w-3.5" />
+                  <p className="text-[13px] font-bold leading-none">
+                    {data.signal}
+                  </p>
+                </div>
+
+                {/* ─── اطمینان: آبی ─── */}
+                <p className="num mt-0.5 text-[10px] font-bold text-blue-500">
                   {data.confidence}%
                 </p>
               </div>
             </div>
           </div>
 
-          {/* SL/TP */}
+
+          {/* ═══ نمودار قیمت زنده ═══ */}
+          {data.close_series && data.close_series.length >= 2 ? (
+            <Sparkline
+              data={data.close_series}
+              height={80}
+              showArea
+              showDot
+              sl={sl}
+              tp={tp}
+              entry={entryPrice}
+              color={
+                // ═══ 🔴 بر اساس SIGNAL نه direction ═══
+                data.signal.includes("LONG") || data.signal.includes("صعودی")
+                  ? "green"
+                  : data.signal.includes("SHORT") || data.signal.includes("نزولی")
+                    ? "red"
+                    : "neutral"
+              }
+            />
+          ) : (
+            <div
+              className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10"
+              style={{ height: 80 }}
+            >
+              <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/5 to-transparent" />
+              <div className="relative flex items-center gap-2 text-[10px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>در حال پردازش نمودار…</span>
+              </div>
+            </div>
+          )}          
+          {/* ═══ SL/TP ═══ */}
           {sl != null && tp != null && (
             <div className="grid grid-cols-3 gap-1.5">
               <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-1.5 text-center">
@@ -689,7 +768,7 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* اقتصاد معامله */}
+          {/* ═══ اقتصاد معامله ═══ */}
           {data.fee_pct != null && (
             <div
               className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[9px] ${
@@ -736,7 +815,7 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* وضعیت + اجماع + زمان */}
+          {/* ═══ وضعیت + اجماع ═══ */}
           <div className="flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
             <span>
               {regimeIcon(data.regime)} {regimeFullFa(data.regime)}
@@ -744,10 +823,9 @@ export function SignalCard() {
             <span className={consensusColor(data.consensus)}>
               {consensusFa(data.consensus)}
             </span>
-            {lastUpdate && <span className="num opacity-70">{lastUpdate}</span>}
           </div>
 
-          {/* نوار آراء */}
+          {/* ═══ نوار آراء ═══ */}
           <div className="space-y-1">
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40">
               {longPct > 0 && (
@@ -784,13 +862,6 @@ export function SignalCard() {
               </span>
             </div>
           </div>
-
-          {!quoteAvailable && (
-            <p className="text-center text-[8px] text-muted-foreground">
-              ⚠️ قیمت زنده از {requestedMeta?.label} در دسترس نیست — قیمت
-              تحلیل نمایش داده می‌شود
-            </p>
-          )}
         </CardContent>
       </Card>
     </div>

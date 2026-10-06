@@ -34,6 +34,7 @@ import { Star, X } from "lucide-react";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { useAppStore } from "@/store/useAppStore";
 import { SOURCE_BY_KEY } from "@/lib/sources";
+import { CryptoIcon } from "@/components/ui/crypto-icon";
 
 export function WatchlistCard() {
   const {
@@ -95,11 +96,9 @@ export function WatchlistCard() {
                   setTicker(w.ticker, w.name);
                   setSource(w.source as never);
                 }}
-                className={`flex items-center gap-1 whitespace-nowrap ${
-                  isCurrent ? "text-primary" : "text-foreground"
-                }`}
+                className="flex items-center gap-1 whitespace-nowrap"
               >
-                <span className="text-[9px]">{meta?.icon ?? "•"}</span>
+                <CryptoIcon ticker={w.ticker} size="sm" />
                 <span className="font-medium">{w.name}</span>
               </button>
 

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Vazirmatn } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { WebSocketProvider } from "@/lib/hooks/useWebSocket";
+import { SignalDataProvider } from "@/hooks/useSignalData";
 import "./globals.css";
 
 const vazirmatn = Vazirmatn({
@@ -42,7 +44,11 @@ export default function RootLayout({
       <body
         className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}
       >
-        <TooltipProvider>{children}</TooltipProvider>
+        <WebSocketProvider>
+          <SignalDataProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </SignalDataProvider>
+        </WebSocketProvider>
       </body>
     </html>
   );

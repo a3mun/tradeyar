@@ -54,11 +54,12 @@ import { PriceComparison } from "@/components/signal/PriceComparison";
 import { OrderBookPanel } from "@/components/signal/OrderBookPanel";
 import { WatchlistCard } from "@/components/signal/WatchlistCard";
 import { Scanner } from "@/components/scan/Scanner";
-import { BacktestStats } from "@/components/backtest/BacktestStats";
-import { SignalHistory } from "@/components/backtest/SignalHistory";
+import { BacktestPanel } from "@/components/backtest/BacktestPanel";
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
+import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
+
 
 export default function HomePage() {
   const { data } = useSignalData();
@@ -67,8 +68,10 @@ export default function HomePage() {
   const coherent = sourceSupportsPair(source, ticker);
 
   return (
+    
     <div className="min-h-screen bg-background">
       <Header />
+       <StickyMiniHeader /> 
       <div className="w-full overflow-hidden">
         <Marquee />
       </div>
@@ -137,11 +140,8 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* ═══ راستی‌آزمایی + تاریخچه سیگنال‌ها ═══ */}
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
-            <BacktestStats />
-            <SignalHistory />
-          </div>
+          {/* ═══ راستی‌آزمایی — تمام عرض ═══ */}
+          <BacktestPanel />
         </main>
       </div>
 

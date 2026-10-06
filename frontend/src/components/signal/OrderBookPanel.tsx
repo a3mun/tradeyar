@@ -1,85 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Activity, TrendingUp, TrendingDown, Info, Layers } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import { formatNumber } from "@/lib/display";
-
-interface OrderBookSummary {
-  ok: boolean;
-  ticker: string;
-  source: string;
-  imbalance: number;
-  spread_pct: number;
-  pressure_fa: string;
-  has_bid_wall: boolean;
-  has_ask_wall: boolean;
-  wall?: { side: string; price: number; quantity: number; ratio: number } | null;
-  execution_cost?: {
-    fee_pct: number;
-    spread_cost_pct: number;
-    slippage_pct: number;
-    total_pct: number;
-  };
-}
+import { useWebSocket } from "@/lib/hooks/useWebSocket";
 
 const OB_SOURCES = new Set(["nobitex", "bitpin", "wallex", "tabdeal"]);
 
 export function OrderBookPanel() {
   const { ticker, source } = useAppStore();
-  const [data, setData] = useState<OrderBookSummary | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { orderbook: data } = useWebSocket();
 
-  const supported = OB_SOURCES.has(source) && sourceSupportsPair(source, ticker);
-
-  useEffect(() => {
-    if (!ticker || !supported) {
-      let cancelled = false;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setData(null);
-        setLoading(false);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    let cancelled = false;
-
-    const load = () => {
-      if (document.hidden) return;
-      api
-        .get<OrderBookSummary>(
-          `/orderbook/${encodeURIComponent(ticker)}/summary`,
-          { params: { source } }
-        )
-        .then((res) => {
-          if (!cancelled) setData(res.data);
-        })
-        .catch(() => {
-          if (!cancelled) setData(null);
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    };
-
-    queueMicrotask(() => {
-      if (!cancelled) setLoading(true);
-    });
-    load();
-
-    const id = setInterval(load, 15000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [ticker, source, supported]);
+  const supported =
+    OB_SOURCES.has(source) && sourceSupportsPair(source, ticker);
 
   if (!supported) return null;
 
@@ -95,9 +30,7 @@ export function OrderBookPanel() {
         </CardHeader>
         <CardContent>
           <p className="py-2 text-center text-[10px] text-muted-foreground">
-            {loading
-              ? "عمق بازار در حال دریافت است…"
-              : "این صرافی عمق بازار این نماد را منتشر نمی‌کند"}
+            عمق بازار در حال دریافت است…
           </p>
         </CardContent>
       </Card>

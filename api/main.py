@@ -3,6 +3,9 @@ api/main.py
 FastAPI app — نقطه ورود
 ============================================================
 اجرا: uvicorn api.main:app --reload
+
+🔴 فاز ۷: WebSocket در sub-app جدا mount می‌شود تا
+   CORSMiddleware روی آن اثر نگذارد (رفع 403).
 """
 
 import logging
@@ -14,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import analyze, backtest, orderbook, scan, symbols
+from api.routers import ws as ws_router
 from api.scheduler import start_scheduler, stop_scheduler
 
 # ═══════════════════════════════════════════════════════════
@@ -34,10 +38,10 @@ async def lifespan(app: FastAPI):
     # ─── Startup ───
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} در حال شروع...")
     init_db()
-    # ─── migration سبک: اضافه کردن ستون‌های جدید به جداول موجود ───
     migrate_db()
     logger.info("✅ دیتابیس آماده")
     start_scheduler()
+    logger.info("✅ WebSocket manager آماده (/api/ws/live)")
     yield
     # ─── Shutdown ───
     stop_scheduler()
@@ -45,7 +49,17 @@ async def lifespan(app: FastAPI):
 
 
 # ═══════════════════════════════════════════════════════════
-# App
+# 🔴 WebSocket sub-app — جدا از CORS
+# ═══════════════════════════════════════════════════════════
+# چرا: CORSMiddleware در Starlette کل app رو wrap می‌کنه،
+# حتی اگه include_router قبلش باشه. تنها راه واقعی، جدا کردن
+# WS در یه app مستقل با mount در path مشخصه.
+ws_app = FastAPI()
+ws_app.include_router(ws_router.router)
+
+
+# ═══════════════════════════════════════════════════════════
+# App اصلی — با CORS
 # ═══════════════════════════════════════════════════════════
 app = FastAPI(
     title=settings.APP_NAME,
@@ -56,26 +70,32 @@ app = FastAPI(
 
 
 # ═══════════════════════════════════════════════════════════
-# CORS
+# CORS — فقط برای HTTP (WS رو دست نمی‌زنه چون sub-app شده)
 # ═══════════════════════════════════════════════════════════
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=False,  # ← از True به False (چون از cookie/token استفاده نمی‌کنی)
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 # ═══════════════════════════════════════════════════════════
-# Routers
+# Routers — HTTP
 # ═══════════════════════════════════════════════════════════
 app.include_router(analyze.router)
 app.include_router(symbols.router)
 app.include_router(scan.router)
 app.include_router(backtest.router)
-# ─── 🔜 فاز ۶.۵: عمق بازار (فعلاً 501) ───
 app.include_router(orderbook.router)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 Mount WebSocket sub-app — خارج از CORS
+# ═══════════════════════════════════════════════════════════
+# مسیر نهایی: /api/ws/live
+app.mount("/api", ws_app)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -87,7 +107,7 @@ async def root():
         "ok": True,
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "phase": "فاز ۶ — FastAPI Backend",
+        "phase": "فاز ۷ — WebSocket زنده",
     }
 
 

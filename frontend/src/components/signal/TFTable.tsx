@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { regimeFa, signalColor, confidenceColor } from "@/lib/display";
 import { sourceSupportsPair } from "@/lib/sources";
+import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 
 const TIMEFRAMES: Timeframe[] = [
@@ -50,6 +51,19 @@ const SOURCE_BADGE: Record<string, { color: string; label: string }> = {
   },
 };
 
+// ═══ 🔴 helper: رنگ sparkline بر اساس SIGNAL (نه direction) ═══
+function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
+  if (!signal) return "neutral";
+  const s = signal.toUpperCase();
+  if (s.includes("LONG") || signal.includes("صعودی") || signal.includes("خرید")) {
+    return "green";
+  }
+  if (s.includes("SHORT") || signal.includes("نزولی") || signal.includes("فروش")) {
+    return "red";
+  }
+  return "neutral";
+}
+
 export function TFTable() {
   const {
     ticker,
@@ -63,9 +77,7 @@ export function TFTable() {
   const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
   const [loading, setLoading] = useState(false);
 
-  // ═══ Fetch multi-TF ═══
   useEffect(() => {
-    // ─── 🔴 جفت ناهماهنگ (مثلاً tsetmc + BTC-USD) → درخواست نزن ───
     if (!ticker || !sourceSupportsPair(source, ticker)) {
       let cancelled = false;
       queueMicrotask(() => {
@@ -109,7 +121,6 @@ export function TFTable() {
   }, [ticker, tickerName, source, marketType, riskProfile]);
 
   const handleRowClick = (tf: string) => {
-    // ─── TFهای جدول دقیقاً همان Timeframeهای معتبرند ───
     setTimeframe(tf as Timeframe);
   };
 
@@ -136,6 +147,7 @@ export function TFTable() {
               <TableHead className="text-right">سیگنال</TableHead>
               <TableHead className="text-right">اطمینان</TableHead>
               <TableHead className="text-right">وضعیت</TableHead>
+              <TableHead className="text-center w-20">نمودار</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -154,6 +166,9 @@ export function TFTable() {
                   <TableCell>
                     <Skeleton className="h-5 w-16" />
                   </TableCell>
+                  <TableCell>
+                    <Skeleton className="h-6 w-16" />
+                  </TableCell>
                 </TableRow>
               ))}
 
@@ -169,7 +184,7 @@ export function TFTable() {
                         {tf}
                       </TableCell>
                       <TableCell
-                        colSpan={3}
+                        colSpan={4}
                         className="text-right text-xs text-muted-foreground"
                       >
                         دیتا نیست
@@ -206,6 +221,14 @@ export function TFTable() {
                     </TableCell>
                     <TableCell className="text-right text-xs text-muted-foreground">
                       {regimeFa(row.regime)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <MiniSparkline
+                        data={row.close_series || []}
+                        height={22}
+                        color={sparkColorFromSignal(row.signal)}
+                        className="w-16"
+                      />
                     </TableCell>
                   </TableRow>
                 );

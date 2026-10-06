@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════
 # Trademun — requirements.txt
-# فاز ۶: FastAPI Backend + Next.js Frontend
+# فاز ۷: WebSocket + FastAPI Backend + Next.js Frontend
 # ═══════════════════════════════════════════════════════════
 # ⚠️ فقط پکیج‌های **واقعاً استفاده‌شده**.
 #    هر پکیج جدید را با دلیل اضافه کن، نه به‌صورت احتیاطی.
@@ -20,6 +20,9 @@ uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 python-dotenv>=1.0.0
+
+# ─── WebSocket (فاز ۷) ───
+websockets>=13.0
 
 # ─── Database ───
 sqlmodel>=0.0.22

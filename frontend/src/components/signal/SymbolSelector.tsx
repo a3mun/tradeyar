@@ -20,14 +20,15 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import type { SymbolItem } from "@/lib/types";
+import { CryptoIcon } from "@/components/ui/crypto-icon";
 
 const POPULAR_FALLBACK: SymbolItem[] = [
-  { ticker: "BTC-USD", name: "₿ بیت‌کوین (USDT)", source: "nobitex" },
-  { ticker: "BTC-IRT", name: "₿ بیت‌کوین (تومان)", source: "nobitex" },
-  { ticker: "USDT-IRT", name: "💵 تتر/تومان", source: "nobitex" },
-  { ticker: "ETH-USD", name: "Ξ اتریوم", source: "nobitex" },
-  { ticker: "PAXG-USD", name: "🪙 پکس گلد", source: "nobitex" },
-  { ticker: "PAXG-IRT", name: "🪙 پکس گلد (تومان)", source: "nobitex" },
+  { ticker: "BTC-USD", name: "بیت‌کوین (USDT)", source: "nobitex" },
+  { ticker: "BTC-IRT", name: "بیت‌کوین (تومان)", source: "nobitex" },
+  { ticker: "USDT-IRT", name: "تتر/تومان", source: "nobitex" },
+  { ticker: "ETH-USD", name: "اتریوم", source: "nobitex" },
+  { ticker: "PAXG-USD", name: "پکس گلد", source: "nobitex" },
+  { ticker: "PAXG-IRT", name: "پکس گلد (تومان)", source: "nobitex" },
 ];
 
 function normalize(text: string): string {
@@ -180,12 +181,15 @@ export function SymbolSelector() {
                 >
                   <button
                     onClick={() => handleSelect(item)}
-                    className="flex-1 text-right"
+                    className="flex flex-1 items-center gap-2 text-right"
                   >
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {item.ticker}
-                    </p>
+                    <CryptoIcon ticker={item.ticker} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{item.name}</p>
+                      <p className="num truncate text-[10px] text-muted-foreground">
+                        {item.ticker}
+                      </p>
+                    </div>
                   </button>
                   <button
                     onClick={(e) => {
@@ -227,6 +231,7 @@ export function SymbolSelector() {
                 : "border-border"
             }`}
           >
+            <CryptoIcon ticker={item.ticker} size="sm" />
             <span className="truncate">{item.name}</span>
           </button>
         ))}

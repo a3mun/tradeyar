@@ -1,18 +1,16 @@
 "use client";
 
-/**
- * SignalHistory — تاریخچه سیگنال‌ها (نسخه ۲.۰)
- * ============================================================
- * ═══ تغییرات نسخه ۲.۰ ═══
- *   • مهلت سیگنال per-بازار (فیوچرز ۵ کندل / اسپات ۱۰ کندل)
- *   • بج «فیوچرز/اسپات» برای تفکیک بصری
- *   • Poll هر ۱۵ ثانیه (به جای ۶۰)
- */
-
-import { useCallback, useEffect, useState } from "react";
-import { History, Clock, AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Clock,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ArrowDownUp,
+  Timer,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -24,6 +22,7 @@ import {
 import { api } from "@/lib/api";
 import { signalColor, formatNumber } from "@/lib/display";
 import type { SignalHistoryItem } from "@/lib/types";
+import { CryptoIcon } from "@/components/ui/crypto-icon";
 
 const SOURCE_MAP: Record<string, { label: string; color: string }> = {
   nobitex: { label: "نوبیتکس", color: "text-purple-400" },
@@ -33,7 +32,6 @@ const SOURCE_MAP: Record<string, { label: string; color: string }> = {
   tsetmc: { label: "بورس", color: "text-emerald-400" },
 };
 
-// ═══ مهلت سیگنال (هماهنگ با backend — core/contracts.py) ═══
 const TF_DURATION_MIN: Record<string, number> = {
   "۱ دقیقه": 1,
   "۵ دقیقه": 5,
@@ -72,7 +70,6 @@ function toJalali(iso: string): string {
   if (!d) return "—";
   try {
     return new Intl.DateTimeFormat("fa-IR", {
-      year: "2-digit",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -99,39 +96,45 @@ function timeLeftMin(
 
 function formatTimeLeft(min: number): string {
   if (min < 0) return "منقضی";
-  if (min < 60) return `${min} دقیقه`;
+  if (min < 60) return `${min} د`;
   const hr = Math.floor(min / 60);
   const m = min % 60;
   if (hr < 24) return `${hr}h ${m}m`;
   return `${Math.floor(hr / 24)} روز`;
 }
 
-export function SignalHistory() {
+type SortBy = "expiry" | "newest" | "oldest";
+
+interface Props {
+  source?: string;
+}
+
+export function SignalHistory({ source = "" }: Props) {
   const [items, setItems] = useState<SignalHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("all");
-  const [visibleCount, setVisibleCount] = useState(8);
+  const [sortBy, setSortBy] = useState<SortBy>("expiry");
+  const [visibleCount, setVisibleCount] = useState(10);
 
   const silentFetch = useCallback(async () => {
     try {
       const res = await api.get("/backtest/history", {
-        params: { limit: 200, status },
+        params: { limit: 200, status, source },
       });
       setItems(res.data.items || []);
       setError("");
     } catch {
       setError("دریافت تاریخچه ناموفق بود");
     }
-  }, [status]);
+  }, [status, source]);
 
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       try {
         const res = await api.get("/backtest/history", {
-          params: { limit: 200, status },
+          params: { limit: 200, status, source },
         });
         if (cancelled) return;
         setItems(res.data.items || []);
@@ -144,36 +147,50 @@ export function SignalHistory() {
         if (!cancelled) setLoading(false);
       }
     };
-
     load();
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, source]);
 
-  // ═══ به‌روزرسانی دوره‌ای — هر ۱۵ ثانیه ═══
   useEffect(() => {
     const id = setInterval(silentFetch, 15000);
     return () => clearInterval(id);
   }, [silentFetch]);
 
-  // ═══ Sort هوشمند ═══
-  const sortedItems = [...items].sort((a, b) => {
-    const aPending = !a.result && !a.expired;
-    const bPending = !b.result && !b.expired;
-    if (aPending && !bPending) return -1;
-    if (!aPending && bPending) return 1;
-
-    if (aPending && bPending) {
-      const aLeft = timeLeftMin(a.timestamp, a.tf, a.market_type, a.result);
-      const bLeft = timeLeftMin(b.timestamp, b.tf, b.market_type, b.result);
-      return aLeft - bLeft;
+  const sortedItems = useMemo(() => {
+    const arr = [...items];
+    if (sortBy === "expiry") {
+      // ─── pending ها اول، مرتب بر اساس زمان باقی‌مانده ───
+      arr.sort((a, b) => {
+        const aPending = !a.result && !a.expired;
+        const bPending = !b.result && !b.expired;
+        if (aPending && !bPending) return -1;
+        if (!aPending && bPending) return 1;
+        if (aPending && bPending) {
+          const aLeft = timeLeftMin(a.timestamp, a.tf, a.market_type, a.result);
+          const bLeft = timeLeftMin(b.timestamp, b.tf, b.market_type, b.result);
+          return aLeft - bLeft;
+        }
+        const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
+        const at = parseUtc(a.timestamp)?.getTime() ?? 0;
+        return bt - at;
+      });
+    } else if (sortBy === "newest") {
+      arr.sort((a, b) => {
+        const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
+        const at = parseUtc(a.timestamp)?.getTime() ?? 0;
+        return bt - at;
+      });
+    } else {
+      arr.sort((a, b) => {
+        const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
+        const at = parseUtc(a.timestamp)?.getTime() ?? 0;
+        return at - bt;
+      });
     }
-
-    const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
-    const at = parseUtc(a.timestamp)?.getTime() ?? 0;
-    return bt - at;
-  });
+    return arr;
+  }, [items, sortBy]);
 
   const pendingCount = items.filter((i) => !i.result && !i.expired).length;
 
@@ -188,7 +205,6 @@ export function SignalHistory() {
     if (result === "loss")
       return <Badge className="bg-red-600 text-[9px]">❌ باخت</Badge>;
     if (expired || result === "expired") {
-      // ─── منقضی با PnL (نسخه ۲.۰) ───
       if (expiredPnlPct != null) {
         const pnl = expiredPnlPct;
         const isWin = expiredBias === "win";
@@ -205,7 +221,11 @@ export function SignalHistory() {
           </Badge>
         );
       }
-      return <Badge variant="secondary" className="text-[9px]">⏰ منقضی</Badge>;
+      return (
+        <Badge variant="secondary" className="text-[9px]">
+          ⏰ منقضی
+        </Badge>
+      );
     }
     return (
       <Badge variant="outline" className="text-[9px] text-yellow-500">
@@ -213,48 +233,70 @@ export function SignalHistory() {
       </Badge>
     );
   };
-  
+
   return (
-    <CollapsibleCard
-      title={
-        <span className="flex items-center gap-1.5">
-          <History className="h-3.5 w-3.5" />
-          تاریخچه سیگنال‌ها
-        </span>
-      }
-      badge={
-        <span className="num rounded-full bg-muted px-1.5 text-[9px]">
-          {items.length}
-        </span>
-      }
-      subtitle={
-        pendingCount > 0
-          ? `${pendingCount} سیگنال در انتظار بررسی`
-          : "بررسی خودکار روی سرور فعال است"
-      }
-    >
-      <div className="mb-2 flex justify-end">
-        <Select
-          value={status}
-          onValueChange={(v) => {
-            if (!v) return;
-            setVisibleCount(8);
-            setStatus(v);
-          }}
-        >
-          <SelectTrigger className="h-7 w-24 text-[10px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">همه</SelectItem>
-            <SelectItem value="pending">انتظار</SelectItem>
-            <SelectItem value="win">برد</SelectItem>
-            <SelectItem value="loss">باخت</SelectItem>
-            <SelectItem value="expired">منقضی</SelectItem>
-          </SelectContent>
-        </Select>
+    <div className="space-y-2">
+      {/* ═══ فیلترها ═══ */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-muted-foreground">
+            {pendingCount > 0 && (
+              <span className="text-yellow-500">{pendingCount} در انتظار</span>
+            )}
+            {pendingCount === 0 && `${items.length} سیگنال`}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* مرتب‌سازی */}
+          <Select
+            value={sortBy}
+            onValueChange={(v) => v && setSortBy(v as SortBy)}
+          >
+            <SelectTrigger className="h-7 w-32 text-[10px]">
+              <ArrowDownUp className="ml-1 h-3 w-3" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="expiry">
+                <span className="flex items-center gap-1 text-[10px]">
+                  <Timer className="h-3 w-3" />
+                  نزدیک‌ترین انقضا
+                </span>
+              </SelectItem>
+              <SelectItem value="newest">
+                <span className="text-[10px]">جدیدترین</span>
+              </SelectItem>
+              <SelectItem value="oldest">
+                <span className="text-[10px]">قدیمی‌ترین</span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* وضعیت */}
+          <Select
+            value={status}
+            onValueChange={(v) => {
+              if (!v) return;
+              setVisibleCount(10);
+              setStatus(v);
+            }}
+          >
+            <SelectTrigger className="h-7 w-24 text-[10px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">همه</SelectItem>
+              <SelectItem value="pending">انتظار</SelectItem>
+              <SelectItem value="win">برد</SelectItem>
+              <SelectItem value="loss">باخت</SelectItem>
+              <SelectItem value="expired">منقضی</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
+      {/* ═══ لیست ═══ */}
       <div className="space-y-2">
         {error && (
           <p
@@ -268,7 +310,7 @@ export function SignalHistory() {
         {!loading && !error && items.length === 0 && (
           <p className="py-4 text-center text-[11px] text-muted-foreground">
             {status === "all"
-              ? "هنوز سیگنالی ثبت نشده — بعد از اولین تحلیل اینجا میاد"
+              ? "هنوز سیگنالی ثبت نشده"
               : "سیگنالی با این فیلتر پیدا نشد"}
           </p>
         )}
@@ -290,7 +332,6 @@ export function SignalHistory() {
               ? timeLeftMin(r.timestamp, r.tf, r.market_type, r.result)
               : -1;
 
-            // ─── آیکن جهت ───
             const DirectionIcon =
               r.direction === "long"
                 ? TrendingUp
@@ -298,7 +339,6 @@ export function SignalHistory() {
                   ? TrendingDown
                   : Minus;
 
-            // ─── بج بازار ───
             const isFutures = r.market_type === "futures";
 
             return (
@@ -306,29 +346,33 @@ export function SignalHistory() {
                 key={r.id}
                 className="rounded-lg border border-border/40 bg-muted/10 p-2.5"
               >
-                {/* ─── خط ۱: نام + ticker + بازار + بج نتیجه ─── */}
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs font-bold">{r.name}</span>
-                    <span className="num text-[9px] text-muted-foreground">
-                      {r.ticker}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={`num gap-0.5 border py-0 text-[8px] ${
-                        isFutures
-                          ? "border-purple-500/30 text-purple-400"
-                          : "border-sky-500/30 text-sky-400"
-                      }`}
-                    >
-                      {isFutures ? "📈 فیوچرز" : "💵 اسپات"}
-                    </Badge>
-                    {r.had_trap && r.trap_type && (
-                      <Badge className="bg-orange-600/20 text-orange-400 text-[8px] border-orange-500/30">
-                        <AlertTriangle className="h-2 w-2 ml-0.5" />
-                        {TRAP_LABEL[r.trap_type] || r.trap_type}
-                      </Badge>
-                    )}
+                {/* ─── خط ۱: نماد + بازار + نتیجه ─── */}
+                <div className="flex items-center justify-between mb-1.5 gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <CryptoIcon ticker={r.ticker} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold">{r.name}</p>
+                      <div className="flex items-center gap-1">
+                        <span className="num text-[9px] text-muted-foreground">
+                          {r.ticker}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={`num gap-0.5 border py-0 text-[8px] ${
+                            isFutures
+                              ? "border-purple-500/30 text-purple-400"
+                              : "border-sky-500/30 text-sky-400"
+                          }`}
+                        >
+                          {isFutures ? "📈" : "💵"}
+                        </Badge>
+                        {r.had_trap && r.trap_type && (
+                          <Badge className="bg-orange-600/20 text-orange-400 text-[8px] border-orange-500/30">
+                            <AlertTriangle className="h-2 w-2" />
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   {resultBadge(
                     r.result,
@@ -338,7 +382,7 @@ export function SignalHistory() {
                   )}
                 </div>
 
-                {/* ─── خط ۲: سیگنال + confidence + ورود ─── */}
+                {/* ─── خط ۲: سیگنال + قیمت ورود ─── */}
                 <div className="flex items-center justify-between text-[10px] mb-1">
                   <span className="flex items-center gap-1">
                     <DirectionIcon
@@ -351,13 +395,12 @@ export function SignalHistory() {
                       ({r.confidence}%)
                     </span>
                   </span>
-
                   <span className="num text-muted-foreground">
                     ورود: {formatNumber(r.price)}
                   </span>
                 </div>
 
-                {/* ─── خط ۳: R:R خالص + کارمزد ─── */}
+                {/* ─── خط ۳: R:R + کارمزد ─── */}
                 {(r.rr_net != null || r.rr != null) && (
                   <div className="flex items-center justify-between text-[9px] mb-1">
                     <span className="text-blue-500">
@@ -398,39 +441,26 @@ export function SignalHistory() {
                               : "text-yellow-500"
                           }
                         >
-                          {formatTimeLeft(leftMin)} مونده
+                          {formatTimeLeft(leftMin)}
                         </span>
                       </>
                     )}
                   </div>
                 </div>
-
-                {/* ─── خط ۵: خروج (اگه result داره) ─── */}
-                {r.result_time && r.exit_price && (
-                  <div className="mt-1 text-[9px] text-muted-foreground text-left">
-                    خروج: {formatNumber(r.exit_price)} ·{" "}
-                    {toJalali(r.result_time)}
-                  </div>
-                )}
               </div>
             );
           })}
 
         {!loading && sortedItems.length > visibleCount && (
           <button
-            onClick={() => setVisibleCount((c) => c + 8)}
+            onClick={() => setVisibleCount((c) => c + 10)}
             className="w-full rounded-md border border-border py-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50"
           >
-            نمایش {Math.min(8, sortedItems.length - visibleCount)} مورد بیشتر
+            نمایش {Math.min(10, sortedItems.length - visibleCount)} مورد بیشتر
             ({visibleCount} از {sortedItems.length})
           </button>
         )}
-
-        <p className="rounded-md bg-green-500/5 p-2 text-[9px] text-green-500">
-          ✅ بررسی سیگنال‌ها مستقل روی سرور اجرا می‌شود — بستن این کشو
-          تأثیری روی راستی‌آزمایی ندارد.
-        </p>
       </div>
-    </CollapsibleCard>
+    </div>
   );
 }
