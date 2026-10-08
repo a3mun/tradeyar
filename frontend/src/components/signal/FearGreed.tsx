@@ -1,53 +1,26 @@
 "use client";
 
+/**
+ * FearGreed — شاخص ترس و طمع (نسخه ۱.۰ — اصلی)
+ * ============================================================
+ * • میله‌ی خاکستری که با عدد شاخص پر می‌شه
+ * • توضیح یک‌خطی
+ */
+
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
-import { fearGreedColor } from "@/lib/display";
 import { sourceSupportsPair } from "@/lib/sources";
 import type { FearGreedResponse } from "@/lib/types";
 
-// ═══ تحلیل متنی بر اساس مقدار ═══
-function fearGreedHint(value: number): {
-  text: string;
-  advice: string;
-  icon: string;
-} {
-  if (value <= 20) {
-    return {
-      text: "ترس شدید",
-      advice: "احتمال کف — فرصت خرید بلندمدت",
-      icon: "😱",
-    };
-  }
-  if (value <= 40) {
-    return {
-      text: "ترس",
-      advice: "احتمال ضعف — صبر کن برای تأیید",
-      icon: "😰",
-    };
-  }
-  if (value <= 60) {
-    return {
-      text: "خنثی",
-      advice: "بازار بی‌جهت — صبر کن",
-      icon: "😐",
-    };
-  }
-  if (value <= 80) {
-    return {
-      text: "طمع",
-      advice: "احتمال رشد — مراقب اشباع",
-      icon: "🤑",
-    };
-  }
-  return {
-    text: "طمع شدید",
-    advice: "احتمال سقف — فروش پله‌ای",
-    icon: "🚀",
-  };
+function fearGreedHint(value: number): { text: string; icon: string } {
+  if (value <= 20) return { text: "ترس شدید — احتمال کف", icon: "😱" };
+  if (value <= 40) return { text: "ترس — صبر کن برای تأیید", icon: "😰" };
+  if (value <= 60) return { text: "خنثی — بازار بی‌جهت", icon: "😐" };
+  if (value <= 80) return { text: "طمع — مراقب اشباع", icon: "🤑" };
+  return { text: "طمع شدید — احتمال سقف", icon: "🚀" };
 }
 
 export function FearGreed() {
@@ -59,22 +32,12 @@ export function FearGreed() {
 
   useEffect(() => {
     if (!ticker || !coherent) {
-      let cancelled = false;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setData(null);
-        setLoading(false);
-      });
-      return () => {
-        cancelled = true;
-      };
+      setData(null);
+      setLoading(false);
+      return;
     }
-
     let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) setLoading(true);
-    });
-
+    setLoading(true);
     api
       .get("/analyze/fear-greed", { params: { ticker, source } })
       .then((res) => {
@@ -86,7 +49,6 @@ export function FearGreed() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
@@ -95,11 +57,11 @@ export function FearGreed() {
   if (loading) {
     return (
       <Card>
-        <CardHeader className="pb-3">
-          <Skeleton className="h-5 w-40" />
+        <CardHeader className="pb-2">
+          <Skeleton className="h-5 w-32" />
         </CardHeader>
-        <CardContent>
-          <Skeleton className="h-20 w-full" />
+        <CardContent className="pb-3">
+          <Skeleton className="h-12 w-full" />
         </CardContent>
       </Card>
     );
@@ -107,62 +69,62 @@ export function FearGreed() {
 
   if (!data) return null;
 
-  const color = fearGreedColor(data.value);
+  const cssColor = (() => {
+    if (data.value <= 20) return "#dc2626";
+    if (data.value <= 40) return "#ea580c";
+    if (data.value <= 60) return "#ca8a04";
+    if (data.value <= 80) return "#65a30d";
+    return "#16a34a";
+  })();
+
   const percentage = Math.max(0, Math.min(100, data.value));
   const hint = fearGreedHint(data.value);
 
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-sm">
-          <span>😱 شاخص ترس و طمع</span>
-          <span className="text-xl">{hint.icon}</span>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-1.5 text-sm">
+          {hint.icon} ترس و طمع
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {/* ═══ مقدار ═══ */}
-        <div className="flex items-baseline justify-between">
-          <div>
-            <p className="num text-3xl font-bold" style={{ color }}>
-              {data.value.toFixed(0)}
-            </p>
-            <p className="text-xs text-muted-foreground">{data.label}</p>
+      <CardContent className="space-y-2 pb-3">
+        {/* ═══ عدد + نوار خاکستری ═══ */}
+        <div className="flex items-center gap-3">
+          <span
+            className="num shrink-0 text-2xl font-bold leading-none"
+            style={{ color: cssColor }}
+          >
+            {data.value.toFixed(0)}
+          </span>
+          <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
+            {/* پر شدن از راست با رنگ شاخص */}
+            <div
+              className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
+              style={{
+                width: `${percentage}%`,
+                background: `linear-gradient(to left, ${cssColor}, ${cssColor}dd)`,
+              }}
+            />
           </div>
-          <p className="num text-[10px] text-muted-foreground">0 ← 100</p>
-        </div>
-
-        {/* ═══ نوار رنگی ═══ */}
-        <div className="relative h-3 overflow-hidden rounded-full bg-muted">
-          <div
-            className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
-            style={{
-              width: `${percentage}%`,
-              background: `linear-gradient(to left, ${color}, ${color}dd)`,
-            }}
-          />
         </div>
 
         {/* ═══ برچسب‌ها ═══ */}
-        <div className="flex justify-between text-[9px] text-muted-foreground">
-          <span>🚀 طمع شدید</span>
+        <div className="flex justify-between text-[8px] text-muted-foreground">
+          <span>😱 ترس</span>
           <span>😐 خنثی</span>
-          <span>😱 ترس شدید</span>
+          <span>🚀 طمع</span>
         </div>
 
-        {/* ═══ تحلیل متنی (خط جدید) ═══ */}
+        {/* ═══ تحلیل یک‌خطی ═══ */}
         <div
-          className="rounded-md border p-2"
+          className="rounded-md border px-2 py-1 text-center text-[10px] font-bold"
           style={{
-            borderColor: `${color}33`,
-            backgroundColor: `${color}0a`,
+            borderColor: `${cssColor}33`,
+            backgroundColor: `${cssColor}0a`,
+            color: cssColor,
           }}
         >
-          <p className="text-[10px] font-bold" style={{ color }}>
-            💡 {hint.text}
-          </p>
-          <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-            {hint.advice}
-          </p>
+          {hint.text}
         </div>
       </CardContent>
     </Card>

@@ -64,14 +64,25 @@ export function PriceComparison() {
             price: (res.data.price as number | null) ?? null,
             available: res.data.available !== false,
           }))
-          .catch(() => ({
-            // ─── ۴۰۴ = این صرافی این بازار را ندارد (نه خطا) ───
-            // ⚠️ بی‌صدا رد می‌شود تا Console تمیز بماند.
+      .catch((err) => {
+        // ─── ۴۰۴ = این صرافی این بازار را ندارد (نه خطا) ───
+        // ⚠️ ۴۰۴ رو ignore کن
+        if (err?.response?.status === 404) {
+          return {
             source: s.value,
             price: null,
             available: false,
-          }))
-      )
+          };
+        }
+        // خطاهای دیگه رو لاگ کن
+        console.error("[PriceComparison]", err?.config?.url, err?.message);
+        return {
+          source: s.value,
+          price: null,
+          available: false,
+        };
+      })
+        )
     ).then((results) => {
       const newRows: QuoteRow[] = results.map((r) => ({
         source: r.source,

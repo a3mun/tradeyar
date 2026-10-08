@@ -32,12 +32,10 @@ export function SettingsPanel() {
     timeframe,
     marketType,
     riskProfile,
-    refreshSeconds,
     setSource,
     setTimeframe,
     setMarketType,
     setRiskProfile,
-    setRefreshSeconds,
   } = useAppStore();
 
   const selectedMeta = SOURCE_BY_KEY[source];
@@ -134,9 +132,8 @@ export function SettingsPanel() {
           </div>
         </div>
 
-        {/* ═══ صرافی‌های غیرفعال — کنار هم، رنگی ولی کمرنگ ═══ */}
+        {/* ═══ صرافی‌های غیرفعال ═══ */}
         <div className="flex flex-wrap items-center gap-1">
-          {/* به‌زودی */}
           {PLANNED_SOURCE_META.map((s) => (
             <Tooltip key={s.value}>
               <TooltipTrigger
@@ -168,7 +165,6 @@ export function SettingsPanel() {
             </Tooltip>
           ))}
 
-          {/* حذف‌شده */}
           {REMOVED_SOURCE_META.map((s) => (
             <Tooltip key={s.value}>
               <TooltipTrigger
@@ -204,8 +200,8 @@ export function SettingsPanel() {
         {/* ═══ نکات صرافی انتخابی ═══ */}
         {selectedMeta && !selectedMeta.hasOhlcv && (
           <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-1.5 text-[9px] text-sky-400">
-            ℹ️ {selectedMeta.label} کندل ندارد — تحلیل از صرافی دیگر،
-            قیمت از خودش.
+            ℹ️ {selectedMeta.label} کندل ندارد — تحلیل از صرافی دیگر، قیمت
+            از خودش.
           </p>
         )}
         {selectedMeta?.unsupportedTfs?.length ? (
@@ -290,7 +286,6 @@ export function SettingsPanel() {
             </Button>
           </div>
         </div>
-
       </CardContent>
     </Card>
   );

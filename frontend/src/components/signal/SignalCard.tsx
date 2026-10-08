@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * SignalCard — کارت سیگنال (نسخه ۸.۱ — فاز ۸)
+ * ============================================================
+ * 🔴 تغییرات نسخه ۸.۱:
+ *   • wsSignal رو توی store می‌ذاره (setWsSignal) تا TFTable
+ *     هم از همون داده استفاده کنه.
+ *   • Sparkline سریع از /analyze/sparkline
+ */
+
 import { useEffect, useRef, useState } from "react";
 import {
   TrendingUp,
@@ -43,9 +52,7 @@ import {
   regimeFullFa,
   consensusFa,
   consensusColor,
-  signalColor,
   signalBg,
-  confidenceColor,
   formatNumber,
 } from "@/lib/display";
 
@@ -94,21 +101,26 @@ export function SignalCard() {
   const capability = useAnalysisCapability(source);
   const { quote, signal: wsSignal, status: wsStatus } = useWebSocket();
 
+  // ─── 🔴 فاز ۸.۱: setter برای store ───
+  const setWsSignal = useAppStore((s) => s.setWsSignal);
+
+  // ═══ ۱. state ها ═══
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
 
-  // ═══ Flash + Count-up state ═══
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
   const [animPrice, setAnimPrice] = useState<number>(0);
   const [dotPulse, setDotPulse] = useState(false);
   const prevPriceRef = useRef<number | null>(null);
   const animRef = useRef<number>(0);
-
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // ═══ بار اول: fetch analysis ═══
+  const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
+  const [sparklinePrice, setSparklinePrice] = useState<number>(0);
+
+  // ═══ ۲. useEffect اول: /analyze ═══
   useEffect(() => {
     if (!ticker) return;
 
@@ -177,14 +189,83 @@ export function SignalCard() {
     capability.planned,
   ]);
 
-  // ═══ WS signal → جایگزینی data ═══
+  // ═══ ۳. useEffect دوم: wsSignal → data ═══
   useEffect(() => {
     if (wsSignal) {
       setData(wsSignal as unknown as AnalyzeResponse);
     }
   }, [wsSignal]);
 
-  // ═══ Flash + Count-up وقتی قیمت عوض می‌شه ═══
+  // ═══ ۴. 🔴 useEffect جدید (فاز ۸.۱): wsSignal → store ═══
+  // چرا: TFTable هم باید از همون سیگنال WS استفاده کنه.
+  useEffect(() => {
+    if (!wsSignal) return;
+    const sig = wsSignal as unknown as {
+      ticker?: string;
+      timeframe?: string;
+      source?: string;
+    };
+    setWsSignal({
+      ticker: String(sig.ticker || ""),
+      timeframe: String(sig.timeframe || ""),
+      source: sig.source || source,
+      data: wsSignal,
+      receivedAt: Date.now(),
+    });
+  }, [wsSignal, source, setWsSignal]);
+  
+  // ═══ ۵. useEffect Sparkline سریع ═══
+  useEffect(() => {
+    if (!ticker) {
+      setSparklineSeries([]);
+      setSparklinePrice(0);
+      return;
+    }
+
+    if (capability.planned || !sourceSupportsPair(source, ticker)) {
+      setSparklineSeries([]);
+      setSparklinePrice(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    api
+      .get<{
+        ok: boolean;
+        close_series: number[];
+        price: number;
+      }>("/analyze/sparkline", {
+        params: { ticker, source, timeframe },
+      })
+      .then((res) => {
+        if (cancelled) return;
+        setSparklineSeries(res.data.close_series || []);
+        setSparklinePrice(res.data.price || 0);
+
+        if (res.data.price && res.data.price > 0) {
+          if (prevPriceRef.current === null) {
+            prevPriceRef.current = res.data.price;
+            if (animRef.current === 0) {
+              setAnimPrice(res.data.price);
+              animRef.current = res.data.price;
+            }
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSparklineSeries([]);
+          setSparklinePrice(0);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker, source, timeframe, capability.planned]);
+
+  // ═══ ۶. useEffect Flash + Count-up ═══
   const entryPrice = data?.price ?? 0;
   const livePrice = quote?.price ?? entryPrice ?? 0;
 
@@ -194,12 +275,10 @@ export function SignalCard() {
     const prev = prevPriceRef.current;
 
     if (prev != null && prev !== livePrice) {
-      // ─── Flash ───
       const dir = livePrice > prev ? "up" : "down";
       setPriceFlash(dir);
       setDotPulse(true);
 
-      // ─── Count-up از prev به livePrice ───
       const start = performance.now();
       const from = animRef.current || prev;
       const to = livePrice;
@@ -225,7 +304,6 @@ export function SignalCard() {
 
       rafId = requestAnimationFrame(tick);
 
-      // ─── پاک کردن flash ───
       const flashTimer = setTimeout(() => setPriceFlash(null), 400);
       const pulseTimer = setTimeout(() => setDotPulse(false), 700);
       prevPriceRef.current = livePrice;
@@ -244,7 +322,7 @@ export function SignalCard() {
     }
   }, [livePrice]);
 
-  // ═══ اشتراک‌گذاری ═══
+  // ═══ ۷. handleShare ═══
   const handleShare = async () => {
     if (!cardRef.current || sharing || !data) return;
     setSharing(true);
@@ -299,6 +377,7 @@ export function SignalCard() {
     }
   };
 
+  // ═══ ۸. Early returns ═══
   if (capability.planned) {
     return (
       <AnalysisUnavailable
@@ -333,21 +412,17 @@ export function SignalCard() {
 
   if (!data) return null;
 
+  // ═══ ۹. متغیرهای مشتق ═══
   const sl = data.sl;
   const tp = data.tp;
   const rr = data.rr;
 
-  // ─── قیمت زنده از WS ───
   const displayChange = quote != null ? quote.change_pct : null;
 
   const distToSl =
-    sl != null && livePrice > 0
-      ? ((livePrice - sl) / livePrice) * 100
-      : null;
+    sl != null && livePrice > 0 ? ((livePrice - sl) / livePrice) * 100 : null;
   const distToTp =
-    tp != null && livePrice > 0
-      ? ((tp - livePrice) / livePrice) * 100
-      : null;
+    tp != null && livePrice > 0 ? ((tp - livePrice) / livePrice) * 100 : null;
 
   const SignalIcon =
     data.direction === "long"
@@ -457,11 +532,41 @@ export function SignalCard() {
 
   const wsConnected = wsStatus === "connected";
 
+  // ═══ ۱۰. انتخاب سری نمودار ═══
+  const series =
+    sparklineSeries.length >= 2
+      ? sparklineSeries
+      : data.close_series && data.close_series.length >= 2
+        ? data.close_series
+        : null;
+
   return (
     <div ref={cardRef} data-signal-card>
       <Card className={`border ${signalBg(data.signal)}`}>
-        <div className="space-y-2 p-3 pb-2">
-          {/* خط ۱: نام + دکمه‌ها */}
+        {/* ═══ 🔴 زمان + تاریخ — یک خط، بدون افزایش ارتفاع ═══ */}
+        <div className="flex items-center justify-between px-3 pt-2 text-[8px] text-muted-foreground">
+          <span className="num" style={{ fontFamily: "monospace" }}>
+            {new Intl.DateTimeFormat("en-GB", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+              timeZone: "Asia/Tehran",
+            }).format(new Date())}
+          </span>
+          <span className="num">
+            {new Intl.DateTimeFormat("fa-IR", {
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              timeZone: "Asia/Tehran",
+            }).format(new Date())}
+          </span>
+        </div>
+
+        <div className="space-y-2 p-3 pb-2 pt-1">
+
+        {/* خط ۱: نام + دکمه‌ها */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <CryptoIcon ticker={data.ticker} size="md" />
@@ -656,7 +761,6 @@ export function SignalCard() {
               <div className="h-9 w-px shrink-0 bg-border/40" />
 
               <div className="shrink-0 text-center">
-                {/* ─── سیگنال: سبز/قرمز/خاکستری ─── */}
                 <div
                   className={
                     data.direction === "long"
@@ -671,20 +775,44 @@ export function SignalCard() {
                     {data.signal}
                   </p>
                 </div>
-
-                {/* ─── اطمینان: آبی ─── */}
                 <p className="num mt-0.5 text-[10px] font-bold text-blue-500">
                   {data.confidence}%
                 </p>
+
+                {/* 🔴 فاز ۸.۲ — نشان «قوی» برای سیگنال‌های confidence ≥ ۷۰ */}
+                {data.confidence >= 70 &&
+                  (data.signal.includes("LONG") ||
+                    data.signal.includes("SHORT")) &&
+                  !data.signal.includes("ضعیف") && (
+                    <span
+                      className="mt-0.5 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[8px] font-bold"
+                      style={{
+                        background: data.signal.includes("LONG")
+                          ? "rgba(34,197,94,0.15)"
+                          : "rgba(239,68,68,0.15)",
+                        borderColor: data.signal.includes("LONG")
+                          ? "rgba(34,197,94,0.4)"
+                          : "rgba(239,68,68,0.4)",
+                        color: data.signal.includes("LONG")
+                          ? "#4ade80"
+                          : "#f87171",
+                        textShadow: data.signal.includes("LONG")
+                          ? "0 0 6px rgba(34,197,94,0.8)"
+                          : "0 0 6px rgba(239,68,68,0.8)",
+                      }}
+                    >
+                      ⚡ قوی
+                    </span>
+                  )}
               </div>
+
             </div>
           </div>
 
-
-          {/* ═══ نمودار قیمت زنده ═══ */}
-          {data.close_series && data.close_series.length >= 2 ? (
+          {/* ═══ نمودار ═══ */}
+          {series ? (
             <Sparkline
-              data={data.close_series}
+              data={series}
               height={80}
               showArea
               showDot
@@ -692,10 +820,11 @@ export function SignalCard() {
               tp={tp}
               entry={entryPrice}
               color={
-                // ═══ 🔴 بر اساس SIGNAL نه direction ═══
-                data.signal.includes("LONG") || data.signal.includes("صعودی")
+                data.signal.includes("LONG") ||
+                data.signal.includes("صعودی")
                   ? "green"
-                  : data.signal.includes("SHORT") || data.signal.includes("نزولی")
+                  : data.signal.includes("SHORT") ||
+                      data.signal.includes("نزولی")
                     ? "red"
                     : "neutral"
               }
@@ -711,7 +840,8 @@ export function SignalCard() {
                 <span>در حال پردازش نمودار…</span>
               </div>
             </div>
-          )}          
+          )}
+
           {/* ═══ SL/TP ═══ */}
           {sl != null && tp != null && (
             <div className="grid grid-cols-3 gap-1.5">

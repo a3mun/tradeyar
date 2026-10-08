@@ -367,9 +367,17 @@ def backtest_all(max_checks: int = 200) -> dict:
     return result
 
 
-def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> dict:
+# ═══════════════════════════════════════════════════════════
+# compute_stats — با فیلتر risk_profile
+# ═══════════════════════════════════════════════════════════
+def compute_stats(
+    tf: str = "",
+    source: str = "",
+    time_filter: str = "all",
+    risk_profile: str = "",
+) -> dict:
     """
-    آمار راستی‌آزمایی — با کارمزد واقعی (نسخه ۲.۰).
+    آمار راستی‌آزمایی — با فیلتر TF، صرافی، پروفایل.
     """
 
     stats = {
@@ -383,13 +391,12 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
         "avg_rr": 0.0,
         "avg_rr_net": 0.0,
         "expectancy": 0.0,
-        # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
-        "trend_correct": 0,  # تعداد روند درست
-        "trend_wrong": 0,  # تعداد روند غلط
-        "trend_accuracy": 0.0,  # درصد (correct / (correct + wrong))
-        "expired_win": 0,  # منقضی با PnL مثبت
-        "expired_loss": 0,  # منقضی با PnL منفی
-        "expired_flat": 0,  # منقضی بی‌تغییر
+        "trend_correct": 0,
+        "trend_wrong": 0,
+        "trend_accuracy": 0.0,
+        "expired_win": 0,
+        "expired_loss": 0,
+        "expired_flat": 0,
     }
 
     try:
@@ -399,6 +406,8 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
                 stmt = stmt.where(SignalLog.tf == tf)
             if source:
                 stmt = stmt.where(SignalLog.source == source)
+            if risk_profile:
+                stmt = stmt.where(SignalLog.risk_profile == risk_profile)
 
             now = _utcnow()
             if time_filter == "7d":
@@ -406,7 +415,11 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
             elif time_filter == "30d":
                 stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=30))
 
-            rows = session.exec(stmt).all()
+            all_rows = session.exec(stmt).all()
+
+            # ═══ 🔴 فاز ۸.۲ — فقط قطعی‌ها در آمار ═══
+            # ضعیف‌ها توی تاریخچه هستن، ولی win rate رو مخدوش می‌کنن
+            rows = [r for r in all_rows if not getattr(r, "is_weak", False)]
 
             stats["total"] = len(rows)
             stats["wins"] = sum(1 for r in rows if r.result == "win")
@@ -420,7 +433,7 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
             if closed > 0:
                 stats["win_rate"] = round(stats["wins"] / closed * 100, 2)
 
-            # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
+            # ═══ پیش‌بینی روند ═══
             trend_correct = sum(
                 1 for r in rows if getattr(r, "trend_correct", None) is True
             )
@@ -445,14 +458,14 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
                 else:
                     stats["expired_flat"] += 1
 
-            # ═══ Profit Factor — با کارمزد واقعی ═══
+            # ═══ Profit Factor ═══
             gross_win = 0.0
             gross_loss = 0.0
             for r in rows:
                 if r.result not in ("win", "loss") or not r.price:
                     continue
 
-                fee_pct = (r.fee_pct or 0.0) / 100  # به اعشاری
+                fee_pct = (r.fee_pct or 0.0) / 100
 
                 if r.result == "win" and r.tp:
                     raw_pnl = abs(r.tp - r.price) / r.price
@@ -478,7 +491,7 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
             if rrs_net:
                 stats["avg_rr_net"] = round(sum(rrs_net) / len(rrs_net), 2)
 
-            # ═══ Expectancy بر اساس R:R خالص ═══
+            # ═══ Expectancy ═══
             if closed > 0 and rrs_net:
                 wr = stats["win_rate"] / 100
                 avg_net = stats["avg_rr_net"]
@@ -490,24 +503,14 @@ def compute_stats(tf: str = "", source: str = "", time_filter: str = "all") -> d
     return stats
 
 
-def compute_stats_by_tf(time_filter: str = "all") -> dict:
-    """
-    آمار راستی‌آزمایی به تفکیک TF (نسخه ۳.۰).
-
-    Args:
-        time_filter: بازه‌ی زمانی — "all" | "7d" | "30d"
-
-    ═══ چرا فیلتر زمانی ═══
-    وقتی دیتابیس بزرگ می‌شه (۵۰۰+ سیگنال)، میانگین کل
-    ممکنه رژیم‌های مختلف بازار رو مخلوط کنه. فیلتر زمانی
-    اجازه می‌ده عملکرد **اخیر** رو ببینی.
-
-    Returns:
-        {
-          "۱ دقیقه": {"total": 20, "trend_correct": 13, ...},
-          ...
-        }
-    """
+# ═══════════════════════════════════════════════════════════
+# compute_stats_by_tf — با فیلتر risk_profile
+# ═══════════════════════════════════════════════════════════
+def compute_stats_by_tf(
+    time_filter: str = "all",
+    risk_profile: str = "",
+) -> dict:
+    """آمار به تفکیک TF با فیلتر پروفایل."""
     from core.contracts import TF_NAMES
 
     out: dict[str, dict] = {}
@@ -518,13 +521,18 @@ def compute_stats_by_tf(time_filter: str = "all") -> dict:
             for tf in TF_NAMES:
                 stmt = select(SignalLog).where(SignalLog.tf == tf)
 
-                # ─── فیلتر زمانی ───
                 if time_filter == "7d":
                     stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=7))
                 elif time_filter == "30d":
                     stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=30))
 
-                rows = session.exec(stmt).all()
+                if risk_profile:
+                    stmt = stmt.where(SignalLog.risk_profile == risk_profile)
+
+                all_rows = session.exec(stmt).all()
+
+                # ─── فقط قطعی‌ها ───
+                rows = [r for r in all_rows if not getattr(r, "is_weak", False)]
 
                 if not rows:
                     continue
@@ -558,4 +566,20 @@ def compute_stats_by_tf(time_filter: str = "all") -> dict:
     except Exception:
         logger.exception("[Backtest] خطا در compute_stats_by_tf")
 
+    return out
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 جدید: compute_stats_by_profile
+# ═══════════════════════════════════════════════════════════
+def compute_stats_by_profile(time_filter: str = "all") -> dict:
+    """
+    آمار راستی‌آزمایی به تفکیک پروفایل (جسورانه vs محتاطانه).
+    """
+    out = {}
+    for profile in ["aggressive", "conservative"]:
+        out[profile] = compute_stats(
+            time_filter=time_filter,
+            risk_profile=profile,
+        )
     return out

@@ -15,6 +15,10 @@ api/scheduler.py — راستی‌آزمایی خودکار
 import asyncio
 import logging
 
+import asyncio
+from services.analyzer_service import analyze
+from core.market_lists import get_top_symbols_by_volume
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -115,12 +119,102 @@ def start_scheduler():
         kwargs={"trigger": "scheduler"},
     )
     scheduler.start()
-    logger.info(
-        f"[Scheduler] فعال — هر {settings.BACKTEST_INTERVAL_MINUTES} دقیقه"
-    )
+    logger.info(f"[Scheduler] فعال — هر {settings.BACKTEST_INTERVAL_MINUTES} دقیقه")
 
 
 def stop_scheduler():
     if scheduler.running:
         scheduler.shutdown(wait=True)
         logger.info("[Scheduler] متوقف شد")
+
+
+async def auto_scan_and_record(trigger: str = "scheduler"):
+    """
+    اسکن خودکار + ثبت سیگنال‌ها — نسخه ۱.۰
+    ============================================================
+    هدف: حتی وقتی کاربر نیست، سیگنال‌ها ثبت بشن تا راستی‌آزمایی
+    پر بشه.
+
+    ⚠️ فقط نمادهای Top 50 هر صرافی رو اسکن می‌کنه.
+    ⚠️ با skip_record=False → سیگنال‌ها ثبت می‌شن.
+    """
+    logger.info(f"[AutoScan/{trigger}] شروع اسکن خودکار...")
+
+    try:
+        from services.analyzer_service import analyze
+        from core.market_lists import get_top_symbols_by_volume
+
+        sources = ["nobitex", "bitpin", "wallex"]
+        timeframes = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]  # ← TF بالا (بهتر)
+        risk_profiles = ["aggressive", "conservative"]
+
+        total_recorded = 0
+
+        for source in sources:
+            # ─── Top 20 نماد پرحجم ───
+            symbols = get_top_symbols_by_volume(source, limit=20)
+
+            for ticker, name in symbols[:20]:
+                for tf in timeframes:
+                    for risk in risk_profiles:
+                        try:
+                            r = await asyncio.to_thread(
+                                analyze,
+                                ticker=ticker,
+                                source=source,
+                                tf_name=tf,
+                                market_type="futures",
+                                risk_profile=risk,
+                                ticker_name=name,
+                                include_extras=False,
+                                skip_record=False,  # ← ثبت کن
+                            )
+                            if r and r.get("signal") != "خنثی":
+                                total_recorded += 1
+                        except Exception as e:
+                            logger.debug(f"[AutoScan] {ticker}/{tf}: {e}")
+
+        logger.info(f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال ثبت شد")
+        return {"ok": True, "recorded": total_recorded}
+
+    except Exception as e:
+        logger.exception(f"[AutoScan/{trigger}] خطا")
+        return {"ok": False, "error": str(e)}
+
+
+def start_scheduler():
+    if not settings.SCHEDULER_ENABLED:
+        return
+
+    if scheduler.running:
+        return
+
+    # ─── راستی‌آزمایی سیگنال‌ها (هر ۳۰ دقیقه) ───
+    scheduler.add_job(
+        check_pending_signals,
+        IntervalTrigger(minutes=settings.BACKTEST_INTERVAL_MINUTES),
+        id="check_pending_signals",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=120,
+        kwargs={"trigger": "scheduler"},
+    )
+
+    # ═══ 🔴 اسکن خودکار (هر ۱ ساعت) ═══
+    scheduler.add_job(
+        auto_scan_and_record,
+        IntervalTrigger(minutes=60),  # ← هر ۱ ساعت
+        id="auto_scan_and_record",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=300,
+        kwargs={"trigger": "scheduler"},
+    )
+
+    scheduler.start()
+    logger.info(
+        f"[Scheduler] فعال — راستی‌آزمایی هر {settings.BACKTEST_INTERVAL_MINUTES} دقیقه + "
+        f"اسکن خودکار هر ۶۰ دقیقه"
+    )

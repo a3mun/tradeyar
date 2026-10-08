@@ -1,90 +1,43 @@
 """
 api/routers/backtest.py
 راستی‌آزمایی — endpoints
+============================================================
+نسخه ۲.۰: فیلتر risk_profile + by-profile endpoint
 """
 
 import logging
-from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from api.database import get_session
 from api.models import SignalLog
 from api.schemas import BacktestResponse, BacktestStats
-from services.backtest_service import backtest_all, compute_stats
+from services.backtest_service import (
+    backtest_all,
+    compute_stats,
+    compute_stats_by_tf,
+    compute_stats_by_profile,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
 
-# ═══ ورودی endpoint ثبت دستی ═══
-class RecordRequest(BaseModel):
-    ticker: str
-    source: str
-    timeframe: str
-    market_type: str = "futures"
-    risk_profile: str = "aggressive"
-    ticker_name: str = ""
-
-
-# ═══════════════════════════════════════════════════════════
-# POST /backtest/record — ثبت دستی سیگنال
-# ═══════════════════════════════════════════════════════════
-@router.post("/record")
-async def backtest_record(req: RecordRequest):
-    """
-    ثبت **دستی** سیگنال برای راستی‌آزمایی.
-
-    🔴 چرا این endpoint؟
-        اسکنر از نسخه ۳.۰ خودکار ثبت نمی‌کند. کاربر اگر نمادی را
-        در اسکنر دید و خواست در راستی‌آزمایی بررسی شود، این
-        endpoint را صدا می‌زند.
-
-    Returns:
-        dict با ``ok`` و ``recorded`` (bool)
-    """
-    from services.analyzer_service import analyze
-
-    # ─── تحلیل کامل (با record) ───
-    result = analyze(
-        ticker=req.ticker,
-        source=req.source,
-        tf_name=req.timeframe,
-        market_type=req.market_type,
-        risk_profile=req.risk_profile,
-        ticker_name=req.ticker_name,
-        include_extras=False,
-        skip_record=False,  # ← ثبت انجام بشه
-    )
-
-    if not result:
-        raise HTTPException(
-            status_code=404,
-            detail=f"تحلیل {req.ticker} در {req.source} ممکن نشد",
-        )
-
-    return {
-        "ok": True,
-        "recorded": True,
-        "ticker": req.ticker,
-        "signal": result.get("signal", ""),
-        "confidence": result.get("confidence", 0),
-    }
-
-
-# ═══════════════════════════════════════════════════════════
-# GET /backtest — آمار
-# ═══════════════════════════════════════════════════════════
 @router.get("", response_model=BacktestResponse)
 async def backtest_stats(
     tf: str = "",
     source: str = "",
     time_filter: str = "all",
+    risk_profile: str = "",
 ):
-    stats = compute_stats(tf=tf, source=source, time_filter=time_filter)
+    stats = compute_stats(
+        tf=tf,
+        source=source,
+        time_filter=time_filter,
+        risk_profile=risk_profile,
+    )
     stats.setdefault("avg_rr_net", 0.0)
     stats.setdefault("trend_correct", 0)
     stats.setdefault("trend_wrong", 0)
@@ -92,39 +45,34 @@ async def backtest_stats(
     stats.setdefault("expired_win", 0)
     stats.setdefault("expired_loss", 0)
     stats.setdefault("expired_flat", 0)
-    return BacktestResponse(
-        stats=BacktestStats(**stats),
-        items=[],
-    )
+    return BacktestResponse(stats=BacktestStats(**stats), items=[])
 
 
-# ═══════════════════════════════════════════════════════════
-# GET /backtest/history — لیست سیگنال‌ها
-# ═══════════════════════════════════════════════════════════
 @router.get("/history")
 async def backtest_history(
     limit: int = 50,
     status: str = "all",
     tf: str = "",
     source: str = "",
+    risk_profile: str = "",
     session: Session = Depends(get_session),
 ):
     stmt = select(SignalLog)
     if status == "pending":
-        stmt = stmt.where(SignalLog.result.is_(None)).where(
-            SignalLog.expired == False  # noqa
-        )
+        stmt = stmt.where(SignalLog.result.is_(None)).where(SignalLog.expired == False)
     elif status == "win":
         stmt = stmt.where(SignalLog.result == "win")
     elif status == "loss":
         stmt = stmt.where(SignalLog.result == "loss")
     elif status == "expired":
-        stmt = stmt.where(SignalLog.expired == True)  # noqa
+        stmt = stmt.where(SignalLog.expired == True)
 
     if tf:
         stmt = stmt.where(SignalLog.tf == tf)
     if source:
         stmt = stmt.where(SignalLog.source == source)
+    if risk_profile:
+        stmt = stmt.where(SignalLog.risk_profile == risk_profile)
 
     stmt = stmt.order_by(SignalLog.timestamp.desc()).limit(limit)
     rows = session.exec(stmt).all()
@@ -136,7 +84,6 @@ async def backtest_history(
             {
                 "id": r.id,
                 "timestamp": r.timestamp.isoformat(),
-                # ─── 🔴 نسخه ۳.۰: هر فیلد یه بار ───
                 "ticker": r.ticker,
                 "name": r.name,
                 "source": r.source,
@@ -156,6 +103,7 @@ async def backtest_history(
                 "rr_decay_pct": r.rr_decay_pct,
                 "tf": r.tf,
                 "market_type": r.market_type,
+                "risk_profile": r.risk_profile,
                 "result": r.result,
                 "result_time": r.result_time.isoformat() if r.result_time else None,
                 "exit_price": r.exit_price,
@@ -168,6 +116,8 @@ async def backtest_history(
                 "orderbook_available": r.orderbook_available,
                 "trade_side_irt": r.trade_side_irt,
                 "trend_correct": getattr(r, "trend_correct", None),
+                # 🔴 فاز ۸.۲
+                "is_weak": getattr(r, "is_weak", False),
             }
             for r in rows
         ],
@@ -192,9 +142,71 @@ async def backtest_reset(session: Session = Depends(get_session)):
 
 @router.get("/by-tf")
 async def backtest_stats_by_tf(
-    time_filter: str = Query(default="all", description="all | 7d | 30d"),
+    time_filter: str = Query(default="all"),
+    risk_profile: str = Query(default=""),
 ):
-    from services.backtest_service import compute_stats_by_tf
-
-    data = compute_stats_by_tf(time_filter=time_filter)
+    data = compute_stats_by_tf(
+        time_filter=time_filter,
+        risk_profile=risk_profile,
+    )
     return {"ok": True, "items": data}
+
+
+@router.get("/by-profile")
+async def backtest_stats_by_profile(
+    time_filter: str = Query(default="all"),
+):
+    data = compute_stats_by_profile(time_filter=time_filter)
+    return {"ok": True, "items": data}
+
+
+# ═══════════════════════════════════════════════════════════
+# POST /backtest/record — ثبت سیگنال از اسکنر (فاز ۸)
+# ═══════════════════════════════════════════════════════════
+class RecordRequest(BaseModel):
+    """بدنه درخواست POST /backtest/record"""
+
+    ticker: str
+    source: str = "nobitex"
+    timeframe: str = "۵ دقیقه"
+    market_type: str = "futures"
+    risk_profile: str = "aggressive"
+    ticker_name: str = ""
+
+
+@router.post("/record")
+async def backtest_record(req: RecordRequest):
+    """
+    ثبت یک سیگنال از اسکنر برای راستی‌آزمایی.
+
+    ⚠️ چرا این endpoint:
+        Scanner.tsx برای دکمه‌ی «راستی‌آزمایی» به /backtest/record
+        درخواست می‌زند. تابع analyze خودش signal_recorder را
+        صدا می‌زند (dedup دارد).
+
+    فرانت انتظار ``{ok: true}`` دارد.
+    """
+    from services.analyzer_service import analyze
+
+    # ─── اجرای تحلیل + ثبت خودکار ───
+    # signal_recorder خودکار داخل analyze() ثبت می‌کند
+    result = analyze(
+        ticker=req.ticker,
+        source=req.source,
+        tf_name=req.timeframe,
+        market_type=req.market_type,
+        risk_profile=req.risk_profile,
+        ticker_name=req.ticker_name or req.ticker,
+        include_extras=False,
+        skip_record=False,  # ← ثبت انجام بشه
+    )
+
+    if result is None:
+        return {"ok": False, "error": "تحلیل ناموفق بود"}
+
+    return {
+        "ok": True,
+        "ticker": req.ticker,
+        "signal": result.get("signal", ""),
+        "confidence": result.get("confidence", 0),
+    }

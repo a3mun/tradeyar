@@ -8,6 +8,15 @@ interface WatchlistItem {
   source: string;
 }
 
+// ═══ 🔴 فاز ۸ — سیگنال WS ═══
+interface WsSignal {
+  ticker: string;
+  timeframe: string;
+  source: string;
+  data: any; // AnalyzeResponse-like
+  receivedAt: number;
+}
+
 interface AppState {
   source: Source;
   ticker: string;
@@ -16,6 +25,10 @@ interface AppState {
   marketType: MarketType;
   riskProfile: RiskProfile;
   watchlist: WatchlistItem[];
+
+  // ─── سیگنال WS ───
+  wsSignal: WsSignal | null;
+  setWsSignal: (sig: WsSignal | null) => void;
 
   setSource: (s: Source) => void;
   setTicker: (t: string, name?: string) => void;
@@ -36,6 +49,7 @@ const DEFAULTS = {
   marketType: "futures" as MarketType,
   riskProfile: "aggressive" as RiskProfile,
   watchlist: [] as WatchlistItem[],
+  wsSignal: null as WsSignal | null,
 };
 
 export const useAppStore = create<AppState>()(
@@ -46,12 +60,15 @@ export const useAppStore = create<AppState>()(
       setTicker: (ticker, tickerName) =>
         set({ ticker, tickerName: tickerName || ticker }),
 
-      // ─── انتخاب همزمان نماد + منبع ───
       selectSymbol: (ticker, tickerName, source) =>
         set({ ticker, tickerName, source }),
       setTimeframe: (timeframe) => set({ timeframe }),
       setMarketType: (marketType) => set({ marketType }),
       setRiskProfile: (riskProfile) => set({ riskProfile }),
+
+      // ─── 🔴 فاز ۸ — سیگنال WS ───
+      setWsSignal: (wsSignal) => set({ wsSignal }),
+
       addToWatchlist: (ticker, name, source) => {
         const current = get().watchlist;
         if (current.some((w) => w.ticker === ticker)) return;
@@ -74,6 +91,7 @@ export const useAppStore = create<AppState>()(
         marketType: state.marketType,
         riskProfile: state.riskProfile,
         watchlist: state.watchlist,
+        // ⚠️ wsSignal رو persist نمی‌کنیم (داده لحظه‌ایه)
       }),
     }
   )

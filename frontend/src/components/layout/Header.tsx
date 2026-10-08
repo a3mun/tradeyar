@@ -10,15 +10,18 @@ export function Header() {
   useEffect(() => {
     const tick = () => {
       const now = new Date();
+      // 🔴 ساعت تهران با اعداد انگلیسی
       setTime(
-        now.toLocaleTimeString("fa-IR", {
+        new Intl.DateTimeFormat("en-GB", {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
-        })
+          hour12: false,
+          timeZone: "Asia/Tehran",
+        }).format(now)
       );
     };
-    tick();
+  tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
@@ -43,9 +46,12 @@ export function Header() {
         <div className="flex items-center gap-2">
           <HelpPanel />
 
-          <div className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2 py-1 text-[10px] md:px-3 md:py-1.5 md:text-sm">
-            <Clock className="h-3 w-3 text-muted-foreground md:h-3.5 md:w-3.5" />
-            <span className="num font-medium tabular-nums">{time}</span>
+          <div className="num flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-medium tabular-nums text-primary md:px-3 md:py-1.5 md:text-[13px]">
+            <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />
+            <span style={{ fontFamily: "monospace" }}>
+              {time || "--:--:--"}
+            </span>
+            <span className="text-[9px] opacity-70">TEH</span>
           </div>
         </div>
       </div>

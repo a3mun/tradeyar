@@ -113,8 +113,8 @@ export function HelpPanel() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger className="inline-flex h-8 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:h-9 md:px-3 md:text-sm">
-        <HelpCircle className="h-3.5 w-3.5 md:h-4 md:w-4" />
+      <SheetTrigger className="num inline-flex h-8 items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 md:h-9 md:px-3 md:text-[13px]">
+        <HelpCircle className="h-3 w-3 text-orange-500 md:h-3.5 md:w-3.5" />
         <span>راهنما</span>
       </SheetTrigger>
       <SheetContent side="left" className="w-full max-w-md overflow-y-auto sm:w-96">

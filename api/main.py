@@ -70,11 +70,18 @@ app = FastAPI(
 
 
 # ═══════════════════════════════════════════════════════════
-# CORS — فقط برای HTTP (WS رو دست نمی‌زنه چون sub-app شده)
+# CORS
 # ═══════════════════════════════════════════════════════════
+# ⚠️ WebSocket خودش CORS جدا داره و این تنظیم روش اثر نداره.
+# برای تست محلی، localhost:3000 و 127.0.0.1:3000 هر دو مجازن.
+_cors_origins = list(settings.CORS_ORIGINS) if settings.CORS_ORIGINS else []
+for _dev in ("http://localhost:3000", "http://127.0.0.1:3000"):
+    if _dev not in _cors_origins:
+        _cors_origins.append(_dev)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

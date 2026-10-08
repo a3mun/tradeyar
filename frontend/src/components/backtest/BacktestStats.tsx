@@ -1,33 +1,42 @@
 "use client";
 
+/**
+ * BacktestStats — آمار راستی‌آزمایی
+ * ============================================================
+ * نسخه ۳.۰ · فاز ۷.۵
+ *
+ * ═══ تغییرات نسخه ۳.۰ ═══
+ *   • فیلترها حذف شدن (توی BacktestPanel هستن)
+ *   • source, profile, time از prop میان
+ */
+
 import { useCallback, useEffect, useState } from "react";
 import {
   Download,
   Loader2,
   RefreshCw,
-  Target,
   Trash2,
   TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { api } from "@/lib/api";
 import type { BacktestResponse, SignalHistoryItem } from "@/lib/types";
 import { ResetSignalsDialog } from "@/components/backtest/ResetSignalsDialog";
+import { Clock } from "lucide-react";
 
 const HISTORY_LIMIT = 500;
 
 interface Props {
   source?: string;
+  profile?: string;
+  time?: string;
 }
 
-export function BacktestStats({ source = "" }: Props) {
+export function BacktestStats({
+  source = "",
+  profile = "",
+  time = "all",
+}: Props) {
   interface StatsState {
     data: BacktestResponse | null;
     items: SignalHistoryItem[];
@@ -45,7 +54,6 @@ export function BacktestStats({ source = "" }: Props) {
 
   const [running, setRunning] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [timeFilter, setTimeFilter] = useState("all");
   const [notice, setNotice] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
 
@@ -63,11 +71,47 @@ export function BacktestStats({ source = "" }: Props) {
     >
   >({});
 
+  // ═══ 🔴 فاز ۸.۵ — آخرین زمان بررسی ═══
+  const lastCheckTime = (() => {
+    if (!items || items.length === 0) return null;
+    // ─── آخرین سیگنالی که نتیجه‌ش مشخص شده ───
+    const withResult = items
+      .filter((i) => i.result_time)
+      .sort(
+        (a, b) =>
+          new Date(b.result_time || "").getTime() -
+          new Date(a.result_time || "").getTime()
+      );
+    if (withResult.length === 0) return null;
+    return withResult[0].result_time;
+  })();
+
+  const formatLastCheck = (iso: string | null | undefined) => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return new Intl.DateTimeFormat("fa-IR", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(d);
+    } catch {
+      return "—";
+    }
+  };
+
+
   // ═══ آمار به تفکیک TF ═══
   useEffect(() => {
     let cancelled = false;
     api
-      .get("/backtest/by-tf", { params: { time_filter: timeFilter } })
+      .get("/backtest/by-tf", {
+        params: {
+          time_filter: time,
+          risk_profile: profile,
+        },
+      })
       .then((res) => {
         if (cancelled) return;
         setTfStats(res.data.items || {});
@@ -78,7 +122,7 @@ export function BacktestStats({ source = "" }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [timeFilter]);
+  }, [time, profile]);
 
   // ═══ آمار تله‌ها ═══
   const trapStats = (() => {
@@ -101,9 +145,19 @@ export function BacktestStats({ source = "" }: Props) {
       try {
         const [statsRes, historyRes] = await Promise.all([
           api.get("/backtest", {
-            params: { time_filter: timeFilter, source },
+            params: {
+              time_filter: time,
+              source: source,
+              risk_profile: profile,
+            },
           }),
-          api.get("/backtest/history", { params: { limit: HISTORY_LIMIT } }),
+          api.get("/backtest/history", {
+            params: {
+              limit: HISTORY_LIMIT,
+              source: source,
+              risk_profile: profile,
+            },
+          }),
         ]);
         if (cancelled) return;
         setState({
@@ -127,15 +181,25 @@ export function BacktestStats({ source = "" }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [timeFilter, source]);
+  }, [time, source, profile]);
 
   const fetchStats = useCallback(async () => {
     try {
       const [statsRes, historyRes] = await Promise.all([
         api.get("/backtest", {
-          params: { time_filter: timeFilter, source },
+          params: {
+            time_filter: time,
+            source: source,
+            risk_profile: profile,
+          },
         }),
-        api.get("/backtest/history", { params: { limit: HISTORY_LIMIT } }),
+        api.get("/backtest/history", {
+          params: {
+            limit: HISTORY_LIMIT,
+            source: source,
+            risk_profile: profile,
+          },
+        }),
       ]);
       setState({
         data: statsRes.data,
@@ -151,7 +215,7 @@ export function BacktestStats({ source = "" }: Props) {
         error: "دریافت آمار ناموفق بود — اتصال به سرور را چک کن",
       });
     }
-  }, [timeFilter, source]);
+  }, [time, source, profile]);
 
   const setError = (msg: string) =>
     setState((prev) => ({ ...prev, error: msg }));
@@ -167,7 +231,8 @@ export function BacktestStats({ source = "" }: Props) {
       setNotice(`${checked} سیگنال بررسی شد · ${updated} به‌روز شد`);
       await fetchStats();
     } catch (e: unknown) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
+      const status = (e as { response?: { status?: number } })?.response
+        ?.status;
       setError(
         status === 409
           ? "راستی‌آزمایی همین حالا در حال اجراست — چند لحظه بعد تلاش کن"
@@ -228,7 +293,7 @@ export function BacktestStats({ source = "" }: Props) {
         هنوز سیگنالی برای این فیلتر ثبت نشده.
         <br />
         <span className="text-[10px]">
-          از اسکنر یا کارت سیگنال، سیگنال‌ها را ثبت کن.
+          اسکن خودکار هر ۱ ساعت اجرا می‌شه.
         </span>
       </p>
     );
@@ -258,64 +323,78 @@ export function BacktestStats({ source = "" }: Props) {
         </p>
       )}
 
-      {/* ═══ آمار اصلی ═══ */}
-      <div className="grid grid-cols-4 gap-2 text-center">
-        <div className="rounded-lg bg-muted/30 p-2">
-          <p className="text-[9px] text-muted-foreground">کل</p>
-          <p className="num text-base font-bold">{s.total}</p>
+      {/* ═══ 🔴 راهنمای راستی‌آزمایی ═══ */}
+      <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-[9px] leading-relaxed text-muted-foreground">
+        📊 <b className="text-foreground/80">نرخ برد</b>: فقط سیگنال‌های
+        قطعی (بدون «ضعیف»). ·{" "}
+        🎯 <b className="text-foreground/80">پیش‌بینی روند</b>: اگه قیمت
+        بیش از <b className="num">۰.۰۵٪</b> در جهت درست حرکت کنه.
+      </div>
+
+
+      {/* ═══ 🔴 آخرین بررسی ═══ */}
+      {lastCheckTime && (
+        <div className="flex items-center justify-center gap-1.5 rounded-md bg-muted/20 px-2 py-1 text-[10px] text-muted-foreground">
+          <Clock className="h-3 w-3" />
+          آخرین بررسی:
+          <span className="num font-medium text-foreground">
+            {formatLastCheck(lastCheckTime)}
+          </span>
         </div>
-        <div className="rounded-lg bg-green-500/5 p-2">
-          <p className="text-[9px] text-muted-foreground">برد</p>
-          <p className="num text-base font-bold text-green-500">{s.wins}</p>
+      )}
+
+      {/* ═══ آمار اصلی — فشرده ═══ */}
+      <div className="grid grid-cols-4 gap-1.5 text-center">
+        <div className="rounded-md bg-muted/30 px-1.5 py-1">
+          <p className="text-[8px] text-muted-foreground">کل</p>
+          <p className="num text-sm font-bold">{s.total}</p>
         </div>
-        <div className="rounded-lg bg-red-500/5 p-2">
-          <p className="text-[9px] text-muted-foreground">باخت</p>
-          <p className="num text-base font-bold text-red-500">{s.losses}</p>
+        <div className="rounded-md bg-green-500/5 px-1.5 py-1">
+          <p className="text-[8px] text-muted-foreground">برد</p>
+          <p className="num text-sm font-bold text-green-500">{s.wins}</p>
         </div>
-        <div className="rounded-lg bg-yellow-500/5 p-2">
-          <p className="text-[9px] text-muted-foreground">انتظار</p>
-          <p className="num text-base font-bold text-yellow-500">
+        <div className="rounded-md bg-red-500/5 px-1.5 py-1">
+          <p className="text-[8px] text-muted-foreground">باخت</p>
+          <p className="num text-sm font-bold text-red-500">{s.losses}</p>
+        </div>
+        <div className="rounded-md bg-yellow-500/5 px-1.5 py-1">
+          <p className="text-[8px] text-muted-foreground">انتظار</p>
+          <p className="num text-sm font-bold text-yellow-500">
             {s.pending}
           </p>
         </div>
       </div>
 
-      {/* ═══ Win Rate + Profit Factor ═══ */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
-            <TrendingUp className="h-3 w-3" />
-            نرخ برد
-          </div>
-          <p className={`num mt-1 text-lg font-bold ${winRateColor}`}>
+      {/* ═══ Win Rate + PF — فشرده ═══ */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <div className="rounded-md border border-green-500/20 bg-green-500/5 px-2 py-1.5 text-center">
+          <p className="text-[8px] text-muted-foreground">نرخ برد</p>
+          <p className={`num text-sm font-bold ${winRateColor}`}>
             {s.win_rate.toFixed(1)}%
           </p>
         </div>
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
-            <Target className="h-3 w-3" />
-            Profit Factor
-          </div>
-          <p className="num mt-1 text-lg font-bold text-blue-500">
+        <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1.5 text-center">
+          <p className="text-[8px] text-muted-foreground">ضریب سود</p>
+          <p className="num text-sm font-bold text-blue-500">
             {s.profit_factor.toFixed(2)}
           </p>
         </div>
       </div>
 
+
       {/* ═══ Trend Accuracy ═══ */}
       {s.trend_correct != null &&
         s.trend_wrong != null &&
         s.trend_correct + s.trend_wrong > 0 && (
-          <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="flex items-center gap-1 text-[10px] font-medium text-purple-400">
+          <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="flex items-center gap-1 text-[9px] font-medium text-purple-400">
                 🎯 دقت پیش‌بینی روند
               </span>
-              <span className="num text-base font-bold text-purple-400">
+              <span className="num text-sm font-bold text-purple-400">
                 {s.trend_accuracy?.toFixed(1) ?? "—"}٪
               </span>
-            </div>
-            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+            </div>            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
               <span className="text-green-500">
                 ✅ {s.trend_correct} درست
               </span>
@@ -326,8 +405,8 @@ export function BacktestStats({ source = "" }: Props) {
 
       {/* ═══ دقت TF ═══ */}
       {tfStats && Object.keys(tfStats).length > 0 && (
-        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2.5">
-          <p className="mb-2 text-[10px] font-medium text-purple-400">
+        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2">
+          <p className="mb-1.5 text-[9px] font-medium text-purple-400">
             🎯 دقت به تفکیک TF
           </p>
           <div className="space-y-1">
@@ -354,13 +433,18 @@ export function BacktestStats({ source = "" }: Props) {
                       ? "text-yellow-500 bg-yellow-500"
                       : "text-red-500 bg-red-500";
                 return (
-                  <div key={tf} className="flex items-center gap-2 text-[9px]">
+                  <div
+                    key={tf}
+                    className="flex items-center gap-2 text-[9px]"
+                  >
                     <span className="w-14 shrink-0 text-muted-foreground">
                       {tf}
                     </span>
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/40">
                       <div
-                        className={`h-full ${color.split(" ")[1]} transition-all`}
+                        className={`h-full ${
+                          color.split(" ")[1]
+                        } transition-all`}
                         style={{ width: `${acc}%` }}
                       />
                     </div>

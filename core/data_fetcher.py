@@ -587,6 +587,22 @@ def fetch_quote_by_source(ticker: str, source: str = "nobitex") -> dict | None:
 
     # ═══ بورس تهران ═══
     if source == "tsetmc":
+        # 🔴 فاز ۸ — قیمت زنده (نه کندل دیروز)
+        try:
+            from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+            live = fetch_tsetmc_live_quote(normalized)
+            if live and live.get("price"):
+                return {
+                    "ticker": live["ticker"],
+                    "price": live["price"],
+                    "change_pct": live.get("change_pct", 0.0),
+                    "source": "tsetmc",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] tsetmc live {normalized}: {e}")
+
+        # ─── fallback: کندل آخر (برای مواقع تعطیلی) ───
         try:
             from core.tsetmc_fetcher import fetch_tsetmc_for_symbol
 
@@ -607,10 +623,8 @@ def fetch_quote_by_source(ticker: str, source: str = "nobitex") -> dict | None:
                     "source": "tsetmc",
                 }
         except Exception as e:
-            logger.warning(f"[Quote] tsetmc {normalized}: {e}")
+            logger.warning(f"[Quote] tsetmc candles {normalized}: {e}")
         return None
-
-    return None
 
 
 def source_has_market(ticker: str, source: str) -> bool:

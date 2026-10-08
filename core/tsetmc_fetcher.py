@@ -357,3 +357,69 @@ if __name__ == "__main__":
     print()
 
     print("[OK] تست کامل شد.")
+
+
+def fetch_tsetmc_live_quote(symbol: str) -> Optional[dict]:
+    """
+    قیمت زنده لحظه‌ای از TSETMC.
+
+    ⚠️ چرا لازم است:
+        ``fetch_tsetmc_ohlcv`` فقط کندل‌های **بسته‌شده** رو میده.
+        یعنی توی ساعات معاملات، آخرین کندل = **دیروز**.
+        برای قیمت زنده باید از endpoint جدا استفاده کنیم.
+
+    Returns:
+        dict با price, change_pct, price_yesterday, price_min, price_max
+        یا None
+    """
+    if not symbol:
+        return None
+
+    search = search_tsetmc_symbol(symbol)
+    if not search:
+        return None
+
+    ins_code = search["insCode"]
+    url = f"{TSETMC_BASE}/ClosingPrice/GetClosingPriceInfo/{ins_code}"
+    data = _get(url)
+
+    if not data:
+        return None
+
+    try:
+        info = data.get("closingPriceInfo") or {}
+        if not info:
+            return None
+
+        price = safe_num(info.get("pDrCotVal"))  # آخرین معامله
+        price_yesterday = safe_num(info.get("priceYesterday"))
+        price_first = safe_num(info.get("priceFirst"))
+        price_min = safe_num(info.get("priceMin"))
+        price_max = safe_num(info.get("priceMax"))
+        closing = safe_num(info.get("pClosing"))
+
+        # ─── اگه معامله‌ای نشده، از pClosing استفاده کن ───
+        if not price or price <= 0:
+            price = closing or price_yesterday
+
+        if not price or price <= 0:
+            return None
+
+        # ─── تغییر نسبت به قیمت دیروز ───
+        change_pct = 0.0
+        if price_yesterday and price_yesterday > 0:
+            change_pct = (price - price_yesterday) / price_yesterday * 100
+
+        return {
+            "ticker": symbol,
+            "price": float(price),
+            "change_pct": round(change_pct, 2),
+            "source": "tsetmc",
+            "price_yesterday": float(price_yesterday) if price_yesterday else None,
+            "price_min": float(price_min) if price_min else None,
+            "price_max": float(price_max) if price_max else None,
+            "closing": float(closing) if closing else None,
+        }
+    except (KeyError, TypeError) as e:
+        print(f"[TSETMC] live quote parse: {e}")
+        return None

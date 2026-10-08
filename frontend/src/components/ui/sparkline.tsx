@@ -38,15 +38,20 @@ export function Sparkline({
   const H = height;
   const PAD = 3;
 
-  const values = [...data];
-  if (sl != null && sl > 0) values.push(sl);
-  if (tp != null && tp > 0) values.push(tp);
-  if (entry != null && entry > 0) values.push(entry);
+// ═══ 🔴 Y-axis فقط بر اساس data (نه SL/TP) ═══
+// چرا: اگه SL/TP توی range باشن، نوسانات واقعی قیمت
+// ناچیز دیده میشن (خط صاف). پس فقط data رو در نظر بگیر،
+// بعد با padding کوچیک نوسانات رو بزرگ‌تر نشون بده.
+const dataMin = Math.min(...data);
+const dataMax = Math.max(...data);
+const dataRange = dataMax - dataMin || 1;
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
+// ─── padding ۱۵٪ برای دیدن بهتر ───
+const padding = dataRange * 0.15;
+const min = dataMin - padding;
+const max = dataMax + padding;
+const range = max - min || 1;
+  
   const toY = (v: number) =>
     PAD + (1 - (v - min) / range) * (H - 2 * PAD);
 

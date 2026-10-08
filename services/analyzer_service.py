@@ -51,6 +51,32 @@ def _is_iranian(ticker: str) -> bool:
     return not ticker[0].isascii()
 
 
+def _resolve_live_price(ticker: str, source: str, fallback: float) -> float:
+    """
+    قیمت زنده — برای TSETMC از endpoint زنده، برای بقیه از fallback.
+
+    ⚠️ چرا لازم است:
+        TSETMC کندل امروز را تا پایان معاملات نمی‌دهد. یعنی
+        آخرین کندل DataFrame = دیروز. برای نمایش قیمت واقعی
+        امروز باید از ClosingPriceInfo استفاده کنیم.
+    """
+    # ─── TSETMC: نمادهای غیر-ASCII ───
+    is_iranian_stock = bool(ticker) and not ticker[0].isascii()
+    if not (source == "tsetmc" or is_iranian_stock):
+        return float(fallback or 0.0)
+
+    try:
+        from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+        live = fetch_tsetmc_live_quote(ticker)
+        if live and live.get("price"):
+            return float(live["price"])
+    except Exception as e:
+        logger.debug(f"[Analyzer] live price {ticker}: {e}")
+
+    return float(fallback or 0.0)
+
+
 def _build_ai_export(
     ticker: str,
     name: str,
@@ -253,7 +279,24 @@ def _refresh_live_fields(cached: dict, df) -> dict:
         if df is None or df.empty:
             return cached
 
-        fresh_price = float(df["close"].iloc[-1])
+        # 🔴 فاز ۸ — برای TSETMC، قیمت زنده از endpoint جدا
+        ticker_for_quote = cached.get("ticker", "")
+        source_for_quote = cached.get("source_used") or cached.get("source", "")
+        if source_for_quote == "tsetmc" or (
+            ticker_for_quote and not ticker_for_quote[0].isascii()
+        ):
+            try:
+                from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+                live = fetch_tsetmc_live_quote(ticker_for_quote)
+                if live and live.get("price"):
+                    fresh_price = float(live["price"])
+                else:
+                    fresh_price = float(df["close"].iloc[-1])
+            except Exception:
+                fresh_price = float(df["close"].iloc[-1])
+        else:
+            fresh_price = float(df["close"].iloc[-1])
     except Exception:
         return cached
 
@@ -523,7 +566,7 @@ def analyze(
         "timeframe": tf_name,
         "market_type": market_type,
         "risk_profile": risk_profile,
-        "price": result.get("price", 0.0),
+        "price": _resolve_live_price(ticker, data_source, result.get("price", 0.0)),
         "signal": result.get("signal", "خنثی"),
         "direction": result.get("direction", "neutral"),
         "confidence": result.get("confidence", 0),
@@ -748,7 +791,17 @@ def checklist(tfs, main_tf="۵ دقیقه"):
 
 
 def fear_greed(ticker, source="nobitex"):
-    df = fetch_ohlcv(ticker, "۱ ساعت", source)
+    """
+    شاخص ترس و طمع.
+
+    ⚠️ TSETMC فقط روزانه دارد — پس برای نمادهای بورس،
+       tf_name خودکار "روزانه" می‌شود.
+    """
+    # ─── تشخیص نماد بورس ───
+    is_iranian_stock = bool(ticker) and not ticker[0].isascii()
+    tf_name = "روزانه" if (source == "tsetmc" or is_iranian_stock) else "۱ ساعت"
+
+    df = fetch_ohlcv(ticker, tf_name, source)
     if df is None or df.empty:
         return None
     try:
@@ -768,5 +821,96 @@ def fear_greed(ticker, source="nobitex"):
 
 
 def quote(ticker, source="nobitex"):
-    """قیمت لحظه‌ای — سبک و سریع"""
+    """
+    قیمت لحظه‌ای — سبک و سریع.
+
+    ⚠️ برای TSETMC از endpoint زنده استفاده می‌کند
+    (نه کندل دیروز).
+    """
+    # ─── TSETMC: قیمت زنده ───
+    is_iranian_stock = bool(ticker) and not ticker[0].isascii()
+    if source == "tsetmc" or is_iranian_stock:
+        try:
+            from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+            live = fetch_tsetmc_live_quote(ticker)
+            if live and live.get("price"):
+                return live
+        except Exception as e:
+            logger.debug(f"[Analyzer] live quote {ticker}: {e!r}")
+
+    # ─── بقیه صرافی‌ها: مسیر معمولی ───
     return fetch_quote(ticker, source)
+
+
+def sparkline(
+    ticker: str,
+    source: str = "nobitex",
+    tf_name: str = "۵ دقیقه",
+    limit: int = 30,
+) -> Optional[dict]:
+    """
+    سری قیمت برای نمودار کارت سیگنال — سبک و سریع.
+
+    ⚠️ چرا جدا از analyze:
+        ``analyze`` برای sparkline اورکیل است: ۲۰+ اندیکاتور،
+        ۵ گروه، checklist، AI export. اینجا فقط OHLCV را
+        می‌گیریم و close را برمی‌گردانیم (~۲۰x سریع‌تر).
+
+    Returns:
+        dict با close_series و price، یا None
+    """
+    if not ticker:
+        return None
+
+    # ─── اعتبارسنجی منبع ───
+    from core.contracts import is_active_source, is_planned_source
+
+    if not is_active_source(source) and not is_planned_source(source):
+        return None
+
+    # ─── TSETMC: فقط روزانه ───
+    is_iranian_stock = not ticker[0].isascii()
+    if is_iranian_stock:
+        if tf_name != "روزانه":
+            return None
+        source = "tsetmc"
+
+    # ─── OHLCV سبک (کش‌شده) ───
+    df = fetch_ohlcv(ticker, tf_name, source, use_cache=True)
+    if df is None or df.empty:
+        return None
+
+    try:
+        # ─── ۳۰ کندل آخر close ───
+        close_series = [float(x) for x in df["close"].tail(limit).tolist()]
+        if not close_series:
+            return None
+
+        # ─── قیمت زنده برای TSETMC ───
+        from core.data_fetcher import get_data_source
+
+        data_source = get_data_source(df, source)
+        price = close_series[-1]
+
+        if data_source == "tsetmc" or is_iranian_stock:
+            try:
+                from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+                live = fetch_tsetmc_live_quote(ticker)
+                if live and live.get("price"):
+                    price = float(live["price"])
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "ticker": ticker,
+            "source": source,
+            "timeframe": tf_name,
+            "close_series": close_series,
+            "price": price,
+        }
+    except Exception as e:
+        logger.warning(f"[Analyzer] sparkline {ticker}: {e!r}")
+        return None

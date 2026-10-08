@@ -129,12 +129,17 @@ def record_signal(
     trade_side_irt: bool = False,
 ) -> bool:
     """ثبت سیگنال در دیتابیس."""
+
     # ═══ اعتبارسنجی ═══
     if not SigEnum.is_directional(signal):
         return False
     if not price or price <= 0:
         return False
 
+    # ═══ 🔴 فاز ۸.۲ — تفکیک ضعیف از قطعی ═══
+    # ضعیف‌ها ثبت **می‌شن** (برای تاریخچه)
+    # ولی توی آماری win rate حساب نمی‌شن
+    is_weak = "ضعیف" in signal
     now = _utcnow()
 
     # 🔴 نسخه ۳.۰: bucket بر اساس TF
@@ -191,6 +196,8 @@ def record_signal(
         "execution_cost_json": json.dumps(execution_cost) if execution_cost else None,
         "orderbook_available": bool(orderbook_available),
         "trade_side_irt": bool(trade_side_irt),
+        # 🔴 فاز ۸.۲
+        "is_weak": is_weak,
     }
 
     try:

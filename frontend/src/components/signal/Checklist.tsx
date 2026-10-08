@@ -40,10 +40,12 @@ export function Checklist({ data }: Props) {
 
   return (
     <CollapsibleCard
+    pulse
       title={
         <span className="flex items-center gap-1.5">
-          ✅ چک‌لیست معاملاتی
+          ✅ چک‌لیست معاملاتی (اندیکاتورها)
         </span>
+        
       }
       badge={
         <span

@@ -306,3 +306,26 @@ class ErrorResponse(BaseModel):
     ok: bool = False
     error: str
     detail: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════
+# ۸. Sparkline (فاز ۸ — endpoint سبک برای نمودار)
+# ═══════════════════════════════════════════════════════════
+class SparklineResponse(BaseModel):
+    """
+    فقط سری قیمت برای نمودار SignalCard.
+
+    ⚠️ چرا endpoint جدا:
+        ``/analyze`` برای پر کردن Sparkline خیلی سنگین است
+        (~۲-۵s، چون ۲۰+ اندیکاتور + ۵ گروه تحلیل + AI export).
+        این endpoint فقط ``close`` آخرین ۳۰ کندل را می‌دهد —
+        ~۲۰x سریع‌تر (زیر ۳۰۰ms).
+    """
+
+    ok: bool = True
+    ticker: str
+    source: str
+    timeframe: str
+    close_series: list[float] = Field(default_factory=list)
+    price: float = 0.0
+    timestamp: datetime = Field(default_factory=_utcnow_aware)

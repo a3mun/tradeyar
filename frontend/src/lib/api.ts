@@ -17,9 +17,13 @@ export const api = axios.create({
 api.interceptors.response.use(
   (res: AxiosResponse) => res,
   (err: AxiosError) => {
-    if (process.env.NODE_ENV === "development") {
-      console.error("[API]", err.config?.url, err.message);
-    }
+      // ═══ ۴۰۴ رو ignore کن (مورد انتظار برای بعضی جفت‌ها) ═══
+      if (
+        process.env.NODE_ENV === "development" &&
+        err.response?.status !== 404
+      ) {
+        console.error("[API]", err.config?.url, err.message);
+      }
     return Promise.reject(err);
   }
 );

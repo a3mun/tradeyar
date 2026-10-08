@@ -1,35 +1,5 @@
 "use client";
 
-/**
- * WatchlistCard — واچ‌لیست (نسخه ۲.۰)
- * ============================================================
- * ═══ طراحی نسخه ۲.۰ ═══
- *
- * 🔴 مشکل قبلی:
- *   واچ‌لیست برای هر نماد، هر ۲۰ ثانیه یه درخواست
- *   ``/analyze/quote`` می‌زد. با ۱۰ نماد → **۳۰ req/min**
- *   فقط برای این کارت. خطر rate-limit.
- *
- * ✅ راه‌حل:
- *   واچ‌لیست هدفش **ذخیره‌ی نماد** برای دیدن تحلیل در زمان
- *   دیگه‌ست، نه مانیتور قیمت لحظه‌ای. قیمت زنده در
- *   ``SignalCard`` برای نماد **فعال** میاد.
- *
- *   ─── نتیجه ───
- *   ✅ صفر درخواست اضافه
- *   ✅ بدون rate-limit
- *   ✅ لود فوری
- *
- * ═══ UI جدید (نسخه ۲.۰) ═══
- *   • نوار بسته فشرده: «⭐ واچ‌لیست (۹)»
- *   • باز شده: چیپ‌های کوچیک کنار هم
- *   • هر چیپ: [نام ×] — کلیک روی نام → فعال‌سازی، × → حذف
- *
- * ═══ رفتار ═══
- *   • ``openOnDesktop`` → در دسکتاپ همیشه باز
- *   • در موبایل کشوی بسته، کاربر خودش باز می‌کنه
- */
-
 import { Star, X } from "lucide-react";
 import { CollapsibleCard } from "@/components/ui/collapsible-card";
 import { useAppStore } from "@/store/useAppStore";
@@ -45,19 +15,9 @@ export function WatchlistCard() {
     ticker: currentTicker,
   } = useAppStore();
 
-  if (watchlist.length === 0) {
-    return (
-      <CollapsibleCard
-        title="⭐ واچ‌لیست"
-        subtitle="هنوز نمادی اضافه نکردی"
-      >
-        <p className="py-4 text-center text-[10px] text-muted-foreground">
-          برای افزودن، روی ستاره‌ی هر نماد بزن
-        </p>
-      </CollapsibleCard>
-    );
-  }
-  
+  // ─── اگه خالیه، اصلاً نشون نده ───
+  if (watchlist.length === 0) return null;
+
   return (
     <CollapsibleCard
       title={
@@ -71,13 +31,11 @@ export function WatchlistCard() {
           {watchlist.length}
         </span>
       }
-      subtitle="برای دیدن تحلیل، روی هر نماد بزن"
       keepCollapsibleOnDesktop
     >
       {/* ─── چیپ‌های کوچیک ─── */}
       <div className="flex flex-wrap gap-1">
         {watchlist.map((w) => {
-          const meta = SOURCE_BY_KEY[w.source];
           const isCurrent = w.ticker === currentTicker;
 
           return (
@@ -90,7 +48,6 @@ export function WatchlistCard() {
               }`}
               title={`${w.name} — ${w.ticker}`}
             >
-              {/* ─── نام (کلیک → فعال‌سازی) ─── */}
               <button
                 onClick={() => {
                   setTicker(w.ticker, w.name);
@@ -102,7 +59,6 @@ export function WatchlistCard() {
                 <span className="font-medium">{w.name}</span>
               </button>
 
-              {/* ─── حذف (×) ─── */}
               <button
                 onClick={() => removeFromWatchlist(w.ticker)}
                 className="ml-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground/60 transition-colors hover:bg-red-500/20 hover:text-red-500"

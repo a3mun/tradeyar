@@ -514,12 +514,22 @@ export function Scanner() {
                           <TableCell className="text-center">
                             <span
                               className={`inline-block rounded border px-1.5 py-0 text-[9px] font-bold sm:text-[10px] ${sigBadgeCls}`}
+                              style={
+                                item.signal.includes("ضعیف")
+                                  ? { opacity: 0.7 }
+                                  : undefined
+                              }
                             >
                               {isLong
                                 ? "LONG"
                                 : isShort
                                   ? "SHORT"
                                   : "—"}
+                              {item.signal.includes("ضعیف") && (
+                                <span className="mr-0.5 text-[7px] opacity-70">
+                                  ضعیف
+                                </span>
+                              )}
                             </span>
                           </TableCell>
 

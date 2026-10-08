@@ -27,44 +27,85 @@ from .contracts import (
 from .utils import safe_num
 
 # ═══════════════════════════════════════════════════════════
-# پروفایل‌های ریسک
+# پروفایل‌های ریسک — نسخه ۹.۲ (طرح نهایی هیئت بین‌المللی)
+# ═══════════════════════════════════════════════════════════
+# 🎯 اهداف:
+#   • جسورانه    → Win Rate ≥ ۶۰٪ (ترید مکرر، دست باز)
+#   • محتاطانه   → Win Rate ≥ ۸۵٪ (سخت‌گیرانه ولی نه صفر)
+#
+# 📚 مراجع علمی:
+#   • Taleb (Antifragile): برنده‌های کوچیک مکرر
+#   • López de Prado (Advances in ML): Asymmetric R:R
+#   • Andrew Lo (Adaptive Markets): regime-dependent
+#   • Harvey (Factor Investing): multiple testing
+#
+# 🇮🇷 کارمزد ایران: ~۱٪ round-trip
+#   پس min_rr_net باید حداقل ۱.۰ باشه تا بعد از کارمزد سود بمونه
 # ═══════════════════════════════════════════════════════════
 RISK_PROFILES = {
+    # ═══════════════════════════════════════════════════════
+    # 🔥 جسورانه — اسپات
+    # ═══════════════════════════════════════════════════════
     "aggressive_spot": {
         "name": "جسور (اسپات)",
         "sl_mult": 1.2,
         "tp_mult": 2.5,
-        "min_confidence": 30,
+        "min_confidence": 40,
+        "min_votes_required": 3,
+        "min_rr_net": 1.0,
+        "min_adx": 0,
+        "require_higher_tf": False,
         "color": "#DB6D28",
         "advice": "خرید در اسپات با حد ضرر. ۲-۳٪ سرمایه.",
         "leverage": None,
         "allow_short": False,
     },
-    "conservative_spot": {
-        "name": "محتاط (اسپات)",
-        "sl_mult": 1.5,
-        "tp_mult": 4.0,
-        "min_confidence": 50,
-        "color": "#3FB950",
-        "advice": "خرید مطمئن در اسپات. ۱-۲٪ سرمایه.",
-        "leverage": None,
-        "allow_short": False,
-    },
+    # ═══════════════════════════════════════════════════════
+    # 🔥 جسورانه — فیوچرز
+    # ═══════════════════════════════════════════════════════
     "aggressive_futures": {
         "name": "جسور (فیوچرز)",
-        "sl_mult": 1.5,
-        "tp_mult": 3.0,
+        "sl_mult": 1.2,
+        "tp_mult": 2.5,
         "min_confidence": 40,
+        "min_votes_required": 3,
+        "min_rr_net": 1.0,
+        "min_adx": 0,
+        "require_higher_tf": False,
         "color": "#DB6D28",
         "advice": "فیوچرز با اهرم ۲-۳x. حتماً حد ضرر.",
         "leverage": 3,
         "allow_short": True,
     },
+    # ═══════════════════════════════════════════════════════
+    # 🛡 محتاطانه — اسپات
+    # ═══════════════════════════════════════════════════════
+    "conservative_spot": {
+        "name": "محتاط (اسپات)",
+        "sl_mult": 1.5,
+        "tp_mult": 3.0,
+        "min_confidence": 60,
+        "min_votes_required": 4,
+        "min_rr_net": 1.3,
+        "min_adx": 20,
+        "require_higher_tf": False,
+        "color": "#3FB950",
+        "advice": "خرید مطمئن در اسپات. ۱-۲٪ سرمایه.",
+        "leverage": None,
+        "allow_short": False,
+    },
+    # ═══════════════════════════════════════════════════════
+    # 🛡 محتاطانه — فیوچرز
+    # ═══════════════════════════════════════════════════════
     "conservative_futures": {
         "name": "محتاط (فیوچرز)",
-        "sl_mult": 2.0,
-        "tp_mult": 6.0,
-        "min_confidence": 55,
+        "sl_mult": 1.5,
+        "tp_mult": 3.0,
+        "min_confidence": 60,
+        "min_votes_required": 4,
+        "min_rr_net": 1.3,
+        "min_adx": 20,
+        "require_higher_tf": False,
         "color": "#3FB950",
         "advice": "فیوچرز با اهرم ۱-۲x. با دقت وارد شو.",
         "leverage": 2,
@@ -1330,6 +1371,15 @@ def _aggregate_votes(
     market_type: str = "spot",
     tf_hint: str = "۵ دقیقه",
 ) -> dict:
+    """
+    رأی‌گیری وزنی — نسخه ۹.۲ (طرح نهایی هیئت بین‌المللی).
+
+    ═══ تغییرات ═══
+      • آستانه‌ی رأی متعادل (۳ جسور، ۴ محتاط)
+      • Regime Multiplier: trend ×1.2، range ×0.7
+      • ADX فیلتر فقط برای محتاطانه (≥20)
+      • نوار آراء همیشه پر — حتی اگه سیگنال نده
+    """
     weights = _regime_weights(regime)
 
     weighted_sum = 0.0
@@ -1368,7 +1418,20 @@ def _aggregate_votes(
 
     final_score = weighted_sum / total_weight if total_weight > 0 else 0.0
 
-    # ═══ آستانه‌ی پویا بر اساس TF ═══
+    # ═══ 🔴 فاز ۸.۲ — Regime Multiplier (ایده‌ی Taleb) ═══
+    if regime == "trend":
+        final_score *= 1.2
+    elif regime == "range":
+        final_score *= 0.7
+    # transitional = 1.0
+
+    # ═══ آستانه‌ی رأی از پروفایل ═══
+    profile_key = f"{profile}_{market_type}"
+    profile_cfg = RISK_PROFILES.get(
+        profile_key,
+        RISK_PROFILES.get(f"{profile}_spot", RISK_PROFILES["aggressive_spot"]),
+    )
+
     if tf_hint in ("۱ دقیقه", "۵ دقیقه"):
         _tf_threshold = 1
     elif tf_hint in ("۱۵ دقیقه", "۳۰ دقیقه"):
@@ -1376,68 +1439,46 @@ def _aggregate_votes(
     else:
         _tf_threshold = 2
 
+    min_votes = profile_cfg.get("min_votes_required", _tf_threshold)
+    required_votes = max(min_votes, _tf_threshold)
+
+    min_adx = profile_cfg.get("min_adx", 0)
+    adx_ok = adx >= min_adx
+
+    # ═══ تعیین جهت و consensus ═══
+    # ⚠️ نکته: حتی اگه سیگنال نده، رأی‌ها ثبت میشن تا نوار پر بشه
     if profile == "aggressive":
-        # ═══ جسورانه — شرط m_vote/v_vote حذف شد (نسخه ۱۰.۱) ═══
-        if votes_long >= _tf_threshold and votes_long > votes_short:
+        if votes_long >= required_votes and votes_long > votes_short:
             direction = "long"
             consensus = (
                 "weak"
-                if votes_long <= _tf_threshold
-                else ("normal" if votes_long <= _tf_threshold + 1 else "strong")
+                if votes_long <= required_votes
+                else ("normal" if votes_long <= required_votes + 1 else "strong")
             )
-        elif votes_short >= _tf_threshold and votes_short > votes_long:
+        elif votes_short >= required_votes and votes_short > votes_long:
             direction = "short"
             consensus = (
                 "weak"
-                if votes_short <= _tf_threshold
-                else ("normal" if votes_short <= _tf_threshold + 1 else "strong")
+                if votes_short <= required_votes
+                else ("normal" if votes_short <= required_votes + 1 else "strong")
             )
         else:
             direction = "neutral"
             consensus = "neutral"
     else:
-        # ═══ محتاطانه ═══
-        if regime == "range":
-            s_vote = (
-                groups.get("structure", {}).get("vote", 0)
-                if groups.get("structure")
-                else 0
-            )
-            if votes_long >= 2 and votes_long > votes_short and s_vote >= 0:
-                direction = "long"
-                consensus = (
-                    "weak"
-                    if votes_long == 2
-                    else ("normal" if votes_long == 3 else "strong")
-                )
-            elif votes_short >= 2 and votes_short > votes_long and s_vote <= 0:
-                direction = "short"
-                consensus = (
-                    "weak"
-                    if votes_short == 2
-                    else ("normal" if votes_short == 3 else "strong")
-                )
-            else:
-                direction = "neutral"
-                consensus = "neutral"
+        # محتاطانه
+        if not adx_ok:
+            direction = "neutral"
+            consensus = "neutral"
+        elif votes_long >= required_votes and votes_long > votes_short:
+            direction = "long"
+            consensus = "normal" if votes_long == required_votes else "strong"
+        elif votes_short >= required_votes and votes_short > votes_long:
+            direction = "short"
+            consensus = "normal" if votes_short == required_votes else "strong"
         else:
-            if votes_long >= 2 and votes_long > votes_short:
-                direction = "long"
-                consensus = (
-                    "weak"
-                    if votes_long == 2
-                    else ("normal" if votes_long == 3 else "strong")
-                )
-            elif votes_short >= 2 and votes_short > votes_long:
-                direction = "short"
-                consensus = (
-                    "weak"
-                    if votes_short == 2
-                    else ("normal" if votes_short == 3 else "strong")
-                )
-            else:
-                direction = "neutral"
-                consensus = "neutral"
+            direction = "neutral"
+            consensus = "neutral"
 
     if market_type == "spot" and direction == "short":
         direction = "neutral"
@@ -1450,6 +1491,8 @@ def _aggregate_votes(
         "votes_neutral": votes_neutral,
         "consensus": consensus,
         "direction": direction,
+        "required_votes": required_votes,
+        "adx_ok": adx_ok,
         "groups_summary": groups_summary,
     }
 
@@ -1682,9 +1725,75 @@ def analyze_symbol(
                         multi_tf_info = "❌ عدم تأیید TF های بالاتر"
                         multi_tf_ok = False
 
+        # ═══ 🔴 فاز ۸.۲ — Multi-TF Confluence Boost (ایده‌ی Lo) ═══
+        # اگه TF بالاتر سیگنال رو تأیید کنه، confidence بالاتر
+        if tfs_data and aggregate["direction"] != "neutral":
+            direction_agg = aggregate["direction"]
+            higher_confirms = 0
+            higher_total = 0
+
+            for tf_check in ["۱ ساعت", "روزانه"]:
+                if tf_check in tfs_data and tf_check != tf_name:
+                    r = tfs_data[tf_check]
+                    if r:
+                        higher_total += 1
+                        sig = r.get("signal", "")
+                        if direction_agg == "long" and SigEnum.is_long(sig):
+                            higher_confirms += 1
+                        elif direction_agg == "short" and SigEnum.is_short(sig):
+                            higher_confirms += 1
+
+            if higher_total > 0:
+                if higher_confirms == higher_total:
+                    # همه تأیید → +۲۰٪
+                    confidence = min(100, int(confidence * 1.2))
+                elif higher_confirms >= higher_total / 2:
+                    # نصف تأیید → +۱۰٪
+                    confidence = min(100, int(confidence * 1.1))
+                elif higher_confirms == 0:
+                    # هیچ تأییدی → -۳۰٪
+                    confidence = int(confidence * 0.7)
+
+                tier = _confidence_tier(confidence)
+
+        # ─── multi_tf_ok برای سازگاری ───
         if not multi_tf_ok and aggregate["direction"] != "neutral":
-            confidence = int(confidence * 0.85)
+            confidence = int(confidence * 0.9)  # ← نرم‌تر
             tier = _confidence_tier(confidence)
+
+        # ═══ 🔴 فاز ۸.۲ — Microstructure Boost (ایده‌ی López de Prado) ═══
+        # orderbook pressure + volume spike
+        if (
+            aggregate["direction"] != "neutral"
+            and orderbook
+            and orderbook.get("imbalance") is not None
+        ):
+            ob_boost = 0
+            imb = orderbook.get("imbalance", 0.5)
+            direction_agg = aggregate["direction"]
+
+            # ─── ۱. orderbook pressure ───
+            if direction_agg == "long" and imb > 0.6:
+                ob_boost += 10
+            elif direction_agg == "short" and imb < 0.4:
+                ob_boost += 10
+            elif direction_agg == "long" and imb < 0.4:
+                ob_boost -= 15
+            elif direction_agg == "short" and imb > 0.6:
+                ob_boost -= 15
+
+            # ─── ۲. volume spike ───
+            try:
+                vol_ma = safe_num(last.get("vol_ma"))
+                cur_vol = safe_num(last.get("volume"))
+                if vol_ma > 0 and cur_vol > vol_ma * 1.5:
+                    ob_boost += 5
+            except Exception:
+                pass
+
+            if ob_boost != 0:
+                confidence = max(0, min(100, confidence + ob_boost))
+                tier = _confidence_tier(confidence)
 
         direction = aggregate["direction"]
         profile_key = f"{risk_profile}_{market_type}"
@@ -1930,6 +2039,34 @@ def analyze_symbol(
 
         if divergence.get("has_divergence"):
             all_reasons.insert(0, divergence["reason"])
+
+        # ═══ 🔴 فاز ۸.۲ — Fee-Adjusted Confidence (ایده‌ی Harvey) ═══
+        # به جای حذف سیگنال، confidence رو تعدیل کن
+        if _soft_rr_net is not None and is_directional:
+            if _soft_rr_net < 0.8:
+                # خیلی پایین → سیگنال حذف
+                signal = "خنثی"
+                direction = "neutral"
+                action_fa = "⚪ صبر کن — R:R خالص پایین"
+                explanation = f"R:R خالص {_soft_rr_net:.2f} — معامله ضررده است"
+                all_reasons.insert(
+                    0,
+                    f"🚫 R:R خالص {_soft_rr_net:.2f} — معامله صرف نمی‌کند",
+                )
+                confidence = 0
+                tier = "neutral"
+            elif _soft_rr_net < 1.0:
+                # پایین → confidence × ۰.۷
+                confidence = int(confidence * 0.7)
+                tier = _confidence_tier(confidence)
+                all_reasons.insert(
+                    0,
+                    f"⚠️ R:R خالص {_soft_rr_net:.2f} پایین — احتیاط",
+                )
+            elif _soft_rr_net < 1.3:
+                # متوسط → confidence × ۰.۹
+                confidence = int(confidence * 0.9)
+                tier = _confidence_tier(confidence)
 
         # ═══ 🔴 فیلتر نرم R:R (نسخه ۱۰.۲) ═══
         # ⚠️ اعمال کاهش confidence بر اساس R:R خالص

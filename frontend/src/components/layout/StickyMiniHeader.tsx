@@ -57,7 +57,13 @@ export function StickyMiniHeader() {
     >
       <button
         onClick={handleClick}
-        className="flex w-full flex-col gap-0.5 border-b border-border/60 bg-background/95 px-3 py-1.5 text-right backdrop-blur-md transition-colors hover:bg-background sm:py-2"
+        className={`flex w-full flex-col gap-0.5 border-b-2 px-3 py-1.5 text-right backdrop-blur-md transition-colors sm:py-2 ${
+          sigDir === "long"
+            ? "border-green-500/50 bg-green-500/5 hover:bg-green-500/10"
+            : sigDir === "short"
+              ? "border-red-500/50 bg-red-500/5 hover:bg-red-500/10"
+              : "border-border/60 bg-background/95 hover:bg-background"
+        }`}
         aria-label="کارت سیگنال"
       >
         {/* خط ۱ */}

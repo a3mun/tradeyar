@@ -144,7 +144,7 @@ class WSManager:
 
     async def connect(self, ws: WebSocket) -> Connection:
         """پذیرش اتصال جدید"""
-        await ws.accept()
+        await ws.accept(subprotocol=None)
         conn = Connection(ws=ws, id=self._new_id())
         self.connections[conn.id] = conn
         logger.info(f"[WS] اتصال جدید {conn.id} — " f"مجموع: {len(self.connections)}")

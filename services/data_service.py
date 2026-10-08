@@ -94,9 +94,7 @@ def _resolve_source_for_tf(source: str, tf_name: str) -> str:
     # ⚠️ جایگزینی فقط به‌خاطر **کندل** است. قیمت نمایشی
     #    همچنان مستقل از خود تبدیل گرفته می‌شود (quote جدا).
     if source_lacks_ohlcv(source):
-        logger.info(
-            f"[DataService] «{source}» کندل ندارد — استفاده از نوبیتکس"
-        )
+        logger.info(f"[DataService] «{source}» کندل ندارد — استفاده از نوبیتکس")
         return "nobitex"
 
     if is_ohlcv_supported(tf_name, source):
@@ -241,9 +239,7 @@ def _fetch_ohlcv_uncached(
     """
     # ═══ ترتیب صرافی‌ها: منبع کاربر اول، بعد بقیه ═══
     chain: list[str] = []
-    _, resolved_source, switch_msg = resolve_symbol_and_source(
-        ticker, effective_source
-    )
+    _, resolved_source, switch_msg = resolve_symbol_and_source(ticker, effective_source)
     if switch_msg:
         logger.info(f"[DataService] {switch_msg}")
 
@@ -256,7 +252,7 @@ def _fetch_ohlcv_uncached(
     if not chain:
         logger.warning(f"[DataService] هیچ صرافی‌ای برای {ticker}/{tf_name}")
         if use_cache:
-            set_negative(cache_key, ttl=NEGATIVE_TTL_PERMANENT, permanent=True)
+            set_negative(cache_key, ttl=NEGATIVE_TTL_STATIC, permanent=True)
         return None
 
     tried: list[str] = []

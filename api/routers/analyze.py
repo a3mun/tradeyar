@@ -29,6 +29,7 @@ from api.schemas import (
     AnalyzeResponse,
     FearGreedResponse,
     QuoteResponse,
+    SparklineResponse,
 )
 from services.analyzer_service import (
     analyze,
@@ -36,6 +37,7 @@ from services.analyzer_service import (
     checklist,
     deep_analysis,
     fear_greed,
+    sparkline,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,12 +142,12 @@ async def deep_analyze_endpoint(
     # ─── امضای deep_analysis: (ticker, name, tfs, gsr, risk_profile, tf_name) ───
     paragraph = await run_in_threadpool(
         deep_analysis,
-        ticker,                 # ticker
+        ticker,  # ticker
         ticker_name or ticker,  # name
-        tfs,                    # tfs
-        None,                   # gsr
-        risk_profile,           # risk_profile
-        timeframe,              # tf_name
+        tfs,  # tfs
+        None,  # gsr
+        risk_profile,  # risk_profile
+        timeframe,  # tf_name
     )
 
     return {
@@ -205,3 +207,35 @@ async def fear_greed_endpoint(
         )
 
     return FearGreedResponse(**result)
+
+
+# ═══════════════════════════════════════════════════════════
+# GET /analyze/sparkline — نمودار سبک (فاز ۸)
+# ═══════════════════════════════════════════════════════════
+@router.get("/sparkline", response_model=SparklineResponse)
+async def sparkline_endpoint(
+    request: Request,
+    ticker: str,
+    source: str = "nobitex",
+    timeframe: str = "۵ دقیقه",
+):
+    """
+    سری قیمت برای نمودار SignalCard — سبک و سریع.
+
+    ⚠️ چرا جدا از /analyze:
+        /analyze سنگین است (۲۰+ اندیکاتور). این endpoint
+        فقط close آخرین ۳۰ کندل را می‌دهد تا نمودار سریع
+        بیاید، بعد از ۳۰s سیگنال کامل از WS می‌آید.
+    """
+    rate_limit_for(request, "sparkline", limit=120, window_sec=60)
+
+    result = await run_in_threadpool(
+        sparkline, ticker=ticker, source=source, tf_name=timeframe
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"سری قیمت برای {ticker} در دسترس نیست",
+        )
+
+    return SparklineResponse(**result)

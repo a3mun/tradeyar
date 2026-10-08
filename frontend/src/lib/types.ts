@@ -475,6 +475,8 @@ export interface SignalHistoryItem {
   had_trap: boolean;
   trap_type: string | null;
   trend_correct?: boolean | null;
+  /** 🔴 فاز ۸.۲ — سیگنال ضعیف (در آمار win rate حساب نمی‌شود) */
+  is_weak?: boolean;
 }
 
 export interface BacktestHistoryResponse {

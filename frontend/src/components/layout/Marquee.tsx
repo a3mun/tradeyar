@@ -148,7 +148,7 @@ export function Marquee() {
               </span>
               <span className="num text-[11px] font-bold">
                 {currentPrice.price
-                  ? formatNumber(currentPrice.price, 0)
+                  ? formatNumber(currentPrice.price, { maxDecimals: 0 })
                   : "—"}
               </span>
               <span className="text-[9px] text-muted-foreground">
@@ -208,7 +208,7 @@ export function Marquee() {
                   {item.name}:
                 </span>
                 <span className="num text-[12px] font-bold">
-                  {item.price ? formatNumber(item.price, 0) : "—"}
+                {item.price ? formatNumber(item.price, { maxDecimals: 0 }) : "—"}
                 </span>
                 <span className="text-[10px] text-muted-foreground">
                   {item.unit}

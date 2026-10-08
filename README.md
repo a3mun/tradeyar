@@ -1,88 +1,29 @@
-# Trademun — تریدمون
+# Trademun — دستیار هوشمند معاملات
 
-📊 دستیار هوشمند تحلیل و مانیتورینگ بازار برای معامله‌گران ایرانی
+## 📊 وضعیت پروژه — فاز ۸ ✅
 
-## 🎯 درباره
+- ✅ فاز ۱-۶: زیرساخت + تحلیل ۵ گروهی
+- ✅ فاز ۷: WebSocket (quote ۱s، orderbook ۳s، signal ۳۰s)
+- ✅ فاز ۸: UI Polish + تفکیک سیگنال قطعی/ضعیف
 
-تریدمون یه دستیار تحلیل تکنیکال هست که:
+## 🚀 فاز بعدی: Deploy (فاز ۹)
 
-- ۵ گروه تحلیلی (مومنتوم، روند، نوسان، حجم، ساختار) رو ترکیب می‌کنه
-- سیگنال LONG/SHORT با حد ضرر و هدف می‌ده
-- تله‌های معاملاتی (Bull Trap, Bear Trap, ...) رو تشخیص می‌ده
-- سناریوهای «اگه X → Y» رو پیش‌بینی می‌کنه
-- راستی‌آزمایی خودکار سیگنال‌ها
+- Backend → Render/Fly.io
+- DB → Neon/Supabase (Postgres)
+- Frontend → Cloudflare Pages
+- Domain → trademun.ir
 
-## 📡 منابع داده
+## 🛠 استک
 
-| منبع | نمادها | تایم‌فریم |
-|---|---|---|
-| 🟣 نوبیتکس | کریپتو (USDT/IRT) | همه (per-نماد) |
-| 🟢 بیت‌پین | کریپتو | همه (per-نماد) |
-| 🔵 والکس | کریپتو | ۱ ساعت، روزانه (بقیه fallback) |
-| 🔷 آبان‌تتر | قیمت لحظه‌ای | — |
-| 🇮🇷 بورس تهران (TSETMC) | ۶۲۲ نماد + ۷۴ صندوق | روزانه |
+- Backend: FastAPI + SQLModel + APScheduler
+- Frontend: Next.js 16 + shadcn/ui + Tailwind
+- DB: SQLite (local) → Postgres (production)
 
-> ⚠️ **پشتیبانی تایم‌فریم per-نماد است، نه per-صرافی.** یک نماد ممکن
-> است همه‌ی تایم‌فریم‌ها را داشته باشد و نماد دیگر فقط چند تا. اگر
-> صرافی تایم‌فریم درخواستی را نداشته باشد، زنجیره‌ی fallback
-> (نوبیتکس → بیت‌پین → والکس) خودکار جایگزین پیدا می‌کند و اگر
-> هیچ‌کدام نداشتند، `None` برمی‌گردد.
->
-> **اعتبارسنجی بازه:** پاسخ هر صرافی بررسی می‌شود که بازه‌ی کندل‌ها
-> با تایم‌فریم درخواستی بخواند. (مثلاً والکس برای `res=15` کندل
-> ۱ دقیقه برمی‌گرداند — این پاسخ رد می‌شود.)
+## 🏢 صرافی‌ها
 
-## 🚀 نصب و اجرا
-
-### Backend (FastAPI)
-
-```bash
-# ۱. نصب نیازمندی‌ها
-pip install -r requirements.txt
-
-# ۲. کپی تنظیمات محیطی
-cp .env.example .env
-#    سپس ADMIN_API_KEY را پر کن (برای عملیات مدیریتی مثل reset)
-
-# ۳. اجرا
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-سپس مستندات تعاملی در <http://localhost:8000/docs> در دسترس است.
-
-### Frontend (Next.js)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-سپس <http://localhost:3000>.
+✅ نوبیتکس، بیت‌پین، والکس، تبدیل، TSETMC
 
 ## 🧪 تست
 
 ```bash
-python -m pytest tests -q              # همه‌ی تست‌ها
-python -m pytest tests -q --live       # + تست با API واقعی صرافی‌ها
-```
-
-## 🏗 ساختار پروژه
-
-```
-api/          FastAPI — routers، models، schemas، scheduler، deps
-core/         منطق تحلیل و داده — analyzer، fetchers، contracts، tz
-services/     لایه سرویس — cache، data، backtest، signal_recorder
-frontend/     Next.js 16 + Tailwind + shadcn/ui (RTL)
-tests/        تست‌ها (pytest)
-tools/        اسکریپت‌های کمکی (استخراج نمادها، فونت)
-data/         دیتابیس SQLite + کش نمادها
-```
-
-## 📌 نکات مهم
-
-- **Timezone:** همه‌ی ایندکس‌های زمانی **UTC-aware** هستند (`core/tz.py`).
-- **کش:** تحلیل با fingerprint کندل بسته (نه کندل جاری) کش می‌شود.
-- **کش منفی:** شکست‌ها هم به خاطر سپرده می‌شوند — قطعی ۲۴ ساعت، موقت ۵ دقیقه.
-- **مقاومت:** بک‌تست هر سیگنال را مستقل پردازش می‌کند؛ یک خطا batch را نمی‌خواباند.
-- **همزمانی:** endpointها sync را در threadpool اجرا می‌کنند تا event loop قفل نشود.
+python tools/test_full_system.py

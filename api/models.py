@@ -2,8 +2,7 @@
 api/models.py
 مدل‌های دیتابیس — SQLModel
 ============================================================
-نسخه ۱.۴: اضافه شدن ``dedup_key`` + UniqueConstraint
-          برای جلوگیری از ثبت تکراری (باگ ۵).
+نسخه ۱.۵: اضافه شدن ``is_weak`` برای تفکیک سیگنال ضعیف
 """
 
 from datetime import datetime, timezone
@@ -26,7 +25,6 @@ class SignalLog(SQLModel, table=True):
 
     __table_args__ = (UniqueConstraint("dedup_key", name="uq_signals_log_dedup_key"),)
 
-    # ═══ این خط حیاتیه ═══
     id: Optional[int] = Field(default=None, primary_key=True)
 
     timestamp: datetime = Field(default_factory=_utcnow, index=True)
@@ -79,7 +77,14 @@ class SignalLog(SQLModel, table=True):
     # ═══ بسته شدن با مهلت (نسخه ۲.۰) ═══
     expired_at_price: Optional[float] = None
     expired_pnl_pct: Optional[float] = None
-    expired_bias: Optional[str] = None  # "win" | "loss" | "flat"
+    expired_bias: Optional[str] = None
 
     # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
-    trend_correct: Optional[bool] = None  # آیا روند درست بود؟
+    trend_correct: Optional[bool] = None
+
+    # ═══ 🔴 فاز ۸.۲ — تفکیک ضعیف از قطعی ═══
+    # True: سیگنال ضعیف (LONG ضعیف / SHORT ضعیف)
+    # False: سیگنال قطعی (LONG / SHORT)
+    # ⚠️ ضعیف‌ها توی آماری win rate حساب **نمی‌شن**
+    #    ولی توی تاریخچه نشون داده می‌شن
+    is_weak: bool = Field(default=False, index=True)

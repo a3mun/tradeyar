@@ -1,45 +1,5 @@
 "use client";
 
-/**
- * صفحه‌ی اصلی Trademun — چیدمان نسخه ۲.۰
- * ============================================================
- * ═══ چیدمان دسکتاپ ═══
- *
- *   SymbolSelector (شامل Popular)
- *   ─────────────────────────────
- *   WatchlistCard (نوار بسته، باز شدنی)
- *   ─────────────────────────────
- *   TFTable        | SignalCard
- *   ─────────────────────────────
- *   OrderBookPanel | FearGreed
- *   ─────────────────────────────
- *   DeepAnalysis   | Checklist
- *                  | PriceComparison
- *   ─────────────────────────────
- *   Scanner
- *   ─────────────────────────────
- *   BacktestStats  | SignalHistory
- *
- * ═══ چیدمان موبایل ═══
- *   SymbolSelector
- *   WatchlistCard (نوار بسته)
- *   SignalCard
- *   OrderBookPanel
- *   TFTable
- *   Checklist (نوار بسته)
- *   DeepAnalysis
- *   PriceComparison
- *   FearGreed
- *   Scanner
- *   BacktestStats
- *   SignalHistory (نوار بسته)
- *
- * ═══ نکته ═══
- *   **بستن کشو محاسبه را متوقف نمی‌کند.** چک‌لیست از
- *   ``useSignalData`` میاد، راستی‌آزمایی از اسکجولر backend.
- *   کشو فقط ``hidden`` می‌کنه، unmount نمی‌کنه.
- */
-
 import { Header } from "@/components/layout/Header";
 import { Marquee } from "@/components/layout/Marquee";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -55,23 +15,23 @@ import { OrderBookPanel } from "@/components/signal/OrderBookPanel";
 import { WatchlistCard } from "@/components/signal/WatchlistCard";
 import { Scanner } from "@/components/scan/Scanner";
 import { BacktestPanel } from "@/components/backtest/BacktestPanel";
+import { SupportResistance } from "@/components/signal/SupportResistance";
+import { AIAnalysis } from "@/components/signal/AIAnalysis";
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
 
-
 export default function HomePage() {
   const { data } = useSignalData();
-  const { ticker, source } = useAppStore();
+  const { ticker, source, timeframe, marketType, riskProfile } = useAppStore();
 
   const coherent = sourceSupportsPair(source, ticker);
 
   return (
-    
     <div className="min-h-screen bg-background">
       <Header />
-       <StickyMiniHeader /> 
+      <StickyMiniHeader />
       <div className="w-full overflow-hidden">
         <Marquee />
       </div>
@@ -80,68 +40,101 @@ export default function HomePage() {
         <Sidebar />
 
         <main className="min-w-0 flex-1 space-y-3 sm:space-y-4">
-          {/* ═══ جستجو + ۶ نماد برتر ═══ */}
+          {/* ═══ ۱. جستجو + ۶ نماد (همیشه بالا، تمام عرض) ═══ */}
           <SymbolSelector />
 
-          {/* ═══ واچ‌لیست — نوار بسته در موبایل، باز در دسکتاپ ═══ */}
+          {/* ═══ ۲. واچ‌لیست ═══ */}
           <WatchlistCard />
 
           {/*
-            ═══ هسته‌ی تحلیل ═══
-            موبایل: SignalCard اول، بعد TFTable
-            دسکتاپ: TFTable چپ، SignalCard راست
+            ═══════════════════════════════════════════════════════
+            🎯 چیدمان اصلی — موبایل با order-*، دسکتاپ دو ستونه
+            ═══════════════════════════════════════════════════════
+            • موبایل: grid-cols-1 + contents → order-* کار می‌کنه
+            • دسکتاپ: xl:flex xl:flex-col → دو ستونه
           */}
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
-            <div className="order-first xl:order-2">
-              <SignalCard />
-            </div>
-            <div className="order-last xl:order-1">
-              <TFTable />
-            </div>
-          </div>
+          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:items-start">
+            {/* ═══════════════════════════════════════════════
+                🅰️ ستون چپ دسکتاپ
+                در موبایل: contents (بچه‌ها مستقیم زیر grid)
+            ═══════════════════════════════════════════════ */}
+            <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
+              {/* ۱. کارت سیگنال */}
+              <div className="order-1 xl:order-none">
+                <SignalCard
+                  key={[
+                    ticker,
+                    source,
+                    timeframe,
+                    marketType,
+                    riskProfile,
+                  ].join("-")}
+                />
+              </div>
 
-          {/* ═══ عمق بازار + ترس و طمع ═══ */}
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
-            <OrderBookPanel />
-            <FearGreed />
-          </div>
+              {/* ۳. عمق بازار */}
+              <div className="order-3 xl:order-none">
+                <OrderBookPanel />
+              </div>
 
-          {/*
-            ═══ تحلیل عمیق | چک‌لیست + مقایسه قیمت ═══
-            دسکتاپ:
-              ستون چپ: DeepAnalysis
-              ستون راست: Checklist، بعدش PriceComparison
-            موبایل:
-              Checklist (نوار بسته) → DeepAnalysis → PriceComparison
-          */}
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2">
-            {/* ─── ستون چپ ─── */}
-            <div className="order-2 xl:order-1">
-              <DeepAnalysis />
+              {/* ۵. تحلیل هوش مصنوعی */}
+              <div className="order-5 xl:order-none">
+                <AIAnalysis />
+              </div>
+
+              {/* ۷. تحلیل عمیق */}
+              <div className="order-7 xl:order-none">
+                <DeepAnalysis />
+              </div>
+
+              {/* ۹. اسکنر فرصت‌ها */}
+              <div className="order-9 xl:order-none">
+                {coherent ? (
+                  <Scanner />
+                ) : (
+                  <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
+                    ⚠️ اسکنر برای این جفت (صرافی، نماد) فعال نیست.
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* ─── ستون راست ─── */}
-            <div className="order-1 xl:order-2 space-y-3 sm:space-y-4">
+            {/* ═══════════════════════════════════════════════
+                🅱️ ستون راست دسکتاپ
+                در موبایل: contents (بچه‌ها مستقیم زیر grid)
+            ═══════════════════════════════════════════════ */}
+            <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
+              {/* ۲. جدول تایم‌فریم */}
+              <div className="order-2 xl:order-none">
+                <TFTable />
+              </div>
+
+              {/* ۴. ترس و طمع + حمایت و مقاومت */}
+              <div className="order-4 xl:order-none">
+                <div className="grid grid-cols-2 gap-3">
+                  <FearGreed />
+                  <SupportResistance />
+                </div>
+              </div>
+
+              {/* ۶. چک‌لیست */}
               {data?.checklist?.items && data.checklist.items.length > 0 && (
-                <Checklist data={data.checklist} />
+                <div className="order-6 xl:order-none">
+                  <Checklist data={data.checklist} />
+                </div>
               )}
-              <PriceComparison />
+
+              {/* ۸. مقایسه قیمت */}
+              <div className="order-8 xl:order-none">
+                <PriceComparison />
+              </div>
+
+              {/* ۱۰. راستی‌آزمایی */}
+              <div className="order-10 xl:order-none">
+                <BacktestPanel />
+              </div>
             </div>
           </div>
-
-          {/* ═══ اسکنر فرصت‌ها ═══ */}
-          {coherent ? (
-            <Scanner />
-          ) : (
-            <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
-              ⚠️ اسکنر برای این جفت (صرافی، نماد) فعال نیست —
-              صرافی انتخاب‌شده این بازار را ندارد.
-              برای فعال شدن، صرافی یا نماد را عوض کن.
-            </div>
-          )}
-
-          {/* ═══ راستی‌آزمایی — تمام عرض ═══ */}
-          <BacktestPanel />
         </main>
       </div>
 
