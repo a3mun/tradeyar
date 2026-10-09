@@ -1,0 +1,43 @@
+# ═══════════════════════════════════════════════════════════
+# Trademun — .dockerignore
+# ═══════════════════════════════════════════════════════════
+
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# ─── Node / Frontend ───
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+
+# ─── Git ───
+.git/
+.gitignore
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+
+# ─── Secrets ───
+.env
+.env.local
+frontend/.env.local
+
+# ─── Data ───
+data/trademun.db
+data/*.db-journal
+fonts/.gitkeep
+tools/test_report.json
+
+# ─── Misc ───
+*.log
+structure.txt
+CODE_REVIEW_Trademun.md
