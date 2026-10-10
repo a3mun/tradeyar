@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/lib/hooks/useWebSocket";
 import { SignalDataProvider } from "@/hooks/useSignalData";
 import "./globals.css";
+import { BottomNav } from "@/components/ui/bottom-nav";
 
 const vazirmatn = Vazirmatn({
   subsets: ["arabic", "latin"],
@@ -49,6 +50,8 @@ export default function RootLayout({
             <TooltipProvider>{children}</TooltipProvider>
           </SignalDataProvider>
         </WebSocketProvider>
+        {children}
+      <BottomNav />
       </body>
     </html>
   );

@@ -307,7 +307,21 @@ export function BacktestStats({
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = `trademun_signals_${Date.now()}.json`;
+      const now = new Date();
+      const ts = new Intl.DateTimeFormat("en-GB", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "Asia/Tehran",
+      })
+        .format(now)
+        .replace(/[/:,\s]/g, "-")
+        .replace(/-+/g, "-");
+
+      a.download = `trademun_signals_${ts}.json`;
       a.style.display = "none";
       document.body.appendChild(a);
       a.click();

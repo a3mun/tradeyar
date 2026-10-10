@@ -1,7 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { HelpCircle, Book, Zap, BarChart3, Shield, Sparkles, Layers, AlertTriangle, TrendingUp } from "lucide-react";
+import {
+  HelpCircle,
+  Book,
+  Zap,
+  BarChart3,
+  Shield,
+  Sparkles,
+  Layers,
+  AlertTriangle,
+  TrendingUp,
+  Brain,
+  Target,
+  Filter,
+} from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -20,15 +33,35 @@ const SECTIONS = [
     ],
   },
   {
+    icon: <Brain className="h-4 w-4 text-blue-400" />,
+    title: "تشخیص خودکار نماد بورس",
+    content: [
+      "نماد بورس (فولاد، شپنا، آگاس) → خودکار روی اسپات و روزانه",
+      "بورس فقط تحلیل روزانه داره (نه intraday)",
+      "تایم‌فریم‌های دیگه برای بورس غیرفعال می‌شن",
+      "سوییچ به نماد کریپتو → تنظیمات برمی‌گرده",
+    ],
+  },
+  {
     icon: <BarChart3 className="h-4 w-4 text-green-400" />,
     title: "تحلیل ۵ گروهی",
     content: [
       "⚡ مومنتوم: RSI، Stochastic، Williams، CCI، ROC",
-      "📈 روند: EMA200، MACD، ADX، Supertrend",
+      "📈 روند: EMA200، MACD، ADX، Supertrend، Ichimoku",
       "📊 نوسان: Bollinger، ATR، Keltner، Donchian",
       "💧 حجم: OBV، CVD، Delta، CMF، MFI",
       "🏗 ساختار: Pivot، Swing، Fibonacci، S/R",
-      "هر گروه رأی صعودی/نزولی/خنثی می‌ده — اگه ۳ گروه هم‌جهت باشن → سیگنال",
+      "هر گروه رأی صعودی/نزولی/خنثی می‌ده",
+    ],
+  },
+  {
+    icon: <Target className="h-4 w-4 text-orange-400" />,
+    title: "Trend Override (فاز ۱۰.۱)",
+    content: [
+      "اگه روند قوی صعودی باشه → سیگنال SHORT بلاک می‌شه",
+      "اگه روند قوی نزولی باشه → سیگنال LONG بلاک می‌شه",
+      "دلیل: در دیتای ۳۲۵ سیگنال، ۱۰۰٪ بردها با trend_correct=True بودن",
+      "نتیجه: کیفیت سیگنال بالاتر، ضرر کمتر",
     ],
   },
   {
@@ -61,7 +94,7 @@ const SECTIONS = [
       "بالای ۰.۵۵ = فشار خرید · زیر ۰.۴۵ = فشار فروش",
       "اسپرد کم = نقدینگی خوب · اسپرد زیاد = ریسک اسلیپیج",
       "🧱 دیوار سفارش = سطح با حجم غیرعادی",
-      "⚠️ عمق بازار لحظه‌ای است و بین صرافی‌ها فرق می‌کنه — فقط تأییدکننده، نه توصیه",
+      "⚠️ عمق بازار لحظه‌ای است و بین صرافی‌ها فرق می‌کنه",
     ],
   },
   {
@@ -72,7 +105,7 @@ const SECTIONS = [
       "🚨 تله نزولی: مومنتوم نزولی ولی جریان پول ورودی",
       "⚠️ شکست جعلی: ADX قوی ولی حجم کم",
       "😮‍💨 خستگی روند: ADX قوی ولی مومنتوم ضعیف",
-      "⚠️ وقتی تله فعاله، سیگنال ریسک‌داره — با احتیاط بیشتر",
+      "⚠️ وقتی تله فعاله، سیگنال ریسک‌داره",
     ],
   },
   {
@@ -81,18 +114,29 @@ const SECTIONS = [
     content: [
       "دو راه داری:",
       "۱. کپی داده‌ها برای AI — ببر توی ChatGPT/Gemini/Claude",
-      "۲. کلید DeepSeek/OpenAI خودت رو وارد کن",
+      "۲. کلید DeepSeek خودت رو وارد کن",
       "⚠️ AI فقط مشاوره‌ست، نه تصمیم نهایی",
+    ],
+  },
+  {
+    icon: <Filter className="h-4 w-4 text-purple-400" />,
+    title: "اسکنر فرصت‌ها",
+    content: [
+      "نمادهای Top پرحجم هر صرافی رو اسکن می‌کنه",
+      "فیلتر: سیگنال قطعی (نه ضعیف) با اطمینان ≥ ۵۰٪",
+      "روی نماد بزن → تحلیل کامل",
+      "دکمه راستی‌آزمایی → ثبت دستی سیگنال",
+      "فیلترهای همه/ویژه/LONG/SHORT",
     ],
   },
   {
     icon: <Book className="h-4 w-4 text-emerald-400" />,
     title: "راستی‌آزمایی خودکار",
     content: [
-      "سیگنال‌های LONG/SHORT خودکار ثبت می‌شن",
-      "سیستم هر ۵ دقیقه بررسی می‌کنه که به SL/TP رسیدن",
-      "برد/باخت/منقضی خودکار تشخیص داده می‌شه",
-      "آمار توی صفحه پایین نمایش داده می‌شه",
+      "سیگنال‌های فعال خودکار ثبت می‌شن",
+      "نمادهای ثابت: BTC و PAXG (تومان + تتر)",
+      "نمادهای واچ‌لیست هم ثبت می‌شن",
+      "⏰ راستی‌آزمایی خودکار هر ۳۰ دقیقه",
     ],
   },
   {
@@ -108,6 +152,53 @@ const SECTIONS = [
   },
 ];
 
+// ═══════════════════════════════════════════════════════════
+// 🔴 فاز ۱۰.۲ — محتوای خام (برای BottomNav موبایل)
+// ═══════════════════════════════════════════════════════════
+export function HelpContent() {
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <h2 className="text-lg font-bold">راهنما</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          آشنایی سریع با تریدمون
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {SECTIONS.map((section, idx) => (
+          <div
+            key={idx}
+            className="rounded-lg border border-border/40 bg-muted/10 p-3"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              {section.icon}
+              <h3 className="text-xs font-bold">{section.title}</h3>
+            </div>
+            <ul className="space-y-1 pr-4 text-[10px] text-muted-foreground list-disc">
+              {section.content.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
+        <p className="text-[10px] text-muted-foreground">
+          Trademun v10.2 · دستیار هوشمند معامله‌گر
+        </p>
+        <p className="mt-1 text-[9px] text-muted-foreground/70">
+          ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن — تصمیم نهایی با خودته
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// HelpPanel — برای دسکتاپ (Sheet کنار صفحه)
+// ═══════════════════════════════════════════════════════════
 export function HelpPanel() {
   const [open, setOpen] = useState(false);
 
@@ -118,41 +209,8 @@ export function HelpPanel() {
         <span>راهنما</span>
       </SheetTrigger>
       <SheetContent side="left" className="w-full max-w-md overflow-y-auto sm:w-96">
-        <div className="mt-6 space-y-4">
-          <div className="text-center">
-            <h2 className="text-lg font-bold">راهنما</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              آشنایی سریع با تریدمون
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            {SECTIONS.map((section, idx) => (
-              <div
-                key={idx}
-                className="rounded-lg border border-border/40 bg-muted/10 p-3"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  {section.icon}
-                  <h3 className="text-xs font-bold">{section.title}</h3>
-                </div>
-                <ul className="space-y-1 pr-4 text-[10px] text-muted-foreground list-disc">
-                  {section.content.map((item, i) => (
-                    <li key={i}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
-            <p className="text-[10px] text-muted-foreground">
-              Trademun v6.0 · دستیار هوشمند معامله‌گر
-            </p>
-            <p className="mt-1 text-[9px] text-muted-foreground/70">
-              ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن — تصمیم نهایی با خودته
-            </p>
-          </div>
+        <div className="mt-6">
+          <HelpContent />
         </div>
       </SheetContent>
     </Sheet>

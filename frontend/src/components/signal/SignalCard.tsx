@@ -88,6 +88,19 @@ const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
   },
 };
 
+// ═══ 🔴 فاز ۱۰.۲ — نگاشت TF فارسی به فرمت بین‌المللی ═══
+const TF_TO_SHORT: Record<string, string> = {
+  "۱ دقیقه": "1m",
+  "۵ دقیقه": "5m",
+  "۱۵ دقیقه": "15m",
+  "۳۰ دقیقه": "30m",
+  "۱ ساعت": "1h",
+  "روزانه": "1d",
+};
+
+function tfShort(tf: string): string {
+  return TF_TO_SHORT[tf] || tf;
+}
 
 export function SignalCard() {
   const {
@@ -653,6 +666,9 @@ export function SignalCard() {
               <span className="num text-[10px] font-medium text-muted-foreground">
                 {data.ticker}
               </span>
+              <span className="num text-[10px] font-bold text-orange-400" style={{ letterSpacing: "0.3px" }}>
+                · {tfShort(data.timeframe)}
+              </span>
               <Badge className={`border py-0 text-[8px] ${marketLabel.cls}`}>
                 {marketLabel.fa}
               </Badge>
@@ -688,9 +704,7 @@ export function SignalCard() {
                 </Badge>
               )}
 
-              <Badge variant="outline" className="py-0 text-[8px]">
-                {data.timeframe}
-              </Badge>
+
             </div>
           </div>
         </div>

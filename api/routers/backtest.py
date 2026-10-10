@@ -144,9 +144,36 @@ async def backtest_history(
 # ═══════════════════════════════════════════════════════════
 @router.post("/run")
 async def backtest_run():
-    """اجرای دستی راستی‌آزمایی"""
-    result = await run_in_threadpool(backtest_all)
-    return {"ok": True, **result}
+    """
+    اجرای دستی راستی‌آزمایی — نسخه ۳.۱.
+
+    🔴 فاز ۱۰.۲ — بهبود خطا و لاگ:
+      • log دقیق‌تر
+      • return status واضح‌تر برای فرانت
+    """
+    logger.info("[Backtest/manual] اجرای دستی راستی‌آزمایی توسط کاربر")
+
+    try:
+        result = await run_in_threadpool(backtest_all, 200)
+        logger.info(
+            f"[Backtest/manual] ✅ انجام شد — "
+            f"checked={result.get('checked', 0)}, "
+            f"updated={result.get('updated', 0)}, "
+            f"errors={result.get('errors', 0)}"
+        )
+        return {"ok": True, **result}
+    except Exception as e:
+        logger.exception("[Backtest/manual] خطا")
+        return {
+            "ok": False,
+            "error": str(e),
+            "checked": 0,
+            "updated": 0,
+            "expired": 0,
+            "win": 0,
+            "loss": 0,
+            "errors": 1,
+        }
 
 
 # ═══════════════════════════════════════════════════════════

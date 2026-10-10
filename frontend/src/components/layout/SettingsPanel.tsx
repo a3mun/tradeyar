@@ -28,6 +28,7 @@ const TIMEFRAMES: Timeframe[] = [
 
 export function SettingsPanel() {
   const {
+    ticker,
     source,
     timeframe,
     marketType,
@@ -37,6 +38,9 @@ export function SettingsPanel() {
     setMarketType,
     setRiskProfile,
   } = useAppStore();
+
+  // 🔴 فاز ۱۰.۲ — تشخیص نماد بورس (فارسی/عربی = کد > ۱۲۷)
+  const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
 
   const selectedMeta = SOURCE_BY_KEY[source];
 
@@ -49,6 +53,13 @@ export function SettingsPanel() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5 px-3 pb-3">
+        {/* ═══ هشدار بورس ═══ */}
+        {isTsetmc && (
+          <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1.5 text-[9px] text-blue-400">
+            ℹ️ نماد بورس — فقط تحلیل روزانه در اسپات
+          </p>
+        )}
+
         {/* ═══ صرافی‌های فعال ═══ */}
         <div className="space-y-1">
           <label className="text-[10px] font-medium text-muted-foreground">
@@ -204,7 +215,11 @@ export function SettingsPanel() {
             از خودش.
           </p>
         )}
-        {selectedMeta?.unsupportedTfs?.length ? (
+
+
+        
+        {/* 🔴 فاز ۱۰.۲ — پیام unsupportedTfs فقط برای کریپتو (نه بورس) */}
+        {!isTsetmc && selectedMeta?.unsupportedTfs?.length ? (
           <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-1.5 text-[9px] text-yellow-500">
             ℹ️ {selectedMeta.label} برای «
             {selectedMeta.unsupportedTfs.join("، ")}» داده ندارد — خودکار
@@ -220,15 +235,18 @@ export function SettingsPanel() {
           <div className="grid grid-cols-3 gap-1">
             {TIMEFRAMES.map((tf) => {
               const isActive = timeframe === tf;
+              // 🔴 فاز ۱۰.۲ — فقط روزانه برای بورس آزاد
+              const isDisabled = isTsetmc && tf !== "روزانه";
               return (
                 <button
                   key={tf}
                   onClick={() => setTimeframe(tf)}
+                  disabled={isDisabled}
                   className={`rounded-md border-2 px-1.5 py-1 text-[10px] font-medium transition-all ${
                     isActive
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border hover:bg-muted/50"
-                  }`}
+                  } ${isDisabled ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   {tf}
                 </button>
@@ -280,7 +298,10 @@ export function SettingsPanel() {
               size="sm"
               variant={marketType === "futures" ? "default" : "outline"}
               onClick={() => setMarketType("futures")}
-              className="h-7 text-[11px]"
+              disabled={isTsetmc}
+              className={`h-7 text-[11px] ${
+                isTsetmc ? "opacity-40 cursor-not-allowed" : ""
+              }`}
             >
               📈 فیوچرز
             </Button>

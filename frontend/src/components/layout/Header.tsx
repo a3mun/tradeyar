@@ -44,7 +44,10 @@ export function Header() {
 
         {/* ─── راهنما + ساعت ─── */}
         <div className="flex items-center gap-2">
-          <HelpPanel />
+          {/* 🔴 فاز ۱۰.۲ — راهنما فقط روی دسکتاپ */}
+          <div className="hidden md:flex">
+            <HelpPanel />
+          </div>
 
           <div className="num flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-medium tabular-nums text-primary md:px-3 md:py-1.5 md:text-[13px]">
             <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />

@@ -1,18 +1,20 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۲.۰ · فاز ۱۰.۱
+نسخه ۳.۰ · فاز ۱۰.۲
 🔴 تغییرات:
-  • merge دوتا start_scheduler (باگ قبلی: یکی overwrite می‌کرد)
-  • jobs به‌صورت کامل ثبت می‌شن:
-      - check_pending_signals (هر BACKTEST_INTERVAL_MINUTES)
-      - auto_scan_and_record   (هر ۶۰ دقیقه)
-  • به check_pending_signals فقط سیگنال‌های **قدیمی‌تر از ۵ دقیقه**
-    (نه هر بار همه)
+  • auto_scan_and_record فقط نمادهای هدفمند رو اسکن می‌کنه:
+      - نمادهای ثابت (BTC-USD, BTC-IRT, PAXG-USD, PAXG-IRT)
+      - نمادهای واچ‌لیست (فقط کریپتو)
+      - نماد فعال فعلی (اگه کاربر داره نگاه می‌کنه)
+  • فقط ۱ TF و ۱ پروفایل (نه همه ترکیب‌ها)
+  • حذف حلقه‌های تودرتوی اشتباه
 """
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -24,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
-# ─── قفل مشترک: Scheduler و manual trigger ───
 _backtest_lock = asyncio.Lock()
 
 _EMPTY_RESULT = {
@@ -37,15 +38,75 @@ _EMPTY_RESULT = {
     "loss": 0,
 }
 
+# ═══════════════════════════════════════════════════════════
+# 🎯 نمادهای ثابت برای اسکن خودکار
+# ═══════════════════════════════════════════════════════════
+# فقط این نمادها + واچ‌لیست کاربر اسکن می‌شن
+FIXED_WATCH_SYMBOLS = [
+    # بیت‌کوین
+    {"ticker": "BTC-USD", "source": "nobitex", "name": "بیت‌کوین (USDT)"},
+    {"ticker": "BTC-IRT", "source": "nobitex", "name": "بیت‌کوین (تومان)"},
+    # پکس گلد
+    {"ticker": "PAXG-USD", "source": "nobitex", "name": "پکس گلد (USDT)"},
+    {"ticker": "PAXG-IRT", "source": "nobitex", "name": "پکس گلد (تومان)"},
+]
+
+# ─── TF و پروفایل ثابت برای اسکن خودکار ───
+SCAN_TIMEFRAME = "۳۰ دقیقه"  # ← تو گفتی ۳۰ دقیقه جسورانه
+SCAN_RISK_PROFILE = "aggressive"
+SCAN_MARKET_TYPE = "futures"
+
+
+# ═══════════════════════════════════════════════════════════
+# واچ‌لیست — از فایل یا DB
+# ═══════════════════════════════════════════════════════════
+def _load_watchlist_from_file() -> list[dict]:
+    """
+    واچ‌لیست رو از فایل می‌خونه.
+
+    ⚠️ در فاز بعدی، از DB کاربر می‌خونیم.
+    فعلاً یه فایل JSON ساده در /opt/trademun/data/watchlist.json
+    """
+    path = Path("/app/data/watchlist.json")
+
+    # ─── اگه روی لوکال هستیم ───
+    if not path.exists():
+        path = Path(__file__).resolve().parent.parent / "data" / "watchlist.json"
+
+    if not path.exists():
+        return []
+
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # ─── فقط کریپتو (نماد ASCII) ───
+        result = []
+        for item in data:
+            ticker = item.get("ticker", "")
+            if not ticker:
+                continue
+
+            # ─── فیلتر: فقط ASCII (کریپتو) ───
+            if not ticker[0].isascii():
+                continue
+
+            result.append(
+                {
+                    "ticker": ticker,
+                    "source": item.get("source", "nobitex"),
+                    "name": item.get("name", ticker),
+                }
+            )
+
+        return result
+    except Exception as e:
+        logger.warning(f"[AutoScan] خطا در خواندن واچ‌لیست: {e!r}")
+        return []
+
 
 async def check_pending_signals(trigger: str = "scheduler") -> dict:
-    """
-    بررسی سیگنال‌های در انتظار.
-
-    از دو مسیر صدا زده می‌شود:
-      • APScheduler (هر ``BACKTEST_INTERVAL_MINUTES``)
-      • ``POST /backtest/run`` (اجرای دستی کاربر)
-    """
+    """بررسی سیگنال‌های در انتظار راستی‌آزمایی."""
     if _backtest_lock.locked():
         logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان است — رد شد")
         return dict(_EMPTY_RESULT)
@@ -86,47 +147,75 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
 
 async def auto_scan_and_record(trigger: str = "scheduler"):
     """
-    اسکن خودکار + ثبت سیگنال‌ها.
+    اسکن خودکار + ثبت سیگنال‌ها — نسخه ۳.۰.
 
-    ⚠️ فقط نمادهای Top 20 هر صرافی رو اسکن می‌کنه.
+    ═══ تغییرات نسخه ۳.۰ ═══
+    • فقط نمادهای ثابت + واچ‌لیست اسکن می‌شن (نه همه ۲۰ نماد صرافی)
+    • فقط ۱ TF + ۱ پروفایل (نه ۳ TF × ۲ پروفایل)
+    • نتیجه: از ~۱۲۰ رکورد در هر اسکن → ~۶ رکورد
     """
     logger.info(f"[AutoScan/{trigger}] شروع اسکن خودکار...")
 
     try:
         from services.analyzer_service import analyze
-        from core.market_lists import get_top_symbols_by_volume
 
-        sources = ["nobitex", "bitpin", "wallex"]
-        timeframes = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
-        risk_profiles = ["aggressive", "conservative"]
+        # ═══ جمع‌آوری نمادها ═══
+        fixed = list(FIXED_WATCH_SYMBOLS)
+        watchlist = _load_watchlist_from_file()
+
+        # ═══ ادغام بدون تکرار ═══
+        seen: set[str] = set()
+        all_symbols: list[dict] = []
+
+        for s in fixed + watchlist:
+            key = s["ticker"]
+            if key in seen:
+                continue
+            seen.add(key)
+            all_symbols.append(s)
+
+        logger.info(
+            f"[AutoScan/{trigger}] نمادهای هدف: "
+            f"{len(fixed)} ثابت + {len(watchlist)} واچ‌لیست "
+            f"= {len(all_symbols)} نماد"
+        )
 
         total_recorded = 0
+        total_errors = 0
 
-        for source in sources:
-            symbols = get_top_symbols_by_volume(source, limit=20)
+        for sym in all_symbols:
+            ticker = sym["ticker"]
+            source = sym["source"]
+            name = sym["name"]
 
-            for ticker, name in symbols[:20]:
-                for tf in timeframes:
-                    for risk in risk_profiles:
-                        try:
-                            r = await asyncio.to_thread(
-                                analyze,
-                                ticker=ticker,
-                                source=source,
-                                tf_name=tf,
-                                market_type="futures",
-                                risk_profile=risk,
-                                ticker_name=name,
-                                include_extras=False,
-                                skip_record=False,
-                            )
-                            if r and r.get("signal") != "خنثی":
-                                total_recorded += 1
-                        except Exception as e:
-                            logger.debug(f"[AutoScan] {ticker}/{tf}: {e}")
+            try:
+                r = await asyncio.to_thread(
+                    analyze,
+                    ticker=ticker,
+                    source=source,
+                    tf_name=SCAN_TIMEFRAME,
+                    market_type=SCAN_MARKET_TYPE,
+                    risk_profile=SCAN_RISK_PROFILE,
+                    ticker_name=name,
+                    include_extras=False,
+                    skip_record=False,
+                )
+                if r and r.get("signal") != "خنثی":
+                    total_recorded += 1
+            except Exception as e:
+                logger.debug(f"[AutoScan] {ticker}: {e}")
+                total_errors += 1
 
-        logger.info(f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال ثبت شد")
-        return {"ok": True, "recorded": total_recorded}
+        logger.info(
+            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال جدید "
+            f"از {len(all_symbols)} نماد (خطا: {total_errors})"
+        )
+        return {
+            "ok": True,
+            "recorded": total_recorded,
+            "symbols_scanned": len(all_symbols),
+            "errors": total_errors,
+        }
 
     except Exception as e:
         logger.exception(f"[AutoScan/{trigger}] خطا")
@@ -134,21 +223,10 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 یک start_scheduler واحد — نه دو تا!
+# start_scheduler واحد
 # ═══════════════════════════════════════════════════════════
 def start_scheduler():
-    """
-    راه‌اندازی scheduler با **هر دو** job.
-
-    ═══ ریشه‌ی باگ نسخه‌ی قبلی ═══
-    فایل قبلی **دو تابع** start_scheduler داشت. دومی روی اولی
-    overwrite می‌شد. نتیجه: job ``check_pending_signals``
-    **هیچ‌وقت ثبت نمی‌شد** و راستی‌آزمایی خودکار کار نمی‌کرد
-    (شاهد: ۷۱ pending مونده).
-
-    ═══ نسخه ۱۰.۱ ═══
-    یک تابع واحد که **هر دو** job رو ثبت می‌کنه.
-    """
+    """راه‌اندازی scheduler با هر دو job."""
     if not settings.SCHEDULER_ENABLED:
         logger.info("[Scheduler] غیرفعال (SCHEDULER_ENABLED=false)")
         return
@@ -185,7 +263,7 @@ def start_scheduler():
     logger.info(
         f"[Scheduler] ✅ فعال — راستی‌آزمایی هر "
         f"{settings.BACKTEST_INTERVAL_MINUTES} دقیقه + "
-        f"اسکن خودکار هر ۶۰ دقیقه"
+        f"اسکن خودکار هر ۶۰ دقیقه (فقط {len(FIXED_WATCH_SYMBOLS)} نماد ثابت + واچ‌لیست)"
     )
 
 
