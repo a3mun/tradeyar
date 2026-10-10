@@ -1,14 +1,13 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۳.۰ · فاز ۱۰.۲
+نسخه ۴.۰ · فاز ۱۰.۴
 🔴 تغییرات:
-  • auto_scan_and_record فقط نمادهای هدفمند رو اسکن می‌کنه:
-      - نمادهای ثابت (BTC-USD, BTC-IRT, PAXG-USD, PAXG-IRT)
-      - نمادهای واچ‌لیست (فقط کریپتو)
-      - نماد فعال فعلی (اگه کاربر داره نگاه می‌کنه)
-  • فقط ۱ TF و ۱ پروفایل (نه همه ترکیب‌ها)
-  • حذف حلقه‌های تودرتوی اشتباه
+  • چرخه‌ی صرافی: nobitex → wallex → bitpin → تکرار
+  • هر اسکن فقط یک صرافی (کاهش فشار)
+  • TF های whitelist: ۱۵m, ۳۰m, ۱h
+  • Watchlist از data/watchlist.json
+  • فقط ۱۰۰ سیگنال آخر
 """
 
 import asyncio
@@ -25,7 +24,6 @@ from services.backtest_service import backtest_all
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
-
 _backtest_lock = asyncio.Lock()
 
 _EMPTY_RESULT = {
@@ -38,38 +36,46 @@ _EMPTY_RESULT = {
     "loss": 0,
 }
 
+
 # ═══════════════════════════════════════════════════════════
-# 🎯 نمادهای ثابت برای اسکن خودکار
+# نمادهای هدف
 # ═══════════════════════════════════════════════════════════
-# فقط این نمادها + واچ‌لیست کاربر اسکن می‌شن
-FIXED_WATCH_SYMBOLS = [
-    # بیت‌کوین
-    {"ticker": "BTC-USD", "source": "nobitex", "name": "بیت‌کوین (USDT)"},
-    {"ticker": "BTC-IRT", "source": "nobitex", "name": "بیت‌کوین (تومان)"},
-    # پکس گلد
-    {"ticker": "PAXG-USD", "source": "nobitex", "name": "پکس گلد (USDT)"},
-    {"ticker": "PAXG-IRT", "source": "nobitex", "name": "پکس گلد (تومان)"},
+FIXED_SYMBOLS = [
+    # USDT
+    {"ticker": "BTC-USD", "name": "بیت‌کوین (USDT)", "source": "nobitex"},
+    {"ticker": "ETH-USD", "name": "اتریوم (USDT)", "source": "nobitex"},
+    {"ticker": "PAXG-USD", "name": "پکس گلد (USDT)", "source": "nobitex"},
+    {"ticker": "SOL-USD", "name": "سولانا (USDT)", "source": "nobitex"},
+    {"ticker": "XRP-USD", "name": "ریپل (USDT)", "source": "nobitex"},
+    # IRT (بدون اتریوم طبق نظر محمدمهدی)
+    {"ticker": "BTC-IRT", "name": "بیت‌کوین (تومان)", "source": "nobitex"},
+    {"ticker": "PAXG-IRT", "name": "پکس گلد (تومان)", "source": "nobitex"},
+    {"ticker": "SOL-IRT", "name": "سولانا (تومان)", "source": "nobitex"},
+    {"ticker": "XRP-IRT", "name": "ریپل (تومان)", "source": "nobitex"},
 ]
 
-# ─── TF و پروفایل ثابت برای اسکن خودکار ───
-SCAN_TIMEFRAME = "۳۰ دقیقه"  # ← تو گفتی ۳۰ دقیقه جسورانه
-SCAN_RISK_PROFILE = "aggressive"
+# 🔴 فاز ۱۰.۴ — TF های اسکن (بدون ۱m و ۵m و روزانه)
+SCAN_TIMEFRAMES = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
+
 SCAN_MARKET_TYPE = "futures"
+SCAN_RISK_PROFILE = "aggressive"
+
+# 🔴 چرخه صرافی — هر ۶۰ دقیقه یکی
+EXCHANGE_CYCLE = ["nobitex", "wallex", "bitpin"]
+_current_exchange_idx = 0
 
 
-# ═══════════════════════════════════════════════════════════
-# واچ‌لیست — از فایل یا DB
-# ═══════════════════════════════════════════════════════════
+def _next_exchange() -> str:
+    """صرافی بعدی در چرخه."""
+    global _current_exchange_idx
+    ex = EXCHANGE_CYCLE[_current_exchange_idx]
+    _current_exchange_idx = (_current_exchange_idx + 1) % len(EXCHANGE_CYCLE)
+    return ex
+
+
 def _load_watchlist_from_file() -> list[dict]:
-    """
-    واچ‌لیست رو از فایل می‌خونه.
-
-    ⚠️ در فاز بعدی، از DB کاربر می‌خونیم.
-    فعلاً یه فایل JSON ساده در /opt/trademun/data/watchlist.json
-    """
+    """خواندن watchlist از data/watchlist.json."""
     path = Path("/app/data/watchlist.json")
-
-    # ─── اگه روی لوکال هستیم ───
     if not path.exists():
         path = Path(__file__).resolve().parent.parent / "data" / "watchlist.json"
 
@@ -80,17 +86,16 @@ def _load_watchlist_from_file() -> list[dict]:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # ─── فقط کریپتو (نماد ASCII) ───
+        if not isinstance(data, list):
+            return []
+
         result = []
         for item in data:
             ticker = item.get("ticker", "")
             if not ticker:
                 continue
-
-            # ─── فیلتر: فقط ASCII (کریپتو) ───
             if not ticker[0].isascii():
                 continue
-
             result.append(
                 {
                     "ticker": ticker,
@@ -98,42 +103,38 @@ def _load_watchlist_from_file() -> list[dict]:
                     "name": item.get("name", ticker),
                 }
             )
-
         return result
     except Exception as e:
-        logger.warning(f"[AutoScan] خطا در خواندن واچ‌لیست: {e!r}")
+        logger.warning(f"[AutoScan] خطا watchlist: {e!r}")
         return []
 
 
 async def check_pending_signals(trigger: str = "scheduler") -> dict:
-    """بررسی سیگنال‌های در انتظار راستی‌آزمایی."""
+    """بررسی سیگنال‌های pending."""
     if _backtest_lock.locked():
-        logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان است — رد شد")
+        logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
         return dict(_EMPTY_RESULT)
 
     async with _backtest_lock:
-        logger.info(f"[Backtest/{trigger}] بررسی سیگنال‌های در انتظار...")
+        logger.info(f"[Backtest/{trigger}] بررسی سیگنال‌ها...")
         try:
-            result = await asyncio.to_thread(backtest_all, 200)
-
+            result = await asyncio.to_thread(backtest_all, max_checks=100)
             updated = result.get("updated", 0)
             if updated > 0:
                 logger.info(
-                    f"[Backtest/{trigger}] ✅ {updated} به‌روز شد "
+                    f"[Backtest/{trigger}] ✅ {updated} به‌روز "
                     f"(win={result.get('win', 0)}, "
                     f"loss={result.get('loss', 0)}, "
-                    f"expired={result.get('expired', 0)}, "
+                    f"exp={result.get('expired', 0)}, "
                     f"errors={result.get('errors', 0)})"
                 )
             else:
                 logger.info(
-                    f"[Backtest/{trigger}] {result.get('checked', 0)} بررسی شد، "
-                    f"تغییری نبود"
+                    f"[Backtest/{trigger}] {result.get('checked', 0)} بررسی، تغییری نبود"
                 )
             return {"ok": True, **result}
-
         except Exception as e:
-            logger.exception(f"[Backtest/{trigger}] خطای غیرمنتظره")
+            logger.exception(f"[Backtest/{trigger}] خطا")
             return {
                 "ok": False,
                 "reason": str(e),
@@ -146,99 +147,84 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
 
 
 async def auto_scan_and_record(trigger: str = "scheduler"):
-    """
-    اسکن خودکار + ثبت سیگنال‌ها — نسخه ۳.۰.
-
-    ═══ تغییرات نسخه ۳.۰ ═══
-    • فقط نمادهای ثابت + واچ‌لیست اسکن می‌شن (نه همه ۲۰ نماد صرافی)
-    • فقط ۱ TF + ۱ پروفایل (نه ۳ TF × ۲ پروفایل)
-    • نتیجه: از ~۱۲۰ رکورد در هر اسکن → ~۶ رکورد
-    """
-    logger.info(f"[AutoScan/{trigger}] شروع اسکن خودکار...")
+    """اسکن چرخه‌ای — هر بار یک صرافی."""
+    exchange = _next_exchange()
+    logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
 
     try:
         from services.analyzer_service import analyze
 
-        # ═══ جمع‌آوری نمادها ═══
-        fixed = list(FIXED_WATCH_SYMBOLS)
-        watchlist = _load_watchlist_from_file()
+        # ═══ نمادها ═══
+        fixed = [s for s in FIXED_SYMBOLS if s["source"] == exchange] or FIXED_SYMBOLS
+        watchlist = [w for w in _load_watchlist_from_file() if w["source"] == exchange]
 
-        # ═══ ادغام بدون تکرار ═══
         seen: set[str] = set()
         all_symbols: list[dict] = []
-
         for s in fixed + watchlist:
-            key = s["ticker"]
+            key = f"{s['ticker']}|{s['source']}"
             if key in seen:
                 continue
             seen.add(key)
             all_symbols.append(s)
 
         logger.info(
-            f"[AutoScan/{trigger}] نمادهای هدف: "
-            f"{len(fixed)} ثابت + {len(watchlist)} واچ‌لیست "
-            f"= {len(all_symbols)} نماد"
+            f"[AutoScan/{trigger}] {len(all_symbols)} نماد × {len(SCAN_TIMEFRAMES)} TF"
         )
 
         total_recorded = 0
         total_errors = 0
 
         for sym in all_symbols:
-            ticker = sym["ticker"]
-            source = sym["source"]
-            name = sym["name"]
+            for tf_name in SCAN_TIMEFRAMES:
+                try:
+                    r = await asyncio.to_thread(
+                        analyze,
+                        ticker=sym["ticker"],
+                        source=sym["source"],
+                        tf_name=tf_name,
+                        market_type=SCAN_MARKET_TYPE,
+                        risk_profile=SCAN_RISK_PROFILE,
+                        ticker_name=sym["name"],
+                        include_extras=False,
+                        skip_record=False,
+                    )
+                    if r and r.get("signal") != "خنثی":
+                        total_recorded += 1
+                except Exception as e:
+                    logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
+                    total_errors += 1
 
-            try:
-                r = await asyncio.to_thread(
-                    analyze,
-                    ticker=ticker,
-                    source=source,
-                    tf_name=SCAN_TIMEFRAME,
-                    market_type=SCAN_MARKET_TYPE,
-                    risk_profile=SCAN_RISK_PROFILE,
-                    ticker_name=name,
-                    include_extras=False,
-                    skip_record=False,
-                )
-                if r and r.get("signal") != "خنثی":
-                    total_recorded += 1
-            except Exception as e:
-                logger.debug(f"[AutoScan] {ticker}: {e}")
-                total_errors += 1
+                await asyncio.sleep(0.5)
 
         logger.info(
-            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال جدید "
-            f"از {len(all_symbols)} نماد (خطا: {total_errors})"
+            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال " f"(خطا: {total_errors})"
         )
         return {
             "ok": True,
+            "exchange": exchange,
             "recorded": total_recorded,
             "symbols_scanned": len(all_symbols),
             "errors": total_errors,
         }
-
     except Exception as e:
         logger.exception(f"[AutoScan/{trigger}] خطا")
         return {"ok": False, "error": str(e)}
 
 
-# ═══════════════════════════════════════════════════════════
-# start_scheduler واحد
-# ═══════════════════════════════════════════════════════════
 def start_scheduler():
-    """راه‌اندازی scheduler با هر دو job."""
+    """راه‌اندازی scheduler."""
     if not settings.SCHEDULER_ENABLED:
-        logger.info("[Scheduler] غیرفعال (SCHEDULER_ENABLED=false)")
+        logger.info("[Scheduler] غیرفعال")
         return
 
     if scheduler.running:
-        logger.debug("[Scheduler] از قبل در حال اجراست")
+        logger.debug("[Scheduler] از قبل اجراست")
         return
 
-    # ═══ job ۱: راستی‌آزمایی سیگنال‌ها ═══
+    # ═══ job ۱: راستی‌آزمایی هر ۵ دقیقه ═══
     scheduler.add_job(
         check_pending_signals,
-        IntervalTrigger(minutes=settings.BACKTEST_INTERVAL_MINUTES),
+        IntervalTrigger(minutes=5),
         id="check_pending_signals",
         replace_existing=True,
         max_instances=1,
@@ -247,7 +233,7 @@ def start_scheduler():
         kwargs={"trigger": "scheduler"},
     )
 
-    # ═══ job ۲: اسکن خودکار ═══
+    # ═══ job ۲: اسکن چرخه‌ای هر ۶۰ دقیقه ═══
     scheduler.add_job(
         auto_scan_and_record,
         IntervalTrigger(minutes=60),
@@ -261,9 +247,8 @@ def start_scheduler():
 
     scheduler.start()
     logger.info(
-        f"[Scheduler] ✅ فعال — راستی‌آزمایی هر "
-        f"{settings.BACKTEST_INTERVAL_MINUTES} دقیقه + "
-        f"اسکن خودکار هر ۶۰ دقیقه (فقط {len(FIXED_WATCH_SYMBOLS)} نماد ثابت + واچ‌لیست)"
+        "[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه + "
+        "اسکن چرخه‌ای هر ۶۰ دقیقه (nobitex→wallex→bitpin)"
     )
 
 

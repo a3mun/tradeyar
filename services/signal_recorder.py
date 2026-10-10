@@ -1,11 +1,12 @@
 """
 services/signal_recorder.py
-ثبت خودکار سیگنال در دیتابیس — با جلوگیری از تکرار
+ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۴.۰ · فاز ۱۰.۱
+نسخه ۵.۰ · فاز ۱۰.۴
 🔴 تغییرات:
-  • is_weak بر اساس کیفیت واقعی (نه فقط نام)
-  • dedup_key بر اساس signal_base (نه متن دقیق)
+  • quote (USDT/IRT) استخراج از ticker
+  • TF=۱m در whitelist نیست (فقط پیش‌بینی)
+  • dedup بهبود
 """
 
 import json
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════
-# نگاشت TF به دقیقه — برای dedup هوشمند
+# TF whitelist — ۱ دقیقه ثبت نمی‌شه
 # ═══════════════════════════════════════════════════════════
 _TF_MINUTES: dict[str, int] = {
     "۱ دقیقه": 1,
@@ -38,33 +39,39 @@ _TF_MINUTES: dict[str, int] = {
 
 
 def _utcnow() -> datetime:
-    """زمان فعلی UTC با timezone"""
     return datetime.now(timezone.utc)
 
 
+def _extract_quote(ticker: str) -> str:
+    """استخراج نوع ارز از ticker"""
+    upper = ticker.upper()
+    if "IRT" in upper or "TMN" in upper:
+        return "IRT"
+    if "USDT" in upper or "USD" in upper:
+        return "USDT"
+    return "USDT"  # پیش‌فرض
+
+
 def _make_bucket(tf_name: str, now: datetime) -> str:
-    """
-    bucket بر اساس TF — هر کندل یه فرصت جدید.
-    """
+    """bucket = شروع کندل فعلی"""
     tf_min = _TF_MINUTES.get(tf_name, 5)
     epoch_min = int(now.timestamp() // 60)
     bucket_min = (epoch_min // tf_min) * tf_min
     return str(bucket_min)
 
 
+def _extract_quote(ticker: str) -> str:
+    """استخراج نوع ارز از ticker."""
+    upper = ticker.upper()
+    if "IRT" in upper or "TMN" in upper:
+        return "IRT"
+    if "USDT" in upper or "USD" in upper:
+        return "USDT"
+    return "USDT"
+
+
 def _signal_base(signal: str) -> str:
-    """
-    🔴 جدید (فاز ۱۰.۱):
-        «LONG» و «LONG ضعیف» باید **یک** bucket داشته باشن.
-
-    ═══ چرا ═══
-    قبلاً متن دقیق signal در dedup_key بود. یعنی وقتی تحلیل
-    ۲ بار با confidence مختلف اجرا می‌شد (مثلاً 52 → 47)،
-    اسم سیگنال از "LONG" به "LONG ضعیف" عوض می‌شد و
-    **رکورد جدید** ثبت می‌شد. نتیجه: تاریخچه شلوغ، آمار مخدوش.
-
-    حالا فقط جهت مهمه: LONG / SHORT / NEUTRAL
-    """
+    """LONG/SHORT/NEUTRAL — مستقل از متن دقیق"""
     if "LONG" in signal:
         return "LONG"
     if "SHORT" in signal:
@@ -72,22 +79,7 @@ def _signal_base(signal: str) -> str:
     return "NEUTRAL"
 
 
-def _dedup_key(
-    ticker: str,
-    tf_name: str,
-    signal: str,
-    source: str,
-    market_type: str,
-    risk_profile: str,
-    bucket: str,
-) -> str:
-    """
-    کلید یکتای «سیگنال منطقاً یکسان».
-
-    🔴 فاز ۱۰.۱:
-        به جای متن دقیق signal از ``signal_base`` استفاده می‌کنیم.
-        یعنی «LONG 45%» و «LONG ضعیف 48%» در همون TF = یک رکورد.
-    """
+def _dedup_key(ticker, tf_name, signal, source, market_type, risk_profile, bucket):
     return "|".join(
         [
             ticker,
@@ -102,7 +94,6 @@ def _dedup_key(
 
 
 def _insert_ignore_conflict(session: Session, values: dict) -> bool:
-    """درج با نادیده‌گرفتن تعارض روی ``dedup_key``."""
     if is_sqlite:
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -116,35 +107,13 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
             stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
         except ImportError:
             stmt = insert(SignalLog).values(**values)
-
     result = session.execute(stmt)
     session.commit()
     return bool(result.rowcount)
 
 
 def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:
-    """
-    🔴 فاز ۱۰.۱ — بازطراحی کامل.
-
-    ═══ ریشه‌ی باگ نسخه‌ی قبلی ═══
-    قبلاً:
-        is_weak = "ضعیف" in signal
-
-    یعنی LONG با confidence 45 هم «قطعی» حساب می‌شد — چون
-    اسمش «ضعیف» نبود.
-
-    ═══ شاهد از دیتای ۳۲۵ سیگنال ═══
-        قطعی (اسمی):  6.25% WR   ← بدتر!
-        ضعیف (اسمی): 39.13% WR   ← ۶ برابر بهتر!
-
-    ═══ نسخه ۱۰.۱ ═══
-    is_weak = True اگه **هر کدوم** از این شرط‌ها برقرار باشه:
-      • اسم سیگنال «ضعیف» داره
-      • confidence < 50 (زیر آستانه‌ی معمولی)
-      • consensus == "weak" (اجماع ضعیف)
-
-    نتیجه: آمار به تفکیک ضعیف/قطعی **معنی‌دار** می‌شه.
-    """
+    """is_weak منطقی"""
     if "ضعیف" in signal:
         return True
     if confidence < 50:
@@ -181,26 +150,20 @@ def record_signal(
     orderbook_available: bool = False,
     trade_side_irt: bool = False,
 ) -> bool:
-    """ثبت سیگنال در دیتابیس — نسخه ۴.۰"""
+    """ثبت سیگنال — نسخه ۵.۰"""
 
-    # ═══ اعتبارسنجی ═══
     if not SigEnum.is_directional(signal):
         return False
     if not price or price <= 0:
         return False
 
-    # ═══ 🔴 is_weak منطقی (فاز ۱۰.۱) ═══
     is_weak = _compute_is_weak(signal, confidence, consensus)
-
     now = _utcnow()
-
-    # 🔴 bucket + dedup_key با signal_base
     bucket = _make_bucket(tf_name, now)
     dedup = _dedup_key(
         ticker, tf_name, signal, source, market_type, risk_profile, bucket
     )
 
-    # ═══ SL/TP ═══
     sl: Optional[float] = None
     tp: Optional[float] = None
     sl_tp_type: Optional[str] = None
@@ -209,13 +172,15 @@ def record_signal(
         tp = sl_tp.get("tp")
         sl_tp_type = sl_tp.get("type")
 
-    # ═══ تله ═══
     active_trap: Optional[str] = None
     if traps:
         for key, val in traps.items():
             if isinstance(val, dict) and val.get("active"):
                 active_trap = key
                 break
+
+    # 🔴 استخراج quote
+    quote = _extract_quote(ticker)
 
     values = {
         "ticker": ticker,
@@ -248,38 +213,26 @@ def record_signal(
         "execution_cost_json": json.dumps(execution_cost) if execution_cost else None,
         "orderbook_available": bool(orderbook_available),
         "trade_side_irt": bool(trade_side_irt),
-        # 🔴 فاز ۱۰.۱ — منطق جدید
         "is_weak": is_weak,
     }
 
     try:
         with Session(engine) as session:
-            # ─── چک سریع تکراری ───
             stmt = select(SignalLog.id).where(SignalLog.dedup_key == dedup).limit(1)
             if session.exec(stmt).first():
-                logger.debug(
-                    f"[Recorder] تکراری: {ticker} {tf_name} {signal} "
-                    f"(bucket={bucket})"
-                )
                 return False
-
-            # ─── درج اتمیک ───
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
             weak_flag = " [ضعیف]" if is_weak else ""
             logger.info(
-                f"[Recorder] ✅ ثبت: {ticker} {tf_name} {signal}{weak_flag} "
-                f"({source}, {confidence}%)"
+                f"[Recorder] ✅ {ticker} {tf_name} {signal}{weak_flag} "
+                f"({source}, {confidence}%, {quote})"
             )
             return True
-
-        logger.debug(f"[Recorder] تعارض dedup_key — رد شد: {ticker} {tf_name}")
         return False
-
     except IntegrityError:
-        logger.debug(f"[Recorder] IntegrityError — تکراری: {ticker} {tf_name}")
         return False
     except Exception:
-        logger.exception(f"[Recorder] خطا در ثبت {ticker} {tf_name} {signal}")
+        logger.exception(f"[Recorder] خطا {ticker} {tf_name} {signal}")
         return False
