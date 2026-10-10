@@ -2,16 +2,22 @@
 api/routers/backtest.py
 راستی‌آزمایی — endpoints
 ============================================================
-نسخه ۲.۰: فیلتر risk_profile + by-profile endpoint
+نسخه ۳.۰ · فاز ۱۰.۱
+🔴 تغییرات:
+  • همه‌ی فراخوانی‌های sync با run_in_threadpool
+  • endpoint جدید: GET /backtest/by-quality
+  • endpoint جدید: GET /backtest/by-quality-detailed
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from api.database import get_session
+from api.deps import rate_limit_for
 from api.models import SignalLog
 from api.schemas import BacktestResponse, BacktestStats
 from services.backtest_service import (
@@ -19,12 +25,16 @@ from services.backtest_service import (
     compute_stats,
     compute_stats_by_tf,
     compute_stats_by_profile,
+    compute_stats_by_quality,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/backtest", tags=["Backtest"])
 
 
+# ═══════════════════════════════════════════════════════════
+# GET /backtest — آمار کلی
+# ═══════════════════════════════════════════════════════════
 @router.get("", response_model=BacktestResponse)
 async def backtest_stats(
     tf: str = "",
@@ -32,7 +42,9 @@ async def backtest_stats(
     time_filter: str = "all",
     risk_profile: str = "",
 ):
-    stats = compute_stats(
+    """آمار کلی راستی‌آزمایی"""
+    stats = await run_in_threadpool(
+        compute_stats,
         tf=tf,
         source=source,
         time_filter=time_filter,
@@ -48,6 +60,9 @@ async def backtest_stats(
     return BacktestResponse(stats=BacktestStats(**stats), items=[])
 
 
+# ═══════════════════════════════════════════════════════════
+# GET /backtest/history — تاریخچه
+# ═══════════════════════════════════════════════════════════
 @router.get("/history")
 async def backtest_history(
     limit: int = 50,
@@ -57,6 +72,7 @@ async def backtest_history(
     risk_profile: str = "",
     session: Session = Depends(get_session),
 ):
+    """تاریخچه‌ی سیگنال‌ها"""
     stmt = select(SignalLog)
     if status == "pending":
         stmt = stmt.where(SignalLog.result.is_(None)).where(SignalLog.expired == False)
@@ -116,7 +132,6 @@ async def backtest_history(
                 "orderbook_available": r.orderbook_available,
                 "trade_side_irt": r.trade_side_irt,
                 "trend_correct": getattr(r, "trend_correct", None),
-                # 🔴 فاز ۸.۲
                 "is_weak": getattr(r, "is_weak", False),
             }
             for r in rows
@@ -124,14 +139,22 @@ async def backtest_history(
     }
 
 
+# ═══════════════════════════════════════════════════════════
+# POST /backtest/run — اجرای دستی
+# ═══════════════════════════════════════════════════════════
 @router.post("/run")
 async def backtest_run():
-    result = backtest_all()
+    """اجرای دستی راستی‌آزمایی"""
+    result = await run_in_threadpool(backtest_all)
     return {"ok": True, **result}
 
 
+# ═══════════════════════════════════════════════════════════
+# DELETE /backtest/reset — پاک‌سازی
+# ═══════════════════════════════════════════════════════════
 @router.delete("/reset")
 async def backtest_reset(session: Session = Depends(get_session)):
+    """پاک کردن همه‌ی سیگنال‌ها"""
     rows = session.exec(select(SignalLog)).all()
     count = len(rows)
     for r in rows:
@@ -140,23 +163,72 @@ async def backtest_reset(session: Session = Depends(get_session)):
     return {"ok": True, "deleted": count}
 
 
+# ═══════════════════════════════════════════════════════════
+# GET /backtest/by-tf — به تفکیک TF
+# ═══════════════════════════════════════════════════════════
 @router.get("/by-tf")
 async def backtest_stats_by_tf(
     time_filter: str = Query(default="all"),
     risk_profile: str = Query(default=""),
 ):
-    data = compute_stats_by_tf(
+    data = await run_in_threadpool(
+        compute_stats_by_tf,
         time_filter=time_filter,
         risk_profile=risk_profile,
     )
     return {"ok": True, "items": data}
 
 
+# ═══════════════════════════════════════════════════════════
+# GET /backtest/by-profile — به تفکیک پروفایل
+# ═══════════════════════════════════════════════════════════
 @router.get("/by-profile")
 async def backtest_stats_by_profile(
     time_filter: str = Query(default="all"),
 ):
-    data = compute_stats_by_profile(time_filter=time_filter)
+    data = await run_in_threadpool(
+        compute_stats_by_profile,
+        time_filter=time_filter,
+    )
+    return {"ok": True, "items": data}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🎯 GET /backtest/by-quality — جدید فاز ۱۰.۱
+# ═══════════════════════════════════════════════════════════
+@router.get("/by-quality")
+async def backtest_stats_by_quality(
+    request: Request,
+    tf: str = Query(default=""),
+    source: str = Query(default=""),
+    time_filter: str = Query(default="all"),
+    risk_profile: str = Query(default=""),
+):
+    """
+    آمار به تفکیک کیفیت سیگنال (confidence tier).
+
+    ═══ خروجی ═══
+        {
+            "all":    {...},  ← همه
+            "strong": {...},  ← conf >= 70
+            "normal": {...},  ← 50 <= conf < 70
+            "weak":   {...},  ← conf < 50
+        }
+
+    ═══ چرا این endpoint ═══
+    کاربر می‌خواد بدونه: «آیا confidence واقعاً پیش‌بین درستیه؟»
+    اگه strong بهتر از weak باشه → confidence کار می‌کنه.
+    اگه نه → باید بازطراحی بشه.
+    """
+    rate_limit_for(request, "backtest_quality", limit=30, window_sec=60)
+
+    data = await run_in_threadpool(
+        compute_stats_by_quality,
+        tf=tf,
+        source=source,
+        time_filter=time_filter,
+        risk_profile=risk_profile,
+    )
     return {"ok": True, "items": data}
 
 
@@ -178,19 +250,12 @@ class RecordRequest(BaseModel):
 async def backtest_record(req: RecordRequest):
     """
     ثبت یک سیگنال از اسکنر برای راستی‌آزمایی.
-
-    ⚠️ چرا این endpoint:
-        Scanner.tsx برای دکمه‌ی «راستی‌آزمایی» به /backtest/record
-        درخواست می‌زند. تابع analyze خودش signal_recorder را
-        صدا می‌زند (dedup دارد).
-
-    فرانت انتظار ``{ok: true}`` دارد.
     """
     from services.analyzer_service import analyze
 
-    # ─── اجرای تحلیل + ثبت خودکار ───
-    # signal_recorder خودکار داخل analyze() ثبت می‌کند
-    result = analyze(
+    # ─── اجرای تحلیل در thread جدا ───
+    result = await run_in_threadpool(
+        analyze,
         ticker=req.ticker,
         source=req.source,
         tf_name=req.timeframe,
@@ -198,7 +263,7 @@ async def backtest_record(req: RecordRequest):
         risk_profile=req.risk_profile,
         ticker_name=req.ticker_name or req.ticker,
         include_extras=False,
-        skip_record=False,  # ← ثبت انجام بشه
+        skip_record=False,
     )
 
     if result is None:

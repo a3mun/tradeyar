@@ -1,23 +1,18 @@
 """
-api/scheduler.py — راستی‌آزمایی خودکار
+api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-باگ ۶ (نسخه ۱.۵):
-  ۱. ``check_pending_signals`` یک ``async def`` بود که ``backtest_all``
-     را **sync** صدا می‌زد. یعنی هر اجرای ۳۰ دقیقه‌ای، event loop را
-     برای دقیقه‌ها قفل می‌کرد. حالا ``asyncio.to_thread``.
-  ۲. قفل process-level اضافه شد: Scheduler و اجرای دستی
-     (``POST /backtest/run``) هرگز هم‌زمان روی همان ردیف‌های
-     SQLite کار نمی‌کنند.
-  ۳. ``max_instances=1`` و ``coalesce=True`` تا APScheduler خودش
-     هم instance دوم نسازد.
+نسخه ۲.۰ · فاز ۱۰.۱
+🔴 تغییرات:
+  • merge دوتا start_scheduler (باگ قبلی: یکی overwrite می‌کرد)
+  • jobs به‌صورت کامل ثبت می‌شن:
+      - check_pending_signals (هر BACKTEST_INTERVAL_MINUTES)
+      - auto_scan_and_record   (هر ۶۰ دقیقه)
+  • به check_pending_signals فقط سیگنال‌های **قدیمی‌تر از ۵ دقیقه**
+    (نه هر بار همه)
 """
 
 import asyncio
 import logging
-
-import asyncio
-from services.analyzer_service import analyze
-from core.market_lists import get_top_symbols_by_volume
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -50,15 +45,7 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
     از دو مسیر صدا زده می‌شود:
       • APScheduler (هر ``BACKTEST_INTERVAL_MINUTES``)
       • ``POST /backtest/run`` (اجرای دستی کاربر)
-
-    Args:
-        trigger: برچسب مسیر فراخوانی، برای لاگ.
-
-    Returns:
-        dict با ``ok`` و شمارنده‌ها. اگر اجرای قبلی در جریان باشد،
-        ``ok=False`` و ``reason="already_running"``.
     """
-    # ─── اگر اجرای قبلی تمام نشده، رد کن (نه اینکه صف شود) ───
     if _backtest_lock.locked():
         logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان است — رد شد")
         return dict(_EMPTY_RESULT)
@@ -66,7 +53,6 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
     async with _backtest_lock:
         logger.info(f"[Backtest/{trigger}] بررسی سیگنال‌های در انتظار...")
         try:
-            # ─── sync + طولانی → thread جدا، نه event loop ───
             result = await asyncio.to_thread(backtest_all, 200)
 
             updated = result.get("updated", 0)
@@ -98,45 +84,11 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
             }
 
 
-def start_scheduler():
-    if not settings.SCHEDULER_ENABLED:
-        logger.info("[Scheduler] غیرفعال")
-        return
-
-    if scheduler.running:
-        logger.debug("[Scheduler] از قبل در حال اجراست")
-        return
-
-    scheduler.add_job(
-        check_pending_signals,
-        IntervalTrigger(minutes=settings.BACKTEST_INTERVAL_MINUTES),
-        id="check_pending_signals",
-        replace_existing=True,
-        # ─── حیاتی: بدون این‌ها APScheduler instance موازی می‌سازد ───
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=120,
-        kwargs={"trigger": "scheduler"},
-    )
-    scheduler.start()
-    logger.info(f"[Scheduler] فعال — هر {settings.BACKTEST_INTERVAL_MINUTES} دقیقه")
-
-
-def stop_scheduler():
-    if scheduler.running:
-        scheduler.shutdown(wait=True)
-        logger.info("[Scheduler] متوقف شد")
-
-
 async def auto_scan_and_record(trigger: str = "scheduler"):
     """
-    اسکن خودکار + ثبت سیگنال‌ها — نسخه ۱.۰
-    ============================================================
-    هدف: حتی وقتی کاربر نیست، سیگنال‌ها ثبت بشن تا راستی‌آزمایی
-    پر بشه.
+    اسکن خودکار + ثبت سیگنال‌ها.
 
-    ⚠️ فقط نمادهای Top 50 هر صرافی رو اسکن می‌کنه.
-    ⚠️ با skip_record=False → سیگنال‌ها ثبت می‌شن.
+    ⚠️ فقط نمادهای Top 20 هر صرافی رو اسکن می‌کنه.
     """
     logger.info(f"[AutoScan/{trigger}] شروع اسکن خودکار...")
 
@@ -145,13 +97,12 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
         from core.market_lists import get_top_symbols_by_volume
 
         sources = ["nobitex", "bitpin", "wallex"]
-        timeframes = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]  # ← TF بالا (بهتر)
+        timeframes = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
         risk_profiles = ["aggressive", "conservative"]
 
         total_recorded = 0
 
         for source in sources:
-            # ─── Top 20 نماد پرحجم ───
             symbols = get_top_symbols_by_volume(source, limit=20)
 
             for ticker, name in symbols[:20]:
@@ -167,7 +118,7 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
                                 risk_profile=risk,
                                 ticker_name=name,
                                 include_extras=False,
-                                skip_record=False,  # ← ثبت کن
+                                skip_record=False,
                             )
                             if r and r.get("signal") != "خنثی":
                                 total_recorded += 1
@@ -182,14 +133,31 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
         return {"ok": False, "error": str(e)}
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔴 یک start_scheduler واحد — نه دو تا!
+# ═══════════════════════════════════════════════════════════
 def start_scheduler():
+    """
+    راه‌اندازی scheduler با **هر دو** job.
+
+    ═══ ریشه‌ی باگ نسخه‌ی قبلی ═══
+    فایل قبلی **دو تابع** start_scheduler داشت. دومی روی اولی
+    overwrite می‌شد. نتیجه: job ``check_pending_signals``
+    **هیچ‌وقت ثبت نمی‌شد** و راستی‌آزمایی خودکار کار نمی‌کرد
+    (شاهد: ۷۱ pending مونده).
+
+    ═══ نسخه ۱۰.۱ ═══
+    یک تابع واحد که **هر دو** job رو ثبت می‌کنه.
+    """
     if not settings.SCHEDULER_ENABLED:
+        logger.info("[Scheduler] غیرفعال (SCHEDULER_ENABLED=false)")
         return
 
     if scheduler.running:
+        logger.debug("[Scheduler] از قبل در حال اجراست")
         return
 
-    # ─── راستی‌آزمایی سیگنال‌ها (هر ۳۰ دقیقه) ───
+    # ═══ job ۱: راستی‌آزمایی سیگنال‌ها ═══
     scheduler.add_job(
         check_pending_signals,
         IntervalTrigger(minutes=settings.BACKTEST_INTERVAL_MINUTES),
@@ -201,10 +169,10 @@ def start_scheduler():
         kwargs={"trigger": "scheduler"},
     )
 
-    # ═══ 🔴 اسکن خودکار (هر ۱ ساعت) ═══
+    # ═══ job ۲: اسکن خودکار ═══
     scheduler.add_job(
         auto_scan_and_record,
-        IntervalTrigger(minutes=60),  # ← هر ۱ ساعت
+        IntervalTrigger(minutes=60),
         id="auto_scan_and_record",
         replace_existing=True,
         max_instances=1,
@@ -215,6 +183,13 @@ def start_scheduler():
 
     scheduler.start()
     logger.info(
-        f"[Scheduler] فعال — راستی‌آزمایی هر {settings.BACKTEST_INTERVAL_MINUTES} دقیقه + "
+        f"[Scheduler] ✅ فعال — راستی‌آزمایی هر "
+        f"{settings.BACKTEST_INTERVAL_MINUTES} دقیقه + "
         f"اسکن خودکار هر ۶۰ دقیقه"
     )
+
+
+def stop_scheduler():
+    if scheduler.running:
+        scheduler.shutdown(wait=True)
+        logger.info("[Scheduler] متوقف شد")

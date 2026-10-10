@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * SignalCard — کارت سیگنال (نسخه ۸.۱ — فاز ۸)
+ * SignalCard — کارت سیگنال (نسخه ۱۰.۰ · فاز ۱۰.۱)
  * ============================================================
- * 🔴 تغییرات نسخه ۸.۱:
- *   • wsSignal رو توی store می‌ذاره (setWsSignal) تا TFTable
- *     هم از همون داده استفاده کنه.
- *   • Sparkline سریع از /analyze/sparkline
+ * 🔴 تغییرات نسخه ۱۰.۰:
+ *   • Compact UI — ارتفاع ۳۰٪ کمتر بدون حذف اطلاعات
+ *   • قیمت + سیگنال در یک نوار افقی
+ *   • Sparkline ۶۰px
+ *   • SL/TP/RR نازک‌تر
+ *   • Regime + Consensus ادغام با آراء
+ *   • لوگو پس‌زمینه + footer آدرس/تاریخ/ساعت
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -85,6 +88,7 @@ const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
   },
 };
 
+
 export function SignalCard() {
   const {
     ticker,
@@ -100,11 +104,9 @@ export function SignalCard() {
 
   const capability = useAnalysisCapability(source);
   const { quote, signal: wsSignal, status: wsStatus } = useWebSocket();
-
-  // ─── 🔴 فاز ۸.۱: setter برای store ───
   const setWsSignal = useAppStore((s) => s.setWsSignal);
 
-  // ═══ ۱. state ها ═══
+  // ═══ state ها ═══
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +122,14 @@ export function SignalCard() {
   const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
   const [sparklinePrice, setSparklinePrice] = useState<number>(0);
 
-  // ═══ ۲. useEffect اول: /analyze ═══
+  // ═══ ساعت زنده ═══
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ═══ /analyze ═══
   useEffect(() => {
     if (!ticker) return;
 
@@ -138,7 +147,6 @@ export function SignalCard() {
     }
 
     let cancelled = false;
-
     queueMicrotask(() => {
       if (!cancelled) {
         setLoading(true);
@@ -189,15 +197,14 @@ export function SignalCard() {
     capability.planned,
   ]);
 
-  // ═══ ۳. useEffect دوم: wsSignal → data ═══
+  // ═══ wsSignal → data ═══
   useEffect(() => {
     if (wsSignal) {
       setData(wsSignal as unknown as AnalyzeResponse);
     }
   }, [wsSignal]);
 
-  // ═══ ۴. 🔴 useEffect جدید (فاز ۸.۱): wsSignal → store ═══
-  // چرا: TFTable هم باید از همون سیگنال WS استفاده کنه.
+  // ═══ wsSignal → store ═══
   useEffect(() => {
     if (!wsSignal) return;
     const sig = wsSignal as unknown as {
@@ -213,15 +220,14 @@ export function SignalCard() {
       receivedAt: Date.now(),
     });
   }, [wsSignal, source, setWsSignal]);
-  
-  // ═══ ۵. useEffect Sparkline سریع ═══
+
+  // ═══ Sparkline ═══
   useEffect(() => {
     if (!ticker) {
       setSparklineSeries([]);
       setSparklinePrice(0);
       return;
     }
-
     if (capability.planned || !sourceSupportsPair(source, ticker)) {
       setSparklineSeries([]);
       setSparklinePrice(0);
@@ -265,7 +271,7 @@ export function SignalCard() {
     };
   }, [ticker, source, timeframe, capability.planned]);
 
-  // ═══ ۶. useEffect Flash + Count-up ═══
+  // ═══ Flash + Count-up ═══
   const entryPrice = data?.price ?? 0;
   const livePrice = quote?.price ?? entryPrice ?? 0;
 
@@ -285,8 +291,8 @@ export function SignalCard() {
       const duration = 400;
 
       let rafId: number;
-      const tick = (now: number) => {
-        const elapsed = now - start;
+      const tick = (t: number) => {
+        const elapsed = t - start;
         const progress = Math.min(elapsed / duration, 1);
         const eased = 1 - Math.pow(1 - progress, 3);
         const val = from + (to - from) * eased;
@@ -322,7 +328,7 @@ export function SignalCard() {
     }
   }, [livePrice]);
 
-  // ═══ ۷. handleShare ═══
+  // ═══ Share ═══
   const handleShare = async () => {
     if (!cardRef.current || sharing || !data) return;
     setSharing(true);
@@ -377,7 +383,7 @@ export function SignalCard() {
     }
   };
 
-  // ═══ ۸. Early returns ═══
+  // ═══ Early returns ═══
   if (capability.planned) {
     return (
       <AnalysisUnavailable
@@ -392,7 +398,7 @@ export function SignalCard() {
   if (loading && !data) {
     return (
       <Card>
-        <CardContent className="space-y-3 p-3">
+        <CardContent className="space-y-2 p-3">
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-20 w-full" />
         </CardContent>
@@ -412,7 +418,7 @@ export function SignalCard() {
 
   if (!data) return null;
 
-  // ═══ ۹. متغیرهای مشتق ═══
+  // ═══ متغیرهای مشتق ═══
   const sl = data.sl;
   const tp = data.tp;
   const rr = data.rr;
@@ -449,7 +455,6 @@ export function SignalCard() {
     }
   }
   const trapLabel = activeTraps.map((k) => TRAP_LABELS[k] || k).join(" · ");
-  const trapsDetails = trapReasons.join(" | ");
 
   const marketLabel =
     MARKET_LABELS[data.market_type || marketType] || MARKET_LABELS.spot;
@@ -464,6 +469,9 @@ export function SignalCard() {
   const longPct = ((data.votes_long || 0) / totalVotes) * 100;
   const neutralPct = ((data.votes_neutral || 0) / totalVotes) * 100;
   const shortPct = ((data.votes_short || 0) / totalVotes) * 100;
+
+  const isDirectional =
+    data.direction === "long" || data.direction === "short";
 
   const feeTooltipContent = (
     <div className="space-y-1.5 text-[11px]">
@@ -532,7 +540,6 @@ export function SignalCard() {
 
   const wsConnected = wsStatus === "connected";
 
-  // ═══ ۱۰. انتخاب سری نمودار ═══
   const series =
     sparklineSeries.length >= 2
       ? sparklineSeries
@@ -540,33 +547,38 @@ export function SignalCard() {
         ? data.close_series
         : null;
 
+  // ═══ رنگ سیگنال ═══
+  const signalColor =
+    data.direction === "long"
+      ? "text-green-500"
+      : data.direction === "short"
+        ? "text-red-500"
+        : "text-slate-400";
+
   return (
-    <div ref={cardRef} data-signal-card>
-      <Card className={`border ${signalBg(data.signal)}`}>
-        {/* ═══ 🔴 زمان + تاریخ — یک خط، بدون افزایش ارتفاع ═══ */}
-        <div className="flex items-center justify-between px-3 pt-2 text-[8px] text-muted-foreground">
-          <span className="num" style={{ fontFamily: "monospace" }}>
-            {new Intl.DateTimeFormat("en-GB", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-              hour12: false,
-              timeZone: "Asia/Tehran",
-            }).format(new Date())}
-          </span>
-          <span className="num">
-            {new Intl.DateTimeFormat("fa-IR", {
-              year: "numeric",
-              month: "2-digit",
-              day: "2-digit",
-              timeZone: "Asia/Tehran",
-            }).format(new Date())}
-          </span>
-        </div>
+    <div
+      ref={cardRef}
+      data-signal-card
+      className="relative overflow-hidden"
+    >
+      {/* 🔴 لوگو پس‌زمینه */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          backgroundImage: "url('/icon-192.png')",
+          backgroundSize: "55%",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          opacity: 0.04,
+        }}
+      />
 
-        <div className="space-y-2 p-3 pb-2 pt-1">
-
-        {/* خط ۱: نام + دکمه‌ها */}
+      <Card className={`relative z-10 border ${signalBg(data.signal)}`}>
+        {/* ═══════════════════════════════════════════════════════
+            ردیف هدر: نام + ticker + بج‌ها + دکمه‌ها
+        ═══════════════════════════════════════════════════════ */}
+        <div className="space-y-1.5 px-3 pt-2.5">
+          {/* خط ۱: نام + دکمه‌ها */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <CryptoIcon ticker={data.ticker} size="md" />
@@ -683,46 +695,66 @@ export function SignalCard() {
           </div>
         </div>
 
-        <CardContent className="space-y-2.5 px-3 pb-3 pt-1">
+        {/* ═══════════════════════════════════════════════════════
+            بدنه کارت
+        ═══════════════════════════════════════════════════════ */}
+        <CardContent className="space-y-2 px-3 pb-2.5 pt-2">
+          {/* ═══ Fallback warning ═══ */}
           {isFallback && (
-            <p className="rounded-md border border-blue-500/20 bg-blue-500/5 p-1.5 text-[9px] text-blue-400">
+            <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400">
               ℹ️ {requestedMeta?.label} این نماد را در {data.timeframe} ندارد
-              — تحلیل با داده‌ی {usedMeta?.label}
+              — داده از {usedMeta?.label}
             </p>
           )}
 
+          {/* ═══ Trap chip — با توضیح یک‌خطی ═══ */}
           {activeTraps.length > 0 && (
-            <div className="flex items-start gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 p-2">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-              <div className="min-w-0 flex-1 space-y-0.5">
-                <p className="text-[10px] font-bold text-red-500">
-                  ⚠️ احتمال {trapLabel}
+            <Tooltip>
+              <TooltipTrigger>
+                <div className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
+                  <span className="text-[9px] font-bold text-red-500 shrink-0">
+                    احتمال {trapLabel}
+                  </span>
+                  {trapReasons[0] && (
+                    <>
+                      <span className="text-red-500/40">·</span>
+                      <span className="truncate text-[9px] text-red-400/80">
+                        {trapReasons[0].length > 45
+                          ? trapReasons[0].slice(0, 45) + "…"
+                          : trapReasons[0]}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="text-[10px] leading-relaxed">
+                  {trapReasons.join(" | ")}
                 </p>
-                {trapsDetails && (
-                  <p className="text-[8px] leading-relaxed text-red-400/80">
-                    {trapsDetails}
-                  </p>
-                )}
-              </div>
-            </div>
+              </TooltipContent>
+            </Tooltip>
           )}
 
-          {/* ═══ قیمت + سیگنال ═══ */}
-          <div className="rounded-lg bg-muted/40 p-2.5">
-            <div className="flex items-center justify-between gap-2">
+          {/* ═══════════════════════════════════════════════════════
+              قیمت + سیگنال — نوار افقی فشرده
+          ═══════════════════════════════════════════════════════ */}
+          <div className="rounded-lg bg-muted/40 px-2.5 py-2">
+            <div className="flex items-center gap-3">
+              {/* ─── چپ: قیمت ─── */}
               <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
                   <span>قیمت زنده</span>
                   {wsConnected && (
                     <span
-                      className={`inline-block h-1.5 w-1.5 rounded-full bg-green-500 ${
+                      className={`inline-block h-1 w-1 rounded-full bg-green-500 ${
                         dotPulse ? "animate-ping" : ""
                       }`}
                     />
                   )}
-                </p>
+                </div>
                 <p
-                  className={`num truncate text-lg font-bold leading-tight tracking-tight transition-colors duration-300 sm:text-xl ${
+                  className={`num truncate text-lg font-bold leading-tight tracking-tight transition-colors duration-300 ${
                     priceFlash === "up"
                       ? "text-green-500"
                       : priceFlash === "down"
@@ -732,60 +764,49 @@ export function SignalCard() {
                 >
                   {formatNumber(animPrice || livePrice)}
                 </p>
-                {displayChange != null && displayChange !== 0 && (
-                  <p
-                    className={`num text-[9px] ${
-                      displayChange >= 0 ? "text-green-500" : "text-red-500"
-                    }`}
-                  >
-                    {displayChange >= 0 ? "▲" : "▼"}{" "}
-                    {Math.abs(displayChange).toFixed(2)}%
-                    {entryPrice > 0 && (
-                      <span className="mr-1.5 text-muted-foreground">
-                        · ورود{" "}
-                        <span className="num">
-                          {formatNumber(entryPrice)}
-                        </span>
-                      </span>
-                    )}
-                  </p>
-                )}
-                {displayChange === 0 && entryPrice > 0 && (
-                  <p className="text-[9px] text-muted-foreground">
-                    ورود تحلیل:{" "}
-                    <span className="num">{formatNumber(entryPrice)}</span>
-                  </p>
-                )}
+                {/* زیرنویس: تغییر + ورود در یک خط */}
+                <div className="num flex items-center gap-1.5 text-[9px]">
+                  {displayChange != null && displayChange !== 0 ? (
+                    <span
+                      className={
+                        displayChange >= 0 ? "text-green-500" : "text-red-500"
+                      }
+                    >
+                      {displayChange >= 0 ? "▲" : "▼"}{" "}
+                      {Math.abs(displayChange).toFixed(2)}%
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                  {entryPrice > 0 && (
+                    <span className="text-muted-foreground/70">
+                      · ورود {formatNumber(entryPrice)}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div className="h-9 w-px shrink-0 bg-border/40" />
+              {/* ─── جداکننده ─── */}
+              <div className="h-12 w-px shrink-0 bg-border/40" />
 
+              {/* ─── راست: سیگنال ─── */}
               <div className="shrink-0 text-center">
-                <div
-                  className={
-                    data.direction === "long"
-                      ? "text-green-500"
-                      : data.direction === "short"
-                        ? "text-red-500"
-                        : "text-slate-400"
-                  }
-                >
-                  <SignalIcon className="mx-auto h-3.5 w-3.5" />
-                  <p className="text-[13px] font-bold leading-none">
+                <div className={`${signalColor}`}>
+                  <SignalIcon className="mx-auto h-4 w-4" />
+                  <p className="text-[13px] font-bold leading-none mt-0.5">
                     {data.signal}
                   </p>
                 </div>
-                <p className="num mt-0.5 text-[10px] font-bold text-blue-500">
+                <p className="num mt-1 text-[11px] font-bold text-blue-500">
                   {data.confidence}%
                 </p>
 
-                {/* 🔴 فاز ۸.۲ — نشان «قوی» برای سیگنال‌های confidence ≥ ۷۰ */}
+                {/* نشان «قوی» */}
                 {data.confidence >= 70 &&
-                  (data.signal.includes("LONG") ||
-                    data.signal.includes("SHORT")) &&
+                  isDirectional &&
                   !data.signal.includes("ضعیف") && (
                     <span
-                      className="mt-0.5 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[8px] font-bold"
+                      className="mt-1 inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[8px] font-bold"
                       style={{
                         background: data.signal.includes("LONG")
                           ? "rgba(34,197,94,0.15)"
@@ -805,15 +826,16 @@ export function SignalCard() {
                     </span>
                   )}
               </div>
-
             </div>
           </div>
 
-          {/* ═══ نمودار ═══ */}
+          {/* ═══════════════════════════════════════════════════════
+              Sparkline — ۶۰px
+          ═══════════════════════════════════════════════════════ */}
           {series ? (
             <Sparkline
               data={series}
-              height={80}
+              height={60}
               showArea
               showDot
               sl={sl}
@@ -832,7 +854,7 @@ export function SignalCard() {
           ) : (
             <div
               className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10"
-              style={{ height: 80 }}
+              style={{ height: 60 }}
             >
               <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/5 to-transparent" />
               <div className="relative flex items-center gap-2 text-[10px] text-muted-foreground">
@@ -842,10 +864,13 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* ═══ SL/TP ═══ */}
+          {/* ═══════════════════════════════════════════════════════
+              SL/TP/RR — نازک‌تر
+          ═══════════════════════════════════════════════════════ */}
           {sl != null && tp != null && (
             <div className="grid grid-cols-3 gap-1.5">
-              <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-1.5 text-center">
+              {/* SL */}
+              <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-1 text-center">
                 <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
                   <Shield className="h-2.5 w-2.5" />
                   حد ضرر
@@ -861,7 +886,8 @@ export function SignalCard() {
                 )}
               </div>
 
-              <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-1.5 py-1.5 text-center">
+              {/* R:R */}
+              <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-1.5 py-1 text-center">
                 <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
                   <Percent className="h-2.5 w-2.5" />
                   R:R
@@ -880,7 +906,8 @@ export function SignalCard() {
                 )}
               </div>
 
-              <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1.5 py-1.5 text-center">
+              {/* TP */}
+              <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1.5 py-1 text-center">
                 <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
                   <Target className="h-2.5 w-2.5" />
                   هدف
@@ -898,10 +925,12 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* ═══ اقتصاد معامله ═══ */}
+          {/* ═══════════════════════════════════════════════════════
+              اقتصاد معامله — فشرده
+          ═══════════════════════════════════════════════════════ */}
           {data.fee_pct != null && (
             <div
-              className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[9px] ${
+              className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[9px] ${
                 data.timeframe_viable === false ||
                 data.is_worthwhile === false
                   ? "border border-orange-500/25 bg-orange-500/5 text-orange-400"
@@ -945,18 +974,20 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* ═══ وضعیت + اجماع ═══ */}
-          <div className="flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
-            <span>
-              {regimeIcon(data.regime)} {regimeFullFa(data.regime)}
-            </span>
-            <span className={consensusColor(data.consensus)}>
-              {consensusFa(data.consensus)}
-            </span>
-          </div>
+          {/* ═══════════════════════════════════════════════════════
+              Regime + Consensus + آراء — ادغام‌شده
+          ═══════════════════════════════════════════════════════ */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
+              <span>
+                {regimeIcon(data.regime)} {regimeFullFa(data.regime)}
+              </span>
+              <span className={consensusColor(data.consensus)}>
+                {consensusFa(data.consensus)}
+              </span>
+            </div>
 
-          {/* ═══ نوار آراء ═══ */}
-          <div className="space-y-1">
+            {/* نوار آراء */}
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40">
               {longPct > 0 && (
                 <div
@@ -980,6 +1011,7 @@ export function SignalCard() {
                 />
               )}
             </div>
+
             <div className="flex items-center justify-between text-[8px] text-muted-foreground">
               <span className="text-green-500">
                 ▲ {data.votes_long} صعودی
@@ -993,6 +1025,44 @@ export function SignalCard() {
             </div>
           </div>
         </CardContent>
+
+        {/* ═══════════════════════════════════════════════════════
+            Footer: آدرس + تاریخ + ساعت
+        ═══════════════════════════════════════════════════════ */}
+        <div className="flex items-center justify-between border-t border-border/20 px-3 pb-2 pt-1.5 text-[9px]">
+          <span
+            className="text-muted-foreground/50"
+            style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}
+          >
+            trademun.ir
+          </span>
+          <span
+            className="num flex items-center gap-1 text-muted-foreground/60"
+            style={{ fontFamily: "monospace" }}
+          >
+            <span>
+              {(() => {
+                const parts = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  timeZone: "Asia/Tehran",
+                }).formatToParts(now);
+                return parts.map((p) => p.value).join("");
+              })()}
+            </span>
+            <span className="text-muted-foreground/30">·</span>
+            <span className="text-muted-foreground/80">
+              {new Intl.DateTimeFormat("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false,
+                timeZone: "Asia/Tehran",
+              }).format(now)}
+            </span>
+          </span>
+        </div>
       </Card>
     </div>
   );

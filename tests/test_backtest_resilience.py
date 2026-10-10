@@ -279,9 +279,7 @@ class TestIncrementalCommit:
 
         # ─── 🔴 ۳ نتیجه باید واقعاً در دیتابیس باشند ───
         stored = _results()
-        assert stored.count("win") == 3, (
-            f"نتایج commit نشدند — در دیتابیس: {stored}"
-        )
+        assert stored.count("win") == 3, f"نتایج commit نشدند — در دیتابیس: {stored}"
 
     def test_next_run_does_not_recheck_completed(self, monkeypatch):
         """
@@ -315,9 +313,9 @@ class TestIncrementalCommit:
         assert r1["updated"] == 4
 
         r2 = bs.backtest_all()
-        assert r2["checked"] == 0, (
-            f"اجرای دوم {r2['checked']} سیگنال را دوباره بررسی کرد — commit نشده"
-        )
+        assert (
+            r2["checked"] == 0
+        ), f"اجرای دوم {r2['checked']} سیگنال را دوباره بررسی کرد — commit نشده"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -370,9 +368,9 @@ class TestNoPermanentDeadlock:
 
         # ─── اجرای دوم: فقط سیگنال خراب می‌ماند ───
         r2 = bs.backtest_all()
-        assert r2["checked"] == 1, (
-            f"اجرای دوم باید فقط ۱ سیگنال خراب را ببیند، دید {r2['checked']}"
-        )
+        assert (
+            r2["checked"] == 1
+        ), f"اجرای دوم باید فقط ۱ سیگنال خراب را ببیند، دید {r2['checked']}"
         assert r2["errors"] == 1
 
         # ─── صف باید جلو رفته باشد ───
@@ -392,7 +390,15 @@ class TestResultCounters:
         import services.backtest_service as bs
 
         r = bs.backtest_all(max_checks=0)
-        for key in ("checked", "updated", "expired", "win", "loss", "errors", "skipped"):
+        for key in (
+            "checked",
+            "updated",
+            "expired",
+            "win",
+            "loss",
+            "errors",
+            "skipped",
+        ):
             assert key in r, f"شمارنده‌ی {key} غایب است: {r}"
 
     def test_empty_queue_returns_zeros(self):
@@ -430,7 +436,13 @@ class TestResultCounters:
         assert r["checked"] == 4, f"max_checks رعایت نشد: {r}"
 
     def test_expired_signals_counted(self, monkeypatch):
-        """سیگنال قدیمی → expired، بدون fetch"""
+        """
+        🔴 فاز ۱۰.۱ — بازنویسی‌شده:
+
+        سیگنال منقضی (۲۰ روز قبل با TF ۵ دقیقه) باید:
+          ۱. expired بشه
+          ۲. **بدون** fetch_ohlcv (چون اول timeout چک می‌شه)
+        """
         import services.backtest_service as bs
 
         # ─── ۲۰ روز قبل، timeout «۵ دقیقه» = ۲ ساعت ───
@@ -446,7 +458,9 @@ class TestResultCounters:
 
         r = bs.backtest_all()
         assert r["expired"] == 3, f"گرفت {r}"
-        assert called["n"] == 0, "برای سیگنال منقضی نباید fetch بزند"
+        assert (
+            called["n"] == 0
+        ), f"برای سیگنال منقضی نباید fetch بزنه — ولی {called['n']} بار زد"
 
 
 # ═══════════════════════════════════════════════════════════
@@ -495,9 +509,9 @@ class TestSchedulerHandlesErrors:
 
         assert r["ok"] is True
         assert r["errors"] == 3
-        assert any("errors=3" in rec.message for rec in caplog.records), (
-            f"errors در لاگ نیامد: {[x.message for x in caplog.records]}"
-        )
+        assert any(
+            "errors=3" in rec.message for rec in caplog.records
+        ), f"errors در لاگ نیامد: {[x.message for x in caplog.records]}"
 
 
 if __name__ == "__main__":

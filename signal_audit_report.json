@@ -1,0 +1,274 @@
+{
+  "meta": {
+    "generated_at": "2026-10-10T02:36:38.426289",
+    "total_signals": 325
+  },
+  "overall": {
+    "total": 325,
+    "closed_win_loss": 39,
+    "wins": 10,
+    "losses": 29,
+    "expired": 215,
+    "pending": 71,
+    "win_rate": 25.64
+  },
+  "by_direction": {
+    "short": {
+      "total": 179,
+      "win": 3,
+      "loss": 21,
+      "expired": 133,
+      "pending": 22,
+      "win_rate": 12.5
+    },
+    "long": {
+      "total": 146,
+      "win": 7,
+      "loss": 8,
+      "expired": 82,
+      "pending": 49,
+      "win_rate": 46.67
+    }
+  },
+  "by_confidence_tier": {
+    "50-59": {
+      "total": 85,
+      "win": 1,
+      "loss": 11,
+      "expired": 50,
+      "pending": 23,
+      "win_rate": 8.33
+    },
+    "40-49": {
+      "total": 177,
+      "win": 9,
+      "loss": 14,
+      "expired": 115,
+      "pending": 39,
+      "win_rate": 39.13
+    },
+    "60-79": {
+      "total": 59,
+      "win": 0,
+      "loss": 4,
+      "expired": 46,
+      "pending": 9,
+      "win_rate": 0.0
+    },
+    "80-100": {
+      "total": 4,
+      "win": 0,
+      "loss": 0,
+      "expired": 4,
+      "pending": 0,
+      "win_rate": 0.0
+    }
+  },
+  "by_regime": {
+    "range": {
+      "total": 325,
+      "win": 10,
+      "loss": 29,
+      "expired": 215,
+      "pending": 71,
+      "win_rate": 25.64
+    }
+  },
+  "by_market_type": {
+    "futures": {
+      "total": 325,
+      "win": 10,
+      "loss": 29,
+      "expired": 215,
+      "pending": 71,
+      "win_rate": 25.64
+    }
+  },
+  "by_risk_profile": {
+    "aggressive": {
+      "total": 309,
+      "win": 10,
+      "loss": 29,
+      "expired": 202,
+      "pending": 68,
+      "win_rate": 25.64
+    },
+    "conservative": {
+      "total": 16,
+      "win": 0,
+      "loss": 0,
+      "expired": 13,
+      "pending": 3,
+      "win_rate": 0.0
+    }
+  },
+  "by_source": {
+    "wallex": {
+      "total": 145,
+      "win": 4,
+      "loss": 13,
+      "expired": 95,
+      "pending": 33,
+      "win_rate": 23.53
+    },
+    "bitpin": {
+      "total": 28,
+      "win": 1,
+      "loss": 3,
+      "expired": 18,
+      "pending": 6,
+      "win_rate": 25.0
+    },
+    "nobitex": {
+      "total": 152,
+      "win": 5,
+      "loss": 13,
+      "expired": 102,
+      "pending": 32,
+      "win_rate": 27.78
+    }
+  },
+  "by_tf": {
+    "۱ ساعت": {
+      "total": 83,
+      "win": 0,
+      "loss": 7,
+      "expired": 53,
+      "pending": 23,
+      "win_rate": 0.0
+    },
+    "۱۵ دقیقه": {
+      "total": 119,
+      "win": 8,
+      "loss": 7,
+      "expired": 85,
+      "pending": 19,
+      "win_rate": 53.33
+    },
+    "۳۰ دقیقه": {
+      "total": 113,
+      "win": 2,
+      "loss": 14,
+      "expired": 74,
+      "pending": 23,
+      "win_rate": 12.5
+    },
+    "۵ دقیقه": {
+      "total": 6,
+      "win": 0,
+      "loss": 1,
+      "expired": 3,
+      "pending": 2,
+      "win_rate": 0.0
+    },
+    "روزانه": {
+      "total": 4,
+      "win": 0,
+      "loss": 0,
+      "expired": 0,
+      "pending": 4,
+      "win_rate": 0.0
+    }
+  },
+  "by_is_weak": {
+    "not_weak": {
+      "total": 154,
+      "win": 1,
+      "loss": 15,
+      "expired": 104,
+      "pending": 34,
+      "win_rate": 6.25
+    },
+    "weak": {
+      "total": 171,
+      "win": 9,
+      "loss": 14,
+      "expired": 111,
+      "pending": 37,
+      "win_rate": 39.13
+    }
+  },
+  "by_trap": {
+    "no_trap": {
+      "total": 289,
+      "win": 10,
+      "loss": 26,
+      "expired": 189,
+      "pending": 64,
+      "win_rate": 27.78
+    },
+    "had_trap": {
+      "total": 36,
+      "win": 0,
+      "loss": 3,
+      "expired": 26,
+      "pending": 7,
+      "win_rate": 0.0
+    }
+  },
+  "by_expired_bias": {
+    "loss": 81,
+    "win": 92,
+    "flat": 42
+  },
+  "trend_correct": {
+    "true_wins": 10,
+    "true_losses": 0,
+    "false_wins": 0,
+    "false_losses": 29,
+    "true_win_rate": 100.0,
+    "false_win_rate": 0.0
+  },
+  "pending_analysis": {
+    "by_tf": {
+      "۱ ساعت": 23,
+      "۱۵ دقیقه": 19,
+      "۳۰ دقیقه": 23,
+      "۵ دقیقه": 2,
+      "روزانه": 4
+    }
+  },
+  "outcome_distribution": {
+    "pending": 71,
+    "expired_loss": 81,
+    "expired_win": 92,
+    "loss": 29,
+    "expired_flat": 42,
+    "win": 10
+  },
+  "warnings": [
+    "⚠️ SHORT bias: 55.1% سیگنال‌ها SHORT هستن (انتظار: ۴۰-۶۰٪)",
+    "⚠️ is_weak معکوس: ضعیف‌ها (39.13%) بهتر از قطعی‌ها (6.25%) عمل کردن",
+    "⚠️ Confidence معکوس: tier 60-79 → 0.0% ولی tier 40-49 → 39.13%"
+  ],
+  "by_trap_type": {
+    "fake_breakout": {
+      "total": 30,
+      "win": 0,
+      "loss": 2,
+      "expired": 23,
+      "win_rate": 0.0
+    },
+    "exhaustion": {
+      "total": 2,
+      "win": 0,
+      "loss": 0,
+      "expired": 2,
+      "win_rate": 0.0
+    },
+    "bear_trap": {
+      "total": 2,
+      "win": 0,
+      "loss": 0,
+      "expired": 0,
+      "win_rate": 0.0
+    },
+    "bull_trap": {
+      "total": 2,
+      "win": 0,
+      "loss": 1,
+      "expired": 1,
+      "win_rate": 0.0
+    }
+  }
+}

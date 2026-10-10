@@ -86,9 +86,7 @@ class TestEnsureUtcIndex:
         ok = pd.DataFrame(
             {"c": [1.0]}, index=pd.date_range("2026-01-01", periods=2, tz="UTC")
         )
-        bad = pd.DataFrame(
-            {"c": [1.0]}, index=pd.date_range("2026-01-01", periods=2)
-        )
+        bad = pd.DataFrame({"c": [1.0]}, index=pd.date_range("2026-01-01", periods=2))
         assert is_utc_aware(ok) is True
         assert is_utc_aware(bad) is False
         assert is_utc_aware(None) is False
@@ -96,7 +94,9 @@ class TestEnsureUtcIndex:
 
 class TestDatetimeHelpers:
     def test_to_utc_naive_from_aware(self):
-        dt = datetime(2026, 1, 1, 3, 30, tzinfo=timezone(timedelta(hours=3, minutes=30)))
+        dt = datetime(
+            2026, 1, 1, 3, 30, tzinfo=timezone(timedelta(hours=3, minutes=30))
+        )
         assert to_utc_naive(dt) == datetime(2026, 1, 1, 0, 0)
 
     def test_to_utc_naive_naive_unchanged(self):
@@ -229,9 +229,7 @@ class TestFetchersReturnUtcIndex:
     def test_bitpin_index_is_utc_aware(self, monkeypatch):
         from core import bitpin_fetcher as bf
 
-        monkeypatch.setattr(
-            bf.requests, "get", lambda *a, **k: _FakeResp(_BITPIN_RAW)
-        )
+        monkeypatch.setattr(bf.requests, "get", lambda *a, **k: _FakeResp(_BITPIN_RAW))
 
         df = bf.fetch_bitpin_candles("BTC-USD", "۵ دقیقه")
         assert df is not None and not df.empty
@@ -242,9 +240,7 @@ class TestFetchersReturnUtcIndex:
     def test_wallex_index_is_utc_aware(self, monkeypatch):
         from core import wallex_fetcher as wf
 
-        monkeypatch.setattr(
-            wf.requests, "get", lambda *a, **k: _FakeResp(_WALLEX_RAW)
-        )
+        monkeypatch.setattr(wf.requests, "get", lambda *a, **k: _FakeResp(_WALLEX_RAW))
 
         df = wf.fetch_wallex_candles("BTC-USD", "۱ ساعت")
         assert df is not None and not df.empty
@@ -258,9 +254,7 @@ class TestFetchersReturnUtcIndex:
         """
         from core import tsetmc_fetcher as tf
 
-        monkeypatch.setattr(
-            tf.requests, "get", lambda *a, **k: _FakeResp(_TSETMC_RAW)
-        )
+        monkeypatch.setattr(tf.requests, "get", lambda *a, **k: _FakeResp(_TSETMC_RAW))
 
         df = tf.fetch_tsetmc_ohlcv("12345", days=10)
         assert df is not None and not df.empty
@@ -305,9 +299,7 @@ class TestAllSourcesAgree:
         # TSETMC/تهران — نمایش محلی همان لحظات
         tehran = pd.DataFrame(
             {"h": range(5)},
-            index=pd.date_range(
-                "2026-01-01 03:30", periods=5, freq="5min", tz=TEHRAN
-            ),
+            index=pd.date_range("2026-01-01 03:30", periods=5, freq="5min", tz=TEHRAN),
         )
 
         for name, df in (
@@ -351,13 +343,18 @@ class TestBacktestServiceTz:
         )
 
     def _candles(self, index, highs):
-        """کندل‌های ساده — فقط high معنی دارد"""
+        """کندل‌های ساده — high معنی دارد، low برای ambiguous"""
         n = len(index)
+        # ─── low = high - 2 (کمتر از tp و sl) ───
+        # ─── چرا: برای LONG با sl=95, tp=110:
+        #     high=111 → tp_hit=True, low=109 → sl_hit=False → WIN
+        #     high=50  → tp_hit=False, low=48 → sl_hit=False → عبور
+        lows = [max(40.0, h - 2.0) for h in highs]
         return pd.DataFrame(
             {
                 "open": [100.0] * n,
                 "high": highs,
-                "low": [40.0] * n,
+                "low": lows,
                 "close": [100.0] * n,
                 "volume": [1.0] * n,
             },
@@ -460,9 +457,7 @@ class TestBacktestServiceTz:
 # ═══════════════════════════════════════════════════════════
 # ۵. تست live (اختیاری)
 # ═══════════════════════════════════════════════════════════
-@pytest.mark.skipif(
-    "--live" not in sys.argv, reason="با --live اجرا می‌شود"
-)
+@pytest.mark.skipif("--live" not in sys.argv, reason="با --live اجرا می‌شود")
 class TestLiveSources:
     def test_bitpin_live_index_is_utc_and_recent(self):
         from core.bitpin_fetcher import fetch_bitpin_candles

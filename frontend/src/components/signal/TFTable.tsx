@@ -106,19 +106,20 @@ function getStatusKind(
   const isLong = direction === "long" || signal.includes("صعودی");
   const isShort = direction === "short" || signal.includes("نزولی");
 
-  if (confidence >= 40) {
+  // 🔴 فاز ۱۰.۱ — آستانه‌های نرم‌تر (چون confidence بازطراحی شد)
+  if (confidence >= 50) {
     if (isLong) return { kind: "near-long", label: "نزدیک" };
     if (isShort) return { kind: "near-short", label: "نزدیک" };
     return { kind: "near-neutral", label: "نزدیک" };
   }
-  if (confidence >= 20) {
+  if (confidence >= 25) {
     if (isLong) return { kind: "forming-long", label: "تشکیل" };
     if (isShort) return { kind: "forming-short", label: "تشکیل" };
     return { kind: "forming", label: "تشکیل" };
   }
   return { kind: "wait", label: "دور" };
 }
-
+  
 // ═══ استایل سیگنال ═══
 const SIGNAL_STYLES: Record<SignalKind, React.CSSProperties> = {
   long: {
