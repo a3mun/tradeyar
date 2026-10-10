@@ -1,16 +1,18 @@
 """
 api/routers/scan.py
-Endpoint اسکنر بازار — نسخه ۳.۰
+Endpoint اسکنر بازار — نسخه ۴.۰ · فاز ۱۰.۳
 ============================================================
-🔴 تغییرات نسخه ۳.۰:
-  • **دیگر سیگنال ثبت نمی‌کند** — فقط analyze می‌زند
-  • کاربر با دکمه «راستی‌آزمایی» خودش تصمیم می‌گیرد
-  • نتیجه: راستی‌آزمایی شلوغ نمی‌شود، بار سرور کم می‌شود
+🔴 تغییرات نسخه ۴.۰:
+  • فیلتر کیفیت پیشرفته (trend + trap + confidence)
+  • امتیاز کیفیت (quality_score) برای هر سیگنال
+  • مرتب‌سازی بر اساس احتمال موفقیت
+  • حذف سیگنال‌های پرخطر
 """
 
 import asyncio
 import logging
 import time
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -24,11 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["Scan"])
 
 MAX_CONCURRENT = 6
-SCAN_BUDGET_SEC = 30.0
+SCAN_BUDGET_SEC = 45.0
 MIN_CONFIDENCE = 50
 
 
 def _normalize_ticker(item) -> tuple[str, str] | None:
+    """نرمال‌سازی ticker از فرمت‌های مختلف."""
     if isinstance(item, (list, tuple)):
         ticker = str(item[0]) if item else ""
         name = str(item[1]) if len(item) > 1 else ticker
@@ -44,38 +47,117 @@ def _normalize_ticker(item) -> tuple[str, str] | None:
     return ticker, name
 
 
-def _is_quality_signal(res: dict) -> bool:
+def _compute_quality_score(res: dict) -> float:
+    """
+    امتیاز کیفیت سیگنال (۰-۱۰۰).
+
+    ═══ معیارها ═══
+      ۱. Confidence پایه (۰-۴۰)
+      ۲. Trend تأییدکننده (۰-۲۵)
+      ۳. Trap نبودن (۰-۱۵)
+      ۴. Consensus (۰-۱۰)
+      ۵. ADX رژیم (۰-۱۰)
+    """
+    score = 0.0
+
+    # ─── ۱. Confidence (0-40) ───
+    conf = res.get("confidence", 0)
+    score += min(40, conf * 0.6)
+
+    # ─── ۲. Trend تأیید (0-25) ───
+    trend = (res.get("groups") or {}).get("trend", {})
+    trend_score = trend.get("score", 0.0)
+    direction = res.get("direction", "neutral")
+
+    if direction == "long" and trend_score > 0.3:
+        score += min(25, trend_score * 30)
+    elif direction == "short" and trend_score < -0.3:
+        score += min(25, abs(trend_score) * 30)
+
+    # ─── ۳. Trap نبودن (0-15) ───
+    traps = res.get("traps") or {}
+    active_traps = [
+        k for k, v in traps.items() if isinstance(v, dict) and v.get("active")
+    ]
+    if not active_traps:
+        score += 15
+
+    # ─── ۴. Consensus (0-10) ───
+    consensus = res.get("consensus", "neutral")
+    if consensus == "strong":
+        score += 10
+    elif consensus == "normal":
+        score += 6
+    elif consensus == "weak":
+        score += 2
+
+    # ─── ۵. ADX (0-10) ───
+    adx = res.get("adx", 0)
+    if adx > 30:
+        score += 10
+    elif adx > 20:
+        score += 5
+
+    return round(score, 1)
+
+
+def _is_quality_signal(res: dict) -> tuple[bool, float]:
+    """
+    آیا این سیگنال «قابل نمایش» است؟
+
+    Returns:
+        (پاس می‌شه؟, امتیاز کیفیت)
+    """
     if not res:
-        return False
+        return False, 0.0
 
     direction = res.get("direction")
     if direction == "neutral":
-        return False
+        return False, 0.0
 
     confidence = res.get("confidence", 0)
     if confidence < MIN_CONFIDENCE:
-        return False
+        return False, 0.0
 
     signal = res.get("signal", "")
     if "ضعیف" in signal:
-        return False
+        return False, 0.0
 
-    return True
+    # ─── trap فعال → رد کن ───
+    traps = res.get("traps") or {}
+    active_traps = [
+        k for k, v in traps.items() if isinstance(v, dict) and v.get("active")
+    ]
+    if active_traps:
+        return False, 0.0
+
+    # ─── trend معکوس → رد کن ───
+    trend = (res.get("groups") or {}).get("trend", {})
+    trend_score = trend.get("score", 0.0)
+
+    if direction == "long" and trend_score < -0.5:
+        return False, 0.0
+    if direction == "short" and trend_score > 0.5:
+        return False, 0.0
+
+    # ─── امتیاز ───
+    score = _compute_quality_score(res)
+
+    # ─── امتیاز کمتر از ۳۵ → رد ───
+    if score < 35:
+        return False, score
+
+    return True, score
 
 
 @router.post("", response_model=ScanResponse)
 async def scan_endpoint(req: ScanRequest, request: Request):
     """
-    اسکن نمادها — **بدون ثبت سیگنال**.
+    اسکن نمادها — نسخه ۴.۰.
 
-    🔴 تغییر نسخه ۳.۰:
-        این endpoint دیگر ``record_signal`` نمی‌زند. کاربر اگر
-        خواست، با دکمه «راستی‌آزمایی» توی UI، خودش ثبت می‌کند.
-
-    ═══ چرا ═══
-        قبلاً هر scan ۵۰ سیگنال ثبت می‌کرد. با چند scan در روز،
-        backtest با صدها سیگنال نویز پر می‌شد. حالا فقط سیگنال‌هایی
-        که کاربر **عمداً** ثبت کرده، وارد راستی‌آزمایی می‌شوند.
+    ═══ تغییرات نسخه ۴.۰ ═══
+    • فیلتر چندگانه (trend + trap + confidence + quality score)
+    • مرتب‌سازی بر اساس امتیاز کیفیت (نه فقط confidence)
     """
     rate_limit_for(request, "scan", limit=10, window_sec=60)
 
@@ -118,6 +200,9 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             if len(parsed) >= req.limit * 3:
                 break
 
+    # 🔴 فاز ۱۰.۳ — فیلتر بر اساس scan_mode
+    scan_mode = getattr(req, "scan_mode", "all")
+
     if not parsed:
         raise HTTPException(
             status_code=404,
@@ -143,7 +228,6 @@ async def scan_endpoint(req: ScanRequest, request: Request):
                 risk_profile=req.risk_profile,
                 ticker_name=name,
                 include_extras=False,
-                # 🔴 جدید: در اسکن، سیگنال ثبت نکن
                 skip_record=True,
             )
 
@@ -152,8 +236,8 @@ async def scan_endpoint(req: ScanRequest, request: Request):
         return_exceptions=True,
     )
 
-    # ═══ جمع‌آوری ═══
-    results: list[ScanItem] = []
+    # ═══ جمع‌آوری با امتیاز کیفیت ═══
+    scored: list[tuple[float, ScanItem]] = []
     errors = 0
     skipped = 0
     filtered = 0
@@ -168,7 +252,9 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             logger.warning(f"[Scan] خطا در {ticker}: {res!r}")
             continue
 
-        if not _is_quality_signal(res):
+        # ─── فیلتر کیفیت ───
+        passed, quality_score = _is_quality_signal(res)
+        if not passed:
             filtered += 1
             continue
 
@@ -177,19 +263,64 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             filtered += 1
             continue
 
-        results.append(
-            ScanItem(
-                ticker=ticker,
-                name=name,
-                price=price,
-                signal=res["signal"],
-                confidence=res["confidence"],
-                direction=res["direction"],
+        # 🔴 فاز ۱۰.۳ — Pre-breakout data
+        pb = res.get("pre_breakout") or {}
+        pb_score = float(pb.get("score", 0))
+        pb_bias = str(pb.get("direction_bias", "neutral"))
+        is_pb = bool(pb.get("is_pre_breakout", False))
+
+        # ─── Pre-breakout bonus به امتیاز ───
+        final_score = quality_score
+        if is_pb:
+            final_score += min(20, pb_score * 0.2)
+
+        scored.append(
+            (
+                final_score,
+                ScanItem(
+                    ticker=ticker,
+                    name=name,
+                    price=price,
+                    signal=res["signal"],
+                    confidence=res["confidence"],
+                    direction=res["direction"],
+                    is_pre_breakout=is_pb,
+                    pre_breakout_score=pb_score,
+                    pre_breakout_bias=pb_bias,
+                ),
             )
         )
 
-    results.sort(key=lambda x: -x.confidence)
-    results = results[: req.limit]
+        # ─── pre-breakout flag ───
+        pb = res.get("pre_breakout") or {}
+        is_pre = pb.get("is_pre_breakout", False)
+
+        # ─── اضافه به ScanItem ───
+        item = ScanItem(
+            ticker=ticker,
+            name=name,
+            price=price,
+            signal=res["signal"],
+            confidence=res["confidence"],
+            direction=res["direction"],
+            is_pre_breakout=is_pre,  # ← جدید
+            pre_breakout_score=pb.get("score", 0),  # ← جدید
+        )
+
+        # ─── فیلتر بر اساس scan_mode ───
+        is_pb = bool(pb.get("is_pre_breakout", False))
+
+        if scan_mode == "pre_breakout" and not is_pb:
+            filtered += 1
+            continue
+        if scan_mode == "active" and is_pb:
+            filtered += 1
+            continue
+        # "all" → هر دو
+
+    # ═══ مرتب‌سازی بر اساس امتیاز کیفیت (نزولی) ═══
+    scored.sort(key=lambda x: -x[0])
+    results = [item for _, item in scored[: req.limit]]
 
     logger.info(
         f"[Scan] {req.category}/{source}: {len(results)} نتیجه | "

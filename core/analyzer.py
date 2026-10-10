@@ -52,6 +52,10 @@ from .contracts import (
     get_tf_atr_mult,
     get_tf_spec,
 )
+
+# 🔴 فاز ۱۰.۳ — Pre-breakout detection
+from .pre_breakout import detect_pre_breakout
+
 from .utils import safe_num
 
 # ═══════════════════════════════════════════════════════════
@@ -2063,6 +2067,27 @@ def analyze_symbol(
             "structure": _analyze_structure(df, _thresholds=thresholds),
         }
 
+        # ═══ 🔴 فاز ۱۰.۳ — Pre-breakout detection ═══
+        # ─── نیاز به nearest_resistance/support از groups structure ───
+        structure_details = groups["structure"].get("details", {})
+        df_with_levels = df.copy()
+        df_with_levels["nearest_resistance"] = structure_details.get(
+            "nearest_resistance", 0
+        )
+        df_with_levels["nearest_support"] = structure_details.get("nearest_support", 0)
+
+        try:
+            pre_breakout = detect_pre_breakout(df_with_levels)
+        except Exception as e:
+            logger.debug(f"[Analyzer] pre_breakout: {e!r}")
+            pre_breakout = {
+                "is_pre_breakout": False,
+                "score": 0,
+                "direction_bias": "neutral",
+                "reasons": [],
+                "details": {},
+            }
+
         aggregate = _aggregate_votes(
             groups, regime, risk_profile, adx, market_type, tf_name
         )
@@ -2523,6 +2548,10 @@ def analyze_symbol(
             "trend_score": groups["trend"].get("score", 0.0),
             "trend_vote": groups["trend"].get("vote", 0),
             "override_reason": aggregate.get("override_reason", ""),
+            # 🔴 فاز ۱۰.۳ — Pre-breakout
+            "pre_breakout": pre_breakout,
+            "pre_breakout_score": pre_breakout.get("score", 0),
+            "is_pre_breakout": pre_breakout.get("is_pre_breakout", False),
         }
 
     except Exception as e:

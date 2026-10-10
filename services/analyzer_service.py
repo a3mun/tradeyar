@@ -620,6 +620,10 @@ def analyze(
         "ai_export": "",
         "close_series": result.get("close_series", []),
         "fingerprint": fingerprint,
+        # 🔴 فاز ۱۰.۳ — Pre-breakout
+        "pre_breakout": result.get("pre_breakout", {}),
+        "pre_breakout_score": result.get("pre_breakout_score", 0),
+        "is_pre_breakout": result.get("is_pre_breakout", False),
     }
 
     if include_extras:

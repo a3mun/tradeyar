@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * Scanner — اسکنر فرصت‌ها (نسخه ۵.۰)
+ * Scanner — اسکنر فرصت‌ها (نسخه ۶.۰ · فاز ۱۰.۳)
  * ============================================================
- * 🔴 تغییرات نسخه ۵.۰:
- *   • استفاده از riskProfile از store (نه hard-coded)
- *   • ۳ دکمه در هر ردیف: تحلیل | راستی‌آزمایی | واچ‌لیست
- *   • فیلتر قیمت صفر برای کریپتو
- *   • بدون اسکرول افقی در موبایل
- *   • نمایش درصد اشتباه در محاسبه‌ها
+ * 🔴 تغییرات نسخه ۶.۰:
+ *   • انتخاب mode قبل اسکن: انفجاری / فعال / هر دو
+ *   • Spot و Futures جدا
+ *   • حذف ستون قیمت (بی‌اهمیت)
+ *   • نماد راست‌چین، بقیه وسط‌چین
+ *   • badge «🚀 انفجار» با امتیاز
  */
 
 import { useState } from "react";
@@ -23,6 +23,9 @@ import {
   Loader2,
   TrendingUp,
   Star,
+  Rocket,
+  Activity,
+  Layers,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +41,6 @@ import {
 } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
-import { signalColor, confidenceColor, formatNumber } from "@/lib/display";
 import { SOURCE_BY_KEY } from "@/lib/sources";
 import type { ScanResponse, ScanItem } from "@/lib/types";
 import type { Source } from "@/lib/types";
@@ -71,14 +73,33 @@ interface CachedScan {
 
 const scanCache = new Map<string, CachedScan>();
 
-function getCacheKey(source: Source, timeframe: string): string {
-  return `${source}:${timeframe}`;
+function getCacheKey(source: Source, timeframe: string, mode: string, mt: string): string {
+  return `${source}:${timeframe}:${mode}:${mt}`;
 }
 
-// ═══ حداقل قیمت برای نمایش ═══
+// ═══ حداقل قیمت ═══
 const MIN_PRICE = 0.001;
 
-type FilterType = "all" | "hot" | "long" | "short";
+// 🔴 فاز ۱۰.۳ — نوع scan mode
+type ScanMode = "pre_breakout" | "active" | "all";
+
+// 🔴 فاز ۱۰.۳ — نوع بازار
+type MarketKind = "spot" | "futures";
+
+const MODE_LABELS: Record<ScanMode, { icon: string; label: string; color: string }> = {
+  pre_breakout: { icon: "🚀", label: "آماده انفجار", color: "purple" },
+  active: { icon: "📊", label: "سیگنال فعال", color: "blue" },
+  all: { icon: "🔍", label: "هر دو", color: "slate" },
+};
+
+const MARKET_LABELS: Record<MarketKind, { icon: string; label: string }> = {
+  spot: { icon: "💵", label: "اسپات" },
+  futures: { icon: "📈", label: "فیوچرز" },
+};
+
+// ═══ فیلترهای نمایش روی نتیجه ═══
+type FilterType = "all" | "pre_breakout" | "hot" | "long" | "short";
+
 
 export function Scanner() {
   const {
@@ -88,10 +109,12 @@ export function Scanner() {
     timeframe,
     addToWatchlist,
     watchlist,
-    riskProfile, // ← از store
+    riskProfile,
   } = useAppStore();
 
   const [scanSource, setScanSource] = useState<Source>(globalSource);
+  const [scanMode, setScanMode] = useState<ScanMode>("all");
+  const [scanMarket, setScanMarket] = useState<MarketKind>("futures");
   const [filter, setFilter] = useState<FilterType>("all");
   const [data, setData] = useState<ScanResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,12 +124,15 @@ export function Scanner() {
   const [cacheHit, setCacheHit] = useState(false);
 
   const [recordingTicker, setRecordingTicker] = useState<string | null>(null);
-  const [recordedTickers, setRecordedTickers] = useState<Set<string>>(
-    new Set()
-  );
+  const [recordedTickers, setRecordedTickers] = useState<Set<string>>(new Set());
 
-  const applyCacheIfFresh = (src: Source, tf: string) => {
-    const key = getCacheKey(src, tf);
+  const applyCacheIfFresh = (
+    src: Source,
+    tf: string,
+    mode: ScanMode,
+    mt: MarketKind
+  ) => {
+    const key = getCacheKey(src, tf, mode, mt);
     const cached = scanCache.get(key);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
       setData(cached.data);
@@ -122,13 +148,31 @@ export function Scanner() {
     setScanSource(src);
     setError(null);
     setCacheHit(false);
-    if (!applyCacheIfFresh(src, timeframe)) {
+    if (!applyCacheIfFresh(src, timeframe, scanMode, scanMarket)) {
+      setData(null);
+    }
+  };
+
+  const handleModeChange = (mode: ScanMode) => {
+    setScanMode(mode);
+    setError(null);
+    setCacheHit(false);
+    if (!applyCacheIfFresh(scanSource, timeframe, mode, scanMarket)) {
+      setData(null);
+    }
+  };
+
+  const handleMarketChange = (mt: MarketKind) => {
+    setScanMarket(mt);
+    setError(null);
+    setCacheHit(false);
+    if (!applyCacheIfFresh(scanSource, timeframe, scanMode, mt)) {
       setData(null);
     }
   };
 
   const handleScan = () => {
-    const cacheKey = getCacheKey(scanSource, timeframe);
+    const cacheKey = getCacheKey(scanSource, timeframe, scanMode, scanMarket);
     const cached = scanCache.get(cacheKey);
     if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
       setData(cached.data);
@@ -143,16 +187,16 @@ export function Scanner() {
     setCacheHit(false);
     setScannedTf(timeframe);
     const category = CATEGORIES_BY_SOURCE[scanSource] || "crypto";
-    const marketType = scanSource === "tsetmc" ? "spot" : "futures";
 
     api
       .post("/scan", {
         source: scanSource,
         category,
         timeframe,
-        market_type: marketType,
-        risk_profile: riskProfile, // ← از store، نه hard-coded
+        market_type: scanMarket,
+        risk_profile: riskProfile,
         limit: 50,
+        scan_mode: scanMode,
       })
       .then((res) => {
         setData(res.data);
@@ -167,11 +211,9 @@ export function Scanner() {
         setData(null);
         const status = err.response?.status;
         if (status === 429) {
-          setError(
-            "تعداد درخواست‌ها بیش از حد مجاز — لطفاً یک دقیقه دیگر تلاش کنید"
-          );
+          setError("تعداد درخواست‌ها بیش از حد مجاز — یک دقیقه دیگر تلاش کن");
         } else {
-          setError("اسکن ناموفق بود — دوباره تلاش کنید");
+          setError("اسکن ناموفق بود — دوباره تلاش کن");
         }
       })
       .finally(() => setLoading(false));
@@ -189,8 +231,8 @@ export function Scanner() {
         ticker: item.ticker,
         source: scanSource,
         timeframe,
-        market_type: scanSource === "tsetmc" ? "spot" : "futures",
-        risk_profile: riskProfile, // ← از store
+        market_type: scanMarket,
+        risk_profile: riskProfile,
         ticker_name: item.name,
       });
       setRecordedTickers((prev) => {
@@ -199,7 +241,7 @@ export function Scanner() {
         return next;
       });
     } catch {
-      // خطا بی‌صدا
+      // silent
     } finally {
       setRecordingTicker(null);
     }
@@ -220,12 +262,12 @@ export function Scanner() {
         if (!/^[A-Z]/.test(item.ticker)) return false;
       }
 
-      // فیلتر قیمت خیلی کم
       if (!isTsetmc) {
         if (!item.price || item.price < MIN_PRICE) return false;
       }
 
       if (filter === "all") return true;
+      if (filter === "pre_breakout") return item.is_pre_breakout === true;
       if (filter === "hot") return item.confidence >= 70;
       if (filter === "long") return item.direction === "long";
       if (filter === "short") return item.direction === "short";
@@ -238,19 +280,21 @@ export function Scanner() {
   const counts = {
     all:
       data?.items.filter((i) => isTsetmc || i.price >= MIN_PRICE).length ?? 0,
+    pre_breakout:
+      data?.items.filter(
+        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.is_pre_breakout === true
+      ).length ?? 0,
     hot:
       data?.items.filter(
         (i) => (isTsetmc || i.price >= MIN_PRICE) && i.confidence >= 70
       ).length ?? 0,
     long:
       data?.items.filter(
-        (i) =>
-          (isTsetmc || i.price >= MIN_PRICE) && i.direction === "long"
+        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.direction === "long"
       ).length ?? 0,
     short:
       data?.items.filter(
-        (i) =>
-          (isTsetmc || i.price >= MIN_PRICE) && i.direction === "short"
+        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.direction === "short"
       ).length ?? 0,
   };
 
@@ -263,28 +307,26 @@ export function Scanner() {
               <Target className="h-4 w-4" />
               اسکنر فرصت‌ها
             </CardTitle>
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="mt-1 text-[10px] text-muted-foreground">
               {data
-                ? `${filtered.length} فرصت روی ${scanSourceLabel} · ${scannedTf}`
-                : "صرافی رو انتخاب کن و روی «بررسی فرصت» بزن"}
+                ? `${filtered.length} نتیجه روی ${scanSourceLabel} · ${scannedTf}`
+                : "صرافی و حالت رو انتخاب کن، بعد بررسی بزن"}
               {cacheHit && (
                 <span className="mr-2 text-green-500">· از cache</span>
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {data && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setCollapsed(true)}
-                className="h-8 w-8"
-                title="جمع کردن"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+          {data && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setCollapsed(true)}
+              className="h-8 w-8"
+              title="جمع کردن"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {collapsed ? (
@@ -292,7 +334,7 @@ export function Scanner() {
             variant="outline"
             size="sm"
             onClick={() => setCollapsed(false)}
-            className="w-full mt-2"
+            className="mt-2 w-full"
           >
             <Plus className="h-3.5 w-3.5" />
             باز کردن اسکنر
@@ -303,12 +345,6 @@ export function Scanner() {
             <div className="grid grid-cols-5 gap-1.5">
               {SOURCES.map((s) => {
                 const meta = SOURCE_BY_KEY[s.key];
-                const hasCache =
-                  scanCache.has(getCacheKey(s.key, timeframe)) &&
-                  Date.now() -
-                    (scanCache.get(getCacheKey(s.key, timeframe))?.cachedAt ??
-                      0) <
-                    CACHE_TTL_MS;
                 return (
                   <Button
                     key={s.key}
@@ -317,9 +353,6 @@ export function Scanner() {
                     onClick={() => handleSourceChange(s.key)}
                     className="relative h-auto flex-col gap-0.5 px-1 py-2 text-[10px]"
                   >
-                    {hasCache && (
-                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-green-500" />
-                    )}
                     <img
                       src={meta?.logo}
                       alt={s.label}
@@ -334,51 +367,68 @@ export function Scanner() {
               })}
             </div>
 
-            {/* ═══ فیلترها ═══ */}
-            {data && (
-              <div className="grid grid-cols-4 gap-1">
-                <button
-                  onClick={() => setFilter("all")}
-                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
-                    filter === "all"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  همه ({counts.all})
-                </button>
-                <button
-                  onClick={() => setFilter("hot")}
-                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
-                    filter === "hot"
-                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  🔥 ویژه ({counts.hot})
-                </button>
-                <button
-                  onClick={() => setFilter("long")}
-                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
-                    filter === "long"
-                      ? "border-green-500 bg-green-500/10 text-green-500"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  📈 ({counts.long})
-                </button>
-                <button
-                  onClick={() => setFilter("short")}
-                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
-                    filter === "short"
-                      ? "border-red-500 bg-red-500/10 text-red-500"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  📉 ({counts.short})
-                </button>
+            {/* ═══ Scan Mode ═══ */}
+            <div>
+              <p className="mb-1 text-[9px] font-medium text-muted-foreground">
+                حالت اسکن
+              </p>
+              <div className="grid grid-cols-3 gap-1">
+                {(["pre_breakout", "active", "all"] as ScanMode[]).map((m) => {
+                  const isActive = scanMode === m;
+                  const meta = MODE_LABELS[m];
+                  const colorMap: Record<string, string> = {
+                    purple: isActive
+                      ? "border-purple-500 bg-purple-500/10 text-purple-400"
+                      : "",
+                    blue: isActive
+                      ? "border-blue-500 bg-blue-500/10 text-blue-400"
+                      : "",
+                    slate: isActive
+                      ? "border-slate-500 bg-slate-500/10 text-slate-300"
+                      : "",
+                  };
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => handleModeChange(m)}
+                      className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
+                        isActive
+                          ? colorMap[meta.color]
+                          : "border-border text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {meta.icon} {meta.label}
+                    </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
+
+            {/* ═══ Market Type ═══ */}
+            <div>
+              <p className="mb-1 text-[9px] font-medium text-muted-foreground">
+                نوع بازار
+              </p>
+              <div className="grid grid-cols-2 gap-1">
+                {(["spot", "futures"] as MarketKind[]).map((mt) => {
+                  const isActive = scanMarket === mt;
+                  const meta = MARKET_LABELS[mt];
+                  return (
+                    <button
+                      key={mt}
+                      onClick={() => handleMarketChange(mt)}
+                      className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
+                        isActive
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {meta.icon} {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* ═══ دکمه بررسی ═══ */}
             <Button
@@ -395,10 +445,66 @@ export function Scanner() {
               ) : (
                 <>
                   <Search className="h-3.5 w-3.5" />
-                  بررسی فرصت‌ها روی {scanSourceLabel}
+                  بررسی روی {scanSourceLabel}
                 </>
               )}
             </Button>
+
+            {/* ═══ فیلترهای نمایش نتیجه ═══ */}
+            {data && (
+              <div className="grid grid-cols-5 gap-1">
+                <button
+                  onClick={() => setFilter("all")}
+                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                    filter === "all"
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  همه ({counts.all})
+                </button>
+                <button
+                  onClick={() => setFilter("pre_breakout")}
+                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                    filter === "pre_breakout"
+                      ? "border-purple-500 bg-purple-500/10 text-purple-400"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  🚀 ({counts.pre_breakout})
+                </button>
+                <button
+                  onClick={() => setFilter("hot")}
+                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                    filter === "hot"
+                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  🔥 ({counts.hot})
+                </button>
+                <button
+                  onClick={() => setFilter("long")}
+                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                    filter === "long"
+                      ? "border-green-500 bg-green-500/10 text-green-500"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  📈 ({counts.long})
+                </button>
+                <button
+                  onClick={() => setFilter("short")}
+                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                    filter === "short"
+                      ? "border-red-500 bg-red-500/10 text-red-500"
+                      : "border-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  📉 ({counts.short})
+                </button>
+              </div>
+            )}
           </div>
         )}
       </CardHeader>
@@ -415,7 +521,7 @@ export function Scanner() {
           {!data && !loading && !error && (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
               <Info className="h-4 w-4" />
-              صرافی رو انتخاب کن، بعد روی «بررسی فرصت‌ها» بزن
+              حالت و صرافی رو انتخاب کن، بعد «بررسی» بزن
             </div>
           )}
 
@@ -424,20 +530,14 @@ export function Scanner() {
               <Table className="w-full table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-right w-[40%] sm:w-[30%]">
+                    <TableHead className="w-[42%] text-right text-[10px]">
                       نماد
                     </TableHead>
-                    <TableHead className="text-center w-[12%] sm:w-[10%]">
+                    <TableHead className="w-[38%] text-center text-[10px]">
                       سیگنال
                     </TableHead>
-                    <TableHead className="text-right w-[15%] hidden sm:table-cell">
-                      قیمت
-                    </TableHead>
-                    <TableHead className="text-center w-[10%] sm:w-[8%]">
+                    <TableHead className="w-[20%] text-center text-[10px]">
                       اطمینان
-                    </TableHead>
-                    <TableHead className="text-center w-[23%] sm:w-[35%]">
-                      عملیات
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -449,16 +549,10 @@ export function Scanner() {
                           <Skeleton className="h-5 w-24" />
                         </TableCell>
                         <TableCell>
-                          <Skeleton className="h-5 w-8 mx-auto" />
-                        </TableCell>
-                        <TableCell className="hidden sm:table-cell">
-                          <Skeleton className="h-5 w-16" />
+                          <Skeleton className="mx-auto h-5 w-20" />
                         </TableCell>
                         <TableCell>
-                          <Skeleton className="h-5 w-12 mx-auto" />
-                        </TableCell>
-                        <TableCell>
-                          <Skeleton className="h-5 w-20 mx-auto" />
+                          <Skeleton className="mx-auto h-5 w-12" />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -466,11 +560,11 @@ export function Scanner() {
                   {!loading && filtered.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={3}
                         className="text-center text-xs text-muted-foreground"
                       >
                         {data && data.items.length > 0
-                          ? `هیچ نمادی با فیلترهای فعلی پیدا نشد`
+                          ? "هیچ نمادی با فیلترهای فعلی پیدا نشد"
                           : "فرصتی با این فیلتر پیدا نشد"}
                       </TableCell>
                     </TableRow>
@@ -484,7 +578,6 @@ export function Scanner() {
                       const isRecording = recordingTicker === item.ticker;
                       const isRecorded = recordedTickers.has(item.ticker);
 
-                      // ─── بج سیگنال ───
                       const isLong = item.direction === "long";
                       const isShort = item.direction === "short";
                       const sigBadgeCls = isLong
@@ -495,11 +588,11 @@ export function Scanner() {
 
                       return (
                         <TableRow key={item.ticker}>
-                          {/* ═══ نماد ═══ */}
+                          {/* ═══ نماد (راست‌چین) ═══ */}
                           <TableCell className="text-right">
                             <div className="flex items-center gap-1.5">
                               <CryptoIcon ticker={item.ticker} size="sm" />
-                              <div className="min-w-0">
+                              <div className="min-w-0 text-right">
                                 <p className="truncate text-xs font-bold">
                                   {item.name}
                                 </p>
@@ -510,145 +603,62 @@ export function Scanner() {
                             </div>
                           </TableCell>
 
-                          {/* ═══ سیگنال ═══ */}
+                          {/* ═══ سیگنال (وسط‌چین) ═══ */}
                           <TableCell className="text-center">
-                            <span
-                              className={`inline-block rounded border px-1.5 py-0 text-[9px] font-bold sm:text-[10px] ${sigBadgeCls}`}
-                              style={
-                                item.signal.includes("ضعیف")
-                                  ? { opacity: 0.7 }
-                                  : undefined
-                              }
-                            >
-                              {isLong
-                                ? "LONG"
-                                : isShort
-                                  ? "SHORT"
-                                  : "—"}
-                              {item.signal.includes("ضعیف") && (
-                                <span className="mr-0.5 text-[7px] opacity-70">
-                                  ضعیف
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span
+                                className={`inline-block rounded border px-1.5 py-0 text-[9px] font-bold sm:text-[10px] ${sigBadgeCls}`}
+                                style={
+                                  item.signal.includes("ضعیف")
+                                    ? { opacity: 0.7 }
+                                    : undefined
+                                }
+                              >
+                                {isLong
+                                  ? "LONG"
+                                  : isShort
+                                    ? "SHORT"
+                                    : "—"}
+                                {item.signal.includes("ضعیف") && (
+                                  <span className="mr-0.5 text-[7px] opacity-70">
+                                    ضعیف
+                                  </span>
+                                )}
+                              </span>
+
+                              {/* 🔴 badge آماده انفجار */}
+                              {item.is_pre_breakout && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[7px] font-bold"
+                                  style={{
+                                    background: "rgba(168,85,247,0.15)",
+                                    borderColor: "rgba(168,85,247,0.4)",
+                                    color: "#c084fc",
+                                    textShadow: "0 0 4px rgba(168,85,247,0.6)",
+                                  }}
+                                  title={`امتیاز پیش‌رشد: ${item.pre_breakout_score.toFixed(0)}٪ · جهت: ${item.pre_breakout_bias === "up" ? "صعودی" : item.pre_breakout_bias === "down" ? "نزولی" : "مشخص"}`}
+                                >
+                                  <Rocket className="h-2 w-2" />
+                                  انفجار
                                 </span>
                               )}
-                            </span>
+                            </div>
                           </TableCell>
 
-                          {/* ═══ قیمت — فقط دسکتاپ ═══ */}
-                          <TableCell className="num text-right text-xs hidden sm:table-cell">
-                            {isTsetmc && item.price === 0
-                              ? "—"
-                              : formatNumber(item.price)}
-                          </TableCell>
-
-                          {/* ═══ اطمینان ═══ */}
+                          {/* ═══ اطمینان (وسط‌چین) ═══ */}
                           <TableCell className="text-center">
                             <Badge
                               variant="outline"
-                              className={`num text-[9px] sm:text-[10px] ${confidenceColor(
-                                item.confidence
-                              )}`}
+                              className={`num text-[9px] sm:text-[10px] ${
+                                item.confidence >= 70
+                                  ? "border-green-500/40 text-green-500"
+                                  : item.confidence >= 50
+                                    ? "border-yellow-500/40 text-yellow-500"
+                                    : "border-red-500/40 text-red-500"
+                              }`}
                             >
                               {item.confidence}%
                             </Badge>
-                          </TableCell>
-
-                          {/* ═══ عملیات ═══ */}
-                          <TableCell>
-                            {/* ─── موبایل: آیکون ─── */}
-                            <div className="flex items-center justify-center gap-0.5 sm:hidden">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6 text-blue-500 hover:bg-blue-500/10"
-                                onClick={() => handleAnalyze(item)}
-                                title="تحلیل"
-                              >
-                                <TrendingUp className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className={`h-6 w-6 ${
-                                  isRecorded
-                                    ? "text-green-500"
-                                    : "text-purple-500 hover:bg-purple-500/10"
-                                }`}
-                                onClick={() => handleRecord(item)}
-                                disabled={isRecording || isRecorded}
-                                title="راستی‌آزمایی"
-                              >
-                                {isRecording ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="h-3 w-3" />
-                                )}
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className={`h-6 w-6 ${
-                                  inWatchlist
-                                    ? "text-yellow-500"
-                                    : "text-muted-foreground hover:text-yellow-500"
-                                }`}
-                                onClick={() => handleWatchlist(item)}
-                                title="واچ‌لیست"
-                              >
-                                <Star
-                                  className={`h-3 w-3 ${
-                                    inWatchlist ? "fill-current" : ""
-                                  }`}
-                                />
-                              </Button>
-                            </div>
-
-                            {/* ─── دسکتاپ: دکمه فارسی ─── */}
-                            <div className="hidden sm:flex items-center justify-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-[9px] text-blue-500 hover:bg-blue-500/10"
-                                onClick={() => handleAnalyze(item)}
-                              >
-                                <TrendingUp className="h-2.5 w-2.5 ml-0.5" />
-                                تحلیل
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className={`h-6 px-2 text-[9px] ${
-                                  isRecorded
-                                    ? "text-green-500"
-                                    : "text-purple-500 hover:bg-purple-500/10"
-                                }`}
-                                onClick={() => handleRecord(item)}
-                                disabled={isRecording || isRecorded}
-                              >
-                                {isRecording ? (
-                                  <Loader2 className="h-2.5 w-2.5 animate-spin ml-0.5" />
-                                ) : (
-                                  <CheckCircle2 className="h-2.5 w-2.5 ml-0.5" />
-                                )}
-                                {isRecorded ? "ثبت شده" : "راستی‌آزمایی"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className={`h-6 px-2 text-[9px] ${
-                                  inWatchlist
-                                    ? "text-yellow-500"
-                                    : "text-muted-foreground hover:text-yellow-500"
-                                }`}
-                                onClick={() => handleWatchlist(item)}
-                              >
-                                <Star
-                                  className={`h-2.5 w-2.5 ml-0.5 ${
-                                    inWatchlist ? "fill-current" : ""
-                                  }`}
-                                />
-                                {inWatchlist ? "ذخیره شده" : "واچ‌لیست"}
-                              </Button>
-                            </div>
                           </TableCell>
                         </TableRow>
                       );

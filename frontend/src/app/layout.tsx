@@ -47,11 +47,12 @@ export default function RootLayout({
       >
         <WebSocketProvider>
           <SignalDataProvider>
-            <TooltipProvider>{children}</TooltipProvider>
+            <TooltipProvider>
+              {children}
+              <BottomNav />
+            </TooltipProvider>
           </SignalDataProvider>
         </WebSocketProvider>
-        {children}
-      <BottomNav />
       </body>
     </html>
   );

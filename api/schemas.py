@@ -210,6 +210,9 @@ class ScanRequest(BaseModel):
     risk_profile: Literal["aggressive", "conservative"] = "aggressive"
     limit: int = Field(default=20, ge=1, le=100)
 
+    # 🔴 فاز ۱۰.۳ — حالت اسکن
+    scan_mode: Literal["pre_breakout", "active", "all"] = "all"
+
 
 # ═══════════════════════════════════════════════════════════
 # ۵.۵ عمق بازار — فاز ۶.۵ (placeholder)
@@ -260,6 +263,11 @@ class ScanItem(BaseModel):
     signal: str
     confidence: int
     direction: str
+
+    # 🔴 فاز ۱۰.۳ — Pre-breakout
+    is_pre_breakout: bool = False
+    pre_breakout_score: float = 0.0
+    pre_breakout_bias: str = "neutral"  # up | down | neutral
 
 
 class ScanResponse(BaseModel):

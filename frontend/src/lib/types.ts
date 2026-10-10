@@ -393,7 +393,11 @@ export interface ScanItem {
   price: number;
   signal: string;
   confidence: number;
-  direction: "long" | "short" | "neutral";
+  direction: string;
+  // 🔴 فاز ۱۰.۳ — Pre-breakout
+  is_pre_breakout: boolean;
+  pre_breakout_score: number;
+  pre_breakout_bias: "up" | "down" | "neutral";
 }
 
 // ═══ Backtest ═══
