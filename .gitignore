@@ -96,3 +96,12 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ??? Temporary / Generated Files ???
+response.json
+test_api.py
+signal_audit_report.json
+trademun_signals_*.json
+structure.txt
+CODE_REVIEW_*.md
+PROJECT_STATUS.md
