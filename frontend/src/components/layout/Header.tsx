@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock } from "lucide-react";
+import { Clock, User } from "lucide-react";
 import { HelpPanel } from "./HelpPanel";
+import { useAppStore } from "@/store/useAppStore";
 
 export function Header() {
   const [time, setTime] = useState<string>("");
+  const setMobileSheet = useAppStore((s) => s.setMobileSheet);
 
   useEffect(() => {
     const tick = () => {
       const now = new Date();
-      // 🔴 ساعت تهران با اعداد انگلیسی
       setTime(
         new Intl.DateTimeFormat("en-GB", {
           hour: "2-digit",
@@ -21,7 +22,7 @@ export function Header() {
         }).format(now)
       );
     };
-  tick();
+    tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
@@ -42,13 +43,28 @@ export function Header() {
           </div>
         </div>
 
-        {/* ─── راهنما + ساعت ─── */}
+        {/* ─── سمت راست: دکمه‌های دسکتاپ + ساعت ─── */}
         <div className="flex items-center gap-2">
-          {/* 🔴 فاز ۱۰.۲ — راهنما فقط روی دسکتاپ */}
-          <div className="hidden md:flex">
-            <HelpPanel />
+          {/* دسکتاپ: کانتینر یکپارچه راهنما + حساب کاربری */}
+          <div className="hidden md:flex items-center overflow-hidden rounded-lg border border-primary/20 bg-primary/5">
+            <div className="flex items-center">
+              <HelpPanel />
+            </div>
+            <span
+              className="h-6 w-px bg-primary/20"
+              aria-hidden="true"
+            />
+            <button
+              className="num inline-flex h-9 items-center gap-1.5 px-3 text-[13px] font-medium text-primary transition-colors hover:bg-primary/10"
+              title="حساب کاربری"
+              onClick={() => setMobileSheet("account")}
+            >
+              <User className="h-3.5 w-3.5" />
+              <span>حساب کاربری</span>
+            </button>
           </div>
 
+          {/* ساعت TEH — همه‌جا */}
           <div className="num flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-medium tabular-nums text-primary md:px-3 md:py-1.5 md:text-[13px]">
             <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />
             <span style={{ fontFamily: "monospace" }}>

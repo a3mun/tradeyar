@@ -481,18 +481,20 @@ def analyze(
                 out["is_fallback"] = data_source != source
                 out.pop("orderbook", None)
 
-                # 🔴 نسخه ۳.۰: روی cache hit هم ثبت کن
-                # dedup_key جلوی تکرار رو می‌گیره
-                _record_signal_safe(
-                    ticker,
-                    ticker_name,
-                    tf_name,
-                    source,
-                    market_type,
-                    risk_profile,
-                    out,
-                    skip_record,
-                )
+                # 🔴 فاز ۱۰.۵ — روی cache hit فقط برای TF>=۵m
+                # (چون TF=۱m dedup_key اش در هر دقیقه عوض می‌شه
+                #  و رکورد تکراری ثبت می‌کنه)
+                if tf_name != "۱ دقیقه":
+                    _record_signal_safe(
+                        ticker,
+                        ticker_name,
+                        tf_name,
+                        source,
+                        market_type,
+                        risk_profile,
+                        out,
+                        skip_record,
+                    )
 
                 return out
 
