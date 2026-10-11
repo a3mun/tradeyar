@@ -767,8 +767,17 @@ def compute_net_rr(
     fee_ratio = (reward_pct / fee_pct) if fee_pct > 0 else 0.0
     breakeven_pct = fee_rate * 100
 
-    is_worthwhile = rr_net >= 1.0 and fee_ratio >= 3.0
+    # 🔴 فاز ۱۰.۵ — is_worthwhile ترکیبی (توصیه آمریکایی)
+    # سه شرط: rr_net > 1.5 AND fee_ratio > 5 AND timeframe_viable
+    #
+    # ═══ چرا این تغییر ═══
+    # قبلاً: rr_net ≥ 1.0 AND fee_ratio ≥ 3.0
+    #   → خیلی آسان‌گیر بود، سیگنال‌های ضعیف هم is_worthwhile=True می‌گرفتن
+    #
+    # الان: هر سه شرط لازم
+    #   → فقط سیگنال‌های واقعاً ارزشمند قبول می‌شن
     timeframe_viable = rr_net >= 1.3
+    is_worthwhile = rr_net > 1.5 and fee_ratio > 5.0 and timeframe_viable
 
     return {
         "rr_gross": round(rr_gross, 3),

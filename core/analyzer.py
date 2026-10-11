@@ -583,18 +583,21 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         else:
             signals.append((0.0, 0.5))
     else:
-        if rsi < 30:
-            signals.append((+1.0, 1.2))
-            reasons.append(f"RSI={rsi:.0f} اشباع فروش")
-        elif rsi > 70:
-            signals.append((-1.0, 1.2))
-            reasons.append(f"RSI={rsi:.0f} اشباع خرید")
-        elif rsi < 40:
-            signals.append((+0.4, 0.8))
+        # 🔴 فاز ۱۰.۵ — RSI محافظه‌کارانه در رنج (توصیه کره‌ای)
+        # در رنج، 30/70 خیلی دیر واکنش می‌ده. 35/65
+        # زودتر هشدار می‌ده و false positive کمتری داره.
+        if rsi < 35:
+            signals.append((+0.8, 1.0))  # ← کاهش از +1.0/1.2
             reasons.append(f"RSI={rsi:.0f} نزدیک اشباع فروش")
-        elif rsi > 60:
-            signals.append((-0.4, 0.8))
+        elif rsi > 65:
+            signals.append((-0.8, 1.0))  # ← کاهش از -1.0/1.2
             reasons.append(f"RSI={rsi:.0f} نزدیک اشباع خرید")
+        elif rsi < 42:
+            signals.append((+0.3, 0.6))
+            reasons.append(f"RSI={rsi:.0f} متمایل به فروش")
+        elif rsi > 58:
+            signals.append((-0.3, 0.6))
+            reasons.append(f"RSI={rsi:.0f} متمایل به خرید")
         else:
             signals.append((0.0, 0.5))
 
@@ -992,6 +995,7 @@ def _analyze_volume(
     market_type: str = "spot",
     _thresholds: tuple = None,
     orderbook: dict = None,
+    regime: str = "range",  # 🔴 فاز ۱۰.۵ — از analyze_symbol پاس داده می‌شه
 ) -> dict:
     reasons = []
     signals = []
@@ -1094,18 +1098,36 @@ def _analyze_volume(
         elif delta_last < 0:
             signals.append((-0.4, 0.8))
 
-        # ─── Z-Score: با وزن کمتر (اصلاح نسخه ۱۰.۰) ───
-        # چرا کمتر: در دیتا، cvd_z افراطی باعث سیگنال‌های غلط می‌شد
+        # ─── CVD Z-Score: محدود به رژیم trend (توصیه روسی) ───
+        # ═══ چرا این تغییر ═══
+        # در دیتای ۳۲۹ سیگنال، CVD در رنج باعث SHORT bias شدید شد:
+        #   SHORT: 58% سیگنال‌ها (WR ~۱۲٪)
+        #   LONG:  42% سیگنال‌ها (WR ~۴۷٪)
+        # علت: در رنج صعودی، CVD مثبت بالا می‌ره → SHORT غلط.
+        #
+        # اصلاح: در رژیم trend با آستانه ۲.۵، در بقیه فقط extreme (۳.۰)
         cvd_z = safe_num(last.get("cvd_zscore"), 0)
-        if cvd_z > 2.5:
-            signals.append((-0.5, 0.7))  # کاهش از 0.6→0.5، وزن 1.0→0.7
-            reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع خرید")
-        elif cvd_z < -2.5:
-            signals.append((+0.5, 0.7))
-            reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع فروش")
 
-    # ═══ CMF ═══
-    cmf = safe_num(last.get("cmf"), 0)
+        if regime == "trend":
+            # در روند، CVD معنادار است
+            if cvd_z > 2.5:
+                signals.append((-0.5, 0.7))
+                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع خرید")
+            elif cvd_z < -2.5:
+                signals.append((+0.5, 0.7))
+                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع فروش")
+        else:
+            # در رنج/گذار، فقط موارد شدید (نویز کمتر)
+            if cvd_z > 3.0:
+                signals.append((-0.3, 0.5))
+                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع خرید (شدید)")
+            elif cvd_z < -3.0:
+                signals.append((+0.3, 0.5))
+                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع فروش (شدید)")
+
+        # ─── CMF ───
+        cmf = safe_num(last.get("cmf"), 0)
+
     if cmf > 0.1:
         signals.append((+0.7, 1.0))
         reasons.append(f"CMF={cmf:.2f} جریان پول ورودی")
@@ -2057,12 +2079,17 @@ def analyze_symbol(
         thresholds = get_adaptive_thresholds(regime, adx)
 
         # ═══ ۵ گروه ═══
+
         groups = {
             "momentum": _analyze_momentum(df, _thresholds=thresholds),
             "trend": _analyze_trend(df, _thresholds=thresholds),
             "volatility": _analyze_volatility(df, _thresholds=thresholds),
             "volume": _analyze_volume(
-                df, market_type, _thresholds=thresholds, orderbook=orderbook
+                df,
+                market_type,
+                _thresholds=thresholds,
+                orderbook=orderbook,
+                regime=regime,  # 🔴 فاز ۱۰.۵
             ),
             "structure": _analyze_structure(df, _thresholds=thresholds),
         }
@@ -2956,13 +2983,13 @@ def build_analysis_paragraph(
     tf_name: str = "۵ دقیقه",
 ) -> str:
     """
-    تحلیل پاراگرافی — نسخه ۱۰.۱
+    تحلیل پاراگرافی — نسخه ۱۱.۰ (تیتر ساده با نوار کناری)
 
-    ═══ تغییرات ═══
-    • بخش‌بندی واضح‌تر (۶ بخش با header)
-    • حذف تکرار (RF، ۵ گروه، سطوح)
-    • خلاصه‌ی صادقانه در بالا
-    • ترتیب: نتیجه → عمل → تکنیکال → سطوح → پلن → جمع‌بندی
+    ═══ ساختار ═══
+    • تیتر با ▎ + بولد — بدون ایموجی اضافی
+    • بدون خط ━━━ یا ─── (فقط ▎ کافیه)
+    • ایموجی فقط جاهای کلیدی (سیگنال، مقاومت، حمایت)
+    • لحن صمیمی مثل یه رفیق تحلیل‌گر
     """
     lines = []
 
@@ -2970,12 +2997,14 @@ def build_analysis_paragraph(
     if not r_main:
         return "داده کافی نیست."
 
+    # ═══ استخراج ═══
     regime = r_main.get("regime", "range")
     regime_fa = {
         "trend": "جهت‌دار",
         "transitional": "در حال‌تغییر",
-        "range": "بی‌جهت",
-    }.get(regime, "بی‌جهت")
+        "range": "رنج",
+    }.get(regime, "رنج")
+
     is_iranian = _is_iranian_ticker(ticker)
     is_tsetmc = bool(ticker) and not ticker[0].isascii()
 
@@ -2985,9 +3014,10 @@ def build_analysis_paragraph(
         unit = "تومان"
     else:
         unit = "$"
+
     market_type = r_main.get("market_type", "spot")
     market_fa = "اسپات" if market_type == "spot" else "فیوچرز"
-    profile_fa = {"aggressive": "جسورانه", "conservative": "محاطبانه"}.get(
+    profile_fa = {"aggressive": "جسورانه", "conservative": "محتاطانه"}.get(
         risk_profile, "جسورانه"
     )
 
@@ -2998,296 +3028,381 @@ def build_analysis_paragraph(
     votes_long = r_main.get("votes_long", 0)
     votes_short = r_main.get("votes_short", 0)
     votes_neutral = r_main.get("votes_neutral", 0)
-    action_fa = r_main.get("action_fa", "")
     groups = r_main.get("groups", {})
     divergence = r_main.get("divergence", {})
     multi_tf_info = r_main.get("multi_tf_info", "")
     neutral_explain = r_main.get("neutral_explain", {})
     traps = r_main.get("traps", {})
     override_reason = r_main.get("override_reason", "")
+    sl_tp = r_main.get("sl_tp")
+    scenarios = r_main.get("scenarios", [])
+
+    # ─── helper: تیتر با نوار کناری ───
+    def H(text: str) -> str:
+        return f"▎**{text}**"
 
     # ═══════════════════════════════════════════════════════
-    # ۱. سرصفحه
+    # سرصفحه
     # ═══════════════════════════════════════════════════════
-    lines.append(f"📍 {tf_name} · {profile_fa} · {market_fa}")
+    lines.append(f"_{tf_name} · {profile_fa} · {market_fa}_")
     lines.append("")
 
     # ═══════════════════════════════════════════════════════
-    # ۲. خلاصه‌ی یک‌خطی (برجسته)
+    # خط سیگنال + پلن (نتیجه فوری)
     # ═══════════════════════════════════════════════════════
     if SigEnum.is_long(signal):
         if confidence >= 70:
-            summary = f"✅ سیگنال **خرید قوی** — اطمینان {confidence}٪"
+            main_line = f"✅ **خرید قوی** · اطمینان {confidence}٪"
+        elif confidence >= 50:
+            main_line = f"🟢 **خرید** · اطمینان {confidence}٪"
         else:
-            summary = f"🟢 سیگنال خرید — اطمینان {confidence}٪"
+            main_line = f"🟡 **خرید ضعیف** · اطمینان {confidence}٪"
     elif SigEnum.is_short(signal):
         if confidence >= 70:
-            summary = f"🔴 سیگنال **فروش قوی** — اطمینان {confidence}٪"
+            main_line = f"🔴 **فروش قوی** · اطمینان {confidence}٪"
+        elif confidence >= 50:
+            main_line = f"🔴 **فروش** · اطمینان {confidence}٪"
         else:
-            summary = f"🔴 سیگنال فروش — اطمینان {confidence}٪"
+            main_line = f"🟠 **فروش ضعیف** · اطمینان {confidence}٪"
     else:
         if override_reason:
-            summary = "🚫 روند قوی — سیگنال مخالف بلاک شد"
+            main_line = "🚫 **بلاک شده** — روند مخالف قویه"
         else:
-            summary = f"⚪ بدون سیگنال — صبر کن"
+            main_line = "⚪ **صبر کن** — سیگنال واضحی نیست"
 
-    lines.append(f"## {summary}")
+    lines.append(main_line)
     lines.append("")
 
-    # ═══════════════════════════════════════════════════════
-    # ۳. عمل پیشنهادی (کوتاه)
-    # ═══════════════════════════════════════════════════════
-    if action_fa:
-        lines.append(f"**🎯 عمل:** {action_fa}")
+    # ─── خلاصه‌ی پلن ───
+    if sl_tp:
+        sl = safe_num(sl_tp.get("sl"))
+        tp = safe_num(sl_tp.get("tp"))
+        rr_net = sl_tp.get("rr_net")
+        fee_pct = sl_tp.get("fee_pct")
+
+        if is_iranian:
+            lines.append(f"ورود {price:,.0f} {unit} · SL {sl:,.0f} · TP {tp:,.0f}")
+        else:
+            lines.append(f"ورود {price:,.2f}$ · SL {sl:,.2f}$ · TP {tp:,.2f}$")
+
+        if rr_net is not None:
+            if rr_net >= 2.0:
+                rr_verdict = "عالی"
+            elif rr_net >= 1.5:
+                rr_verdict = "خوب"
+            elif rr_net >= 1.0:
+                rr_verdict = "قابل قبول"
+            else:
+                rr_verdict = "ضعیف"
+
+            fee_line = f" · هزینه {fee_pct:.2f}٪" if fee_pct is not None else ""
+            lines.append(f"R:R خالص {rr_net:.2f} ({rr_verdict}){fee_line}")
+
         lines.append("")
 
-    # ═══════════════════════════════════════════════════════
-    # ۴. خلاصه‌ی بازار (۲-۳ خط)
-    # ═══════════════════════════════════════════════════════
-    lines.append("### 📊 وضعیت بازار")
-    lines.append("")
-
-    if SigEnum.is_long(signal) or SigEnum.is_short(signal):
-        direction_fa = "صعودی" if SigEnum.is_long(signal) else "نزولی"
-        strength = (
-            "قوی" if confidence >= 70 else "معمولی" if confidence >= 50 else "ضعیف"
-        )
-        lines.append(
-            f"روند **{direction_fa}** با قدرت {strength} در بازار «{regime_fa}» "
-            f"(ADX={adx:.0f})."
-        )
-    else:
-        if neutral_explain and neutral_explain.get("long"):
-            lines.append(neutral_explain["long"])
-        elif regime == "range":
-            lines.append(
-                f"بازار **بی‌جهت** (ADX={adx:.0f}). در این حالت صبر کن تا جهت مشخص شه."
-            )
-        else:
-            lines.append(f"گروه‌ها به توافق نرسیدن. بازار سیگنال واضحی نمی‌ده.")
-
-    if override_reason:
-        lines.append(f"⚠️ {override_reason}")
-
-    lines.append("")
-
-    # ═══════════════════════════════════════════════════════
-    # ۵. تله‌ها (اگه فعال باشن)
-    # ═══════════════════════════════════════════════════════
+    # ─── هشدار تله ───
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
     if active_traps:
-        lines.append("### 🚨 هشدار تله")
-        lines.append("")
         trap_names = {
             "bull_trap": "تله صعودی",
             "bear_trap": "تله نزولی",
             "fake_breakout": "شکست جعلی",
             "exhaustion": "خستگی روند",
         }
-        for trap_key, trap_info in active_traps.items():
-            lines.append(
-                f"- **{trap_names.get(trap_key, trap_key)}:** "
-                f"{trap_info.get('reason', '')}"
-            )
+        trap_list = " · ".join(trap_names.get(k, k) for k in active_traps.keys())
+        lines.append(f"🚨 **هشدار:** {trap_list}")
         lines.append("")
 
     # ═══════════════════════════════════════════════════════
-    # ۶. رأی‌گیری گروه‌ها (خلاصه)
+    # ۱. بازار چطوره؟
     # ═══════════════════════════════════════════════════════
-    lines.append("### 🗳 آراء گروه‌ها")
+    lines.append(H("۱. بازار چطوره؟"))
     lines.append("")
-    lines.append(
-        f"**{votes_long}** صعودی · **{votes_neutral}** خنثی · **{votes_short}** نزولی"
-    )
 
-    if groups:
-        sorted_groups = sorted(
-            groups.items(),
-            key=lambda x: abs(x[1].get("score", 0)),
-            reverse=True,
-        )
-        GROUP_NAMES = {
+    if adx >= 40:
+        adx_fa = "روند قویه"
+        adx_note = "بالای ۴۰ یعنی روند محکم و قابل اعتماد"
+    elif adx >= 25:
+        adx_fa = "روند فعاله"
+        adx_note = "بین ۲۵ تا ۴۰ یعنی روند داره شکل می‌گیره"
+    elif adx >= 18:
+        adx_fa = "روند ضعیفه"
+        adx_note = "بین ۱۸ تا ۲۵ یعنی روند شکننده‌ست"
+    else:
+        adx_fa = "بدون رونده"
+        adx_note = "زیر ۱۸ یعنی بازار بی‌جهته"
+
+    if SigEnum.is_long(signal) or SigEnum.is_short(signal):
+        direction_fa = "صعودی" if SigEnum.is_long(signal) else "نزولی"
+        lines.append(f"جهت غالب {direction_fa}ه و {adx_fa} (ADX={adx:.0f}).")
+        lines.append(f"{adx_note}.")
+    else:
+        if neutral_explain and neutral_explain.get("long"):
+            lines.append(neutral_explain["long"])
+        else:
+            lines.append(f"بازار در رژیم «{regime_fa}» هست و {adx_fa} (ADX={adx:.0f}).")
+            lines.append(f"{adx_note}.")
+
+    if override_reason:
+        lines.append("")
+        lines.append(f"⚠️ {override_reason}")
+
+    lines.append("")
+
+    # ═══════════════════════════════════════════════════════
+    # ۲. چرا این سیگنال؟
+    # ═══════════════════════════════════════════════════════
+    if SigEnum.is_long(signal) or SigEnum.is_short(signal):
+        lines.append(H("۲. چرا این سیگنال؟"))
+        lines.append("")
+
+        GROUP_META = {
             "momentum": "مومنتوم",
             "trend": "روند",
             "volatility": "نوسان",
             "volume": "حجم",
             "structure": "ساختار",
         }
-        group_strs = []
-        for g_key, g_data in sorted_groups[:3]:
-            g_name = GROUP_NAMES.get(g_key, g_key)
+
+        if groups:
+            sorted_groups = sorted(
+                groups.items(),
+                key=lambda x: abs(x[1].get("score", 0)),
+                reverse=True,
+            )
+
+            for g_key, g_data in sorted_groups[:3]:
+                g_name = GROUP_META.get(g_key, g_key)
+                g_vote = g_data.get("vote", 0)
+                g_strength_fa = g_data.get("strength_fa", "")
+                g_reasons = g_data.get("reasons", [])
+
+                if g_vote > 0:
+                    direction_mark = "▲"
+                elif g_vote < 0:
+                    direction_mark = "▼"
+                else:
+                    direction_mark = "●"
+
+                strength_txt = (
+                    f" · {g_strength_fa}"
+                    if g_strength_fa and g_strength_fa != "بی‌جهت"
+                    else ""
+                )
+                lines.append(f"**{g_name}{strength_txt}** {direction_mark}")
+
+                for reason in g_reasons[:2]:
+                    clean = reason.strip()
+                    lines.append(f"  {clean}")
+
+                lines.append("")
+
+    # ═══════════════════════════════════════════════════════
+    # ۳. نظر گروه‌ها
+    # ═══════════════════════════════════════════════════════
+    lines.append(H("۳. نظر گروه‌ها"))
+    lines.append("")
+
+    if votes_long > votes_short:
+        summary = (
+            f"{votes_long} گروه صعودی · {votes_neutral} خنثی · {votes_short} نزولی"
+        )
+    elif votes_short > votes_long:
+        summary = (
+            f"{votes_short} گروه نزولی · {votes_neutral} خنثی · {votes_long} صعودی"
+        )
+    elif votes_long == votes_short and votes_long > 0:
+        summary = f"تعادل: {votes_long} صعودی مقابل {votes_short} نزولی"
+    else:
+        summary = f"{votes_neutral} گروه خنثی — بازار خوابه"
+
+    lines.append(summary)
+    lines.append("")
+
+    if groups:
+        GROUP_META = {
+            "momentum": "مومنتوم",
+            "trend": "روند",
+            "volatility": "نوسان",
+            "volume": "حجم",
+            "structure": "ساختار",
+        }
+        ORDER = ["momentum", "trend", "volume", "volatility", "structure"]
+
+        lines.append("| گروه | نظر | قدرت |")
+        lines.append("|------|-----|------|")
+
+        for g_key in ORDER:
+            if g_key not in groups:
+                continue
+            g_data = groups[g_key]
+            g_name = GROUP_META.get(g_key, g_key)
             g_vote = g_data.get("vote", 0)
-            g_strength = g_data.get("strength_fa", "")
+            g_strength_fa = g_data.get("strength_fa", "")
 
             if g_vote > 0:
-                icon = "🟢"
+                verdict = "▲ صعودی"
             elif g_vote < 0:
-                icon = "🔴"
+                verdict = "▼ نزولی"
             else:
-                icon = "⚪"
+                verdict = "● خنثی"
 
-            s_str = f" ({g_strength})" if g_strength and g_strength != "بی‌جهت" else ""
-            group_strs.append(f"{g_name} {icon}{s_str}")
+            strength_txt = (
+                g_strength_fa if g_strength_fa and g_strength_fa != "بی‌جهت" else "—"
+            )
+            lines.append(f"| {g_name} | {verdict} | {strength_txt} |")
 
-        lines.append(" • ".join(group_strs))
+        lines.append("")
 
     if divergence.get("has_divergence"):
-        lines.append(f"⚠️ **واگرایی:** {divergence.get('reason', '')}")
+        lines.append(f"⚠️ واگرایی: {divergence.get('reason', '')}")
+        lines.append("")
 
     if multi_tf_info and multi_tf_info != "بدون بررسی":
         lines.append(f"🎯 {multi_tf_info}")
-
-    lines.append("")
+        lines.append("")
 
     # ═══════════════════════════════════════════════════════
-    # ۷. سطوح کلیدی (فشرده)
+    # ۴. عمق بازار
+    # ═══════════════════════════════════════════════════════
+    ob = r_main.get("orderbook")
+    if ob and ob.get("imbalance") is not None:
+        lines.append(H("۴. عمق بازار"))
+        lines.append("")
+
+        imb = ob["imbalance"]
+        spread_pct = ob.get("spread_pct", 0)
+
+        if imb > 0.65:
+            imb_fa = f"فشار خریدارها قویه — {imb*100:.0f}٪ خرید در برابر {(1-imb)*100:.0f}٪ فروش"
+        elif imb < 0.35:
+            imb_fa = f"فشار فروشنده‌ها قویه — {(1-imb)*100:.0f}٪ فروش در برابر {imb*100:.0f}٪ خرید"
+        else:
+            imb_fa = f"تعادل خریدار/فروشنده — {imb*100:.0f}٪ خرید در برابر {(1-imb)*100:.0f}٪ فروش"
+
+        lines.append(f"• {imb_fa}")
+
+        if spread_pct > 0.5:
+            spread_fa = f"اسپرد بالا ({spread_pct:.2f}٪) — نقدینگی ضعیف، مراقب باش"
+        elif spread_pct > 0.1:
+            spread_fa = f"اسپرد متوسط ({spread_pct:.2f}٪) — قابل قبول"
+        else:
+            spread_fa = (
+                f"اسپرد کم ({spread_pct:.3f}٪) — بازار نقدشونده، راحت معامله می‌شه"
+            )
+
+        lines.append(f"• {spread_fa}")
+
+        wall = ob.get("wall")
+        if wall:
+            side_fa = "خرید" if wall["side"] == "bid" else "فروش"
+            lines.append(
+                f"• دیوار سفارش {side_fa} در {wall['price']:,.2f} "
+                f"({wall['ratio']:.1f}× حجم معمولی)"
+            )
+
+        lines.append("")
+
+    # ═══════════════════════════════════════════════════════
+    # ۵. سطوح کلیدی
     # ═══════════════════════════════════════════════════════
     r = safe_num(r_main.get("resistance"))
     s = safe_num(r_main.get("support"))
 
     if (r > 0 or s > 0) and price > 0:
-        lines.append("### 🎯 سطوح کلیدی")
+        lines.append(H("۵. سطوح کلیدی"))
         lines.append("")
 
         if r > 0:
             dist_r = (r - price) / price * 100
-            if is_tsetmc:
-                lines.append(f"🔴 **مقاومت:** {r:,.0f} ریال ({dist_r:+.2f}٪)")
-            elif is_iranian:
-                lines.append(f"🔴 **مقاومت:** {r:,.0f} تومان ({dist_r:+.2f}٪)")
+            if dist_r < 1.0:
+                proximity = "خیلی نزدیک، مراقب برگشت"
+            elif dist_r < 3.0:
+                proximity = "متوسط"
             else:
-                lines.append(f"🔴 **مقاومت:** {r:,.2f}$ ({dist_r:+.2f}٪)")
+                proximity = "دور"
 
+            if is_tsetmc:
+                lines.append(
+                    f"🔴 **مقاومت:** {r:,.0f} ریال ({dist_r:+.2f}٪ — {proximity})"
+                )
+            elif is_iranian:
+                lines.append(
+                    f"🔴 **مقاومت:** {r:,.0f} تومان ({dist_r:+.2f}٪ — {proximity})"
+                )
+            else:
+                lines.append(f"🔴 **مقاومت:** {r:,.2f}$ ({dist_r:+.2f}٪ — {proximity})")
         if s > 0:
             dist_s = (s - price) / price * 100
-            if is_tsetmc:
-                lines.append(f"🟢 **حمایت:** {s:,.0f} ریال ({dist_s:+.2f}٪)")
-            elif is_iranian:
-                lines.append(f"🟢 **حمایت:** {s:,.0f} تومان ({dist_s:+.2f}٪)")
+            if abs(dist_s) < 1.0:
+                proximity_s = "خیلی نزدیک"
+            elif abs(dist_s) < 3.0:
+                proximity_s = "متوسط"
             else:
-                lines.append(f"🟢 **حمایت:** {s:,.2f}$ ({dist_s:+.2f}٪)")
+                proximity_s = "دور"
 
-        lines.append("")
-
-    # ═══════════════════════════════════════════════════════
-    # ۸. پلن معاملاتی (اگه سیگنال داره)
-    # ═══════════════════════════════════════════════════════
-    sl_tp = r_main.get("sl_tp")
-    rr = safe_num(r_main.get("rr"))
-
-    if sl_tp:
-        sl = safe_num(sl_tp.get("sl"))
-        tp = safe_num(sl_tp.get("tp"))
-        sl_type = sl_tp.get("type", "")
-
-        lines.append(f"### 📋 پلن معاملاتی")
-        lines.append("")
-
-        if is_iranian:
-            lines.append(f"💰 ورود: **{price:,.0f}** {unit}")
-            lines.append(
-                f"🛑 حد ضرر: **{sl:,.0f}** " f"({abs(price - sl) / price * 100:.2f}٪)"
-            )
-            lines.append(
-                f"🎯 هدف: **{tp:,.0f}** " f"({abs(tp - price) / price * 100:.2f}٪)"
-            )
-        else:
-            lines.append(f"💰 ورود: **{price:,.2f}$**")
-            lines.append(
-                f"🛑 حد ضرر: **{sl:,.2f}$** " f"({abs(price - sl) / price * 100:.2f}٪)"
-            )
-            lines.append(
-                f"🎯 هدف: **{tp:,.2f}$** " f"({abs(tp - price) / price * 100:.2f}٪)"
-            )
-
-        rr_net = sl_tp.get("rr_net")
-        if rr_net is not None:
-            grade = (
-                "✅ عالی"
-                if rr_net >= 2
-                else (
-                    "✅ خوب"
-                    if rr_net >= 1.5
-                    else "🟡 قابل قبول" if rr_net >= 1.0 else "❌ ضعیف"
+            if is_tsetmc:
+                lines.append(
+                    f"🟢 **حمایت:** {s:,.0f} ریال ({dist_s:+.2f}٪ — {proximity_s})"
                 )
-            )
-            lines.append(f"⚖️ R:R واقعی: **{rr_net:.2f}** — {grade}")
-
-        fee_pct = sl_tp.get("fee_pct")
-        if fee_pct is not None:
-            lines.append(f"💸 هزینه معامله: **{fee_pct:.2f}٪**")
-
-        lines.append("")
-    else:
-        # ═══ اگه سیگنال نداره → بخش پیشنهاد ═══
-        lines.append("### 💡 پیشنهاد")
-        lines.append("")
-        explanation = r_main.get("explanation", "صبر کن")
-        lines.append(f"⚠️ {explanation}")
-
-        if neutral_explain and neutral_explain.get("hint"):
-            lines.append(f"💡 {neutral_explain['hint']}")
+            elif is_iranian:
+                lines.append(
+                    f"🟢 **حمایت:** {s:,.0f} تومان ({dist_s:+.2f}٪ — {proximity_s})"
+                )
+            else:
+                lines.append(
+                    f"🟢 **حمایت:** {s:,.2f}$ ({dist_s:+.2f}٪ — {proximity_s})"
+                )
 
         lines.append("")
 
     # ═══════════════════════════════════════════════════════
-    # ۹. عمق بازار (خلاصه — اگه داره)
+    # ۶. سناریوهای پیش‌رو
     # ═══════════════════════════════════════════════════════
-    ob = r_main.get("orderbook")
-    if ob and ob.get("imbalance") is not None:
-        imb = ob["imbalance"]
-        pressure = ob.get("pressure_fa", "")
-        spread_pct = ob.get("spread_pct", 0)
-        lines.append(
-            f"📖 **عمق بازار:** {pressure} (imbalance={imb:.2f}، اسپرد={spread_pct:.3f}٪)"
-        )
-        lines.append("")
-
-    # ═══════════════════════════════════════════════════════
-    # ۱۰. زمینه‌ی بنیادی (فشرده)
-    # ═══════════════════════════════════════════════════════
-    fundamental = r_main.get("fundamental_lines") or []
-    if fundamental:
-        lines.append("### 🧭 زمینه")
-        lines.append("")
-        for f_line in fundamental:
-            lines.append(f"{f_line}")
-        lines.append("")
-
-    # ═══════════════════════════════════════════════════════
-    # ۱۱. سناریوها (فقط ۲ تا)
-    # ═══════════════════════════════════════════════════════
-    scenarios = r_main.get("scenarios", [])
     if scenarios:
-        lines.append("### 🎬 سناریوها")
+        lines.append(H("۶. سناریوهای پیش‌رو"))
         lines.append("")
-        for sc in scenarios[:2]:
+
+        for sc in scenarios[:3]:
             icon = sc.get("icon", "•")
             condition = sc.get("condition", "")
             action = sc.get("action", "")
             prob = int(sc.get("probability", 0.5) * 100)
-            lines.append(f"{icon} **{condition}** ({prob}٪)")
-            lines.append(f"   ← {action}")
-        lines.append("")
+
+            lines.append(f"{icon} {condition} (احتمال {prob}٪)")
+            lines.append(f"   ↪️ {action}")
+            lines.append("")
 
     # ═══════════════════════════════════════════════════════
-    # ۱۲. جمع‌بندی صادقانه (برجسته — مهم‌ترین)
+    # جمع‌بندی نهایی
     # ═══════════════════════════════════════════════════════
-    lines.append("### ⚡ جمع‌بندی")
+    lines.append(H("جمع‌بندی"))
     lines.append("")
 
     if SigEnum.is_long(signal) and confidence >= 70 and not active_traps:
-        lines.append("✅ **می‌تونی وارد شی** — با حجم کم و حد ضرر.")
+        lines.append("✅ **می‌تونی وارد شی** — اطمینان بالا، تله‌ای نیست.")
+        if r > 0 and (r - price) / price * 100 < 1.5:
+            lines.append(f"⚠️ ولی مقاومت {r:,.0f} نزدیکه — TP رو کمی پایین‌تر بذار.")
     elif SigEnum.is_long(signal) and active_traps:
-        lines.append("🚨 **مراقب باش!** تله فعاله. حتی با سیگنال LONG، حجم کم.")
+        lines.append("🚨 **صبر کن** — تله فعاله. حتی با سیگنال LONG، الان نخر.")
+    elif SigEnum.is_long(signal) and confidence >= 50:
+        lines.append("⚠️ **با احتیاط وارد شو** — فقط با ۰.۵-۱٪ سرمایه.")
     elif SigEnum.is_long(signal):
-        lines.append("⚠️ سیگنال ضعیفه. اگه وارد می‌شی، فقط با ۰.۵٪ سرمایه.")
+        lines.append("🟡 **صبر کن** — سیگنال ضعیفه، احتمال خطا بالاست.")
     elif SigEnum.is_short(signal) and confidence >= 70:
-        lines.append("🔴 فروش منطقیه — ولی نوسان بالاست. حد ضرر تنگ بذار.")
+        lines.append("🔴 **SHORT منطقیه** — ولی SL تنگ بذار، نوسان بالاست.")
+    elif SigEnum.is_short(signal) and confidence >= 50:
+        lines.append("🔴 **SHORT با احتیاط** — سریع خارج شو.")
     elif SigEnum.is_short(signal):
-        lines.append("⚠️ سیگنال فروش ضعیفه. **صبر کن.**")
+        lines.append("🟠 **صبر کن** — ریسک SHORT ضعیف بالاست.")
     else:
-        lines.append("⏸ **الان نخر.** بهترین معامله، معامله‌ای هست که انجام نشه.")
+        if override_reason:
+            lines.append("⏸ **وارد نشو** — رفتن خلاف روند قوی، پول سوزوندنه.")
+        else:
+            lines.append(
+                "⏸ **بهترین معامله، معامله‌ای هست که انجام نشه.** "
+                "صبر کن تا سیگنال واضح بیاد."
+            )
 
     return "\n".join(lines)
 

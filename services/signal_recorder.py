@@ -38,6 +38,12 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 
+# 🔴 فاز ۱۰.۵ — TF که برای IRT (تومان/ریال) ثبت نمی‌شن
+# چرا: در IRT اسپرد بالاست و TF=۱m نویز زیاد داره.
+# dedup_key در هر دقیقه عوض می‌شه → رکورد تکراری.
+_TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -152,6 +158,15 @@ def record_signal(
 ) -> bool:
     """ثبت سیگنال — نسخه ۵.۰"""
 
+    # 🔴 فاز ۱۰.۵ — TF=۱m برای IRT ممنوع
+    # ═══ چرا ═══
+    # در IRT (تومان/ریال) اسپرد بالاست. TF=۱m عملاً نویز محضه.
+    # dedup_key در TF=۱m هر دقیقه عوض می‌شه → رکورد تکراری زیاد.
+    if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:
+        logger.debug(f"[Recorder] TF={tf_name} برای IRT ممنوع — {ticker} رد شد")
+        return False
+
+    # ═══ اعتبارسنجی ═══
     if not SigEnum.is_directional(signal):
         return False
     if not price or price <= 0:
