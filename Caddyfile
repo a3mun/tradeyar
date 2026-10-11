@@ -1,0 +1,19 @@
+api.trademun.ir {
+    reverse_proxy api:7860
+    encode gzip
+    log {
+        output file /data/api-access.log
+    }
+}
+
+trademun.ir {
+    reverse_proxy frontend:3000
+    encode gzip
+    log {
+        output file /data/frontend-access.log
+    }
+}
+
+www.trademun.ir {
+    redir https://trademun.ir{uri}
+}
