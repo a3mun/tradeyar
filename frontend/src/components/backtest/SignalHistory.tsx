@@ -3,11 +3,12 @@
 /**
  * SignalHistory — تاریخچه سیگنال‌ها
  * ============================================================
- * نسخه ۳.۰ · فاز ۷.۵
+ * نسخه ۴.۰ · فاز ۱۰.۶
  *
- * ═══ تغییرات نسخه ۳.۰ ═══
- *   • فیلتر صرافی و پروفایل حذف شدن (توی BacktestPanel هستن)
- *   • فقط فیلتر وضعیت + مرتب‌سازی می‌مونه
+ * ═══ تغییرات نسخه ۴.۰ ═══
+ *   • مرتب‌سازی هوشمند: فوری‌ترین + جدیدترین
+ *   • pending ها بالاتر از resolved
+ *   • urgency-based weighting
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -110,6 +111,29 @@ interface Props {
   profile?: string;
 }
 
+/**
+ * 🔴 فاز ۱۰.۶ — امتیاز urgency
+ *
+ * ═══ منطق ═══
+ * امتیاز بالاتر = فوری‌تر (بالاتر نمایش داده می‌شه)
+ *
+ *   timeLeft < 10  → 1000 (خیلی فوری)
+ *   timeLeft < 30  → 500
+ *   timeLeft < 60  → 200
+ *   timeLeft < 180 → 50
+ *   timeLeft < 720 → 10
+ *   وگرنه        → 1
+ */
+function urgencyScore(timeLeft: number): number {
+  if (timeLeft < 0) return 0;
+  if (timeLeft < 10) return 1000;
+  if (timeLeft < 30) return 500;
+  if (timeLeft < 60) return 200;
+  if (timeLeft < 180) return 50;
+  if (timeLeft < 720) return 10;
+  return 1;
+}
+
 export function SignalHistory({ source = "", profile = "" }: Props) {
   const [items, setItems] = useState<SignalHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,22 +192,43 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
     return () => clearInterval(id);
   }, [silentFetch]);
 
+  // 🔴 فاز ۱۰.۶ — مرتب‌سازی هوشمند
   const sortedItems = useMemo(() => {
     const arr = [...items];
+
     arr.sort((a, b) => {
       const aPending = !a.result && !a.expired;
       const bPending = !b.result && !b.expired;
+
+      // ═══ ۱. Pending ها همیشه بالاتر از resolved ═══
       if (aPending && !bPending) return -1;
       if (!aPending && bPending) return 1;
+
+      // ═══ ۲. در بین pending ها: urgency + newness ═══
       if (aPending && bPending) {
         const aLeft = timeLeftMin(a.timestamp, a.tf, a.market_type, a.result);
         const bLeft = timeLeftMin(b.timestamp, b.tf, b.market_type, b.result);
-        return aLeft - bLeft;
+
+        const aUrgency = urgencyScore(aLeft);
+        const bUrgency = urgencyScore(bLeft);
+
+        // اگه urgency فرق داره → فوری‌تر اول
+        if (aUrgency !== bUrgency) {
+          return bUrgency - aUrgency; // امتیاز بالا اول
+        }
+
+        // اگه urgency نزدیکه → جدیدترین اول
+        const at = parseUtc(a.timestamp)?.getTime() ?? 0;
+        const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
+        return bt - at;
       }
+
+      // ═══ ۳. Resolved ها: جدیدترین اول ═══
       const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
       const at = parseUtc(a.timestamp)?.getTime() ?? 0;
       return bt - at;
     });
+
     return arr;
   }, [items]);
 
@@ -197,8 +242,6 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
   ) => {
     if (result === "win")
       return <Badge className="bg-green-600 text-[9px]">✅ برد</Badge>;
-    // ⚠️ ضعیف‌ها با رنگ کم‌رنگ‌تر
-    // (اون‌ها توی آمار win rate حساب نمی‌شن)
 
     if (result === "loss")
       return <Badge className="bg-red-600 text-[9px]">❌ باخت</Badge>;
@@ -352,7 +395,7 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
                             <AlertTriangle className="h-2 w-2" />
                           </Badge>
                         )}
-                        {/* 🔴 فاز ۸.۲ — بج «ضعیف» */}
+
                         {r.is_weak && (
                           <Badge
                             variant="outline"
@@ -361,7 +404,6 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
                             ضعیف
                           </Badge>
                         )}
-
                       </div>
                     </div>
                   </div>
@@ -378,18 +420,13 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
                     <DirectionIcon
                       className={`h-3 w-3 ${signalColor(r.signal)}`}
                     />
-                    <span
-                      className={`font-medium ${signalColor(r.signal)}`}
-                    >
+                    <span className={`font-medium ${signalColor(r.signal)}`}>
                       {r.signal}
                     </span>
-                    <span
-                      className={`num text-[9px] ${signalColor(r.signal)}`}
-                    >
+                    <span className={`num text-[9px] ${signalColor(r.signal)}`}>
                       ({r.confidence}%)
                     </span>
                   </span>
-                  {/* 🔴 فاز ۱۰.۴ — ورود + خروج */}
                   <div className="flex items-center gap-2">
                     <span className="num text-muted-foreground">
                       ورود: {formatNumber(r.price)}
