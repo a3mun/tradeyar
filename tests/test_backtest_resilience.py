@@ -438,11 +438,12 @@ class TestResultCounters:
 
 def test_expired_signals_counted(monkeypatch):
     """
-    🔴 فاز ۱۰.۶ — بازنویسی‌شده:
+    🔴 فاز ۱۰.۷ — بازنویسی‌شده:
 
     سیگنال منقضی باید:
       ۱. expired بشه
       ۲. **یک بار** fetch_ohlcv بزنه (برای قیمت فعلی خروج)
+      ۳. pnl واقعی محاسبه بشه
     """
     import services.backtest_service as bs
 
@@ -451,17 +452,16 @@ def test_expired_signals_counted(monkeypatch):
     called = {"n": 0}
 
     import pandas as pd
-    from datetime import timedelta
     from core.tz import utc_now
 
     def fake_fetch(*a, **k):
         called["n"] += 1
-        # یه کندل ساده برگردون
+        # قیمت کمی بالاتر از ورود (۱۰۰) → pnl مثبت کوچک
         return pd.DataFrame(
             {
-                "open": [100.0],
+                "open": [100.5],
                 "high": [101.0],
-                "low": [99.0],
+                "low": [99.5],
                 "close": [100.5],
                 "volume": [1.0],
             },
@@ -472,7 +472,8 @@ def test_expired_signals_counted(monkeypatch):
 
     r = bs.backtest_all()
     assert r["expired"] == 3, f"گرفت {r}"
-    # حالا برای هر expired، یک بار fetch صدا زده می‌شه
+
+    # 🔴 فاز ۱۰.۷ — برای هر expired یک بار fetch
     assert (
         called["n"] == 3
     ), f"برای هر expired یک fetch انتظار می‌رفت — {called['n']} بار زد"
