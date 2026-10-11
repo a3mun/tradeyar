@@ -24,9 +24,14 @@ export function BottomNav() {
   const setMobileSheet = useAppStore((s) => s.setMobileSheet);
 
   const open = (type: "settings" | "help" | "account") => {
-    setMobileSheet(type);
+    // 🔴 توگل: اگه همون sheet قبلاً بازه، ببندش
+    if (mobileSheet === type) {
+      setMobileSheet(null);
+    } else {
+      setMobileSheet(type);
+    }
   };
-
+  
   const close = () => {
     setMobileSheet(null);
   };
