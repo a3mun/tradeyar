@@ -1,12 +1,13 @@
 """
 api/routers/scan.py
-Endpoint اسکنر بازار — نسخه ۴.۰ · فاز ۱۰.۳
+Endpoint اسکنر بازار — نسخه ۴.۱ · فاز ۱۰.۵
 ============================================================
-🔴 تغییرات نسخه ۴.۰:
-  • فیلتر کیفیت پیشرفته (trend + trap + confidence)
-  • امتیاز کیفیت (quality_score) برای هر سیگنال
-  • مرتب‌سازی بر اساس احتمال موفقیت
-  • حذف سیگنال‌های پرخطر
+🔴 تغییرات نسخه ۴.۱:
+  • رفع باگ scan_mode (فیلتر قبل از append)
+  • رفع تکرار ScanItem
+  • پاس دادن is_pre_breakout_down
+  • فیلتر «آماده پامپ» فقط صعودی
+  • فیلتر «آماده ریزش» فقط نزولی
 """
 
 import asyncio
@@ -153,11 +154,11 @@ def _is_quality_signal(res: dict) -> tuple[bool, float]:
 @router.post("", response_model=ScanResponse)
 async def scan_endpoint(req: ScanRequest, request: Request):
     """
-    اسکن نمادها — نسخه ۴.۰.
+    اسکن نمادها — نسخه ۴.۱.
 
-    ═══ تغییرات نسخه ۴.۰ ═══
-    • فیلتر چندگانه (trend + trap + confidence + quality score)
-    • مرتب‌سازی بر اساس امتیاز کیفیت (نه فقط confidence)
+    ═══ تغییرات نسخه ۴.۱ ═══
+    • رفع باگ scan_mode (فیلتر قبل از append)
+    • پاس دادن is_pre_breakout_down
     """
     rate_limit_for(request, "scan", limit=10, window_sec=60)
 
@@ -200,7 +201,6 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             if len(parsed) >= req.limit * 3:
                 break
 
-    # 🔴 فاز ۱۰.۳ — فیلتر بر اساس scan_mode
     scan_mode = getattr(req, "scan_mode", "all")
 
     if not parsed:
@@ -263,15 +263,27 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             filtered += 1
             continue
 
-        # 🔴 فاز ۱۰.۳ — Pre-breakout data
+        # ─── استخراج pre-breakout ───
         pb = res.get("pre_breakout") or {}
         pb_score = float(pb.get("score", 0))
         pb_bias = str(pb.get("direction_bias", "neutral"))
-        is_pb = bool(pb.get("is_pre_breakout", False))
+        is_pb_up = bool(pb.get("is_pre_breakout", False))
+        is_pb_down = bool(pb.get("is_pre_breakout_down", False))
+
+        # 🔴 فاز ۱۰.۵ — فیلتر scan_mode **قبل از append**
+        if scan_mode == "pre_breakout":
+            if not is_pb_up:
+                filtered += 1
+                continue
+        elif scan_mode == "active":
+            if is_pb_up or is_pb_down:
+                filtered += 1
+                continue
+        # "all" → هر دو
 
         # ─── Pre-breakout bonus به امتیاز ───
         final_score = quality_score
-        if is_pb:
+        if is_pb_up or is_pb_down:
             final_score += min(20, pb_score * 0.2)
 
         scored.append(
@@ -284,46 +296,20 @@ async def scan_endpoint(req: ScanRequest, request: Request):
                     signal=res["signal"],
                     confidence=res["confidence"],
                     direction=res["direction"],
-                    is_pre_breakout=is_pb,
+                    is_pre_breakout=is_pb_up,
+                    is_pre_breakout_down=is_pb_down,
                     pre_breakout_score=pb_score,
                     pre_breakout_bias=pb_bias,
                 ),
             )
         )
 
-        # ─── pre-breakout flag ───
-        pb = res.get("pre_breakout") or {}
-        is_pre = pb.get("is_pre_breakout", False)
-
-        # ─── اضافه به ScanItem ───
-        item = ScanItem(
-            ticker=ticker,
-            name=name,
-            price=price,
-            signal=res["signal"],
-            confidence=res["confidence"],
-            direction=res["direction"],
-            is_pre_breakout=is_pre,  # ← جدید
-            pre_breakout_score=pb.get("score", 0),  # ← جدید
-        )
-
-        # ─── فیلتر بر اساس scan_mode ───
-        is_pb = bool(pb.get("is_pre_breakout", False))
-
-        if scan_mode == "pre_breakout" and not is_pb:
-            filtered += 1
-            continue
-        if scan_mode == "active" and is_pb:
-            filtered += 1
-            continue
-        # "all" → هر دو
-
     # ═══ مرتب‌سازی بر اساس امتیاز کیفیت (نزولی) ═══
     scored.sort(key=lambda x: -x[0])
     results = [item for _, item in scored[: req.limit]]
 
     logger.info(
-        f"[Scan] {req.category}/{source}: {len(results)} نتیجه | "
+        f"[Scan/{scan_mode}] {req.category}/{source}: {len(results)} نتیجه | "
         f"{filtered} فیلترشده | {errors} خطا | {skipped} رد از {len(parsed)}"
     )
 

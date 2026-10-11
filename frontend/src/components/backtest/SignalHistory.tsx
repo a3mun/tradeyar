@@ -346,24 +346,6 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
                             {r.risk_profile === "aggressive" ? "🚀" : "🛡"}
                           </Badge>
                         )}
-                        {/* 🔴 فاز ۱۰.۴ — بج ارز */}
-                        {(() => {
-                          const quote = r.ticker.toUpperCase().includes("IRT")
-                            ? "IRT"
-                            : "USDT";
-                          return (
-                            <Badge
-                              variant="outline"
-                              className={`border py-0 text-[8px] ${
-                                quote === "IRT"
-                                  ? "border-emerald-500/30 text-emerald-400"
-                                  : "border-sky-500/30 text-sky-400"
-                              }`}
-                            >
-                              {quote}
-                            </Badge>
-                          );
-                        })()}
 
                         {r.had_trap && r.trap_type && (
                           <Badge className="bg-orange-600/20 text-orange-400 text-[8px] border-orange-500/30">

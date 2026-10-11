@@ -396,6 +396,7 @@ export interface ScanItem {
   direction: string;
   // 🔴 فاز ۱۰.۳ — Pre-breakout
   is_pre_breakout: boolean;
+  is_pre_breakout_down: boolean;  // ← این رو اضافه کن
   pre_breakout_score: number;
   pre_breakout_bias: "up" | "down" | "neutral";
 }

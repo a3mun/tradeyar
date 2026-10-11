@@ -1,42 +1,29 @@
 """
 core/pre_breakout.py
-تشخیص فرصت‌های قبل از انفجار — نسخه ۱.۰
+تشخیص فرصت‌های قبل از انفجار — نسخه ۲.۰
 ============================================================
 هدف: پیدا کردن نمادهایی که «آماده رشد» هستند ولی هنوز
       حرکت نکردن.
 
+═══ تغییرات نسخه ۲.۰ ═══
+  • direction_bias با ۵ معیار علمی (نه فقط نزدیک سطح)
+  • حداقل ۴ رأی از ۵ برای جهت قوی
+  • is_pre_breakout فقط صعودی (🚀 آماده پامپ)
+  • is_pre_breakout_down جدید (📉 آماده ریزش)
+  • فیلتر شکست کاذب (نزدیک مقاومت + حجم کم = reject)
+
 ═══ معیارهای علمی ═══
-
-  ۱. Bollinger Squeeze (فشردگی باندها)
-       • bb_width_pct < 20th percentile تاریخی
-       • نشانه‌ی انرژی ذخیره‌شده
-
-  ۲. ADX پایین (رژیم رنج)
-       • ADX < 20
-       • بازار جهت نگرفته
-
-  ۳. Range فشرده (Consolidation)
-       • (max(high, N) - min(low, N)) < 2.5 × ATR
-       • یعنی قیمت در بازه‌ی تنگ نوسان می‌کنه
-
-  ۴. Volume Pattern (حجم در حال افزایش)
-       • vol_ratio (current / ma20) بین 0.7 و 1.5
-       • نه خیلی کم، نه خیلی زیاد
-       • چرا: volume spike قبل از breakout شروع می‌شه
-
-  ۵. نزدیک بودن به سطح کلیدی
-       • close - nearest_resistance < 3%
-       • یا close - nearest_support < 3%
-       • آماده‌ی breakout به هر دو طرف
-
-  ۶. هم‌راستایی میانگین‌ها (اختیاری)
-       • |EMA20 - EMA50| / price < 1%
-       • میانگین‌ها نزدیک هم (آماده جدایی)
+  ۱. Bollinger Squeeze — فشردگی باندها
+  ۲. ADX پایین — رژیم رنج
+  ۳. Range فشرده — Consolidation
+  ۴. Volume Pattern — حجم سالم
+  ۵. نزدیک سطح کلیدی — آماده breakout
+  ۶. هم‌راستایی EMA20/EMA50
 
 ═══ خروجی ═══
-
   {
-    "is_pre_breakout": bool,
+    "is_pre_breakout": bool,       # 🚀 فقط صعودی
+    "is_pre_breakout_down": bool,  # 📉 فقط نزولی
     "score": 0-100,
     "direction_bias": "up" | "down" | "neutral",
     "reasons": [str, ...],
@@ -59,23 +46,30 @@ logger = logging.getLogger(__name__)
 # آستانه‌ها
 # ═══════════════════════════════════════════════════════════
 # ─── فشردگی Bollinger (درصد) ───
-BB_SQUEEZE_PCT = 1.2  # زیر این مقدار = فشرده
+BB_SQUEEZE_PCT = 1.2
 
 # ─── ADX ───
-ADX_RANGE_MAX = 22.0  # بالاتر از این = ترند
+ADX_RANGE_MAX = 22.0
 
 # ─── Range/ATR ───
-RANGE_ATR_MAX = 3.0  # بازه بیشتر از این = پهن
+RANGE_ATR_MAX = 3.0
 
 # ─── Volume ───
 VOL_RATIO_MIN = 0.6
 VOL_RATIO_MAX = 1.8
+VOLUME_SUSPICIOUS_LOW = 0.7  # ← جدید — آستانه شکست کاذب
 
 # ─── فاصله از سطح ───
 NEAR_LEVEL_PCT = 3.0
 
 # ─── فاصله EMA20/EMA50 ───
 EMA_TIGHT_PCT = 1.5
+
+# ─── حداقل رأی برای جهت ───
+MIN_DIRECTION_VOTES = 4  # ← جدید — از ۵ معیار، حداقل ۴
+
+# ─── آستانه‌ی نهایی pre_breakout ───
+MIN_SCORE_PRE_BREAKOUT = 60
 
 
 # ═══════════════════════════════════════════════════════════
@@ -92,15 +86,16 @@ def detect_pre_breakout(
 
     Args:
         df: DataFrame با ستون‌های OHLCV + اندیکاتورها
-            (باید با compute_indicators پردازش شده باشه)
-        lookback_squeeze: تعداد کندل برای محاسبه‌ی percentile
-        lookback_range: تعداد کندل برای محاسبه‌ی range
+        lookback_squeeze: تعداد کندل برای percentile
+        lookback_range: تعداد کندل برای range
 
     Returns:
-        dict با is_pre_breakout، score، direction_bias، reasons، details
+        dict با is_pre_breakout، is_pre_breakout_down، score،
+        direction_bias، reasons، details
     """
     result = {
         "is_pre_breakout": False,
+        "is_pre_breakout_down": False,
         "score": 0,
         "direction_bias": "neutral",
         "reasons": [],
@@ -125,7 +120,6 @@ def detect_pre_breakout(
         squeeze_percentile = 100.0
 
         if bb_width > 0 and "bb_width_pct" in df.columns:
-            # ─── percentile تاریخی ───
             hist = df["bb_width_pct"].tail(lookback_squeeze).dropna()
             hist = hist[hist > 0]
 
@@ -168,7 +162,6 @@ def detect_pre_breakout(
             low_min = safe_num(recent["low"].min())
 
             if high_max > low_min and high_max > 0:
-                range_pct = (high_max - low_min) / price * 100
                 range_ratio = (high_max - low_min) / atr
 
                 if range_ratio < RANGE_ATR_MAX:
@@ -186,6 +179,7 @@ def detect_pre_breakout(
         # ═══════════════════════════════════════════════
         vol_ratio = 0.0
         volume_healthy = False
+        volume_suspicious_low = False  # ← جدید (فیلتر روسی)
 
         vol = safe_num(last.get("volume"))
         vol_ma = safe_num(last.get("vol_ma"))
@@ -200,8 +194,16 @@ def detect_pre_breakout(
                         f"💧 حجم {vol_ratio:.1f}× میانگین — در حال افزایش"
                     )
 
+            # ─── فیلتر روسی: حجم خیلی کم = شکست کاذب ───
+            if vol_ratio < VOLUME_SUSPICIOUS_LOW:
+                volume_suspicious_low = True
+                result["reasons"].append(
+                    f"⚠️ حجم {vol_ratio:.1f}× پایین‌تر از معمول — " f"احتمال شکست کاذب"
+                )
+
         result["details"]["vol_ratio"] = round(vol_ratio, 2)
         result["details"]["volume_healthy"] = volume_healthy
+        result["details"]["volume_suspicious_low"] = volume_suspicious_low
 
         # ═══════════════════════════════════════════════
         # ۵. نزدیک بودن به سطح کلیدی
@@ -244,7 +246,7 @@ def detect_pre_breakout(
             if ema_dist_pct < EMA_TIGHT_PCT:
                 ema_tight = True
                 result["reasons"].append(
-                    f"📈 EMA20/EMA50 نزدیک هم ({ema_dist_pct:.2f}٪) — " f"آماده جدایی"
+                    f"📈 EMA20/EMA50 نزدیک هم ({ema_dist_pct:.2f}٪) — آماده جدایی"
                 )
 
         result["details"]["ema_dist_pct"] = (
@@ -255,27 +257,79 @@ def detect_pre_breakout(
         result["details"]["ema_tight"] = ema_tight
 
         # ═══════════════════════════════════════════════
-        # تعیین جهت
+        # تعیین جهت — نسخه ۲.۰ (۵ معیار، حداقل ۴ رأی)
         # ═══════════════════════════════════════════════
-        direction_bias = "neutral"
-
-        # ─── معیار: RSI متمایل به کدوم سمت ───
+        # ═══ چرا این تغییر ═══
+        # نسخه ۱.۰ فقط «نزدیک مقاومت» → up و «نزدیک حمایت» → down
+        # می‌کرد. این شکننده بود چون:
+        #   • نزدیک مقاومت ممکنه برگشت باشه، نه شکست
+        #   • نزدیک حمایت ممکنه جهش باشه، نه شکست
+        #
+        # نسخه ۲.۰: ۵ معیار مستقل رأی می‌دن و برای جهت
+        # «قوی»، حداقل ۴ رأی از ۵ لازمه (توصیه اقتصاددانان).
         rsi = safe_num(last.get("rsi"), 50)
         macd_h = safe_num(last.get("macd_hist"), 0)
+        ema200 = safe_num(last.get("ema200"))
+        bb_mid = safe_num(last.get("bb_mid"))
+        buy_vol = safe_num(last.get("buy_vol"), 0)
+        sell_vol = safe_num(last.get("sell_vol"), 0)
 
-        # ─── نزدیک سطح ───
-        if near_resistance and not near_support:
-            direction_bias = "up"  # آماده breakout صعودی
-        elif near_support and not near_resistance:
-            direction_bias = "down"  # آماده breakout نزولی
+        votes_up = 0
+        votes_down = 0
+        vote_details = []
 
-        # ─── یا بر اساس RSI + MACD ───
-        elif rsi > 55 and macd_h > 0:
+        # ─── ۱. RSI ───
+        if rsi > 55:
+            votes_up += 1
+            vote_details.append(f"RSI={rsi:.0f} ↑")
+        elif rsi < 45:
+            votes_down += 1
+            vote_details.append(f"RSI={rsi:.0f} ↓")
+
+        # ─── ۲. MACD histogram ───
+        if macd_h > 0:
+            votes_up += 1
+            vote_details.append("MACD+ ↑")
+        elif macd_h < 0:
+            votes_down += 1
+            vote_details.append("MACD- ↓")
+
+        # ─── ۳. قیمت vs EMA200 ───
+        if ema200 > 0 and price > ema200:
+            votes_up += 1
+            vote_details.append(">EMA200 ↑")
+        elif ema200 > 0 and price < ema200:
+            votes_down += 1
+            vote_details.append("<EMA200 ↓")
+
+        # ─── ۴. قیمت vs BB mid ───
+        if bb_mid > 0 and price > bb_mid:
+            votes_up += 1
+            vote_details.append(">BBmid ↑")
+        elif bb_mid > 0 and price < bb_mid:
+            votes_down += 1
+            vote_details.append("<BBmid ↓")
+
+        # ─── ۵. Volume (buy vs sell) ───
+        if buy_vol > sell_vol * 1.1:
+            votes_up += 1
+            vote_details.append("خریدار ↑")
+        elif sell_vol > buy_vol * 1.1:
+            votes_down += 1
+            vote_details.append("فروشنده ↓")
+
+        # ─── تعیین جهت (حداقل ۴ رأی — توصیه کره‌ای) ───
+        direction_bias = "neutral"
+
+        if votes_up >= MIN_DIRECTION_VOTES and votes_up > votes_down:
             direction_bias = "up"
-        elif rsi < 45 and macd_h < 0:
+        elif votes_down >= MIN_DIRECTION_VOTES and votes_down > votes_up:
             direction_bias = "down"
 
         result["direction_bias"] = direction_bias
+        result["details"]["votes_up"] = votes_up
+        result["details"]["votes_down"] = votes_down
+        result["details"]["vote_details"] = vote_details
 
         # ═══════════════════════════════════════════════
         # امتیاز نهایی (0-100)
@@ -296,7 +350,37 @@ def detect_pre_breakout(
             score += 10
 
         result["score"] = score
-        result["is_pre_breakout"] = score >= 60  # حداقل ۳ معیار
+
+        # ═══════════════════════════════════════════════
+        # is_pre_breakout — جهت‌دار (نسخه ۲.۰)
+        # ═══════════════════════════════════════════════
+        # ═══ چرا این تغییر ═══
+        # قبلاً فقط score >= 60 بود. یعنی یه نماد نزولی هم
+        # is_pre_breakout=True می‌شد و در اسکنر با لیبل
+        # «آماده انفجار» نشون داده می‌شد — اشتباه بود.
+        #
+        # الان: score بالا + جهت مشخص. دو فیلد جدا:
+        #   is_pre_breakout      → 🚀 فقط صعودی (پامپ)
+        #   is_pre_breakout_down → 📉 فقط نزولی (ریزش)
+        high_score = score >= MIN_SCORE_PRE_BREAKOUT
+
+        # ─── فیلتر روسی: شکست کاذب رد بشه ───
+        # نزدیک مقاومت + حجم خیلی کم = احتمال fake breakout
+        is_fake_breakout_risk = (
+            near_resistance and not near_support and volume_suspicious_low
+        )
+
+        result["is_pre_breakout"] = (
+            high_score and direction_bias == "up" and not is_fake_breakout_risk
+        )
+        result["is_pre_breakout_down"] = (
+            high_score and direction_bias == "down" and not is_fake_breakout_risk
+        )
+
+        result["details"]["is_fake_breakout_risk"] = is_fake_breakout_risk
+
+        if is_fake_breakout_risk:
+            result["reasons"].append("🚫 شکست کاذب رد شد — حجم کافی نیست")
 
         return result
 
@@ -306,11 +390,7 @@ def detect_pre_breakout(
 
 
 def pre_breakout_score_for_groups(groups: dict, df: pd.DataFrame) -> float:
-    """
-    امتیاز pre-breakout برای اسکنر (بدون محاسبه‌ی کامل).
-
-    ⚠️ برای سرعت بالا، فقط معیارهای موجود در df + groups چک می‌شن.
-    """
+    """امتیاز pre-breakout برای اسکنر (بدون محاسبه‌ی کامل)."""
     try:
         result = detect_pre_breakout(df)
         return float(result.get("score", 0))
@@ -324,4 +404,6 @@ __all__ = [
     "BB_SQUEEZE_PCT",
     "ADX_RANGE_MAX",
     "RANGE_ATR_MAX",
+    "MIN_DIRECTION_VOTES",
+    "MIN_SCORE_PRE_BREAKOUT",
 ]

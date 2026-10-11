@@ -41,17 +41,13 @@ _EMPTY_RESULT = {
 # نمادهای هدف
 # ═══════════════════════════════════════════════════════════
 FIXED_SYMBOLS = [
-    # USDT
+    # ─── USDT ───
     {"ticker": "BTC-USD", "name": "بیت‌کوین (USDT)", "source": "nobitex"},
     {"ticker": "ETH-USD", "name": "اتریوم (USDT)", "source": "nobitex"},
     {"ticker": "PAXG-USD", "name": "پکس گلد (USDT)", "source": "nobitex"},
-    {"ticker": "SOL-USD", "name": "سولانا (USDT)", "source": "nobitex"},
-    {"ticker": "XRP-USD", "name": "ریپل (USDT)", "source": "nobitex"},
-    # IRT (بدون اتریوم طبق نظر محمدمهدی)
+    # ─── IRT (بدون اتریوم تومانی طبق درخواست) ───
     {"ticker": "BTC-IRT", "name": "بیت‌کوین (تومان)", "source": "nobitex"},
     {"ticker": "PAXG-IRT", "name": "پکس گلد (تومان)", "source": "nobitex"},
-    {"ticker": "SOL-IRT", "name": "سولانا (تومان)", "source": "nobitex"},
-    {"ticker": "XRP-IRT", "name": "ریپل (تومان)", "source": "nobitex"},
 ]
 
 # 🔴 فاز ۱۰.۴ — TF های اسکن (بدون ۱m و ۵m و روزانه)
@@ -147,20 +143,43 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
 
 
 async def auto_scan_and_record(trigger: str = "scheduler"):
-    """اسکن چرخه‌ای — هر بار یک صرافی."""
+    """
+    اسکن چرخه‌ای — هر بار یک صرافی.
+
+    ═══ تغییرات فاز ۱۰.۵ ═══
+    • نمادهای ثابت محدود به BTC/ETH/PAXG (حذف SOL, XRP)
+    • چرخه صرافی درست کار می‌کنه (والکس و بیت‌پین هم اسکن می‌شن)
+    • Watchlist از فایل خونده می‌شه
+    """
+    # 🔴 انتخاب صرافی برای این دور
     exchange = _next_exchange()
     logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
 
     try:
         from services.analyzer_service import analyze
 
-        # ═══ نمادها ═══
-        fixed = [s for s in FIXED_SYMBOLS if s["source"] == exchange] or FIXED_SYMBOLS
-        watchlist = [w for w in _load_watchlist_from_file() if w["source"] == exchange]
+        # ═══ نمادهای ثابت این صرافی ═══
+        exchange_fixed = [s for s in FIXED_SYMBOLS if s["source"] == exchange]
 
+        # ═══ Watchlist این صرافی ═══
+        exchange_watchlist = [
+            w for w in _load_watchlist_from_file() if w["source"] == exchange
+        ]
+
+        # ═══ اگه برای این صرافی نمادی نداریم، رد شو ═══
+        if not exchange_fixed and not exchange_watchlist:
+            logger.info(f"[AutoScan/{trigger}] صرافی {exchange} نمادی نداره — رد")
+            return {
+                "ok": True,
+                "exchange": exchange,
+                "recorded": 0,
+                "skipped": True,
+            }
+
+        # ═══ ادغام بدون تکرار ═══
         seen: set[str] = set()
         all_symbols: list[dict] = []
-        for s in fixed + watchlist:
+        for s in exchange_fixed + exchange_watchlist:
             key = f"{s['ticker']}|{s['source']}"
             if key in seen:
                 continue
@@ -168,12 +187,14 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
             all_symbols.append(s)
 
         logger.info(
-            f"[AutoScan/{trigger}] {len(all_symbols)} نماد × {len(SCAN_TIMEFRAMES)} TF"
+            f"[AutoScan/{trigger}] {len(all_symbols)} نماد × "
+            f"{len(SCAN_TIMEFRAMES)} TF"
         )
 
         total_recorded = 0
         total_errors = 0
 
+        # ═══ حلقه دوگانه: نماد × TF ═══
         for sym in all_symbols:
             for tf_name in SCAN_TIMEFRAMES:
                 try:
@@ -197,7 +218,8 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
                 await asyncio.sleep(0.5)
 
         logger.info(
-            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال " f"(خطا: {total_errors})"
+            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال "
+            f"از {len(all_symbols)} نماد (خطا: {total_errors})"
         )
         return {
             "ok": True,

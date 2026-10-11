@@ -58,16 +58,7 @@ export function WatchlistCard() {
               >
                 <CryptoIcon ticker={w.ticker} size="sm" />
                 <span className="font-medium">{w.name}</span>
-                {/* 🔴 فاز ۱۰.۴ — بج ارز */}
-                <span
-                  className={`num rounded-sm px-1 text-[7px] ${
-                    w.ticker.toUpperCase().includes("IRT")
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-sky-500/10 text-sky-400"
-                  }`}
-                >
-                  {w.ticker.toUpperCase().includes("IRT") ? "IRT" : "USDT"}
-                </span>
+
               </button>
 
 

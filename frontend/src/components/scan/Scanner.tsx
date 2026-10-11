@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * Scanner — اسکنر فرصت‌ها (نسخه ۶.۰ · فاز ۱۰.۳)
+ * Scanner — اسکنر فرصت‌ها (نسخه ۷.۳ · فاز ۱۰.۵)
  * ============================================================
- * 🔴 تغییرات نسخه ۶.۰:
- *   • انتخاب mode قبل اسکن: انفجاری / فعال / هر دو
- *   • Spot و Futures جدا
- *   • حذف ستون قیمت (بی‌اهمیت)
- *   • نماد راست‌چین، بقیه وسط‌چین
- *   • badge «🚀 انفجار» با امتیاز
+ * 🔴 تغییرات نسخه ۷.۳:
+ *   • بج «🚀 پامپ» / «📉 ریزش» کنار اسم نماد
+ *   • حذف badge از ستون سیگنال (خلوت‌تر)
+ *   • فیلترهای اضافی حذف شد (6 → 3)
+ *   • «آماده پامپ» / «آماده ریزش» (نه «انفجار»)
  */
 
 import { useState } from "react";
@@ -21,11 +20,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  TrendingUp,
   Star,
-  Rocket,
-  Activity,
-  Layers,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +57,6 @@ const CATEGORIES_BY_SOURCE: Record<string, string> = {
   tsetmc: "iran_stocks",
 };
 
-// ═══ Cache ═══
 const CACHE_TTL_MS = 60_000;
 
 interface CachedScan {
@@ -77,17 +71,13 @@ function getCacheKey(source: Source, timeframe: string, mode: string, mt: string
   return `${source}:${timeframe}:${mode}:${mt}`;
 }
 
-// ═══ حداقل قیمت ═══
 const MIN_PRICE = 0.001;
 
-// 🔴 فاز ۱۰.۳ — نوع scan mode
 type ScanMode = "pre_breakout" | "active" | "all";
-
-// 🔴 فاز ۱۰.۳ — نوع بازار
 type MarketKind = "spot" | "futures";
 
 const MODE_LABELS: Record<ScanMode, { icon: string; label: string; color: string }> = {
-  pre_breakout: { icon: "🚀", label: "آماده انفجار", color: "purple" },
+  pre_breakout: { icon: "🚀", label: "آماده پامپ", color: "purple" },
   active: { icon: "📊", label: "سیگنال فعال", color: "blue" },
   all: { icon: "🔍", label: "هر دو", color: "slate" },
 };
@@ -97,8 +87,7 @@ const MARKET_LABELS: Record<MarketKind, { icon: string; label: string }> = {
   futures: { icon: "📈", label: "فیوچرز" },
 };
 
-// ═══ فیلترهای نمایش روی نتیجه ═══
-type FilterType = "all" | "pre_breakout" | "hot" | "long" | "short";
+type FilterType = "all" | "pre_breakout" | "pre_breakout_down";
 
 
 export function Scanner() {
@@ -108,6 +97,7 @@ export function Scanner() {
     setSource,
     timeframe,
     addToWatchlist,
+    removeFromWatchlist,
     watchlist,
     riskProfile,
   } = useAppStore();
@@ -157,6 +147,7 @@ export function Scanner() {
     setScanMode(mode);
     setError(null);
     setCacheHit(false);
+    setFilter("all"); // ← ریست فیلتر
     if (!applyCacheIfFresh(scanSource, timeframe, mode, scanMarket)) {
       setData(null);
     }
@@ -248,12 +239,16 @@ export function Scanner() {
   };
 
   const handleWatchlist = (item: ScanItem) => {
-    addToWatchlist(item.ticker, item.name, scanSource);
+    const inWatchlist = watchlist.some((w) => w.ticker === item.ticker);
+    if (inWatchlist) {
+      removeFromWatchlist(item.ticker);
+    } else {
+      addToWatchlist(item.ticker, item.name, scanSource);
+    }
   };
 
   const isTsetmc = scanSource === "tsetmc";
 
-  // ═══ فیلتر نهایی ═══
   const filtered =
     data?.items.filter((item: ScanItem) => {
       if (isTsetmc) {
@@ -268,9 +263,7 @@ export function Scanner() {
 
       if (filter === "all") return true;
       if (filter === "pre_breakout") return item.is_pre_breakout === true;
-      if (filter === "hot") return item.confidence >= 70;
-      if (filter === "long") return item.direction === "long";
-      if (filter === "short") return item.direction === "short";
+      if (filter === "pre_breakout_down") return item.is_pre_breakout_down === true;
       return true;
     }) || [];
 
@@ -284,17 +277,9 @@ export function Scanner() {
       data?.items.filter(
         (i) => (isTsetmc || i.price >= MIN_PRICE) && i.is_pre_breakout === true
       ).length ?? 0,
-    hot:
+    pre_breakout_down:
       data?.items.filter(
-        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.confidence >= 70
-      ).length ?? 0,
-    long:
-      data?.items.filter(
-        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.direction === "long"
-      ).length ?? 0,
-    short:
-      data?.items.filter(
-        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.direction === "short"
+        (i) => (isTsetmc || i.price >= MIN_PRICE) && i.is_pre_breakout_down === true
       ).length ?? 0,
   };
 
@@ -450,12 +435,12 @@ export function Scanner() {
               )}
             </Button>
 
-            {/* ═══ فیلترهای نمایش نتیجه ═══ */}
+            {/* ═══ فیلترهای نمایش نتیجه (فقط ۳ تا) ═══ */}
             {data && (
-              <div className="grid grid-cols-5 gap-1">
+              <div className="grid grid-cols-3 gap-1">
                 <button
                   onClick={() => setFilter("all")}
-                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
                     filter === "all"
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:bg-muted/50"
@@ -465,43 +450,25 @@ export function Scanner() {
                 </button>
                 <button
                   onClick={() => setFilter("pre_breakout")}
-                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
+                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
                     filter === "pre_breakout"
                       ? "border-purple-500 bg-purple-500/10 text-purple-400"
                       : "border-border text-muted-foreground hover:bg-muted/50"
                   }`}
+                  title="آماده پامپ"
                 >
-                  🚀 ({counts.pre_breakout})
+                  🚀 پامپ ({counts.pre_breakout})
                 </button>
                 <button
-                  onClick={() => setFilter("hot")}
-                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
-                    filter === "hot"
-                      ? "border-orange-500 bg-orange-500/10 text-orange-400"
+                  onClick={() => setFilter("pre_breakout_down")}
+                  className={`rounded-md border-2 py-1 text-[10px] font-medium transition-all ${
+                    filter === "pre_breakout_down"
+                      ? "border-red-500 bg-red-500/10 text-red-400"
                       : "border-border text-muted-foreground hover:bg-muted/50"
                   }`}
+                  title="آماده ریزش"
                 >
-                  🔥 ({counts.hot})
-                </button>
-                <button
-                  onClick={() => setFilter("long")}
-                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
-                    filter === "long"
-                      ? "border-green-500 bg-green-500/10 text-green-500"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  📈 ({counts.long})
-                </button>
-                <button
-                  onClick={() => setFilter("short")}
-                  className={`rounded-md border-2 py-1 text-[9px] font-medium transition-all ${
-                    filter === "short"
-                      ? "border-red-500 bg-red-500/10 text-red-500"
-                      : "border-border text-muted-foreground hover:bg-muted/50"
-                  }`}
-                >
-                  📉 ({counts.short})
+                  📉 ریزش ({counts.pre_breakout_down})
                 </button>
               </div>
             )}
@@ -526,18 +493,21 @@ export function Scanner() {
           )}
 
           {(data || loading) && (
-            <div className="overflow-x-hidden">
-              <Table className="w-full table-fixed">
+            <div className="overflow-x-auto">
+              <Table className="w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[42%] text-right text-[10px]">
+                    <TableHead className="w-[35%] text-right text-[10px]">
                       نماد
                     </TableHead>
-                    <TableHead className="w-[38%] text-center text-[10px]">
+                    <TableHead className="w-[25%] text-center text-[10px]">
                       سیگنال
                     </TableHead>
-                    <TableHead className="w-[20%] text-center text-[10px]">
+                    <TableHead className="w-[15%] text-center text-[10px]">
                       اطمینان
+                    </TableHead>
+                    <TableHead className="w-[25%] text-center text-[10px]">
+                      عملیات
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -554,13 +524,16 @@ export function Scanner() {
                         <TableCell>
                           <Skeleton className="mx-auto h-5 w-12" />
                         </TableCell>
+                        <TableCell>
+                          <Skeleton className="mx-auto h-5 w-32" />
+                        </TableCell>
                       </TableRow>
                     ))}
 
                   {!loading && filtered.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={3}
+                        colSpan={4}
                         className="text-center text-xs text-muted-foreground"
                       >
                         {data && data.items.length > 0
@@ -588,64 +561,76 @@ export function Scanner() {
 
                       return (
                         <TableRow key={item.ticker}>
-                          {/* ═══ نماد (راست‌چین) ═══ */}
+                          {/* ═══ نماد + بج پامپ/ریزش ═══ */}
                           <TableCell className="text-right">
-                            <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleAnalyze(item)}
+                              className="flex items-center gap-1.5 rounded-md p-1 text-right transition-colors hover:bg-primary/10 active:bg-primary/20 md:cursor-default md:hover:bg-transparent"
+                              title="تحلیل عمیق"
+                            >
                               <CryptoIcon ticker={item.ticker} size="sm" />
-                              <div className="min-w-0 text-right">
-                                <p className="truncate text-xs font-bold">
-                                  {item.name}
-                                </p>
+                              <div className="min-w-0 flex-1 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  {/* 🚀 بج پامپ */}
+                                  {item.is_pre_breakout && (
+                                    <span
+                                      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0 text-[7px] font-bold"
+                                      style={{
+                                        background: "rgba(168,85,247,0.2)",
+                                        border:
+                                          "1px solid rgba(168,85,247,0.5)",
+                                        color: "#c084fc",
+                                      }}
+                                      title={`آماده پامپ · امتیاز: ${
+                                        item.pre_breakout_score?.toFixed(0) || 0
+                                      }٪`}
+                                    >
+                                      🚀 پامپ
+                                    </span>
+                                  )}
+                                  {/* 📉 بج ریزش */}
+                                  {item.is_pre_breakout_down && (
+                                    <span
+                                      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0 text-[7px] font-bold"
+                                      style={{
+                                        background: "rgba(239,68,68,0.2)",
+                                        border:
+                                          "1px solid rgba(239,68,68,0.5)",
+                                        color: "#f87171",
+                                      }}
+                                      title={`آماده ریزش · امتیاز: ${
+                                        item.pre_breakout_score?.toFixed(0) || 0
+                                      }٪`}
+                                    >
+                                      📉 ریزش
+                                    </span>
+                                  )}
+                                  <p className="truncate text-xs font-bold">
+                                    {item.name}
+                                  </p>
+                                </div>
                                 <p className="num truncate text-[9px] text-muted-foreground">
                                   {item.ticker}
                                 </p>
                               </div>
-                            </div>
+                            </button>
                           </TableCell>
 
-                          {/* ═══ سیگنال (وسط‌چین) ═══ */}
+                          {/* ═══ سیگنال (فقط LONG/SHORT) ═══ */}
                           <TableCell className="text-center">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span
-                                className={`inline-block rounded border px-1.5 py-0 text-[9px] font-bold sm:text-[10px] ${sigBadgeCls}`}
-                                style={
-                                  item.signal.includes("ضعیف")
-                                    ? { opacity: 0.7 }
-                                    : undefined
-                                }
-                              >
-                                {isLong
-                                  ? "LONG"
-                                  : isShort
-                                    ? "SHORT"
-                                    : "—"}
-                                {item.signal.includes("ضعیف") && (
-                                  <span className="mr-0.5 text-[7px] opacity-70">
-                                    ضعیف
-                                  </span>
-                                )}
-                              </span>
-
-                              {/* 🔴 badge آماده انفجار */}
-                              {item.is_pre_breakout && (
-                                <span
-                                  className="inline-flex items-center gap-0.5 rounded border px-1 py-0 text-[7px] font-bold"
-                                  style={{
-                                    background: "rgba(168,85,247,0.15)",
-                                    borderColor: "rgba(168,85,247,0.4)",
-                                    color: "#c084fc",
-                                    textShadow: "0 0 4px rgba(168,85,247,0.6)",
-                                  }}
-                                  title={`امتیاز پیش‌رشد: ${item.pre_breakout_score.toFixed(0)}٪ · جهت: ${item.pre_breakout_bias === "up" ? "صعودی" : item.pre_breakout_bias === "down" ? "نزولی" : "مشخص"}`}
-                                >
-                                  <Rocket className="h-2 w-2" />
-                                  انفجار
-                                </span>
-                              )}
-                            </div>
+                            <span
+                              className={`inline-block rounded border px-1.5 py-0 text-[9px] font-bold sm:text-[10px] ${sigBadgeCls}`}
+                              style={
+                                item.signal.includes("ضعیف")
+                                  ? { opacity: 0.7 }
+                                  : undefined
+                              }
+                            >
+                              {isLong ? "LONG" : isShort ? "SHORT" : "—"}
+                            </span>
                           </TableCell>
 
-                          {/* ═══ اطمینان (وسط‌چین) ═══ */}
+                          {/* ═══ اطمینان ═══ */}
                           <TableCell className="text-center">
                             <Badge
                               variant="outline"
@@ -659,6 +644,73 @@ export function Scanner() {
                             >
                               {item.confidence}%
                             </Badge>
+                          </TableCell>
+
+                          {/* ═══ عملیات ═══ */}
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* تحلیل — فقط دسکتاپ */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleAnalyze(item)}
+                                className="hidden h-7 gap-1 border-blue-500/40 bg-blue-500/10 px-2 text-[10px] text-blue-400 hover:border-blue-500 hover:bg-blue-500/20 md:inline-flex"
+                                title="تحلیل عمیق"
+                              >
+                                <Search className="h-3 w-3" />
+                                <span>تحلیل</span>
+                              </Button>
+
+                              {/* راستی‌آزمایی */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleRecord(item)}
+                                disabled={isRecording || isRecorded}
+                                className={`h-7 gap-1 border-emerald-500/40 bg-emerald-500/10 px-2 text-[10px] text-emerald-400 hover:border-emerald-500 hover:bg-emerald-500/20 ${
+                                  isRecorded
+                                    ? "border-emerald-500 bg-emerald-500/20"
+                                    : ""
+                                }`}
+                                title={
+                                  isRecorded
+                                    ? "ثبت شد"
+                                    : "ثبت در راستی‌آزمایی"
+                                }
+                              >
+                                {isRecording ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                )}
+                                <span>
+                                  {isRecorded ? "ثبت شد" : "راستی‌آزمایی"}
+                                </span>
+                              </Button>
+
+                              {/* واچ‌لیست — toggle */}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleWatchlist(item)}
+                                className={`h-7 w-7 border-yellow-500/40 bg-yellow-500/10 p-0 text-yellow-500 hover:border-yellow-500 hover:bg-yellow-500/20 ${
+                                  inWatchlist
+                                    ? "border-yellow-500 bg-yellow-500/20"
+                                    : ""
+                                }`}
+                                title={
+                                  inWatchlist
+                                    ? "حذف از واچ‌لیست"
+                                    : "افزودن به واچ‌لیست"
+                                }
+                              >
+                                <Star
+                                  className={`h-3.5 w-3.5 ${
+                                    inWatchlist ? "fill-yellow-500" : ""
+                                  }`}
+                                />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
