@@ -2,11 +2,11 @@
 services/backtest_service.py
 راستی‌آزمایی — موتور اصلی
 ============================================================
-نسخه ۴.۴ · فاز ۱۰.۴ (سازگار با تست‌ها)
-🔴 تغییرات نسبت به ۴.۳:
-  • فیلتر کندل‌های قبل از entry (log.timestamp)
-  • result_time = زمان کندلی که TP/SL رو زده
-  • نرمال‌سازی index df به UTC (naive → aware)
+نسخه ۵.۱ · فاز ۱۰.۷
+🔴 تغییرات نسبت به ۵.۰:
+  • timeout بلندتر (۸/۸/۶/۴ کندل)
+  • trend_accuracy از همه TF ها
+  • win_rate فقط از whitelist
 """
 
 from __future__ import annotations
@@ -37,7 +37,10 @@ _TF_MINUTES: dict[str, int] = {
     "روزانه": 1440,
 }
 
+# 🔴 فاز ۱۰.۷ — TF=۱m حذف شد (نویز محضه)
+# برای win_rate فقط اینا حساب می‌شن.
 BACKTEST_TF_WHITELIST = ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
+
 BACKTEST_MAX_SIGNALS = 100
 
 
@@ -99,40 +102,64 @@ def _utcnow() -> datetime:
 
 
 def _ensure_utc(dt: datetime) -> datetime:
-    """اگه naive بود، UTC فرض کن"""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
 
 
 def _compute_timeout_min(tf_name: str, market_type: str) -> int:
-    """timeout بر اساس TF."""
+    """
+    🔴 فاز ۱۰.۷ — timeout بلندتر.
+
+    ═══ چرا ═══
+    timeout قبلی (۵/۴/۴/۳/۲) خیلی کوتاه بود:
+      • TF=۵m → ۲۵ دقیقه
+      • ATR BTC ≈ ۰.۳٪ در ۵m
+      • برای TP=۴٪ → حداقل ۱۳ کندل لازمه
+      • ۲۵ دقیقه = ۵ کندل — ناکافی
+    نتیجه: همه سیگنال‌ها → expired_flat
+
+    ═══ الان ═══
+      • TF=۵m → ۴۰ دقیقه (۸ کندل)
+      • TF=۱۵m → ۱۲۰ دقیقه (۸ کندل)
+      • TF=۳۰m → ۲۴۰ دقیقه (۸ کندل)
+      • TF=۱h → ۳۶۰ دقیقه (۶ کندل)
+      • TF=۱d → ۴ روز (۴ کندل)
+
+    ═══ نکته ═══
+    timeout ≠ interval. چک pending هر ۵ دقیقه انجام می‌شه.
+    timeout فقط سقف انتظار قبل از expired شدن.
+    """
     tf_min = _TF_MINUTES.get(tf_name, 5)
 
-    if tf_min <= 5:
-        candles = 5
+    if tf_min <= 15:
+        candles = 8
     elif tf_min <= 30:
-        candles = 4
+        candles = 8
     elif tf_min <= 60:
-        candles = 3
+        candles = 6
     else:
-        candles = 2
+        candles = 4
 
     return tf_min * candles
+
+
+def _to_utc_dt(ts) -> datetime:
+    """تبدیل timestamp به datetime UTC aware"""
+    if isinstance(ts, pd.Timestamp):
+        if ts.tz is None:
+            return ts.tz_localize("UTC").to_pydatetime()
+        return ts.tz_convert("UTC").to_pydatetime()
+    if isinstance(ts, datetime):
+        return _ensure_utc(ts)
+    return _utcnow()
 
 
 # ═══════════════════════════════════════════════════════════
 # بررسی یک سیگنال
 # ═══════════════════════════════════════════════════════════
 def _check_one(log: SignalLog) -> Optional[str]:
-    """
-    بررسی یک سیگنال — خودش fetch_ohlcv رو صدا می‌زنه.
-
-    🔴 منطق (نسخه ۴.۴):
-    ۱. کندل‌های قبل از entry (log.timestamp) فیلتر می‌شن
-    ۲. روی کندل‌های بعد از entry، SL/TP چک می‌شه (high/low)
-    ۳. result_time = زمان کندلی که TP/SL رو زده (نه _utcnow)
-    """
+    """بررسی یک سیگنال — خودش fetch_ohlcv رو صدا می‌زنه."""
     # ─── ۱. قبلاً بررسی شده ───
     if log.result is not None:
         return None
@@ -144,12 +171,26 @@ def _check_one(log: SignalLog) -> Optional[str]:
     # ─── ۲. نرمال‌سازی timestamp entry ───
     entry_ts = _ensure_utc(log.timestamp)
 
-    # ─── ۳. چک timeout اول ───
+    # ─── ۳. چک timeout ───
     timeout_min = _compute_timeout_min(log.tf, log.market_type)
     elapsed_min = (_utcnow() - entry_ts).total_seconds() / 60
 
     if elapsed_min >= timeout_min:
-        return _mark_expired(log, log.price)
+        # 🔴 فاز ۱۰.۶ — برای expired، قیمت فعلی بازار
+        current_price = log.price
+        try:
+            df_exp = fetch_ohlcv(
+                ticker=log.ticker,
+                source=log.source,
+                tf_name=log.tf,
+                limit=1,
+            )
+            if df_exp is not None and len(df_exp) > 0:
+                current_price = float(df_exp["close"].iloc[-1])
+        except Exception as e:
+            logger.debug(f"[Backtest] expired price {log.ticker}: {e!r}")
+
+        return _mark_expired(log, current_price)
 
     # ─── ۴. fetch قیمت ───
     df = fetch_ohlcv(
@@ -162,32 +203,27 @@ def _check_one(log: SignalLog) -> Optional[str]:
         return None
 
     # ─── ۵. فیلتر کندل‌های قبل از entry ───
-    # index df ممکنه naive باشه — به UTC تبدیل کن
     if not isinstance(df.index, pd.DatetimeIndex):
         return None
 
     df_idx = df.index
     if df_idx.tz is None:
-        # naive → UTC فرض کن
         df_idx_utc = df_idx.tz_localize("UTC")
     else:
         df_idx_utc = df_idx.tz_convert("UTC")
 
-    # فقط کندل‌هایی که timestamp >= entry_ts
     mask = df_idx_utc >= entry_ts
     df_after = df[mask]
 
     if df_after.empty:
-        return None  # هیچ کندلی بعد از entry نیست
+        return None
 
-    # ─── ۶. چک SL/TP روی کندل‌های بعد از entry ───
+    # ─── ۶. چک SL/TP ───
     is_long = log.direction == "long"
 
     if is_long:
-        # ─── WIN: هر کندل high >= TP ───
         win_mask = df_after["high"] >= log.tp
         if win_mask.any():
-            # اولین کندلی که TP رو زد
             first_idx = df_after[win_mask].index[0]
             log.result = "win"
             log.exit_price = log.tp
@@ -195,7 +231,6 @@ def _check_one(log: SignalLog) -> Optional[str]:
             log.trend_correct = True
             return "win"
 
-        # ─── LOSS: هر کندل low <= SL ───
         loss_mask = df_after["low"] <= log.sl
         if loss_mask.any():
             first_idx = df_after[loss_mask].index[0]
@@ -206,7 +241,6 @@ def _check_one(log: SignalLog) -> Optional[str]:
             return "loss"
 
     else:  # short
-        # ─── WIN: هر کندل low <= TP ───
         win_mask = df_after["low"] <= log.tp
         if win_mask.any():
             first_idx = df_after[win_mask].index[0]
@@ -216,7 +250,6 @@ def _check_one(log: SignalLog) -> Optional[str]:
             log.trend_correct = True
             return "win"
 
-        # ─── LOSS: هر کندل high >= SL ───
         loss_mask = df_after["high"] >= log.sl
         if loss_mask.any():
             first_idx = df_after[loss_mask].index[0]
@@ -227,17 +260,6 @@ def _check_one(log: SignalLog) -> Optional[str]:
             return "loss"
 
     return None
-
-
-def _to_utc_dt(ts) -> datetime:
-    """تبدیل timestamp به datetime UTC aware"""
-    if isinstance(ts, pd.Timestamp):
-        if ts.tz is None:
-            return ts.tz_localize("UTC").to_pydatetime()
-        return ts.tz_convert("UTC").to_pydatetime()
-    if isinstance(ts, datetime):
-        return _ensure_utc(ts)
-    return _utcnow()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -283,18 +305,23 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
 # اجرای backtest
 # ═══════════════════════════════════════════════════════════
 def backtest_all(max_checks: int = BACKTEST_MAX_SIGNALS) -> dict:
-    """بررسی همه‌ی سیگنال‌های pending."""
+    """
+    بررسی همه‌ی سیگنال‌های pending.
+
+    🔴 فاز ۱۰.۷ — برای expired، **همه** TF ها شامل ۱m چک می‌شن.
+    برای win_rate فقط whitelist حساب می‌شه (در compute_stats).
+    """
     checked = 0
     updated = 0
     errors = 0
     stats = {"win": 0, "loss": 0, "expired": 0}
 
     with Session(engine) as session:
+        # 🔴 همه TF ها (شامل ۱m) چک می‌شن — چون ۱m فقط برای trend_accuracy
         stmt = (
             select(SignalLog)
             .where(SignalLog.result.is_(None))
             .where(SignalLog.expired == False)
-            .where(SignalLog.tf.in_(BACKTEST_TF_WHITELIST))
             .order_by(SignalLog.timestamp.desc())
             .limit(max_checks)
         )
@@ -334,7 +361,7 @@ def backtest_all(max_checks: int = BACKTEST_MAX_SIGNALS) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
-# compute_stats
+# compute_stats — آمار کلی
 # ═══════════════════════════════════════════════════════════
 def compute_stats(
     tf: str = "",
@@ -342,9 +369,14 @@ def compute_stats(
     time_filter: str = "all",
     risk_profile: str = "",
 ) -> dict:
+    """
+    آمار کلی.
+
+    🔴 فاز ۱۰.۷ — win_rate فقط از whitelist
+    trend_accuracy از همه TF ها (شامل ۱m)
+    """
     with Session(engine) as session:
         stmt = select(SignalLog)
-
         if tf:
             stmt = stmt.where(SignalLog.tf == tf)
         if source:
@@ -361,42 +393,49 @@ def compute_stats(
         stmt = stmt.order_by(SignalLog.timestamp.desc()).limit(BACKTEST_MAX_SIGNALS)
         rows = session.exec(stmt).all()
 
-    total = len(rows)
-    wins = sum(1 for r in rows if r.result == "win")
-    losses = sum(1 for r in rows if r.result == "loss")
-    pending = sum(1 for r in rows if not r.result and not r.expired)
-    expired = sum(1 for r in rows if r.expired)
+    # ─── همه ردیف‌ها برای trend_accuracy ───
+    all_rows = rows
+    # ─── فقط whitelist برای win_rate ───
+    win_rows = [r for r in rows if r.tf in BACKTEST_TF_WHITELIST]
+
+    total = len(all_rows)
+    wins = sum(1 for r in win_rows if r.result == "win")
+    losses = sum(1 for r in win_rows if r.result == "loss")
+    pending = sum(1 for r in win_rows if not r.result and not r.expired)
+    expired = sum(1 for r in win_rows if r.expired)
 
     closed = wins + losses
     win_rate = (wins / closed * 100) if closed > 0 else 0.0
 
-    trend_correct = sum(1 for r in rows if r.trend_correct is True)
-    trend_wrong = sum(1 for r in rows if r.trend_correct is False)
+    # ─── trend_accuracy از همه TF ها (شامل ۱m) ───
+    trend_correct = sum(1 for r in all_rows if r.trend_correct is True)
+    trend_wrong = sum(1 for r in all_rows if r.trend_correct is False)
     trend_total = trend_correct + trend_wrong
     trend_accuracy = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
 
-    expired_win = sum(1 for r in rows if r.expired_bias == "win")
-    expired_loss = sum(1 for r in rows if r.expired_bias == "loss")
-    expired_flat = sum(1 for r in rows if r.expired_bias == "flat")
+    expired_win = sum(1 for r in win_rows if r.expired_bias == "win")
+    expired_loss = sum(1 for r in win_rows if r.expired_bias == "loss")
+    expired_flat = sum(1 for r in win_rows if r.expired_bias == "flat")
 
+    # ─── profit factor (فقط whitelist) ───
     win_pnls = [
         abs(r.expired_pnl_pct)
-        for r in rows
+        for r in win_rows
         if r.result == "win" and r.expired_pnl_pct is not None
     ]
     loss_pnls = [
         abs(r.expired_pnl_pct)
-        for r in rows
+        for r in win_rows
         if r.result == "loss" and r.expired_pnl_pct is not None
     ]
     win_pnls += [
         abs(r.rr_net)
-        for r in rows
+        for r in win_rows
         if r.result == "win" and r.rr_net and r.expired_pnl_pct is None
     ]
     loss_pnls += [
         abs(r.rr_net)
-        for r in rows
+        for r in win_rows
         if r.result == "loss" and r.rr_net and r.expired_pnl_pct is None
     ]
 
@@ -404,7 +443,7 @@ def compute_stats(
     total_loss = sum(loss_pnls)
     profit_factor = (total_win / total_loss) if total_loss > 0 else 0.0
 
-    rr_nets = [r.rr_net for r in rows if r.rr_net is not None]
+    rr_nets = [r.rr_net for r in all_rows if r.rr_net is not None]
     avg_rr_net = sum(rr_nets) / len(rr_nets) if rr_nets else 0.0
 
     return {
@@ -427,6 +466,9 @@ def compute_stats(
     }
 
 
+# ═══════════════════════════════════════════════════════════
+# compute_stats_by_tf
+# ═══════════════════════════════════════════════════════════
 def compute_stats_by_tf(
     time_filter: str = "all",
     risk_profile: str = "",
@@ -437,13 +479,11 @@ def compute_stats_by_tf(
         stmt = select(SignalLog)
         if risk_profile:
             stmt = stmt.where(SignalLog.risk_profile == risk_profile)
-
         if time_filter != "all":
             now = _utcnow()
             days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
             if days:
                 stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-
         rows = session.exec(stmt).all()
 
     by_tf: dict[str, list[SignalLog]] = {}
@@ -491,7 +531,6 @@ def compute_stats_by_profile(time_filter: str = "all") -> dict[str, dict]:
             days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
             if days:
                 stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-
         rows = session.exec(stmt).all()
 
     by_profile: dict[str, list[SignalLog]] = {}
@@ -523,7 +562,6 @@ def compute_stats_by_quality(
 ) -> dict[str, dict]:
     with Session(engine) as session:
         stmt = select(SignalLog)
-
         if tf:
             stmt = stmt.where(SignalLog.tf == tf)
         if source:
@@ -535,7 +573,6 @@ def compute_stats_by_quality(
             days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
             if days:
                 stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-
         rows = session.exec(stmt).all()
 
     def _stats(items: list[SignalLog]) -> dict:

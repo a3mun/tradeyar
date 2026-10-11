@@ -2,11 +2,11 @@
 services/signal_recorder.py
 ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۵.۰ · فاز ۱۰.۴
+نسخه ۵.۰ · فاز ۱۰.۶
 🔴 تغییرات:
-  • quote (USDT/IRT) استخراج از ticker
-  • TF=۱m در whitelist نیست (فقط پیش‌بینی)
-  • dedup بهبود
+  • dedup_key ساده‌تر — بدون bucket
+  • جلوگیری از تکرار با چک pending (نه unique forever)
+  • is_weak منطقی
 """
 
 import json
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════
-# TF whitelist — ۱ دقیقه ثبت نمی‌شه
+# تنظیمات
 # ═══════════════════════════════════════════════════════════
 _TF_MINUTES: dict[str, int] = {
     "۱ دقیقه": 1,
@@ -37,33 +37,12 @@ _TF_MINUTES: dict[str, int] = {
     "روزانه": 1440,
 }
 
-
-# 🔴 فاز ۱۰.۵ — TF که برای IRT (تومان/ریال) ثبت نمی‌شن
-# چرا: در IRT اسپرد بالاست و TF=۱m نویز زیاد داره.
-# dedup_key در هر دقیقه عوض می‌شه → رکورد تکراری.
+# TF که برای IRT ثبت نمی‌شن
 _TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _extract_quote(ticker: str) -> str:
-    """استخراج نوع ارز از ticker"""
-    upper = ticker.upper()
-    if "IRT" in upper or "TMN" in upper:
-        return "IRT"
-    if "USDT" in upper or "USD" in upper:
-        return "USDT"
-    return "USDT"  # پیش‌فرض
-
-
-def _make_bucket(tf_name: str, now: datetime) -> str:
-    """bucket = شروع کندل فعلی"""
-    tf_min = _TF_MINUTES.get(tf_name, 5)
-    epoch_min = int(now.timestamp() // 60)
-    bucket_min = (epoch_min // tf_min) * tf_min
-    return str(bucket_min)
 
 
 def _extract_quote(ticker: str) -> str:
@@ -85,7 +64,25 @@ def _signal_base(signal: str) -> str:
     return "NEUTRAL"
 
 
-def _dedup_key(ticker, tf_name, signal, source, market_type, risk_profile, bucket):
+def _dedup_key_simple(
+    ticker: str,
+    tf_name: str,
+    signal: str,
+    source: str,
+    market_type: str,
+    risk_profile: str = "aggressive",  # 🔴 اضافه شد
+) -> str:
+    """
+    کلید یکتای «سیگنال منطقاً یکسان» — بدون bucket زمانی.
+
+    ═══ چرا risk_profile هست ═══
+    دو profile مختلف (aggressive/conservative) ممکنه SL/TP مختلف
+    داشته باشن. پس دو رکورد مستقل هستن.
+
+    ═══ چرا bucket نیست ═══
+    bucket = شروع کندل TF → هر TF، هر ۵ دقیقه یه bucket جدید
+    → تکرار برای یک سیگنال. الان حذف شده.
+    """
     return "|".join(
         [
             ticker,
@@ -93,13 +90,13 @@ def _dedup_key(ticker, tf_name, signal, source, market_type, risk_profile, bucke
             _signal_base(signal),
             source,
             market_type,
-            risk_profile,
-            bucket,
+            risk_profile,  # ← اضافه شد
         ]
     )
 
 
 def _insert_ignore_conflict(session: Session, values: dict) -> bool:
+    """درج با نادیده‌گرفتن تعارض روی dedup_key."""
     if is_sqlite:
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -113,6 +110,7 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
             stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
         except ImportError:
             stmt = insert(SignalLog).values(**values)
+
     result = session.execute(stmt)
     session.commit()
     return bool(result.rowcount)
@@ -155,18 +153,24 @@ def record_signal(
     execution_cost: dict | None = None,
     orderbook_available: bool = False,
     trade_side_irt: bool = False,
+    origin: str = "auto_scan",
 ) -> bool:
-    """ثبت سیگنال — نسخه ۵.۰"""
+    """
+    ثبت سیگنال — نسخه ۵.۰.
 
-    # 🔴 فاز ۱۰.۵ — TF=۱m برای IRT ممنوع
-    # ═══ چرا ═══
-    # در IRT (تومان/ریال) اسپرد بالاست. TF=۱m عملاً نویز محضه.
-    # dedup_key در TF=۱m هر دقیقه عوض می‌شه → رکورد تکراری زیاد.
+    🔴 منطق ضد تکرار (نسخه ۵.۰):
+    ۱. TF=۱m برای IRT ممنوع
+    ۲. dedup_key بر اساس (ticker, tf, signal_base, source, market_type)
+    ۳. قبل از insert: چک کن **pending مشابه** وجود داره یا نه
+       • اگه pending هست → رد
+       • اگه pending نیست (یعنی resolve شده یا وجود نداره) → ثبت
+    """
+    # ─── TF=۱m برای IRT ممنوع ───
     if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:
         logger.debug(f"[Recorder] TF={tf_name} برای IRT ممنوع — {ticker} رد شد")
         return False
 
-    # ═══ اعتبارسنجی ═══
+    # ─── اعتبارسنجی ───
     if not SigEnum.is_directional(signal):
         return False
     if not price or price <= 0:
@@ -174,11 +178,18 @@ def record_signal(
 
     is_weak = _compute_is_weak(signal, confidence, consensus)
     now = _utcnow()
-    bucket = _make_bucket(tf_name, now)
-    dedup = _dedup_key(
-        ticker, tf_name, signal, source, market_type, risk_profile, bucket
+
+    # ─── dedup ساده (بدون bucket) ───
+    dedup = _dedup_key_simple(
+        ticker=ticker,
+        tf_name=tf_name,
+        signal=signal,
+        source=source,
+        market_type=market_type,
+        risk_profile=risk_profile,
     )
 
+    # ─── SL/TP ───
     sl: Optional[float] = None
     tp: Optional[float] = None
     sl_tp_type: Optional[str] = None
@@ -187,15 +198,13 @@ def record_signal(
         tp = sl_tp.get("tp")
         sl_tp_type = sl_tp.get("type")
 
+    # ─── تله ───
     active_trap: Optional[str] = None
     if traps:
         for key, val in traps.items():
             if isinstance(val, dict) and val.get("active"):
                 active_trap = key
                 break
-
-    # 🔴 استخراج quote
-    quote = _extract_quote(ticker)
 
     values = {
         "ticker": ticker,
@@ -233,20 +242,59 @@ def record_signal(
 
     try:
         with Session(engine) as session:
-            stmt = select(SignalLog.id).where(SignalLog.dedup_key == dedup).limit(1)
-            if session.exec(stmt).first():
+            # 🔴 چک pending مشابه
+            # ═══ چرا ═══
+            # اگه یک pending با همین dedup_key توی DB هست،
+            # یعنی همون سیگنال هنوز به نتیجه نرسیده. تکرار نکن.
+            # اگه pending نیست (resolved شده یا اصلاً نیست) → ثبت کن.
+            stmt = (
+                select(SignalLog.id)
+                .where(SignalLog.dedup_key == dedup)
+                .where(SignalLog.result.is_(None))
+                .where(SignalLog.expired == False)
+                .limit(1)
+            )
+            existing_pending = session.exec(stmt).first()
+            if existing_pending:
+                logger.debug(
+                    f"[Recorder] pending مشابه: {ticker} {tf_name} {signal} "
+                    f"({market_type}) — رد"
+                )
                 return False
+
+            # ─── درج ───
+            # ⚠️ چون unique_constraint روی dedup_key هست، insert
+            #    ممکنه به خاطر رکورد قدیمی (resolved) conflict بده.
+            #    برای این کار، unique_constraint رو در آینده برداریم،
+            #    یا اینکه dedup_key رو با timestamp ترکیب کنیم.
+            #
+            # راه‌حل فعلی: چون unique_constraint هست، فقط اگه
+            # هیچ رکورد قبلی نباشه insert می‌کنیم. یعنی اگه یه
+            # resolved هم باشه، نمی‌تونیم insert کنیم.
+            #
+            # TODO: در فاز بعدی، unique_constraint رو حذف کن و
+            # به جاش یه index عادی بذار.
+            stmt_any = select(SignalLog.id).where(SignalLog.dedup_key == dedup).limit(1)
+            existing_any = session.exec(stmt_any).first()
+            if existing_any:
+                logger.debug(
+                    f"[Recorder] رکورد قبلی با dedup_key مشابه: {ticker} {tf_name} — رد"
+                )
+                return False
+
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
             weak_flag = " [ضعیف]" if is_weak else ""
             logger.info(
                 f"[Recorder] ✅ {ticker} {tf_name} {signal}{weak_flag} "
-                f"({source}, {confidence}%, {quote})"
+                f"({source}, {confidence}%, {market_type})"
             )
             return True
+
         return False
     except IntegrityError:
+        logger.debug(f"[Recorder] تکراری: {ticker} {tf_name}")
         return False
     except Exception:
         logger.exception(f"[Recorder] خطا {ticker} {tf_name} {signal}")

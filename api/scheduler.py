@@ -17,7 +17,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-
+from datetime import datetime, timezone
 from api.config import settings
 from services.backtest_service import backtest_all
 
@@ -41,14 +41,22 @@ _EMPTY_RESULT = {
 # نمادهای هدف
 # ═══════════════════════════════════════════════════════════
 FIXED_SYMBOLS = [
-    # ─── USDT ───
+    # ─── nobitex ───
     {"ticker": "BTC-USD", "name": "بیت‌کوین (USDT)", "source": "nobitex"},
     {"ticker": "ETH-USD", "name": "اتریوم (USDT)", "source": "nobitex"},
     {"ticker": "PAXG-USD", "name": "پکس گلد (USDT)", "source": "nobitex"},
-    # ─── IRT (بدون اتریوم تومانی طبق درخواست) ───
     {"ticker": "BTC-IRT", "name": "بیت‌کوین (تومان)", "source": "nobitex"},
     {"ticker": "PAXG-IRT", "name": "پکس گلد (تومان)", "source": "nobitex"},
+    # ─── wallex ───
+    {"ticker": "BTC-USDT", "name": "بیت‌کوین (USDT)", "source": "wallex"},
+    {"ticker": "ETH-USDT", "name": "اتریوم (USDT)", "source": "wallex"},
+    {"ticker": "BTC-TMN", "name": "بیت‌کوین (تومان)", "source": "wallex"},
+    # ─── bitpin ───
+    {"ticker": "BTC_USDT", "name": "بیت‌کوین (USDT)", "source": "bitpin"},
+    {"ticker": "ETH_USDT", "name": "اتریوم (USDT)", "source": "bitpin"},
+    {"ticker": "BTC_IRT", "name": "بیت‌کوین (تومان)", "source": "bitpin"},
 ]
+
 
 # 🔴 فاز ۱۰.۴ — TF های اسکن (بدون ۱m و ۵m و روزانه)
 SCAN_TIMEFRAMES = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
@@ -58,15 +66,26 @@ SCAN_RISK_PROFILE = "aggressive"
 
 # 🔴 چرخه صرافی — هر ۶۰ دقیقه یکی
 EXCHANGE_CYCLE = ["nobitex", "wallex", "bitpin"]
-_current_exchange_idx = 0
 
 
 def _next_exchange() -> str:
-    """صرافی بعدی در چرخه."""
-    global _current_exchange_idx
-    ex = EXCHANGE_CYCLE[_current_exchange_idx]
-    _current_exchange_idx = (_current_exchange_idx + 1) % len(EXCHANGE_CYCLE)
-    return ex
+    """
+    🔴 فاز ۱۰.۷ — چرخه deterministic (بر اساس ساعت).
+
+    ═══ چرا ═══
+    قبلاً شمارنده global بود. اگه سرور restart می‌شد،
+    از ۰ شروع می‌شد → ممکنه چند بار nobitex بشه.
+
+    الان: ساعت UTC تعیین می‌کنه. Restart-safe.
+      • ساعت ۰  → nobitex
+      • ساعت ۱  → wallex
+      • ساعت ۲  → bitpin
+      • ساعت ۳  → nobitex
+      • ...
+    """
+    hour = datetime.now(timezone.utc).hour
+    idx = hour % len(EXCHANGE_CYCLE)
+    return EXCHANGE_CYCLE[idx]
 
 
 def _load_watchlist_from_file() -> list[dict]:
