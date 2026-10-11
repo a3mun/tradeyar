@@ -435,32 +435,48 @@ class TestResultCounters:
         r = bs.backtest_all(max_checks=4)
         assert r["checked"] == 4, f"max_checks رعایت نشد: {r}"
 
-    def test_expired_signals_counted(self, monkeypatch):
-        """
-        🔴 فاز ۱۰.۱ — بازنویسی‌شده:
 
-        سیگنال منقضی (۲۰ روز قبل با TF ۵ دقیقه) باید:
-          ۱. expired بشه
-          ۲. **بدون** fetch_ohlcv (چون اول timeout چک می‌شه)
-        """
-        import services.backtest_service as bs
+def test_expired_signals_counted(monkeypatch):
+    """
+    🔴 فاز ۱۰.۷ — بازنویسی‌شده:
 
-        # ─── ۲۰ روز قبل، timeout «۵ دقیقه» = ۲ ساعت ───
-        _seed(3, age_minutes=20 * 24 * 60)
+    سیگنال منقضی باید:
+      ۱. expired بشه
+      ۲. **یک بار** fetch_ohlcv بزنه (برای قیمت فعلی خروج)
+      ۳. pnl واقعی محاسبه بشه
+    """
+    import services.backtest_service as bs
 
-        called = {"n": 0}
+    _seed(3, age_minutes=20 * 24 * 60)
 
-        def should_not_be_called(*a, **k):
-            called["n"] += 1
-            return None
+    called = {"n": 0}
 
-        monkeypatch.setattr(bs, "fetch_ohlcv", should_not_be_called)
+    import pandas as pd
+    from core.tz import utc_now
 
-        r = bs.backtest_all()
-        assert r["expired"] == 3, f"گرفت {r}"
-        assert (
-            called["n"] == 0
-        ), f"برای سیگنال منقضی نباید fetch بزنه — ولی {called['n']} بار زد"
+    def fake_fetch(*a, **k):
+        called["n"] += 1
+        # قیمت کمی بالاتر از ورود (۱۰۰) → pnl مثبت کوچک
+        return pd.DataFrame(
+            {
+                "open": [100.5],
+                "high": [101.0],
+                "low": [99.5],
+                "close": [100.5],
+                "volume": [1.0],
+            },
+            index=pd.DatetimeIndex([utc_now()]),
+        )
+
+    monkeypatch.setattr(bs, "fetch_ohlcv", fake_fetch)
+
+    r = bs.backtest_all()
+    assert r["expired"] == 3, f"گرفت {r}"
+
+    # 🔴 فاز ۱۰.۷ — برای هر expired یک بار fetch
+    assert (
+        called["n"] == 3
+    ), f"برای هر expired یک fetch انتظار می‌رفت — {called['n']} بار زد"
 
 
 # ═══════════════════════════════════════════════════════════

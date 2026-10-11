@@ -393,16 +393,24 @@ def compute_stats(
         stmt = stmt.order_by(SignalLog.timestamp.desc()).limit(BACKTEST_MAX_SIGNALS)
         rows = session.exec(stmt).all()
 
-    # ─── همه ردیف‌ها برای trend_accuracy ───
+    # 🔴 فاز ۱۰.۷ — تفکیک total/pending از wins/losses
+    # ═══ چرا ═══
+    # total و pending باید همه TF ها رو بشمرن (شامل ۱m)
+    # ولی wins/losses/win_rate فقط از whitelist.
     all_rows = rows
-    # ─── فقط whitelist برای win_rate ───
     win_rows = [r for r in rows if r.tf in BACKTEST_TF_WHITELIST]
 
+    # ─── total و pending از همه ───
     total = len(all_rows)
+    pending = sum(1 for r in all_rows if not r.result and not r.expired)
+    expired = sum(1 for r in all_rows if r.expired)
+
+    # ─── wins/losses فقط از whitelist ───
     wins = sum(1 for r in win_rows if r.result == "win")
     losses = sum(1 for r in win_rows if r.result == "loss")
-    pending = sum(1 for r in win_rows if not r.result and not r.expired)
-    expired = sum(1 for r in win_rows if r.expired)
+
+    closed = wins + losses
+    win_rate = (wins / closed * 100) if closed > 0 else 0.0
 
     closed = wins + losses
     win_rate = (wins / closed * 100) if closed > 0 else 0.0
@@ -413,9 +421,10 @@ def compute_stats(
     trend_total = trend_correct + trend_wrong
     trend_accuracy = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
 
-    expired_win = sum(1 for r in win_rows if r.expired_bias == "win")
-    expired_loss = sum(1 for r in win_rows if r.expired_bias == "loss")
-    expired_flat = sum(1 for r in win_rows if r.expired_bias == "flat")
+    # 🔴 فاز ۱۰.۷ — از all_rows (شامل ۱m)
+    expired_win = sum(1 for r in all_rows if r.expired_bias == "win")
+    expired_loss = sum(1 for r in all_rows if r.expired_bias == "loss")
+    expired_flat = sum(1 for r in all_rows if r.expired_bias == "flat")
 
     # ─── profit factor (فقط whitelist) ───
     win_pnls = [
