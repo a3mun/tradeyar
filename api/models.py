@@ -2,7 +2,7 @@
 api/models.py
 مدل‌های دیتابیس — SQLModel
 ============================================================
-نسخه ۱.۵: اضافه شدن ``is_weak`` برای تفکیک سیگنال ضعیف
+نسخه ۱.۷: بازگشت UniqueConstraint روی dedup_key (بدون timestamp)
 """
 
 from datetime import datetime, timezone
@@ -23,6 +23,9 @@ def _utcnow() -> datetime:
 class SignalLog(SQLModel, table=True):
     __tablename__ = "signals_log"
 
+    # 🔴 فاز ۱۰.۸ — UniqueConstraint فقط روی dedup_key (بدون timestamp)
+    # چون dedup_key شامل ticker, tf, signal, source, market_type, risk_profile هست.
+    # اینطوری از ثبت هر سیگنال تکراری (حتی با فاصله زمانی کم) جلوگیری می‌شه.
     __table_args__ = (UniqueConstraint("dedup_key", name="uq_signals_log_dedup_key"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -60,7 +63,7 @@ class SignalLog(SQLModel, table=True):
     # ═══ dedup ═══
     dedup_key: Optional[str] = Field(default=None, index=True)
 
-    # ═══ کارمزد و R:R واقعی (نسخه ۲.۰) ═══
+    # ═══ کارمزد و R:R واقعی ═══
     rr_net: Optional[float] = None
     fee_pct: Optional[float] = None
     fee_ratio: Optional[float] = None
@@ -74,17 +77,13 @@ class SignalLog(SQLModel, table=True):
     # ═══ عمق بازار ═══
     orderbook_available: bool = False
 
-    # ═══ بسته شدن با مهلت (نسخه ۲.۰) ═══
+    # ═══ بسته شدن با مهلت ═══
     expired_at_price: Optional[float] = None
     expired_pnl_pct: Optional[float] = None
     expired_bias: Optional[str] = None
 
-    # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
+    # ═══ پیش‌بینی روند ═══
     trend_correct: Optional[bool] = None
 
-    # ═══ 🔴 فاز ۸.۲ — تفکیک ضعیف از قطعی ═══
-    # True: سیگنال ضعیف (LONG ضعیف / SHORT ضعیف)
-    # False: سیگنال قطعی (LONG / SHORT)
-    # ⚠️ ضعیف‌ها توی آماری win rate حساب **نمی‌شن**
-    #    ولی توی تاریخچه نشون داده می‌شن
+    # ═══ تفکیک ضعیف از قطعی ═══
     is_weak: bool = Field(default=False, index=True)

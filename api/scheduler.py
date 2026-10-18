@@ -1,10 +1,11 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۴.۱ · فاز ۱۰.۸
+نسخه ۴.۲ · فاز ۱۰.۸
 🔴 تغییرات:
   • چرخه‌ی صرافی: nobitex → wallex → bitpin → تکرار
   • رفع باگ ری‌استارت (استفاده از شمارنده به جای ساعت)
+  • اضافه شدن نمادهای بیت‌پین برای هم‌تعداد شدن با نوبیتکس
 """
 
 import asyncio
@@ -48,10 +49,14 @@ FIXED_SYMBOLS = [
     {"ticker": "BTC-USDT", "name": "بیت‌کوین (USDT)", "source": "wallex"},
     {"ticker": "ETH-USDT", "name": "اتریوم (USDT)", "source": "wallex"},
     {"ticker": "BTC-TMN", "name": "بیت‌کوین (تومان)", "source": "wallex"},
+    {"ticker": "PAXG-USDT", "name": "پکس گلد (USDT)", "source": "wallex"},
+    {"ticker": "PAXG-TMN", "name": "پکس گلد (تومان)", "source": "wallex"},
     # ─── bitpin ───
     {"ticker": "BTC_USDT", "name": "بیت‌کوین (USDT)", "source": "bitpin"},
     {"ticker": "ETH_USDT", "name": "اتریوم (USDT)", "source": "bitpin"},
     {"ticker": "BTC_IRT", "name": "بیت‌کوین (تومان)", "source": "bitpin"},
+    {"ticker": "PAXG_USDT", "name": "پکس گلد (USDT)", "source": "bitpin"},
+    {"ticker": "PAXG_IRT", "name": "پکس گلد (تومان)", "source": "bitpin"},
 ]
 
 

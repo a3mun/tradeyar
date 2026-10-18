@@ -201,19 +201,11 @@ def classify_regime(
     channel_width_pct: float = None,
     bb_width_pct: float = None,
     volume_ratio: float = None,
+    ema_slope: float = None,  # 🔴 جدید: شیب EMA
+    di_diff: float = None,  # 🔴 جدید: تفاوت DI+/DI-
 ) -> str:
     """
-    رژیم بازار — نسخه ۱۰.۰.
-
-    ═══ معیارها ═══
-      • ADX (اصلی): >25 trend، 20-25 transitional، <20 range
-      • BB width (تأیید): اگر BB خیلی تنگ باشه → range تقویت‌شده
-      • Volume (تأیید): volume spike در رنج → احتمال breakout
-
-    ═══ چرا چند-معیاره ═══
-    نسخه ۸.۵ فقط ADX رو می‌دید. در دیتای ۳۲۵ سیگنال،
-    ۱۰۰٪ signals در رژیم "range" طبقه‌بندی شده بودن — که
-    خودش نشون می‌ده تشخیص رژیم ضعیفه.
+    رژیم بازار — نسخه ۱۰.۱ (تأییدشده با EMA و DI).
     """
     if adx is None or adx <= 0:
         return "range"
@@ -226,14 +218,25 @@ def classify_regime(
     else:
         base = "range"
 
+    # ─── تأیید با شیب EMA200 ───
+    # اگر EMA200 شیب مشخصی داشته باشد، روند معتبرتر است
+    if ema_slope is not None:
+        if base == "trend" and abs(ema_slope) < 0.05:
+            base = "transitional"  # ADX بالا ولی EMA تخت → روند فیک
+        elif base == "range" and abs(ema_slope) > 0.1:
+            base = "transitional"  # ADX پایین ولی EMA شیب‌دار → آماده روند
+
+    # ─── تأیید با DI+/DI- ───
+    if di_diff is not None:
+        if base == "trend" and abs(di_diff) < 5:
+            base = "transitional"  # ADX بالا ولی DIها نزدیک → بلااستفاده
+
     # ─── تأیید با BB width ───
-    # اگه BB خیلی تنگ باشه (< 0.5%)، بازار قطعاً رنجه
     if bb_width_pct is not None and bb_width_pct > 0:
         if bb_width_pct < 0.5 and base == "trend":
             base = "transitional"
 
     # ─── تأیید با volume ───
-    # اگه volume خیلی بالا باشه و ADX مرزی، احتمال breakout
     if volume_ratio is not None and volume_ratio > 2.0:
         if base == "range" and adx >= 18:
             base = "transitional"
@@ -2071,10 +2074,26 @@ def analyze_symbol(
         vol_ratio = vol / vol_ma if vol_ma > 0 else 1.0
 
         # ═══ رژیم — نسخه ۱۰.۰ ═══
+        # ═══ رژیم — نسخه ۱۰.۱ ═══
+        # محاسبه شیب EMA200 و تفاوت DI
+        ema200_val = safe_num(last.get("ema200"))
+        prev_ema200 = (
+            safe_num(df["ema200"].iloc[-2])
+            if "ema200" in df.columns and len(df) > 1
+            else ema200_val
+        )
+        ema_slope = (ema200_val - prev_ema200) / prev_ema200 if prev_ema200 > 0 else 0
+
+        dmp_val = safe_num(last.get("dmp"))
+        dmn_val = safe_num(last.get("dmn"))
+        di_diff = dmp_val - dmn_val
+
         regime = classify_regime(
             adx,
             bb_width_pct=bb_width_pct,
             volume_ratio=vol_ratio,
+            ema_slope=ema_slope,
+            di_diff=di_diff,
         )
         thresholds = get_adaptive_thresholds(regime, adx)
 

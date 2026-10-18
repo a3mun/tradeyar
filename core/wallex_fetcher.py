@@ -145,9 +145,7 @@ def fetch_wallex_candles(ticker: str, tf_name: str = "۵ دقیقه") -> pd.Data
     res = map_tf(tf_name)
     if res is None:
         # ─── والکس این TF را ندارد؛ درخواست بی‌فایده نزن ───
-        logger.debug(
-            f"[Wallex] «{tf_name}» ندارد (موجود: {list(TF_MAP)}) — None"
-        )
+        logger.debug(f"[Wallex] «{tf_name}» ندارد (موجود: {list(TF_MAP)}) — None")
         return None
 
     spec = get_tf_spec(tf_name)

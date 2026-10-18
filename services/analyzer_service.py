@@ -381,6 +381,11 @@ def _record_signal_safe(
     if skip_record:
         return
 
+    # 🔴 فاز ۱۰.۸ — جلوگیری از ثبت سیگنال‌های Fallback
+    if output.get("is_fallback"):
+        logger.debug(f"[Analyzer] Fallback از {source} — ثبت نشد")
+        return
+
     try:
         from services.signal_recorder import record_signal
 
@@ -481,10 +486,8 @@ def analyze(
                 out["is_fallback"] = data_source != source
                 out.pop("orderbook", None)
 
-                # 🔴 فاز ۱۰.۵ — روی cache hit فقط برای TF>=۵m
-                # (چون TF=۱m dedup_key اش در هر دقیقه عوض می‌شه
-                #  و رکورد تکراری ثبت می‌کنه)
-                if tf_name != "۱ دقیقه":
+                # 🔴 فاز ۱۰.۸ — روی cache hit هم ثبت کن (اگه skip_record=False باشه)
+                if not skip_record and tf_name != "۱ دقیقه":
                     _record_signal_safe(
                         ticker,
                         ticker_name,

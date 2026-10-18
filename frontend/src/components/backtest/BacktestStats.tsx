@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * BacktestStats — آمار راستی‌آزمایی (نسخه ۶.۱ · فاز ۱۰.۸)
+ * BacktestStats — آمار راستی‌آزمایی (نسخه ۶.۲ · فاز ۱۰.۸)
  * ============================================================
  * 🔴 تغییرات:
- *   • حذف قفل داخلی (چون قفل به BacktestPanel منتقل شد)
+ *   • استفاده از pendingCount از لیست items برای نمایش آمار حتی وقتی سیگنال‌ها Pending هستن
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -306,6 +306,7 @@ export function BacktestStats({
   };
 
   const s = data?.stats;
+  const pendingCount = items.filter((i) => !i.result && !i.expired).length;
 
   if (loading && !s) {
     return (
@@ -316,11 +317,29 @@ export function BacktestStats({
     );
   }
 
-  if (!s || s.total === 0) {
+  if (!s || (s.total === 0 && pendingCount === 0)) {
     return (
-      <p className="py-6 text-center text-[11px] text-muted-foreground">
-        هنوز سیگنالی برای این فیلتر ثبت نشده.
-      </p>
+      <div className="space-y-3">
+        <p className="py-6 text-center text-[11px] text-muted-foreground">
+          هنوز سیگنالی برای این فیلتر ثبت نشده.
+          <br />
+          <span className="text-[10px]">اسکن خودکار هر ۱ ساعت اجرا می‌شه.</span>
+        </p>
+        <Button
+          onClick={handleRun}
+          disabled={running}
+          size="sm"
+          variant="default"
+          className="w-full"
+        >
+          {running ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          بررسی
+        </Button>
+      </div>
     );
   }
 
@@ -377,6 +396,11 @@ export function BacktestStats({
                 <p className="num text-[10px] text-purple-400 font-medium">
                   {quality.all.trend_accuracy.toFixed(0)}٪ <span className="text-[8px] font-normal text-muted-foreground">دقت روند</span>
                 </p>
+                {pendingCount > 0 && (
+                  <p className="num text-[9px] text-yellow-500 font-medium mt-0.5">
+                    ⏳ {pendingCount} در انتظار
+                  </p>
+                )}
               </div>
             </div>
 
