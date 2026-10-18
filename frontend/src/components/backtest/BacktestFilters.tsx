@@ -3,17 +3,10 @@
 /**
  * BacktestFilters — فیلترهای مشترک راستی‌آزمایی
  * ============================================================
- * نسخه ۱.۰ · فاز ۷.۵
+ * نسخه ۲.۰ · فاز ۱۰.۸
  *
- * ═══ چرا کامپوننت جدا؟ ═══
- *   • BacktestStats و SignalHistory هر دو به این فیلترها نیاز
- *     دارن. نگه‌داشتن توی BacktestPanel → یه بار تعریف،
- *     همه استفاده می‌کنن.
- *
- * ═══ فیلترها ═══
- *   • صرافی:  همه | نوبیتکس | بیت‌پین | والکس | تبدیل | بورس
- *   • پروفایل: همه | 🚀 جسورانه | 🛡 محتاطانه
- *   • زمان:   همه | ۷ روز | ۳۰ روز
+ * ═══ تغییرات ═══
+ *   • اضافه شدن دکمه‌های بازه (۵۰/۱۰۰/۲۰۰/۵۰۰)
  */
 
 interface Props {
@@ -23,6 +16,8 @@ interface Props {
   onProfileChange: (p: string) => void;
   time: string;
   onTimeChange: (t: string) => void;
+  limit: number;
+  onLimitChange: (l: number) => void;
 }
 
 const SOURCE_TABS = [
@@ -35,21 +30,9 @@ const SOURCE_TABS = [
 ];
 
 const PROFILE_TABS = [
-  {
-    key: "",
-    label: "همه",
-    activeCls: "border-primary bg-primary/10 text-primary",
-  },
-  {
-    key: "aggressive",
-    label: "🚀 جسورانه",
-    activeCls: "border-orange-500 bg-orange-500/10 text-orange-400",
-  },
-  {
-    key: "conservative",
-    label: "🛡 محتاطانه",
-    activeCls: "border-green-500 bg-green-500/10 text-green-500",
-  },
+  { key: "", label: "همه", activeCls: "border-primary bg-primary/10 text-primary" },
+  { key: "aggressive", label: "🚀 جسورانه", activeCls: "border-orange-500 bg-orange-500/10 text-orange-400" },
+  { key: "conservative", label: "🛡 محتاطانه", activeCls: "border-green-500 bg-green-500/10 text-green-500" },
 ];
 
 const TIME_TABS = [
@@ -57,6 +40,8 @@ const TIME_TABS = [
   { key: "7d", label: "۷ روز" },
   { key: "30d", label: "۳۰ روز" },
 ];
+
+const LIMIT_TABS = [50, 100, 200, 500];
 
 function TabButton({
   active,
@@ -95,6 +80,8 @@ export function BacktestFilters({
   onProfileChange,
   time,
   onTimeChange,
+  limit,
+  onLimitChange,
 }: Props) {
   return (
     <div className="space-y-2.5">
@@ -131,9 +118,9 @@ export function BacktestFilters({
         </div>
       </div>
 
-      {/* ═══ بازه‌ی زمانی ═══ */}
+      {/* ═══ بازه زمانی ═══ */}
       <div>
-        <p className="mb-1 text-[9px] text-muted-foreground">بازه</p>
+        <p className="mb-1 text-[9px] text-muted-foreground">بازه زمانی</p>
         <div className="grid grid-cols-3 gap-1">
           {TIME_TABS.map((t) => (
             <TabButton
@@ -142,6 +129,24 @@ export function BacktestFilters({
               onClick={() => onTimeChange(t.key)}
             >
               {t.label}
+            </TabButton>
+          ))}
+        </div>
+      </div>
+
+      {/* ═══ تعداد سیگنال ═══ */}
+      <div>
+        <p className="mb-1 text-[9px] text-muted-foreground">
+          تعداد سیگنال‌های بسته‌شده
+        </p>
+        <div className="grid grid-cols-4 gap-1">
+          {LIMIT_TABS.map((n) => (
+            <TabButton
+              key={n}
+              active={limit === n}
+              onClick={() => onLimitChange(n)}
+            >
+              {n}
             </TabButton>
           ))}
         </div>

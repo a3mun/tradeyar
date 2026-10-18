@@ -2,11 +2,12 @@
 services/backtest_service.py
 راستی‌آزمایی — موتور اصلی
 ============================================================
-نسخه ۵.۱ · فاز ۱۰.۷
-🔴 تغییرات نسبت به ۵.۰:
-  • timeout بلندتر (۸/۸/۶/۴ کندل)
-  • trend_accuracy از همه TF ها
-  • win_rate فقط از whitelist
+نسخه ۵.۲ · فاز ۱۰.۸
+🔴 تغییرات نسبت به ۵.۱:
+  • _mark_expired: روند (trend_correct) بر اساس هر تغییر قیمت، نه فقط عبور از fee
+  • compute_stats: فقط سیگنال‌های بسته‌شده (بسته‌شده = win/loss/expired)
+  • compute_stats: پارامتر limit (50-500) برای بازه سیگنال‌ها
+  • by_tf / by_quality: پارامتر limit
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from api.database import engine
 from api.models import SignalLog
@@ -37,8 +38,7 @@ _TF_MINUTES: dict[str, int] = {
     "روزانه": 1440,
 }
 
-# 🔴 فاز ۱۰.۷ — TF=۱m حذف شد (نویز محضه)
-# برای win_rate فقط اینا حساب می‌شن.
+# 🔴 فاز ۱۰.۷ — TF=۱m حذف شد از win_rate (نویز محضه)
 BACKTEST_TF_WHITELIST = ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
 
 BACKTEST_MAX_SIGNALS = 100
@@ -110,25 +110,6 @@ def _ensure_utc(dt: datetime) -> datetime:
 def _compute_timeout_min(tf_name: str, market_type: str) -> int:
     """
     🔴 فاز ۱۰.۷ — timeout بلندتر.
-
-    ═══ چرا ═══
-    timeout قبلی (۵/۴/۴/۳/۲) خیلی کوتاه بود:
-      • TF=۵m → ۲۵ دقیقه
-      • ATR BTC ≈ ۰.۳٪ در ۵m
-      • برای TP=۴٪ → حداقل ۱۳ کندل لازمه
-      • ۲۵ دقیقه = ۵ کندل — ناکافی
-    نتیجه: همه سیگنال‌ها → expired_flat
-
-    ═══ الان ═══
-      • TF=۵m → ۴۰ دقیقه (۸ کندل)
-      • TF=۱۵m → ۱۲۰ دقیقه (۸ کندل)
-      • TF=۳۰m → ۲۴۰ دقیقه (۸ کندل)
-      • TF=۱h → ۳۶۰ دقیقه (۶ کندل)
-      • TF=۱d → ۴ روز (۴ کندل)
-
-    ═══ نکته ═══
-    timeout ≠ interval. چک pending هر ۵ دقیقه انجام می‌شه.
-    timeout فقط سقف انتظار قبل از expired شدن.
     """
     tf_min = _TF_MINUTES.get(tf_name, 5)
 
@@ -176,7 +157,6 @@ def _check_one(log: SignalLog) -> Optional[str]:
     elapsed_min = (_utcnow() - entry_ts).total_seconds() / 60
 
     if elapsed_min >= timeout_min:
-        # 🔴 فاز ۱۰.۶ — برای expired، قیمت فعلی بازار
         current_price = log.price
         try:
             df_exp = fetch_ohlcv(
@@ -266,9 +246,16 @@ def _check_one(log: SignalLog) -> Optional[str]:
 # بستن با مهلت
 # ═══════════════════════════════════════════════════════════
 def _mark_expired(log: SignalLog, current_price: float) -> str:
-    """بستن سیگنال با مهلت — آستانه بر اساس fee."""
+    """
+    بستن سیگنال با مهلت.
+
+    🔴 فاز ۱۰.۸ — روند دقیق‌تر:
+      • result (برد/باخت واقعی): بر اساس آستانه fee (همون قبلی)
+      • trend_correct (جهت‌سنجی): بر اساس هر تغییر قیمت، حتی جزئی
+    """
     log.expired = True
     log.expired_at_price = current_price
+    log.exit_price = current_price  # 🔴 فاز ۱۰.۸: ثبت قیمت خروج برای expired
 
     pnl_pct = (current_price - log.price) / log.price * 100
     if log.direction == "short":
@@ -276,6 +263,7 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
 
     log.expired_pnl_pct = round(pnl_pct, 3)
 
+    # ─── result: بر اساس آستانه fee (برد/باخت واقعی) ───
     fee_threshold = (log.fee_pct or 0.23) * 1.5
     log.expired_bias = (
         "win"
@@ -284,18 +272,20 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
     )
 
     if log.expired_bias == "win":
-        log.trend_correct = True
-    elif log.expired_bias == "loss":
-        log.trend_correct = False
-    else:
-        log.trend_correct = None
-
-    if log.expired_bias == "win":
         log.result = "win"
     elif log.expired_bias == "loss":
         log.result = "loss"
     else:
         log.result = None
+
+    # ─── trend_correct: بر اساس هر تغییر قیمت (دقیق‌تر) ───
+    # 🔴 فاز ۱۰.۸ — هر تغییری حتی جزئی = جهت درست یا غلط
+    if pnl_pct > 0:
+        log.trend_correct = True
+    elif pnl_pct < 0:
+        log.trend_correct = False
+    else:
+        log.trend_correct = None  # دقیقاً صفر (نادر)
 
     log.result_time = _utcnow()
     return "expired"
@@ -305,19 +295,13 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
 # اجرای backtest
 # ═══════════════════════════════════════════════════════════
 def backtest_all(max_checks: int = BACKTEST_MAX_SIGNALS) -> dict:
-    """
-    بررسی همه‌ی سیگنال‌های pending.
-
-    🔴 فاز ۱۰.۷ — برای expired، **همه** TF ها شامل ۱m چک می‌شن.
-    برای win_rate فقط whitelist حساب می‌شه (در compute_stats).
-    """
+    """بررسی همه‌ی سیگنال‌های pending."""
     checked = 0
     updated = 0
     errors = 0
     stats = {"win": 0, "loss": 0, "expired": 0}
 
     with Session(engine) as session:
-        # 🔴 همه TF ها (شامل ۱m) چک می‌شن — چون ۱m فقط برای trend_accuracy
         stmt = (
             select(SignalLog)
             .where(SignalLog.result.is_(None))
@@ -361,6 +345,45 @@ def backtest_all(max_checks: int = BACKTEST_MAX_SIGNALS) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════
+# ابزار داخلی: گرفتن ردیف‌های بسته‌شده با فیلتر
+# ═══════════════════════════════════════════════════════════
+def _fetch_closed_rows(
+    session: Session,
+    tf: str,
+    source: str,
+    time_filter: str,
+    risk_profile: str,
+    limit: int,
+) -> list[SignalLog]:
+    """
+    فقط سیگنال‌های بسته‌شده (win/loss/expired) — آخرین `limit` تا.
+    🔴 فاز ۱۰.۸: این‌طوری آمار پایدار می‌مونه و سیگنال‌های pending آمار رو خراب نمی‌کنن.
+    """
+    stmt = select(SignalLog).where(
+        or_(
+            SignalLog.result.isnot(None),
+            SignalLog.expired == True,
+        )
+    )
+
+    if tf:
+        stmt = stmt.where(SignalLog.tf == tf)
+    if source:
+        stmt = stmt.where(SignalLog.source == source)
+    if risk_profile:
+        stmt = stmt.where(SignalLog.risk_profile == risk_profile)
+
+    if time_filter != "all":
+        now = _utcnow()
+        days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
+        if days:
+            stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
+
+    stmt = stmt.order_by(SignalLog.timestamp.desc()).limit(limit)
+    return session.exec(stmt).all()
+
+
+# ═══════════════════════════════════════════════════════════
 # compute_stats — آمار کلی
 # ═══════════════════════════════════════════════════════════
 def compute_stats(
@@ -368,49 +391,29 @@ def compute_stats(
     source: str = "",
     time_filter: str = "all",
     risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
 ) -> dict:
     """
     آمار کلی.
 
-    🔴 فاز ۱۰.۷ — win_rate فقط از whitelist
+    🔴 فاز ۱۰.۸ — فقط سیگنال‌های بسته‌شده‌ی `limit` آخر.
+    win_rate فقط از whitelist (بدون ۱m)
     trend_accuracy از همه TF ها (شامل ۱m)
     """
+    limit = max(50, min(limit, 500))  # سقف 50-500
+
     with Session(engine) as session:
-        stmt = select(SignalLog)
-        if tf:
-            stmt = stmt.where(SignalLog.tf == tf)
-        if source:
-            stmt = stmt.where(SignalLog.source == source)
-        if risk_profile:
-            stmt = stmt.where(SignalLog.risk_profile == risk_profile)
+        rows = _fetch_closed_rows(session, tf, source, time_filter, risk_profile, limit)
 
-        if time_filter != "all":
-            now = _utcnow()
-            days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
-            if days:
-                stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-
-        stmt = stmt.order_by(SignalLog.timestamp.desc()).limit(BACKTEST_MAX_SIGNALS)
-        rows = session.exec(stmt).all()
-
-    # 🔴 فاز ۱۰.۷ — تفکیک total/pending از wins/losses
-    # ═══ چرا ═══
-    # total و pending باید همه TF ها رو بشمرن (شامل ۱m)
-    # ولی wins/losses/win_rate فقط از whitelist.
     all_rows = rows
     win_rows = [r for r in rows if r.tf in BACKTEST_TF_WHITELIST]
 
-    # ─── total و pending از همه ───
     total = len(all_rows)
-    pending = sum(1 for r in all_rows if not r.result and not r.expired)
+    pending = 0  # 🔴 فاز ۱۰.۸ — این تابع فقط بسته‌شده‌ها رو می‌بینه
     expired = sum(1 for r in all_rows if r.expired)
 
-    # ─── wins/losses فقط از whitelist ───
     wins = sum(1 for r in win_rows if r.result == "win")
     losses = sum(1 for r in win_rows if r.result == "loss")
-
-    closed = wins + losses
-    win_rate = (wins / closed * 100) if closed > 0 else 0.0
 
     closed = wins + losses
     win_rate = (wins / closed * 100) if closed > 0 else 0.0
@@ -421,7 +424,6 @@ def compute_stats(
     trend_total = trend_correct + trend_wrong
     trend_accuracy = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
 
-    # 🔴 فاز ۱۰.۷ — از all_rows (شامل ۱m)
     expired_win = sum(1 for r in all_rows if r.expired_bias == "win")
     expired_loss = sum(1 for r in all_rows if r.expired_bias == "loss")
     expired_flat = sum(1 for r in all_rows if r.expired_bias == "flat")
@@ -481,19 +483,14 @@ def compute_stats(
 def compute_stats_by_tf(
     time_filter: str = "all",
     risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
 ) -> dict[str, dict]:
+    """🔴 فاز ۱۰.۸ — limit اضافه شد، فقط بسته‌شده‌ها."""
+    limit = max(50, min(limit, 500))
     result: dict[str, dict] = {}
 
     with Session(engine) as session:
-        stmt = select(SignalLog)
-        if risk_profile:
-            stmt = stmt.where(SignalLog.risk_profile == risk_profile)
-        if time_filter != "all":
-            now = _utcnow()
-            days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
-            if days:
-                stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-        rows = session.exec(stmt).all()
+        rows = _fetch_closed_rows(session, "", "", time_filter, risk_profile, limit)
 
     by_tf: dict[str, list[SignalLog]] = {}
     for r in rows:
@@ -503,7 +500,7 @@ def compute_stats_by_tf(
         total = len(items)
         wins = sum(1 for r in items if r.result == "win")
         losses = sum(1 for r in items if r.result == "loss")
-        pending = sum(1 for r in items if not r.result and not r.expired)
+        pending = 0
         expired = sum(1 for r in items if r.expired)
 
         closed = wins + losses
@@ -568,27 +565,19 @@ def compute_stats_by_quality(
     source: str = "",
     time_filter: str = "all",
     risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
 ) -> dict[str, dict]:
+    """🔴 فاز ۱۰.۸ — limit اضافه شد، فقط بسته‌شده‌ها."""
+    limit = max(50, min(limit, 500))
+
     with Session(engine) as session:
-        stmt = select(SignalLog)
-        if tf:
-            stmt = stmt.where(SignalLog.tf == tf)
-        if source:
-            stmt = stmt.where(SignalLog.source == source)
-        if risk_profile:
-            stmt = stmt.where(SignalLog.risk_profile == risk_profile)
-        if time_filter != "all":
-            now = _utcnow()
-            days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
-            if days:
-                stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-        rows = session.exec(stmt).all()
+        rows = _fetch_closed_rows(session, tf, source, time_filter, risk_profile, limit)
 
     def _stats(items: list[SignalLog]) -> dict:
         total = len(items)
         wins = sum(1 for r in items if r.result == "win")
         losses = sum(1 for r in items if r.result == "loss")
-        pending = sum(1 for r in items if not r.result and not r.expired)
+        pending = 0
         expired = sum(1 for r in items if r.expired)
 
         closed = wins + losses

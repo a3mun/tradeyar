@@ -1,13 +1,10 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۴.۰ · فاز ۱۰.۴
+نسخه ۴.۱ · فاز ۱۰.۸
 🔴 تغییرات:
   • چرخه‌ی صرافی: nobitex → wallex → bitpin → تکرار
-  • هر اسکن فقط یک صرافی (کاهش فشار)
-  • TF های whitelist: ۱۵m, ۳۰m, ۱h
-  • Watchlist از data/watchlist.json
-  • فقط ۱۰۰ سیگنال آخر
+  • رفع باگ ری‌استارت (استفاده از شمارنده به جای ساعت)
 """
 
 import asyncio
@@ -17,7 +14,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from datetime import datetime, timezone
+
 from api.config import settings
 from services.backtest_service import backtest_all
 
@@ -58,34 +55,24 @@ FIXED_SYMBOLS = [
 ]
 
 
-# 🔴 فاز ۱۰.۴ — TF های اسکن (بدون ۱m و ۵m و روزانه)
 SCAN_TIMEFRAMES = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
-
 SCAN_MARKET_TYPE = "futures"
 SCAN_RISK_PROFILE = "aggressive"
 
-# 🔴 چرخه صرافی — هر ۶۰ دقیقه یکی
 EXCHANGE_CYCLE = ["nobitex", "wallex", "bitpin"]
+
+# 🔴 فاز ۱۰.۸ — شمارنده سراسری برای چرخش
+_scan_cycle_idx = 0
 
 
 def _next_exchange() -> str:
     """
-    🔴 فاز ۱۰.۷ — چرخه deterministic (بر اساس ساعت).
-
-    ═══ چرا ═══
-    قبلاً شمارنده global بود. اگه سرور restart می‌شد،
-    از ۰ شروع می‌شد → ممکنه چند بار nobitex بشه.
-
-    الان: ساعت UTC تعیین می‌کنه. Restart-safe.
-      • ساعت ۰  → nobitex
-      • ساعت ۱  → wallex
-      • ساعت ۲  → bitpin
-      • ساعت ۳  → nobitex
-      • ...
+    🔴 فاز ۱۰.۸ — چرخش deterministic با شمارنده.
     """
-    hour = datetime.now(timezone.utc).hour
-    idx = hour % len(EXCHANGE_CYCLE)
-    return EXCHANGE_CYCLE[idx]
+    global _scan_cycle_idx
+    exchange = EXCHANGE_CYCLE[_scan_cycle_idx % len(EXCHANGE_CYCLE)]
+    _scan_cycle_idx += 1
+    return exchange
 
 
 def _load_watchlist_from_file() -> list[dict]:
@@ -162,30 +149,18 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
 
 
 async def auto_scan_and_record(trigger: str = "scheduler"):
-    """
-    اسکن چرخه‌ای — هر بار یک صرافی.
-
-    ═══ تغییرات فاز ۱۰.۵ ═══
-    • نمادهای ثابت محدود به BTC/ETH/PAXG (حذف SOL, XRP)
-    • چرخه صرافی درست کار می‌کنه (والکس و بیت‌پین هم اسکن می‌شن)
-    • Watchlist از فایل خونده می‌شه
-    """
-    # 🔴 انتخاب صرافی برای این دور
+    """اسکن چرخه‌ای — هر بار یک صرافی."""
     exchange = _next_exchange()
     logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
 
     try:
         from services.analyzer_service import analyze
 
-        # ═══ نمادهای ثابت این صرافی ═══
         exchange_fixed = [s for s in FIXED_SYMBOLS if s["source"] == exchange]
-
-        # ═══ Watchlist این صرافی ═══
         exchange_watchlist = [
             w for w in _load_watchlist_from_file() if w["source"] == exchange
         ]
 
-        # ═══ اگه برای این صرافی نمادی نداریم، رد شو ═══
         if not exchange_fixed and not exchange_watchlist:
             logger.info(f"[AutoScan/{trigger}] صرافی {exchange} نمادی نداره — رد")
             return {
@@ -195,7 +170,6 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
                 "skipped": True,
             }
 
-        # ═══ ادغام بدون تکرار ═══
         seen: set[str] = set()
         all_symbols: list[dict] = []
         for s in exchange_fixed + exchange_watchlist:
@@ -213,7 +187,6 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
         total_recorded = 0
         total_errors = 0
 
-        # ═══ حلقه دوگانه: نماد × TF ═══
         for sym in all_symbols:
             for tf_name in SCAN_TIMEFRAMES:
                 try:
@@ -262,7 +235,6 @@ def start_scheduler():
         logger.debug("[Scheduler] از قبل اجراست")
         return
 
-    # ═══ job ۱: راستی‌آزمایی هر ۵ دقیقه ═══
     scheduler.add_job(
         check_pending_signals,
         IntervalTrigger(minutes=5),
@@ -274,7 +246,6 @@ def start_scheduler():
         kwargs={"trigger": "scheduler"},
     )
 
-    # ═══ job ۲: اسکن چرخه‌ای هر ۶۰ دقیقه ═══
     scheduler.add_job(
         auto_scan_and_record,
         IntervalTrigger(minutes=60),

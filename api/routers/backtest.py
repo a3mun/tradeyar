@@ -2,11 +2,9 @@
 api/routers/backtest.py
 راستی‌آزمایی — endpoints
 ============================================================
-نسخه ۳.۰ · فاز ۱۰.۱
+نسخه ۳.۱ · فاز ۱۰.۸
 🔴 تغییرات:
-  • همه‌ی فراخوانی‌های sync با run_in_threadpool
-  • endpoint جدید: GET /backtest/by-quality
-  • endpoint جدید: GET /backtest/by-quality-detailed
+  • پارامتر limit برای /backtest و /by-tf و /by-quality
 """
 
 import logging
@@ -42,6 +40,7 @@ async def backtest_stats(
     source: str = "",
     time_filter: str = "all",
     risk_profile: str = "",
+    limit: int = Query(default=100, ge=50, le=500),
 ):
     """آمار کلی راستی‌آزمایی"""
     stats = await run_in_threadpool(
@@ -50,6 +49,7 @@ async def backtest_stats(
         source=source,
         time_filter=time_filter,
         risk_profile=risk_profile,
+        limit=limit,
     )
     stats.setdefault("avg_rr_net", 0.0)
     stats.setdefault("trend_correct", 0)
@@ -145,13 +145,7 @@ async def backtest_history(
 # ═══════════════════════════════════════════════════════════
 @router.post("/run")
 async def backtest_run():
-    """
-    اجرای دستی راستی‌آزمایی — نسخه ۳.۱.
-
-    🔴 فاز ۱۰.۲ — بهبود خطا و لاگ:
-      • log دقیق‌تر
-      • return status واضح‌تر برای فرانت
-    """
+    """اجرای دستی راستی‌آزمایی."""
     logger.info("[Backtest/manual] اجرای دستی راستی‌آزمایی توسط کاربر")
 
     try:
@@ -185,21 +179,12 @@ async def backtest_reset(
     request: Request,
     session: Session = Depends(get_session),
 ):
-    """
-    پاک کردن همه‌ی سیگنال‌ها.
-
-    🔴 امنیت (فاز ۱۰.۴):
-    • نیاز به X-API-Key هدر
-    • بدون ADMIN_API_KEY → 503 (fail-closed)
-    • بدون هدر → 401
-    • کلید اشتباه → 403
-    """
+    """پاک کردن همه‌ی سیگنال‌ها — نیاز به X-API-Key."""
     import logging
     from api.config import settings
 
     audit_log = logging.getLogger("api.deps")
 
-    # ─── ۱. کلید ادمین تنظیم نشده؟ ───
     admin_key = (settings.ADMIN_API_KEY or "").strip()
     if not admin_key:
         audit_log.error("[Admin] ADMIN_API_KEY تنظیم نشده — درخواست رد شد")
@@ -208,18 +193,15 @@ async def backtest_reset(
             detail="سرویس موقتاً در دسترس نیست (کلید ادمین تنظیم نشده)",
         )
 
-    # ─── ۲. هدر ارسال شده؟ ───
     provided = request.headers.get("X-API-Key", "").strip()
     if not provided:
         audit_log.warning("[Admin] درخواست reset بدون X-API-Key")
         raise HTTPException(status_code=401, detail="X-API-Key لازم است")
 
-    # ─── ۳. کلید صحیح؟ ───
     if provided != admin_key:
         audit_log.warning(f"[Admin] کلید اشتباه در reset: {provided[:4]}...")
         raise HTTPException(status_code=403, detail="کلید معتبر نیست")
 
-    # ─── ۴. موفق — پاک‌سازی ───
     audit_log.info(
         f"[Admin] درخواست reset تأیید شد (ip={request.client.host if request.client else '?'})"
     )
@@ -241,11 +223,13 @@ async def backtest_reset(
 async def backtest_stats_by_tf(
     time_filter: str = Query(default="all"),
     risk_profile: str = Query(default=""),
+    limit: int = Query(default=100, ge=50, le=500),
 ):
     data = await run_in_threadpool(
         compute_stats_by_tf,
         time_filter=time_filter,
         risk_profile=risk_profile,
+        limit=limit,
     )
     return {"ok": True, "items": data}
 
@@ -265,7 +249,7 @@ async def backtest_stats_by_profile(
 
 
 # ═══════════════════════════════════════════════════════════
-# 🎯 GET /backtest/by-quality — جدید فاز ۱۰.۱
+# GET /backtest/by-quality — به تفکیک کیفیت
 # ═══════════════════════════════════════════════════════════
 @router.get("/by-quality")
 async def backtest_stats_by_quality(
@@ -274,23 +258,9 @@ async def backtest_stats_by_quality(
     source: str = Query(default=""),
     time_filter: str = Query(default="all"),
     risk_profile: str = Query(default=""),
+    limit: int = Query(default=100, ge=50, le=500),
 ):
-    """
-    آمار به تفکیک کیفیت سیگنال (confidence tier).
-
-    ═══ خروجی ═══
-        {
-            "all":    {...},  ← همه
-            "strong": {...},  ← conf >= 70
-            "normal": {...},  ← 50 <= conf < 70
-            "weak":   {...},  ← conf < 50
-        }
-
-    ═══ چرا این endpoint ═══
-    کاربر می‌خواد بدونه: «آیا confidence واقعاً پیش‌بین درستیه؟»
-    اگه strong بهتر از weak باشه → confidence کار می‌کنه.
-    اگه نه → باید بازطراحی بشه.
-    """
+    """آمار به تفکیک کیفیت سیگنال (confidence tier)."""
     rate_limit_for(request, "backtest_quality", limit=30, window_sec=60)
 
     data = await run_in_threadpool(
@@ -299,12 +269,13 @@ async def backtest_stats_by_quality(
         source=source,
         time_filter=time_filter,
         risk_profile=risk_profile,
+        limit=limit,
     )
     return {"ok": True, "items": data}
 
 
 # ═══════════════════════════════════════════════════════════
-# POST /backtest/record — ثبت سیگنال از اسکنر (فاز ۸)
+# POST /backtest/record — ثبت سیگنال از اسکنر
 # ═══════════════════════════════════════════════════════════
 class RecordRequest(BaseModel):
     """بدنه درخواست POST /backtest/record"""
@@ -319,12 +290,9 @@ class RecordRequest(BaseModel):
 
 @router.post("/record")
 async def backtest_record(req: RecordRequest):
-    """
-    ثبت یک سیگنال از اسکنر برای راستی‌آزمایی.
-    """
+    """ثبت یک سیگنال از اسکنر برای راستی‌آزمایی."""
     from services.analyzer_service import analyze
 
-    # ─── اجرای تحلیل در thread جدا ───
     result = await run_in_threadpool(
         analyze,
         ticker=req.ticker,

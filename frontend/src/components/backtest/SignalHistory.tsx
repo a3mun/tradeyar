@@ -3,12 +3,10 @@
 /**
  * SignalHistory — تاریخچه سیگنال‌ها
  * ============================================================
- * نسخه ۴.۰ · فاز ۱۰.۶
- *
- * ═══ تغییرات نسخه ۴.۰ ═══
- *   • مرتب‌سازی هوشمند: فوری‌ترین + جدیدترین
- *   • pending ها بالاتر از resolved
- *   • urgency-based weighting
+ * نسخه ۵.۰ · فاز ۱۰.۸
+ * 
+ * ═══ تغییرات ═══
+ *   • اضافه شدن فیلتر TF
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -100,30 +98,28 @@ function formatTimeLeft(min: number): string {
 
 const STATUS_TABS = [
   { key: "all", label: "همه" },
-  { key: "pending", label: "⏳ انتظار" },
-  { key: "win", label: "✅ برد" },
-  { key: "loss", label: "❌ باخت" },
-  { key: "expired", label: "⏰ منقضی" },
+  { key: "pending", label: "⏳" },
+  { key: "win", label: "✅" },
+  { key: "loss", label: "❌" },
+  { key: "expired", label: "⏰" },
+];
+
+const TF_TABS = [
+  { key: "", label: "همه TF" },
+  { key: "۱ دقیقه", label: "۱m" },
+  { key: "۵ دقیقه", label: "۵m" },
+  { key: "۱۵ دقیقه", label: "۱۵m" },
+  { key: "۳۰ دقیقه", label: "۳۰m" },
+  { key: "۱ ساعت", label: "۱h" },
+  { key: "روزانه", label: "۱d" },
 ];
 
 interface Props {
   source?: string;
   profile?: string;
+  tf?: string;
 }
 
-/**
- * 🔴 فاز ۱۰.۶ — امتیاز urgency
- *
- * ═══ منطق ═══
- * امتیاز بالاتر = فوری‌تر (بالاتر نمایش داده می‌شه)
- *
- *   timeLeft < 10  → 1000 (خیلی فوری)
- *   timeLeft < 30  → 500
- *   timeLeft < 60  → 200
- *   timeLeft < 180 → 50
- *   timeLeft < 720 → 10
- *   وگرنه        → 1
- */
 function urgencyScore(timeLeft: number): number {
   if (timeLeft < 0) return 0;
   if (timeLeft < 10) return 1000;
@@ -139,36 +135,27 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("all");
+  const [tf, setTf] = useState(""); // فیلتر TF
   const [visibleCount, setVisibleCount] = useState(10);
 
   const silentFetch = useCallback(async () => {
     try {
       const res = await api.get("/backtest/history", {
-        params: {
-          limit: 200,
-          status,
-          source,
-          risk_profile: profile,
-        },
+        params: { limit: 200, status, source, risk_profile: profile, tf },
       });
       setItems(res.data.items || []);
       setError("");
     } catch {
       setError("دریافت تاریخچه ناموفق بود");
     }
-  }, [status, source, profile]);
+  }, [status, source, profile, tf]);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const res = await api.get("/backtest/history", {
-          params: {
-            limit: 200,
-            status,
-            source,
-            risk_profile: profile,
-          },
+          params: { limit: 200, status, source, risk_profile: profile, tf },
         });
         if (cancelled) return;
         setItems(res.data.items || []);
@@ -185,14 +172,13 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [status, source, profile]);
+  }, [status, source, profile, tf]);
 
   useEffect(() => {
     const id = setInterval(silentFetch, 15000);
     return () => clearInterval(id);
   }, [silentFetch]);
 
-  // 🔴 فاز ۱۰.۶ — مرتب‌سازی هوشمند
   const sortedItems = useMemo(() => {
     const arr = [...items];
 
@@ -200,30 +186,20 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
       const aPending = !a.result && !a.expired;
       const bPending = !b.result && !b.expired;
 
-      // ═══ ۱. Pending ها همیشه بالاتر از resolved ═══
       if (aPending && !bPending) return -1;
       if (!aPending && bPending) return 1;
 
-      // ═══ ۲. در بین pending ها: urgency + newness ═══
       if (aPending && bPending) {
         const aLeft = timeLeftMin(a.timestamp, a.tf, a.market_type, a.result);
         const bLeft = timeLeftMin(b.timestamp, b.tf, b.market_type, b.result);
-
         const aUrgency = urgencyScore(aLeft);
         const bUrgency = urgencyScore(bLeft);
-
-        // اگه urgency فرق داره → فوری‌تر اول
-        if (aUrgency !== bUrgency) {
-          return bUrgency - aUrgency; // امتیاز بالا اول
-        }
-
-        // اگه urgency نزدیکه → جدیدترین اول
+        if (aUrgency !== bUrgency) return bUrgency - aUrgency;
         const at = parseUtc(a.timestamp)?.getTime() ?? 0;
         const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
         return bt - at;
       }
 
-      // ═══ ۳. Resolved ها: جدیدترین اول ═══
       const bt = parseUtc(b.timestamp)?.getTime() ?? 0;
       const at = parseUtc(a.timestamp)?.getTime() ?? 0;
       return bt - at;
@@ -297,6 +273,26 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
         ))}
       </div>
 
+      {/* ═══ فیلتر TF ═══ */}
+      <div className="grid grid-cols-7 gap-1">
+        {TF_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => {
+              setVisibleCount(10);
+              setTf(t.key);
+            }}
+            className={`rounded-md border py-1 text-[8px] font-medium transition-all ${
+              tf === t.key
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* ═══ شمارنده ═══ */}
       <div className="text-[9px] text-muted-foreground text-left">
         {pendingCount > 0 ? (
@@ -321,9 +317,7 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
 
         {!loading && !error && items.length === 0 && (
           <p className="py-4 text-center text-[11px] text-muted-foreground">
-            {status === "all"
-              ? "هنوز سیگنالی ثبت نشده"
-              : "سیگنالی با این فیلتر پیدا نشد"}
+            سیگنالی با این فیلتر پیدا نشد
           </p>
         )}
 
