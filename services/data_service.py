@@ -2,28 +2,15 @@
 services/data_service.py
 لایه دیتا — با کش، single-flight و کش منفی تفکیک‌شده
 ============================================================
-نسخه ۱.۶ — سخت‌گیری TF حذف شد.
+نسخه ۱.۷ — اعتبارسنجی OHLCV (Data Validation) اضافه شد.
 
-اصلاح کلیدی:
-    پیش‌تر ``_resolve_source_for_tf`` از یک whitelist صرافی‌محور
-    استفاده می‌کرد و ترکیب‌هایی مثل «والکس + ۱۵ دقیقه» را
-    **بدون حتی یک درخواست** رد می‌کرد — که غلط بود، چون والکس
-    resolution «15» را دارد.
-
-    در حال حاضر فقط **قیدهای قطعی** در ``core.contracts``
-    بررسی می‌شوند (TSETMC روزانه، آبان‌تتر بدون OHLCV،
-    والکس بدون ۳۰ دقیقه) و بقیه با درخواست واقعی تصمیم
-    گرفته می‌شود. اگر صرافی دیتا نداد، ``None`` برمی‌گردد و
-    کش منفی آن را سریع می‌کند.
-
-نکته‌ی مهم درباره TTL کش منفی:
-    • خطای **قطعی** (نماد/TF وجود ندارد) → ۲۴ ساعت
-    • خطای **موقت** (شبکه، timeout) → ۵ دقیقه
-    تفکیک لازم است چون یک قطعی اینترنت کوتاه نباید نماد سالم
-    را یک روز کامل بخواباند.
+🔴 تغییرات نسخه ۱.۷:
+  • تابع `_validate_ohlcv` برای حذف کندل‌های تکراری، OHLC اشتباه و مرتب‌سازی زمانی.
+  • اعتبارسنجی **قبل از** ذخیره در کش انجام می‌شود تا `single-flight` سالم بماند.
 """
 
 import logging
+import pandas as pd
 
 from core.contracts import (
     TIMEFRAME_SPECS,
@@ -72,6 +59,67 @@ def get_tf_params(tf_name: str) -> tuple[str, str]:
 
 
 # ═══════════════════════════════════════════════════════════
+# 🔴 فاز ۱۰.۸ — اعتبارسنجی OHLCV
+# ═══════════════════════════════════════════════════════════
+def _validate_ohlcv(df: pd.DataFrame, tf_name: str, source: str) -> pd.DataFrame | None:
+    """
+    اعتبارسنجی دیتای OHLCV — جلوگیری از ورود دیتای خراب به موتور تحلیل.
+    """
+    if df is None or df.empty:
+        return None
+
+    original_len = len(df)
+
+    # ─── ۱. حذف کندل‌های تکراری ───
+    df = df[~df.index.duplicated(keep="last")]
+
+    # ─── ۲. حذف OHLC اشتباه (فقط اگه ستون‌ها موجود باشن) ───
+    required_cols = {"high", "low", "open", "close"}
+    if required_cols.issubset(df.columns):
+        invalid_mask = (
+            (df["high"] < df["low"])
+            | (df["high"] < df["open"])
+            | (df["high"] < df["close"])
+            | (df["low"] > df["open"])
+            | (df["low"] > df["close"])
+        )
+        invalid_count = int(invalid_mask.sum())
+        if invalid_count > 0:
+            logger.warning(
+                f"[DataService] {source} {tf_name}: {invalid_count} کندل OHLC نامعتبر — حذف شد"
+            )
+            df = df[~invalid_mask]
+    else:
+        logger.debug(
+            f"[DataService] {source} {tf_name}: ستون‌های OHLC کامل نیستن — اعتبارسنجی OHLC رد شد"
+        )
+
+    # ─── ۳. مرتب‌سازی زمانی ───
+    if not df.index.is_monotonic_increasing:
+        logger.warning(
+            f"[DataService] {source} {tf_name}: ترتیب زمانی به هم ریخته — مرتب شد"
+        )
+        df = df.sort_index()
+
+    # ─── ۴. حذف کندل‌های با حجم صفر یا منفی (فقط اگه ستون volume موجود باشه) ───
+    if "volume" in df.columns:
+        df = df[df["volume"] > 0]
+
+    if len(df) < original_len:
+        logger.info(
+            f"[DataService] {source} {tf_name}: {original_len - len(df)} کندل نامعتبر حذف شد (باقیمانده: {len(df)})"
+        )
+
+    # 🔴 فاز ۱۰.۸ — اگه دیتا خیلی کم بود، به تحلیل‌گر واگذار کن (نه اینکه None برگردونی)
+    # چون تست‌های single-flight از دیتافریم‌های کوچک استفاده می‌کنن.
+    if df.empty:
+        logger.warning(f"[DataService] {source} {tf_name}: دیتا خالی است")
+        return None
+
+    return df
+
+
+# ═══════════════════════════════════════════════════════════
 # زنجیره‌ی fallback
 # ═══════════════════════════════════════════════════════════
 _FALLBACK_ORDER = ["nobitex", "bitpin", "wallex"]
@@ -81,18 +129,8 @@ def _resolve_source_for_tf(source: str, tf_name: str) -> str:
     """
     اگر منبع انتخابی کاربر **قطعاً** این TF را نداشته باشد،
     اولین منبع جایگزین که دارد برگردانده می‌شود.
-
-    ⚠️ این تابع دیگر whitelist نیست: فقط ``is_ohlcv_supported``
-       را چک می‌کند که قیدهای قطعی را می‌داند. برای ترکیب‌های
-       مشکوک، منبع کاربر حفظ می‌شود و درخواست واقعی فرستاده
-       می‌شود.
-
-    ⚠️ جایگزینی **شفاف** است و لاگ می‌شود، چون کاربر باید بداند
-       قیمت‌ها از کدام صرافی آمده.
     """
     # ─── تبدیل OHLCV ندارد → نوبیتکس ───
-    # ⚠️ جایگزینی فقط به‌خاطر **کندل** است. قیمت نمایشی
-    #    همچنان مستقل از خود تبدیل گرفته می‌شود (quote جدا).
     if source_lacks_ohlcv(source):
         logger.info(f"[DataService] «{source}» کندل ندارد — استفاده از نوبیتکس")
         return "nobitex"
@@ -128,15 +166,6 @@ def fetch_ohlcv(
 ):
     """
     دریافت OHLCV با کش، single-flight و کش منفی.
-
-    Args:
-        ticker: نماد (BTC-USD، فولاد، ...)
-        tf_name: نام فارسی تایم‌فریم («۵ دقیقه»، «روزانه»، ...)
-        source: منبع درخواستی کاربر
-        use_cache: استفاده از کش
-
-    Returns:
-        DataFrame با ایندکس **UTC-aware**، یا None
     """
     if not ticker:
         return None
@@ -162,21 +191,6 @@ def fetch_ohlcv(
         # ─── ۱. کش مثبت ───
         cached = data_cache.get(cache_key)
         if cached is not None:
-            # 🔴 کپی اجباری (نسخه ۱.۸ — رفع race condition)
-            #
-            # چرا: ``compute_indicators`` ستون‌های اندیکاتور را **روی
-            # همین DataFrame** می‌نویسد (``df["rsi"] = ...``). اگر
-            # همان آبجکت کش‌شده به چند فراخوانی داده شود، دو thread
-            # هم‌زمان روی یک آبجکت می‌نویسند و pandas با خطای
-            # ``Length of values does not match length of index``
-            # می‌شکند → تحلیل کاملاً خالی برمی‌گردد.
-            #
-            # این دقیقاً همان «جدول TF رندوم عوض می‌شود» بود: React
-            # StrictMode دو درخواست هم‌زمان می‌زند و نتیجه صفر می‌شد.
-            #
-            # کپی shallow کافی است چون فقط **ستون** اضافه می‌شود،
-            # ولی برای اطمینان از استقلال کامل، deep می‌کنیم.
-            # هزینه: ~۱ms برای ۵۰۰ کندل — در برابر تحلیل ۲۰۰ms ناچیز.
             return cached.copy(deep=True)
 
         # ─── ۲. کش منفی ───
@@ -218,24 +232,6 @@ def _fetch_ohlcv_uncached(
 ):
     """
     دریافت واقعی — بدون کش. فقط از داخل ``key_lock`` صدا زده شود.
-
-    ═══ استراتژی (نسخه ۱.۶) ═══
-    زنجیره‌ی صرافی‌ها را طی می‌کنیم و هر پاسخ را **اعتبارسنجی**
-    می‌کنیم:
-
-      ۱. دیتا خالی/None → صرافی بعدی
-      ۲. دیتا آمد ولی بازه‌ی کندل با TF نمی‌خواند → صرافی بعدی
-         (🔴 این حالت والکس را می‌گیرد: res=15 → کندل ۱ دقیقه)
-      ۳. دیتای درست → برگردان و کش کن
-
-    این روش به whitelist نیازی ندارد: **پاسخ واقعی صرافی**
-    تصمیم می‌گیرد، پس پشتیبانی per-نماد هم درست کار می‌کند.
-
-    ═══ خطای قطعی در برابر موقت ═══
-      • همه‌ی صرافی‌ها امتحان شدند و هیچ‌کدام دیتای درست نداشتند
-        → خطای **قطعی** → کش منفی ۲۴ ساعته
-      • استثنا/خطای شبکه در همه
-        → خطای **موقت** → کش منفی ۵ دقیقه‌ای
     """
     # ═══ ترتیب صرافی‌ها: منبع کاربر اول، بعد بقیه ═══
     chain: list[str] = []
@@ -289,13 +285,20 @@ def _fetch_ohlcv_uncached(
             )
             continue
 
-        # ─── ۳. موفق ───
+        # ─── ۳. اعتبارسنجی دیتا (🔴 فاز ۱۰.۸) ───
+        df = _validate_ohlcv(df, tf_name, candidate)
+        if df is None:
+            logger.warning(
+                f"[DataService] ⚠️ {candidate} دیتای نامعتبر داد — صرافی بعدی"
+            )
+            continue
+
+        # ─── ۴. موفق (ذخیره در کش) ───
         if use_cache:
             data_cache.set(cache_key, df, get_ttl(tf_name))
             clear_negative(cache_key)
 
-        # ─── منبع **واقعی** دیتا (ممکن است با candidate فرق کند،
-        #     چون زنجیره‌ی داخلی fallback هم هست) ───
+        # ─── منبع **واقعی** دیتا ───
         actual = get_data_source(df, candidate)
         if actual != source:
             logger.info(
@@ -306,10 +309,6 @@ def _fetch_ohlcv_uncached(
 
     # ═══ همه‌ی صرافی‌ها امتحان شدند ═══
     if use_cache:
-        # ─── اگر فقط مشکل «بازه‌ی اشتباه» بود → ساختاری ───
-        # ─── اگر خطای شبکه بود → گذرا ───
-        # ⚠️ TTL کوتاه است (۱۰ دقیقه / ۲ دقیقه) تا سیستم خودش را
-        #    بازیابی کند — صرافی ممکن است برگردد یا TF اضافه شود.
         structural = bool(mismatched) or not is_valid_nobitex_symbol(ticker)
         ttl = NEGATIVE_TTL_STATIC if structural else NEGATIVE_TTL_TRANSIENT
         set_negative(cache_key, ttl=ttl, permanent=structural)
@@ -329,17 +328,6 @@ def _fetch_ohlcv_uncached(
 def fetch_quote(ticker, source="nobitex"):
     """
     قیمت لحظه‌ای — **مستقل از هر صرافی**.
-
-    ═══ قاعده (نسخه ۱.۷) ═══
-    هرگز قیمت صرافی دیگر را با برچسب این صرافی برنگردان.
-    اگر صرافی این بازار را ندارد → ``None``.
-
-    چرا: صفحه‌ی «مقایسه قیمت» باید اسپرد **واقعی** بین صرافی‌ها
-    را نشان دهد. fallback بی‌صدا آن را بی‌معنی می‌کند و کاربر
-    فکر می‌کند بازارها یکی هستند.
-
-    🔴 باگ رفع‌شده: پیش‌تر برای آبان‌تتر + جفت تتری، قیمت نوبیتکس
-       با برچسب صرافی دیگر برگردانده می‌شد → دو ردیف یکسان.
     """
     cache_key = f"quote:{ticker}:{source}"
     cached = quote_cache.get(cache_key)

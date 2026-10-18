@@ -50,11 +50,11 @@ export function WatchlistCard() {
             >
 
               <button
-                onClick={() => {
-                  setTicker(w.ticker, w.name);
-                  setSource(w.source as never);
-                }}
-                className="flex items-center gap-1 whitespace-nowrap"
+              onClick={() => {
+                // 🔴 فاز ۱۰.۸ — صرافی فعلی را نگه دار، فقط نماد را عوض کن
+                setTicker(w.ticker, w.name);
+                // setSource(w.source) را حذف کردیم
+              }}
               >
                 <CryptoIcon ticker={w.ticker} size="sm" />
                 <span className="font-medium">{w.name}</span>
