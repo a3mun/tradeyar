@@ -77,48 +77,60 @@ function ResetDialogBody({
 
   const passOk = passcode.trim() === RESET_PASSCODE;
 
-  const handleReset = async () => {
-    if (!passOk) {
-      setError("رمز اشتباه است");
-      return;
-    }
+const handleReset = async () => {
+  if (!passOk) {
+    setError("رمز اشتباه است");
+    return;
+  }
 
-    setBusy(true);
-    setError("");
-    try {
-      // ─── هدر ادمین (اگه توی localStorage بود) ───
-      const adminKey = readStoredAdminKey();
-      const headers: Record<string, string> = {};
-      if (adminKey) headers["X-API-Key"] = adminKey;
+  setBusy(true);
+  setError("");
+  try {
+    // 🔴 فاز ۱۰.۸ — استفاده از fetch خام (بدون axios) برای اطمینان از ارسال هدر
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.trademun.ir";
+    const res = await fetch(`${apiUrl}/backtest/reset`, {
+      method: "DELETE",
+      headers: {
+        "X-API-Key": passcode.trim(),
+      },
+    });
 
-      const res = await api.delete("/backtest/reset", { headers });
-      onSuccess(res.data?.deleted ?? 0);
-      onClose();
-    } catch (e: unknown) {
-      const err = e as {
-        response?: { status?: number; data?: { detail?: string } };
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw {
+        response: {
+          status: res.status,
+          data: { detail: data.detail || "خطا در ریست" },
+        },
       };
-      const status = err.response?.status;
-      const detail = err.response?.data?.detail;
-
-      if (status === 403) {
-        setError(
-          "سرور کلید ادمین می‌خواد — با مدیر تماس بگیر (ADMIN_API_KEY تنظیم شده)"
-        );
-      } else if (status === 401) {
-        setError("هدر X-API-Key ارسال نشد");
-      } else if (status === 503) {
-        setError("عملیات مدیریتی روی سرور فعال نیست");
-      } else if (!err.response) {
-        setError("ارتباط با سرور برقرار نشد");
-      } else {
-        setError(detail || `خطای غیرمنتظره (${status ?? "?"})`);
-      }
-    } finally {
-      setBusy(false);
     }
-  };
 
+    const data = await res.json();
+    onSuccess(data?.deleted ?? 0);
+    onClose();
+  } catch (e: unknown) {
+    const err = e as {
+      response?: { status?: number; data?: { detail?: string } };
+    };
+    const status = err.response?.status;
+    const detail = err.response?.data?.detail;
+
+    if (status === 403) {
+      setError("رمز ادمین اشتباه است");
+    } else if (status === 401) {
+      setError("هدر X-API-Key ارسال نشد");
+    } else if (status === 503) {
+      setError("عملیات مدیریتی روی سرور فعال نیست");
+    } else if (!err.response) {
+      setError("ارتباط با سرور برقرار نشد");
+    } else {
+      setError(detail || `خطای غیرمنتظره (${status ?? "?"})`);
+    }
+  } finally {
+    setBusy(false);
+  }
+};
+  
   return (
     <DialogContent className="sm:max-w-sm">
       <DialogHeader>
