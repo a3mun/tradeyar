@@ -7,7 +7,6 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🔴 تغییر نام متغیرها به اسم‌های Render
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -15,11 +14,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 @app.get("/test")
 def test_telegram():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return {
-            "error": "tokens not set",
-            "token": TELEGRAM_TOKEN,
-            "chat_id": TELEGRAM_CHAT_ID,
-        }
+        return {"error": "tokens not set"}
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
@@ -30,6 +25,12 @@ def test_telegram():
         return {"status": "sent", "response": r.json()}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/ping")
+def ping():
+    """این مسیر برای بیدار نگه داشتن Render توسط UptimeRobot است."""
+    return {"status": "ok"}
 
 
 @app.get("/")

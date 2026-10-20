@@ -87,31 +87,23 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
 
         stmt = sqlite_insert(SignalLog).values(**values)
         stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
-    else:
-        try:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            stmt = pg_insert(SignalLog).values(**values)
-            stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
-        except ImportError:
-            stmt = insert(SignalLog).values(**values)
-
-    result = session.execute(stmt)
-    session.commit()
-
-    # 🔴 راه‌حل باگ psycopg3: استفاده از fetchone به جای rowcount
-    if is_sqlite:
+        result = session.execute(stmt)
+        session.commit()
         return bool(result.rowcount)
     else:
-        # در PostgreSQL، اگه رکورد درج بشه، یک ردیف برمی‌گردونه.
-        # اگه تکراری باشه، هیچ ردیفی برنمی‌گردونه.
-        try:
-            row = result.fetchone()
-            return row is not None
-        except Exception:
-            # اگه fetchone خطا داد (مثلاً برای INSERT بدون RETURNING)،
-            # به rowcount برمی‌گردیم
-            return bool(result.rowcount)
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        # 🔴 استفاده از RETURNING برای تشخیص دقیق درج جدید
+        stmt = pg_insert(SignalLog).values(**values)
+        stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
+        stmt = stmt.returning(SignalLog.id)
+
+        result = session.execute(stmt)
+        inserted_id = result.fetchone()
+        session.commit()
+
+        # اگه inserted_id وجود داشته باشه، یعنی رکورد جدید درج شده
+        return inserted_id is not None
 
 
 def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:
