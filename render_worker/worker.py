@@ -2,50 +2,31 @@
 import logging
 import requests
 from fastapi import FastAPI
-from dotenv import load_dotenv
-from notifier import notify_signal
 
-load_dotenv()
+app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
-API_URL = "https://api.trademun.ir/backtest/history?limit=1"
-last_timestamp = None
-
-
-def check_new_signal():
-    global last_timestamp
-    try:
-        resp = requests.get(API_URL, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        if not data or not isinstance(data, list) or len(data) == 0:
-            return
-        latest = data[0]
-        ts = latest.get("timestamp")
-        if ts and ts != last_timestamp:
-            last_timestamp = ts
-            notify_signal(latest)
-    except Exception as e:
-        logger.error(f"API error: {e}")
-
-
-@app.get("/ping")
-def ping():
-    check_new_signal()
-    return {"status": "ok"}
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 @app.get("/test")
 def test_telegram():
-    """اجرای تست ارسال به تلگرام (فقط برای دیباگ)"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return {"error": "tokens not set"}
     try:
-        from test_send import test_data
-        from notifier import notify_signal
-
-        notify_signal(test_data)
-        return {"status": "test sent"}
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": "✅ تست موفق! Render به تلگرام وصل شد.",
+        }
+        r = requests.post(url, data=payload, timeout=10)
+        return {"status": "sent", "response": r.json()}
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        return {"error": str(e)}
+
+
+@app.get("/")
+def root():
+    return {"message": "Worker is running"}
