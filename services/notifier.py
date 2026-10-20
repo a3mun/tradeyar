@@ -232,6 +232,9 @@ def _send_to_telegram(message: str) -> None:
         requests.post(
             f"{TELEGRAM_API_BASE}/bot{TELEGRAM_TOKEN}/sendMessage",
             data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            },  # 🔴 اضافه شد
             timeout=30,
         )
         logger.info("[Telegram] ✅")
