@@ -221,6 +221,15 @@ def record_signal(
                 f"[Recorder] ✅ {ticker} {tf_name} {signal}{weak_flag} "
                 f"({source}, {confidence}%, {market_type})"
             )
+
+            # 🔴 ارسال نوتیفیکیشن به تلگرام و بله
+            try:
+                from services.notifier import notify_signal
+
+                notify_signal(values)
+            except Exception as e:
+                logger.warning(f"[Recorder] Notifier failed: {e}")
+
             return True
         return False
     except IntegrityError:
