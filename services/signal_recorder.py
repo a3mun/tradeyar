@@ -98,7 +98,20 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
 
     result = session.execute(stmt)
     session.commit()
-    return bool(result.rowcount)
+
+    # 🔴 راه‌حل باگ psycopg3: استفاده از fetchone به جای rowcount
+    if is_sqlite:
+        return bool(result.rowcount)
+    else:
+        # در PostgreSQL، اگه رکورد درج بشه، یک ردیف برمی‌گردونه.
+        # اگه تکراری باشه، هیچ ردیفی برنمی‌گردونه.
+        try:
+            row = result.fetchone()
+            return row is not None
+        except Exception:
+            # اگه fetchone خطا داد (مثلاً برای INSERT بدون RETURNING)،
+            # به rowcount برمی‌گردیم
+            return bool(result.rowcount)
 
 
 def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:

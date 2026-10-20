@@ -7,6 +7,7 @@ app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 🔴 تغییر نام متغیرها به اسم‌های Render
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -14,7 +15,11 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 @app.get("/test")
 def test_telegram():
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return {"error": "tokens not set"}
+        return {
+            "error": "tokens not set",
+            "token": TELEGRAM_TOKEN,
+            "chat_id": TELEGRAM_CHAT_ID,
+        }
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {
