@@ -93,7 +93,7 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
     else:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        # 🔴 استفاده از RETURNING برای تشخیص دقیق درج جدید
+        # 🔴 RETURNING برای تشخیص دقیق درج جدید
         stmt = pg_insert(SignalLog).values(**values)
         stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
         stmt = stmt.returning(SignalLog.id)
