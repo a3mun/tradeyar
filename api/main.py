@@ -20,8 +20,6 @@ from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import ws as ws_router
 from api.scheduler import start_scheduler, stop_scheduler
 
-from api.routers import signals
-
 # ═══════════════════════════════════════════════════════════
 # Logging
 # ═══════════════════════════════════════════════════════════
@@ -70,8 +68,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-app.include_router(signals.router)
 
 # ═══════════════════════════════════════════════════════════
 # CORS

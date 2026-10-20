@@ -2,19 +2,16 @@
 import logging
 import requests
 from fastapi import FastAPI
-from dotenv import load_dotenv
 
-load_dotenv()
+app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-API_URL = "https://api.trademun.ir/signals/unsent"
-MARK_SENT_URL = "https://api.trademun.ir/signals/mark-sent"
-API_KEY = "38800"
+API_URL = "https://api.trademun.ir/backtest/history?limit=1"
+
+last_id = None
 
 
 def send_to_telegram(text: str) -> bool:
@@ -31,56 +28,37 @@ def send_to_telegram(text: str) -> bool:
         return False
 
 
-def process_unsent_signals():
+def check_new_signal():
+    global last_id
     try:
-        # ۱. گرفتن سیگنال‌های ارسال‌نشده
-        resp = requests.get(
-            API_URL,
-            headers={"X-API-Key": API_KEY},
-            timeout=10,
-        )
+        resp = requests.get(API_URL, timeout=10)
         resp.raise_for_status()
-        signals = resp.json()
-
-        if not signals:
+        data = resp.json()
+        if not data or not isinstance(data, list) or len(data) == 0:
             return
-
-        for sig in signals:
-            signal_id = sig.get("id")
-            if not signal_id:
-                continue
-
+        latest = data[0]
+        sig_id = latest.get("id")
+        if sig_id and sig_id != last_id:
+            last_id = sig_id
             text = (
                 f"📊 <b>سیگنال جدید | Trademun</b>\n\n"
-                f"💎 <b>نماد:</b> <code>{sig.get('ticker')}</code>\n"
-                f"🏦 <b>صرافی:</b> {sig.get('source')}\n"
-                f"⏱ <b>تایم‌فریم:</b> {sig.get('tf')}\n\n"
-                f"🔴 <b>وضعیت:</b> {sig.get('signal')} ({sig.get('confidence')}%)\n"
-                f"💰 <b>قیمت ورود:</b> <code>{sig.get('price')}</code>\n"
-                f"🎯 <b>حد سود (TP):</b> <code>{sig.get('tp')}</code>\n"
-                f"🛡 <b>حد ضرر (SL):</b> <code>{sig.get('sl')}</code>\n\n"
+                f"💎 <b>نماد:</b> <code>{latest.get('ticker')}</code>\n"
+                f"🏦 <b>صرافی:</b> {latest.get('source')}\n"
+                f"⏱ <b>تایم‌فریم:</b> {latest.get('tf')}\n\n"
+                f"🔴 <b>وضعیت:</b> {latest.get('signal')} ({latest.get('confidence')}%)\n"
+                f"💰 <b>قیمت ورود:</b> <code>{latest.get('price')}</code>\n"
+                f"🎯 <b>حد سود (TP):</b> <code>{latest.get('tp')}</code>\n"
+                f"🛡 <b>حد ضرر (SL):</b> <code>{latest.get('sl')}</code>\n\n"
                 f"🔗 <b>سایت:</b> trademun.ir · 📢 <b>کانال:</b> @trademun"
             )
-
-            # ۲. ارسال به تلگرام
-            if send_to_telegram(text):
-                # ۳. علامت‌گذاری به عنوان ارسال‌شده
-                try:
-                    requests.post(
-                        f"{MARK_SENT_URL}/{signal_id}",
-                        headers={"X-API-Key": API_KEY},
-                        timeout=10,
-                    )
-                    logger.info(f"Signal {signal_id} sent and marked.")
-                except Exception as e:
-                    logger.error(f"Mark sent error: {e}")
+            send_to_telegram(text)
     except Exception as e:
         logger.error(f"API error: {e}")
 
 
 @app.get("/ping")
 def ping():
-    process_unsent_signals()
+    check_new_signal()
     return {"status": "ok"}
 
 
