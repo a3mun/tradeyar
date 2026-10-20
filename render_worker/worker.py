@@ -2,76 +2,86 @@
 import logging
 import requests
 from fastapi import FastAPI
+from dotenv import load_dotenv
 
-app = FastAPI()
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+app = FastAPI()
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-API_URL = "https://api.trademun.ir/backtest/history?limit=1"
+API_URL = "https://api.trademun.ir/signals/unsent"
+MARK_SENT_URL = "https://api.trademun.ir/signals/mark-sent"
+API_KEY = "38800"
 
-# ذخیره آخرین timestamp برای جلوگیری از ارسال تکراری
-last_timestamp = None
 
-
-def send_to_telegram(text: str):
+def send_to_telegram(text: str) -> bool:
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+        return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
-        requests.post(url, data=payload, timeout=10)
-        logger.info("Message sent to Telegram.")
+        resp = requests.post(url, data=payload, timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("ok", False)
     except Exception as e:
         logger.error(f"Telegram error: {e}")
+        return False
 
 
-def check_new_signal():
-    global last_timestamp
+def process_unsent_signals():
     try:
-        resp = requests.get(API_URL, timeout=10)
+        # ۱. گرفتن سیگنال‌های ارسال‌نشده
+        resp = requests.get(
+            API_URL,
+            headers={"X-API-Key": API_KEY},
+            timeout=10,
+        )
         resp.raise_for_status()
-        data = resp.json()
-        if not data or not isinstance(data, list) or len(data) == 0:
+        signals = resp.json()
+
+        if not signals:
             return
-        latest = data[0]
-        ts = latest.get("timestamp")
-        if ts and ts != last_timestamp:
-            last_timestamp = ts
-            # ساخت متن ساده برای تلگرام
+
+        for sig in signals:
+            signal_id = sig.get("id")
+            if not signal_id:
+                continue
+
             text = (
                 f"📊 <b>سیگنال جدید | Trademun</b>\n\n"
-                f"💎 <b>نماد:</b> <code>{latest.get('ticker')}</code>\n"
-                f"🏦 <b>صرافی:</b> {latest.get('source')}\n"
-                f"⏱ <b>تایم‌فریم:</b> {latest.get('tf')}\n\n"
-                f"🔴 <b>وضعیت:</b> {latest.get('signal')} ({latest.get('confidence')}%)\n"
-                f"💰 <b>قیمت ورود:</b> <code>{latest.get('price')}</code>\n"
-                f"🎯 <b>حد سود (TP):</b> <code>{latest.get('tp')}</code>\n"
-                f"🛡 <b>حد ضرر (SL):</b> <code>{latest.get('sl')}</code>\n\n"
+                f"💎 <b>نماد:</b> <code>{sig.get('ticker')}</code>\n"
+                f"🏦 <b>صرافی:</b> {sig.get('source')}\n"
+                f"⏱ <b>تایم‌فریم:</b> {sig.get('tf')}\n\n"
+                f"🔴 <b>وضعیت:</b> {sig.get('signal')} ({sig.get('confidence')}%)\n"
+                f"💰 <b>قیمت ورود:</b> <code>{sig.get('price')}</code>\n"
+                f"🎯 <b>حد سود (TP):</b> <code>{sig.get('tp')}</code>\n"
+                f"🛡 <b>حد ضرر (SL):</b> <code>{sig.get('sl')}</code>\n\n"
                 f"🔗 <b>سایت:</b> trademun.ir · 📢 <b>کانال:</b> @trademun"
             )
-            send_to_telegram(text)
+
+            # ۲. ارسال به تلگرام
+            if send_to_telegram(text):
+                # ۳. علامت‌گذاری به عنوان ارسال‌شده
+                try:
+                    requests.post(
+                        f"{MARK_SENT_URL}/{signal_id}",
+                        headers={"X-API-Key": API_KEY},
+                        timeout=10,
+                    )
+                    logger.info(f"Signal {signal_id} sent and marked.")
+                except Exception as e:
+                    logger.error(f"Mark sent error: {e}")
     except Exception as e:
         logger.error(f"API error: {e}")
 
 
 @app.get("/ping")
 def ping():
-    """این مسیر برای بیدار نگه داشتن Render + چک سیگنال جدید است."""
-    check_new_signal()
+    process_unsent_signals()
     return {"status": "ok"}
-
-
-@app.get("/test")
-def test_telegram():
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return {"error": "tokens not set"}
-    try:
-        send_to_telegram("✅ تست موفق! Render به تلگرام وصل شد.")
-        return {"status": "sent"}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @app.get("/")
