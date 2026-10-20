@@ -38,6 +38,14 @@ def ping():
     return {"status": "ok"}
 
 
-@app.get("/")
-def root():
-    return {"message": "Worker is running!"}
+@app.get("/test")
+def test_telegram():
+    """اجرای تست ارسال به تلگرام (فقط برای دیباگ)"""
+    try:
+        from test_send import test_data
+        from notifier import notify_signal
+
+        notify_signal(test_data)
+        return {"status": "test sent"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
