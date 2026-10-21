@@ -2,15 +2,10 @@
 api/main.py
 FastAPI app — نقطه ورود
 ============================================================
-🔴 فاز ۱۰.۹.۲: Scheduler توی Thread جداگانه با Event Loop مستقل
-   اجرا می‌شه (چون lifespan/startup_event توی داکر کار نمی‌کنن).
+🔴 فاز ۱۰.۹.۴: Scheduler به سرویس مستقل (scheduler_worker) منتقل شد.
 """
 
-import atexit
-import asyncio
 import logging
-import threading
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -20,7 +15,6 @@ from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import ws as ws_router
-from api.scheduler import start_scheduler, stop_scheduler
 
 # ═══════════════════════════════════════════════════════════
 # Logging
@@ -46,54 +40,6 @@ async def lifespan(app: FastAPI):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 Scheduler Thread (جداگانه با Event Loop مستقل)
-# ═══════════════════════════════════════════════════════════
-_scheduler_started = False
-_scheduler_thread = None
-
-
-def _run_scheduler_thread():
-    """اجرای Scheduler توی thread جداگانه (BackgroundScheduler نیازی به event loop نداره)."""
-    global _scheduler_started
-    try:
-        start_scheduler()  # 🔴 BackgroundScheduler خودش thread جدا می‌سازه
-        _scheduler_started = True
-        logger.info("✅ Scheduler از Thread جداگانه شروع شد.")
-        while _scheduler_started:
-            time.sleep(60)
-    except Exception as e:
-        logger.error(f"❌ خطا در Scheduler Thread: {e}")
-
-
-def _start_scheduler_in_thread():
-    """شروع Scheduler توی thread جداگانه."""
-    global _scheduler_thread
-    if _scheduler_thread is not None and _scheduler_thread.is_alive():
-        return
-    _scheduler_thread = threading.Thread(
-        target=_run_scheduler_thread,
-        daemon=True,
-        name="apscheduler-thread",
-    )
-    _scheduler_thread.start()
-    logger.info("🧵 Thread مخصوص Scheduler ساخته شد.")
-
-
-def _stop_scheduler_safely():
-    """توقف امن Scheduler."""
-    global _scheduler_started
-    _scheduler_started = False
-    try:
-        stop_scheduler()
-    except Exception as e:
-        logger.warning(f"[Scheduler] خطا در توقف: {e}")
-
-
-# ثبت توقف در خروج برنامه
-atexit.register(_stop_scheduler_safely)
-
-
-# ═══════════════════════════════════════════════════════════
 # WebSocket sub-app
 # ═══════════════════════════════════════════════════════════
 ws_app = FastAPI()
@@ -109,12 +55,6 @@ app = FastAPI(
     description="دستیار هوشمند تحلیل و مانیتورینگ بازار — Trademun",
     lifespan=lifespan,
 )
-
-
-# ═══════════════════════════════════════════════════════════
-# 🔴 شروع Scheduler در Thread جداگانه (بلافاصله)
-# ═══════════════════════════════════════════════════════════
-_start_scheduler_in_thread()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -159,7 +99,7 @@ async def root():
         "ok": True,
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "phase": "فاز ۱۰.۹.۲ — Scheduler Fix (Thread)",
+        "phase": "فاز ۱۰.۹.۴ — Scheduler Worker",
     }
 
 

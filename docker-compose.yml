@@ -24,6 +24,25 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trademun-scheduler
+    restart: unless-stopped
+    command: ["python", "-m", "api.scheduler_worker"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/home/user/app/data
+      - ./fonts:/home/user/app/fonts
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
   frontend:
     build:
       context: ./frontend
