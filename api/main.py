@@ -2,16 +2,15 @@
 api/main.py
 FastAPI app — نقطه ورود
 ============================================================
-اجرا: uvicorn api.main:app --reload
-
-🔴 فاز ۷: WebSocket در sub-app جدا mount می‌شود تا
-   CORSMiddleware روی آن اثر نگذارد (رفع 403).
-
-🔴 فاز ۱۰.۹.۱: Scheduler از lifespan به startup_event منتقل شد
-   (چون lifespan توی داکر با uvicorn non-root اجرا نمی‌شه).
+🔴 فاز ۱۰.۹.۲: Scheduler توی Thread جداگانه با Event Loop مستقل
+   اجرا می‌شه (چون lifespan/startup_event توی داکر کار نمی‌کنن).
 """
 
+import atexit
+import asyncio
 import logging
+import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -34,30 +33,82 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════
-# Lifespan (startup/shutdown) — فقط DB
+# Lifespan (فقط DB)
 # ═══════════════════════════════════════════════════════════
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ─── Startup ───
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} در حال شروع...")
     init_db()
     migrate_db()
     logger.info("✅ دیتابیس آماده")
-    logger.info("✅ WebSocket manager آماده (/api/ws/live)")
     yield
-    # ─── Shutdown ───
     logger.info("👋 خداحافظ")
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 WebSocket sub-app — جدا از CORS
+# 🔴 Scheduler Thread (جداگانه با Event Loop مستقل)
+# ═══════════════════════════════════════════════════════════
+_scheduler_started = False
+_scheduler_thread = None
+
+
+def _run_scheduler_thread():
+    """اجرای Scheduler توی thread جداگانه با event loop مستقل."""
+    global _scheduler_started
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        start_scheduler()
+        _scheduler_started = True
+        logger.info("✅ Scheduler از Thread جداگانه شروع شد.")
+        while _scheduler_started:
+            loop.run_until_complete(asyncio.sleep(60))
+    except Exception as e:
+        logger.error(f"❌ خطا در Scheduler Thread: {e}")
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
+def _start_scheduler_in_thread():
+    """شروع Scheduler توی thread جداگانه."""
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return
+    _scheduler_thread = threading.Thread(
+        target=_run_scheduler_thread,
+        daemon=True,
+        name="apscheduler-thread",
+    )
+    _scheduler_thread.start()
+    logger.info("🧵 Thread مخصوص Scheduler ساخته شد.")
+
+
+def _stop_scheduler_safely():
+    """توقف امن Scheduler."""
+    global _scheduler_started
+    _scheduler_started = False
+    try:
+        stop_scheduler()
+    except Exception as e:
+        logger.warning(f"[Scheduler] خطا در توقف: {e}")
+
+
+# ثبت توقف در خروج برنامه
+atexit.register(_stop_scheduler_safely)
+
+
+# ═══════════════════════════════════════════════════════════
+# WebSocket sub-app
 # ═══════════════════════════════════════════════════════════
 ws_app = FastAPI()
 ws_app.include_router(ws_router.router)
 
 
 # ═══════════════════════════════════════════════════════════
-# App اصلی — با CORS
+# App اصلی
 # ═══════════════════════════════════════════════════════════
 app = FastAPI(
     title=settings.APP_NAME,
@@ -68,25 +119,9 @@ app = FastAPI(
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 Startup/Shutdown Events (برای Scheduler)
+# 🔴 شروع Scheduler در Thread جداگانه (بلافاصله)
 # ═══════════════════════════════════════════════════════════
-@app.on_event("startup")
-async def startup_event():
-    logger.info("🚀 اجرای startup_event...")
-    try:
-        start_scheduler()
-        logger.info("✅ Scheduler از startup_event شروع شد.")
-    except Exception as e:
-        logger.error(f"❌ خطا در شروع Scheduler: {e}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    try:
-        stop_scheduler()
-        logger.info("👋 Scheduler متوقف شد.")
-    except Exception as e:
-        logger.error(f"❌ خطا در توقف Scheduler: {e}")
+_start_scheduler_in_thread()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -107,7 +142,7 @@ app.add_middleware(
 
 
 # ═══════════════════════════════════════════════════════════
-# Routers — HTTP
+# Routers
 # ═══════════════════════════════════════════════════════════
 app.include_router(analyze.router)
 app.include_router(symbols.router)
@@ -117,7 +152,7 @@ app.include_router(orderbook.router)
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 Mount WebSocket sub-app — خارج از CORS
+# Mount WebSocket
 # ═══════════════════════════════════════════════════════════
 app.mount("/api", ws_app)
 
@@ -131,7 +166,7 @@ async def root():
         "ok": True,
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "phase": "فاز ۱۰.۹.۱ — Scheduler Fix",
+        "phase": "فاز ۱۰.۹.۲ — Scheduler Fix (Thread)",
     }
 
 
