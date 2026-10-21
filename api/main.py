@@ -58,7 +58,7 @@ def _run_scheduler_thread():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        start_scheduler()
+        start_scheduler()  # 🔴 scheduler داخل این تابع ساخته می‌شه
         _scheduler_started = True
         logger.info("✅ Scheduler از Thread جداگانه شروع شد.")
         while _scheduler_started:

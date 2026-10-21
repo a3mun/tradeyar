@@ -1,11 +1,9 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۴.۲ · فاز ۱۰.۸
+نسخه ۴.۳ · فاز ۱۰.۹.۲
 🔴 تغییرات:
-  • چرخه‌ی صرافی: nobitex → wallex → bitpin → تکرار
-  • رفع باگ ری‌استارت (استفاده از شمارنده به جای ساعت)
-  • اضافه شدن نمادهای بیت‌پین برای هم‌تعداد شدن با نوبیتکس
+  • Scheduler داخل start_scheduler ساخته می‌شه (رفع خطای no running event loop)
 """
 
 import asyncio
@@ -21,7 +19,8 @@ from services.backtest_service import backtest_all
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler(timezone="UTC")
+# 🔴 Scheduler به صورت global تعریف می‌شه ولی داخل start_scheduler ساخته می‌شه
+scheduler: AsyncIOScheduler | None = None
 _backtest_lock = asyncio.Lock()
 
 _EMPTY_RESULT = {
@@ -39,19 +38,16 @@ _EMPTY_RESULT = {
 # نمادهای هدف
 # ═══════════════════════════════════════════════════════════
 FIXED_SYMBOLS = [
-    # ─── nobitex ───
     {"ticker": "BTC-USD", "name": "بیت‌کوین (USDT)", "source": "nobitex"},
     {"ticker": "ETH-USD", "name": "اتریوم (USDT)", "source": "nobitex"},
     {"ticker": "PAXG-USD", "name": "پکس گلد (USDT)", "source": "nobitex"},
     {"ticker": "BTC-IRT", "name": "بیت‌کوین (تومان)", "source": "nobitex"},
     {"ticker": "PAXG-IRT", "name": "پکس گلد (تومان)", "source": "nobitex"},
-    # ─── wallex ───
     {"ticker": "BTC-USDT", "name": "بیت‌کوین (USDT)", "source": "wallex"},
     {"ticker": "ETH-USDT", "name": "اتریوم (USDT)", "source": "wallex"},
     {"ticker": "BTC-TMN", "name": "بیت‌کوین (تومان)", "source": "wallex"},
     {"ticker": "PAXG-USDT", "name": "پکس گلد (USDT)", "source": "wallex"},
     {"ticker": "PAXG-TMN", "name": "پکس گلد (تومان)", "source": "wallex"},
-    # ─── bitpin ───
     {"ticker": "BTC_USDT", "name": "بیت‌کوین (USDT)", "source": "bitpin"},
     {"ticker": "ETH_USDT", "name": "اتریوم (USDT)", "source": "bitpin"},
     {"ticker": "BTC_IRT", "name": "بیت‌کوین (تومان)", "source": "bitpin"},
@@ -59,21 +55,14 @@ FIXED_SYMBOLS = [
     {"ticker": "PAXG_IRT", "name": "پکس گلد (تومان)", "source": "bitpin"},
 ]
 
-
 SCAN_TIMEFRAMES = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت"]
 SCAN_MARKET_TYPE = "futures"
 SCAN_RISK_PROFILE = "aggressive"
-
 EXCHANGE_CYCLE = ["nobitex", "wallex", "bitpin"]
-
-# 🔴 فاز ۱۰.۸ — شمارنده سراسری برای چرخش
 _scan_cycle_idx = 0
 
 
 def _next_exchange() -> str:
-    """
-    🔴 فاز ۱۰.۸ — چرخش deterministic با شمارنده.
-    """
     global _scan_cycle_idx
     exchange = EXCHANGE_CYCLE[_scan_cycle_idx % len(EXCHANGE_CYCLE)]
     _scan_cycle_idx += 1
@@ -81,27 +70,20 @@ def _next_exchange() -> str:
 
 
 def _load_watchlist_from_file() -> list[dict]:
-    """خواندن watchlist از data/watchlist.json."""
     path = Path("/app/data/watchlist.json")
     if not path.exists():
         path = Path(__file__).resolve().parent.parent / "data" / "watchlist.json"
-
     if not path.exists():
         return []
-
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-
         if not isinstance(data, list):
             return []
-
         result = []
         for item in data:
             ticker = item.get("ticker", "")
-            if not ticker:
-                continue
-            if not ticker[0].isascii():
+            if not ticker or not ticker[0].isascii():
                 continue
             result.append(
                 {
@@ -117,7 +99,6 @@ def _load_watchlist_from_file() -> list[dict]:
 
 
 async def check_pending_signals(trigger: str = "scheduler") -> dict:
-    """بررسی سیگنال‌های pending."""
     if _backtest_lock.locked():
         logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
         return dict(_EMPTY_RESULT)
@@ -128,13 +109,7 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
             result = await asyncio.to_thread(backtest_all, max_checks=100)
             updated = result.get("updated", 0)
             if updated > 0:
-                logger.info(
-                    f"[Backtest/{trigger}] ✅ {updated} به‌روز "
-                    f"(win={result.get('win', 0)}, "
-                    f"loss={result.get('loss', 0)}, "
-                    f"exp={result.get('expired', 0)}, "
-                    f"errors={result.get('errors', 0)})"
-                )
+                logger.info(f"[Backtest/{trigger}] ✅ {updated} به‌روز")
             else:
                 logger.info(
                     f"[Backtest/{trigger}] {result.get('checked', 0)} بررسی، تغییری نبود"
@@ -154,10 +129,8 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
 
 
 async def auto_scan_and_record(trigger: str = "scheduler"):
-    """اسکن چرخه‌ای — هر بار یک صرافی."""
     exchange = _next_exchange()
     logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
-
     try:
         from services.analyzer_service import analyze
 
@@ -165,33 +138,19 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
         exchange_watchlist = [
             w for w in _load_watchlist_from_file() if w["source"] == exchange
         ]
-
         if not exchange_fixed and not exchange_watchlist:
-            logger.info(f"[AutoScan/{trigger}] صرافی {exchange} نمادی نداره — رد")
-            return {
-                "ok": True,
-                "exchange": exchange,
-                "recorded": 0,
-                "skipped": True,
-            }
+            return {"ok": True, "exchange": exchange, "recorded": 0, "skipped": True}
 
-        seen: set[str] = set()
-        all_symbols: list[dict] = []
+        seen = set()
+        all_symbols = []
         for s in exchange_fixed + exchange_watchlist:
             key = f"{s['ticker']}|{s['source']}"
-            if key in seen:
-                continue
-            seen.add(key)
-            all_symbols.append(s)
-
-        logger.info(
-            f"[AutoScan/{trigger}] {len(all_symbols)} نماد × "
-            f"{len(SCAN_TIMEFRAMES)} TF"
-        )
+            if key not in seen:
+                seen.add(key)
+                all_symbols.append(s)
 
         total_recorded = 0
         total_errors = 0
-
         for sym in all_symbols:
             for tf_name in SCAN_TIMEFRAMES:
                 try:
@@ -211,12 +170,9 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
                 except Exception as e:
                     logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
                     total_errors += 1
-
                 await asyncio.sleep(0.5)
-
         logger.info(
-            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال "
-            f"از {len(all_symbols)} نماد (خطا: {total_errors})"
+            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از {len(all_symbols)} نماد"
         )
         return {
             "ok": True,
@@ -231,14 +187,19 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
 
 
 def start_scheduler():
-    """راه‌اندازی scheduler."""
+    """راه‌اندازی scheduler (داخل event loop فعلی)."""
+    global scheduler
     if not settings.SCHEDULER_ENABLED:
         logger.info("[Scheduler] غیرفعال")
         return
 
-    if scheduler.running:
+    # 🔴 اگه scheduler قبلاً ساخته شده، دست نزن
+    if scheduler is not None and scheduler.running:
         logger.debug("[Scheduler] از قبل اجراست")
         return
+
+    # 🔴 ساخت scheduler در این نقطه (داخل event loop فعلی)
+    scheduler = AsyncIOScheduler(timezone="UTC")
 
     scheduler.add_job(
         check_pending_signals,
@@ -263,13 +224,11 @@ def start_scheduler():
     )
 
     scheduler.start()
-    logger.info(
-        "[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه + "
-        "اسکن چرخه‌ای هر ۶۰ دقیقه (nobitex→wallex→bitpin)"
-    )
+    logger.info("[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه + اسکن هر ۶۰ دقیقه")
 
 
 def stop_scheduler():
-    if scheduler.running:
+    global scheduler
+    if scheduler is not None and scheduler.running:
         scheduler.shutdown(wait=True)
         logger.info("[Scheduler] متوقف شد")
