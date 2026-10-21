@@ -36,6 +36,8 @@ services:
     volumes:
       - ./data:/home/user/app/data
       - ./fonts:/home/user/app/fonts
+    healthcheck:
+      disable: true  # 🔴 غیرفعال کردن healthcheck برای scheduler
     logging:
       driver: "json-file"
       options:
