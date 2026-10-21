@@ -53,23 +53,16 @@ _scheduler_thread = None
 
 
 def _run_scheduler_thread():
-    """اجرای Scheduler توی thread جداگانه با event loop مستقل."""
+    """اجرای Scheduler توی thread جداگانه (BackgroundScheduler نیازی به event loop نداره)."""
     global _scheduler_started
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        start_scheduler()  # 🔴 scheduler داخل این تابع ساخته می‌شه
+        start_scheduler()  # 🔴 BackgroundScheduler خودش thread جدا می‌سازه
         _scheduler_started = True
         logger.info("✅ Scheduler از Thread جداگانه شروع شد.")
         while _scheduler_started:
-            loop.run_until_complete(asyncio.sleep(60))
+            time.sleep(60)
     except Exception as e:
         logger.error(f"❌ خطا در Scheduler Thread: {e}")
-    finally:
-        try:
-            loop.close()
-        except Exception:
-            pass
 
 
 def _start_scheduler_in_thread():

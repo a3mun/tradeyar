@@ -1,17 +1,20 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۴.۳ · فاز ۱۰.۹.۲
-🔴 تغییرات:
-  • Scheduler داخل start_scheduler ساخته می‌شه (رفع خطای no running event loop)
+نسخه ۵.۰ · فاز ۱۰.۹.۳
+🔴 تغییرات اساسی:
+  • جایگزینی AsyncIOScheduler با BackgroundScheduler
+    (رفع خطای no running event loop در داکر)
+  • توابع async به sync تبدیل شدن
 """
 
 import asyncio
 import json
 import logging
+import threading
 from pathlib import Path
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from api.config import settings
@@ -19,9 +22,9 @@ from services.backtest_service import backtest_all
 
 logger = logging.getLogger(__name__)
 
-# 🔴 Scheduler به صورت global تعریف می‌شه ولی داخل start_scheduler ساخته می‌شه
-scheduler: AsyncIOScheduler | None = None
-_backtest_lock = asyncio.Lock()
+# 🔴 Scheduler به صورت global تعریف می‌شه
+scheduler: BackgroundScheduler | None = None
+_backtest_lock = threading.Lock()
 
 _EMPTY_RESULT = {
     "ok": False,
@@ -98,15 +101,16 @@ def _load_watchlist_from_file() -> list[dict]:
         return []
 
 
-async def check_pending_signals(trigger: str = "scheduler") -> dict:
+# 🔴 توابع sync (نه async) برای BackgroundScheduler
+def check_pending_signals(trigger: str = "scheduler") -> dict:
     if _backtest_lock.locked():
         logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
         return dict(_EMPTY_RESULT)
 
-    async with _backtest_lock:
+    with _backtest_lock:
         logger.info(f"[Backtest/{trigger}] بررسی سیگنال‌ها...")
         try:
-            result = await asyncio.to_thread(backtest_all, max_checks=100)
+            result = backtest_all(max_checks=100)
             updated = result.get("updated", 0)
             if updated > 0:
                 logger.info(f"[Backtest/{trigger}] ✅ {updated} به‌روز")
@@ -128,7 +132,7 @@ async def check_pending_signals(trigger: str = "scheduler") -> dict:
             }
 
 
-async def auto_scan_and_record(trigger: str = "scheduler"):
+def auto_scan_and_record(trigger: str = "scheduler"):
     exchange = _next_exchange()
     logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
     try:
@@ -154,8 +158,7 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
         for sym in all_symbols:
             for tf_name in SCAN_TIMEFRAMES:
                 try:
-                    r = await asyncio.to_thread(
-                        analyze,
+                    r = analyze(
                         ticker=sym["ticker"],
                         source=sym["source"],
                         tf_name=tf_name,
@@ -170,7 +173,10 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
                 except Exception as e:
                     logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
                     total_errors += 1
-                await asyncio.sleep(0.5)
+                # تاخیر بین درخواست‌ها
+                import time
+
+                time.sleep(0.5)
         logger.info(
             f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از {len(all_symbols)} نماد"
         )
@@ -187,19 +193,18 @@ async def auto_scan_and_record(trigger: str = "scheduler"):
 
 
 def start_scheduler():
-    """راه‌اندازی scheduler (داخل event loop فعلی)."""
+    """راه‌اندازی scheduler با BackgroundScheduler."""
     global scheduler
     if not settings.SCHEDULER_ENABLED:
         logger.info("[Scheduler] غیرفعال")
         return
 
-    # 🔴 اگه scheduler قبلاً ساخته شده، دست نزن
     if scheduler is not None and scheduler.running:
         logger.debug("[Scheduler] از قبل اجراست")
         return
 
-    # 🔴 ساخت scheduler در این نقطه (داخل event loop فعلی)
-    scheduler = AsyncIOScheduler(timezone="UTC")
+    # 🔴 ساخت BackgroundScheduler (نیازی به event loop نداره)
+    scheduler = BackgroundScheduler(timezone="UTC")
 
     scheduler.add_job(
         check_pending_signals,
