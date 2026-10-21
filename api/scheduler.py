@@ -199,37 +199,43 @@ def start_scheduler():
         logger.info("[Scheduler] غیرفعال")
         return
 
+    # 🔴 اگه scheduler قبلاً ساخته شده و running هست، دست نزن
     if scheduler is not None and scheduler.running:
         logger.debug("[Scheduler] از قبل اجراست")
         return
 
-    # 🔴 ساخت BackgroundScheduler (نیازی به event loop نداره)
-    scheduler = BackgroundScheduler(timezone="UTC")
+    # 🔴 فقط اگه scheduler ساخته نشده، بسازش
+    if scheduler is None:
+        scheduler = BackgroundScheduler(timezone="UTC")
 
-    scheduler.add_job(
-        check_pending_signals,
-        IntervalTrigger(minutes=5),
-        id="check_pending_signals",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=120,
-        kwargs={"trigger": "scheduler"},
-    )
+    # اضافه کردن Job ها (اگه قبلاً اضافه نشدن)
+    if not scheduler.get_jobs():
+        scheduler.add_job(
+            check_pending_signals,
+            IntervalTrigger(minutes=5),
+            id="check_pending_signals",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=120,
+            kwargs={"trigger": "scheduler"},
+        )
 
-    scheduler.add_job(
-        auto_scan_and_record,
-        IntervalTrigger(minutes=60),
-        id="auto_scan_and_record",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=300,
-        kwargs={"trigger": "scheduler"},
-    )
+        scheduler.add_job(
+            auto_scan_and_record,
+            IntervalTrigger(minutes=60),
+            id="auto_scan_and_record",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
+            kwargs={"trigger": "scheduler"},
+        )
 
-    scheduler.start()
-    logger.info("[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه + اسکن هر ۶۰ دقیقه")
+    # 🔴 start فقط اگه running نیست
+    if not scheduler.running:
+        scheduler.start()
+        logger.info("[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه + اسکن هر ۶۰ دقیقه")
 
 
 def stop_scheduler():
