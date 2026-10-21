@@ -155,6 +155,11 @@ def record_signal(
     if not price or price <= 0:
         return False
 
+    # 🔴 جلوگیری از ثبت سیگنال ناقص (بدون حد سود و ضرر)
+    if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
+        logger.debug(f"[Recorder] سیگنال ناقص (بدون SL/TP): {ticker}")
+        return False
+
     is_weak = _compute_is_weak(signal, confidence, consensus)
     now = _utcnow()
 
