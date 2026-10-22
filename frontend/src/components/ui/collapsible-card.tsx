@@ -16,6 +16,7 @@ interface Props {
   forceOpenOnDesktop?: boolean;
   pulse?: boolean;
   className?: string;
+  compact?: boolean; // 🔴 حالت فشرده
 }
 
 export function CollapsibleCard({
@@ -28,10 +29,10 @@ export function CollapsibleCard({
   forceOpenOnDesktop = false,
   pulse = false,
   className = "",
+  compact = false,
 }: Props) {
   const [open, setOpen] = useState(defaultOpen);
   const locked = !keepCollapsibleOnDesktop;
-  // 🔴 روی دسکتاپ قفل (همیشه باز)
   const forceOpen = forceOpenOnDesktop && !locked;
 
   const chevronCls = open
@@ -65,7 +66,9 @@ export function CollapsibleCard({
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-1 text-right transition-colors hover:bg-muted/30 ${
+            className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 ${
+              compact ? "py-0" : "py-1"
+            } text-right transition-colors hover:bg-muted/30 ${
               locked || forceOpen
                 ? "lg:pointer-events-none xl:pointer-events-none lg:hover:bg-transparent xl:hover:bg-transparent"
                 : ""
@@ -74,18 +77,27 @@ export function CollapsibleCard({
             aria-disabled={locked || forceOpen}
           >
             <span className="flex min-w-0 flex-1 items-center gap-2">
-              <CardTitle className="truncate text-[11px]">{title}</CardTitle>
+              <CardTitle
+                className={`truncate ${compact ? "text-[10px]" : "text-[11px]"}`}
+              >
+                {title}
+              </CardTitle>
               {badge}
             </span>
 
             <span
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 transition-all duration-200 ${chevronCls} ${
+              className={`flex ${
+                compact ? "h-5 w-5" : "h-6 w-6"
+              } shrink-0 items-center justify-center rounded border-2 transition-all duration-200 ${chevronCls} ${
                 locked ? "lg:hidden" : ""
               } ${forceOpen ? "xl:hidden" : ""}`}
               style={chevronStyle}
               aria-hidden
             >
-              <ChevronDown className="h-4 w-4" strokeWidth={2.5} />
+              <ChevronDown
+                className={`${compact ? "h-3 w-3" : "h-4 w-4"}`}
+                strokeWidth={2.5}
+              />
             </span>
           </button>
 
@@ -98,7 +110,9 @@ export function CollapsibleCard({
           forceOpen ? "xl:block" : ""
         }`}
       >
-        <CardContent className="p-2 pt-0">{children}</CardContent>
+        <CardContent className={compact ? "p-1 pt-0" : "p-2 pt-0"}>
+          {children}
+        </CardContent>
       </div>
     </Card>
   );

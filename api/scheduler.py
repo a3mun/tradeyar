@@ -48,7 +48,6 @@ FIXED_SYMBOLS = [
     {"ticker": "SOL-USD", "name": "سولانا", "source": "nobitex"},
     {"ticker": "XRP-USD", "name": "ریپل", "source": "nobitex"},
     {"ticker": "DOGE-USD", "name": "دوج‌کوین", "source": "nobitex"},
-    {"ticker": "TON-USD", "name": "تون‌کوین", "source": "nobitex"},
     {"ticker": "ETH-USD", "name": "اتریوم", "source": "nobitex"},
     # ─── bitpin ───
     {"ticker": "BTC_IRT", "name": "بیت‌کوین (تومان)", "source": "bitpin"},
@@ -58,7 +57,6 @@ FIXED_SYMBOLS = [
     {"ticker": "SOL_USDT", "name": "سولانا", "source": "bitpin"},
     {"ticker": "XRP_USDT", "name": "ریپل", "source": "bitpin"},
     {"ticker": "DOGE_USDT", "name": "دوج‌کوین", "source": "bitpin"},
-    {"ticker": "TON_USDT", "name": "تون‌کوین", "source": "bitpin"},
     {"ticker": "ETH_USDT", "name": "اتریوم", "source": "bitpin"},
     # ─── wallex ───
     {"ticker": "BTC-TMN", "name": "بیت‌کوین (تومان)", "source": "wallex"},
@@ -68,7 +66,6 @@ FIXED_SYMBOLS = [
     {"ticker": "SOL-USDT", "name": "سولانا", "source": "wallex"},
     {"ticker": "XRP-USDT", "name": "ریپل", "source": "wallex"},
     {"ticker": "DOGE-USDT", "name": "دوج‌کوین", "source": "wallex"},
-    {"ticker": "TON-USDT", "name": "تون‌کوین", "source": "wallex"},
     {"ticker": "ETH-USDT", "name": "اتریوم", "source": "wallex"},
 ]
 

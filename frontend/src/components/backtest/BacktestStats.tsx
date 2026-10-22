@@ -1,17 +1,14 @@
 "use client";
 
 /**
- * BacktestStats — آمار راستی‌آزمایی (نسخه ۶.۶ · فاز ۱۰.۸)
+ * BacktestStats — آمار راستی‌آزمایی (نسخه ۶.۷ · فاز ۱۰.۹)
  * ============================================================
  * 🔴 تغییرات:
- *   • محاسبه دقیق «کل» و «منقضی» از لیست items (هماهنگ با تاریخچه)
- *   • بازنگری نهایی متن راهنما (فارسی روان)
+ *   • کشوهای «نرخ موفقیت بر اساس قدرت سیگنال» و «دقت روند به تفکیک تایم‌فریم» همیشه باز
  */
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  ChevronDown,
-  ChevronUp,
   Clock,
   Download,
   Loader2,
@@ -85,8 +82,6 @@ export function BacktestStats({
   const [downloading, setDownloading] = useState(false);
   const [notice, setNotice] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
-  const [showQualityBreakdown, setShowQualityBreakdown] = useState(false);
-  const [showTfBreakdown, setShowTfBreakdown] = useState(false);
 
   const [tfStats, setTfStats] = useState<
     Record<
@@ -416,46 +411,40 @@ export function BacktestStats({
         </div>
       </div>
 
-      {/* ═══ کشویی تفکیک کیفیت ═══ */}
+      {/* ═══ نرخ موفقیت بر اساس قدرت سیگنال (همیشه باز) ═══ */}
       {quality && (quality.strong.total > 0 || quality.normal.total > 0 || quality.weak.total > 0) && (
         <div className="rounded-lg border border-border/40 bg-muted/10 p-2">
-          <button
-            onClick={() => setShowQualityBreakdown((p) => !p)}
-            className="flex w-full items-center justify-between rounded px-1 py-0.5 text-[9px] text-muted-foreground hover:bg-muted/30 hover:text-foreground"
-          >
-            <span>نرخ موفقیت بر اساس قدرت سیگنال</span>
-            {showQualityBreakdown ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </button>
+          <div className="mb-1.5 flex items-center justify-between text-[9px] text-muted-foreground px-1">
+            <span className="font-medium">نرخ موفقیت بر اساس قدرت سیگنال</span>
+          </div>
           
-          {showQualityBreakdown && (
-            <div className="mt-1.5 space-y-1">
-              {[
-                { key: "strong" as const, label: "قوی (بالای ۷۰٪)" },
-                { key: "normal" as const, label: "متوسط (۵۰ تا ۶۹٪)" },
-                { key: "weak" as const, label: "ضعیف (زیر ۵۰٪)" },
-              ].map(({ key, label }) => {
-                const q = quality[key];
-                if (q.total === 0) return null;
-                const c = key === "strong" ? "bg-purple-500/5 border-purple-500/30 text-purple-400" 
-                          : key === "normal" ? "bg-orange-500/5 border-orange-500/30 text-orange-400" 
-                          : "bg-slate-500/5 border-slate-500/30 text-slate-400";
-                return (
-                  <div key={key} className={`flex items-center justify-between rounded-md border ${c} px-2 py-1`}>
-                    <span className={`text-[9px] font-medium`}>{label}</span>
-                    <div className="flex items-center gap-2 text-[9px]">
-                      <span className="num text-muted-foreground">تعداد: {q.total}</span>
-                      <span className={`num font-bold ${winRateColor(q.win_rate)}`}>{q.win_rate.toFixed(0)}٪ موفق</span>
-                      <span className="num text-purple-400 font-medium">{q.trend_accuracy.toFixed(0)}٪ روند</span>
-                    </div>
+          <div className="space-y-1">
+            {[
+              { key: "strong" as const, label: "قوی (بالای ۷۰٪)" },
+              { key: "normal" as const, label: "متوسط (۵۰ تا ۶۹٪)" },
+              { key: "weak" as const, label: "ضعیف (زیر ۵۰٪)" },
+            ].map(({ key, label }) => {
+              const q = quality[key];
+              if (q.total === 0) return null;
+              const c = key === "strong" ? "bg-purple-500/5 border-purple-500/30 text-purple-400" 
+                        : key === "normal" ? "bg-orange-500/5 border-orange-500/30 text-orange-400" 
+                        : "bg-slate-500/5 border-slate-500/30 text-slate-400";
+              return (
+                <div key={key} className={`flex items-center justify-between rounded-md border ${c} px-2 py-1`}>
+                  <span className={`text-[9px] font-medium`}>{label}</span>
+                  <div className="flex items-center gap-2 text-[9px]">
+                    <span className="num text-muted-foreground">تعداد: {q.total}</span>
+                    <span className={`num font-bold ${winRateColor(q.win_rate)}`}>{q.win_rate.toFixed(0)}٪ موفق</span>
+                    <span className="num text-purple-400 font-medium">{q.trend_accuracy.toFixed(0)}٪ روند</span>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* ═══ دقت روند (با تفکیک تایم‌فریم) ═══ */}
+      {/* ═══ دقت روند (با تفکیک تایم‌فریم، همیشه باز) ═══ */}
       {(s.trend_correct ?? 0) + (s.trend_wrong ?? 0) > 0 && (
         <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2">
           <div className="mb-1 flex items-center justify-between">
@@ -468,17 +457,8 @@ export function BacktestStats({
           </div>
 
           {Object.keys(tfStats).length > 0 && (
-            <button
-              onClick={() => setShowTfBreakdown((p) => !p)}
-              className="flex w-full items-center justify-between rounded px-1 py-0.5 text-[9px] text-muted-foreground hover:bg-muted/30 hover:text-foreground border-t border-purple-500/20 pt-2 mt-1"
-            >
-              <span>مشاهده دقت به تفکیک تایم‌فریم</span>
-              {showTfBreakdown ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            </button>
-          )}
-
-          {showTfBreakdown && (
-            <div className="mt-1.5 space-y-1">
+            <div className="mt-1.5 space-y-1 border-t border-purple-500/20 pt-2">
+              <div className="text-[9px] text-muted-foreground mb-1">دقت به تفکیک تایم‌فریم:</div>
               {Object.entries(tfStats)
                 .sort((a, b) => {
                   const order = ["۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"];

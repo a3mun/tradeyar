@@ -1,20 +1,7 @@
 "use client";
 
-/**
- * SymbolSelector — انتخاب نماد (نسخه ۲.۰)
- * ============================================================
- * 🔴 تغییر نسخه ۲.۰:
- *   بخش «واچ‌لیست چیپ‌ها» حذف شد. دلیل:
- *   ``WatchlistCard`` نسخه‌ی مرتب‌تر و جمع‌وجورتر داره.
- *   نگه‌داشتن هر دو یعنی UI تکراری.
- *
- * ═══ ساختار ═══
- *   ۱. جستجو (با dropdown نتایج)
- *   ۲. ۶ نماد برتر (popular) — grid چیپ‌ها
- */
-
 import { useEffect, useRef, useState } from "react";
-import { Search, TrendingUp, Loader2, Star } from "lucide-react";
+import { Search, Loader2, Star } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -23,12 +10,16 @@ import type { SymbolItem } from "@/lib/types";
 import { CryptoIcon } from "@/components/ui/crypto-icon";
 
 const POPULAR_FALLBACK: SymbolItem[] = [
-  { ticker: "BTC-USD", name: "بیت‌کوین (USDT)", source: "nobitex" },
+  { ticker: "USDT-IRT", name: "تتر (تومان)", source: "nobitex" },
+  { ticker: "BTC-USD", name: "بیت‌کوین", source: "nobitex" },
   { ticker: "BTC-IRT", name: "بیت‌کوین (تومان)", source: "nobitex" },
-  { ticker: "USDT-IRT", name: "تتر/تومان", source: "nobitex" },
-  { ticker: "ETH-USD", name: "اتریوم", source: "nobitex" },
+  { ticker: "XAUT-USD", name: "تتر گلد", source: "nobitex" },
+  { ticker: "XAUT-IRT", name: "تتر گلد (تومان)", source: "nobitex" },
   { ticker: "PAXG-USD", name: "پکس گلد", source: "nobitex" },
-  { ticker: "PAXG-IRT", name: "پکس گلد (تومان)", source: "nobitex" },
+  { ticker: "SOL-USD", name: "سولانا", source: "nobitex" },
+  { ticker: "XRP-USD", name: "ریپل", source: "nobitex" },
+  { ticker: "DOGE-USD", name: "دوج‌کوین", source: "nobitex" },
+  { ticker: "ETH-USD", name: "اتریوم", source: "nobitex" },
 ];
 
 function normalize(text: string): string {
@@ -144,7 +135,7 @@ export function SymbolSelector() {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* ═══ Search ═══ */}
       <div className="relative" ref={dropdownRef}>
         <div className="flex gap-2">
@@ -160,16 +151,16 @@ export function SymbolSelector() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
               onFocus={() => results.length > 0 && setShowDropdown(true)}
-              className="pr-10"
+              className="h-8 pr-9 text-xs"
             />
           </div>
-          <Button onClick={handleManualSubmit} size="default">
+          <Button onClick={handleManualSubmit} size="sm" className="h-8 px-3 text-xs">
             تحلیل
           </Button>
         </div>
 
         {showDropdown && results.length > 0 && (
-          <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+          <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-72 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
             {results.map((item) => {
               const inWatchlist = watchlist.some(
                 (w) => w.ticker === item.ticker
@@ -183,7 +174,7 @@ export function SymbolSelector() {
                     onClick={() => handleSelect(item)}
                     className="flex flex-1 items-center gap-2 text-right"
                   >
-                    <CryptoIcon ticker={item.ticker} size="md" />
+                    <CryptoIcon ticker={item.ticker} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{item.name}</p>
                       <p className="num truncate text-[10px] text-muted-foreground">
@@ -202,9 +193,6 @@ export function SymbolSelector() {
                         ? "text-yellow-500"
                         : "text-muted-foreground hover:text-yellow-500"
                     }`}
-                    aria-label={
-                      inWatchlist ? "حذف از واچ‌لیست" : "افزودن به واچ‌لیست"
-                    }
                   >
                     <Star
                       className={`h-3.5 w-3.5 ${
@@ -219,22 +207,28 @@ export function SymbolSelector() {
         )}
       </div>
 
-      {/* ═══ Popular — ۶ نماد برتر ═══ */}
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-        {popular.slice(0, 6).map((item) => (
-          <button
-            key={item.ticker}
-            onClick={() => handleSelect(item)}
-            className={`flex min-w-0 items-center justify-center gap-1 truncate rounded-lg border px-1.5 py-1.5 text-[10px] font-medium transition-all hover:bg-muted ${
-              ticker === item.ticker
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border"
-            }`}
-          >
-            <CryptoIcon ticker={item.ticker} size="sm" />
-            <span className="truncate">{item.name}</span>
-          </button>
-        ))}
+      {/* ═══ Popular — ۱۰ نماد، شیشه‌ای ═══ */}
+      <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
+        {POPULAR_FALLBACK.map((item) => {
+          const isActive = ticker === item.ticker;
+          return (
+            <button
+              key={item.ticker}
+              onClick={() => handleSelect(item)}
+              className={`group relative flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border px-1 py-2 text-center text-[11px] font-medium leading-tight transition-all duration-300
+                ${
+                  isActive
+                    ? "border-primary/50 bg-primary/20 text-primary shadow-[0_0_15px_rgba(var(--primary),0.3)] backdrop-blur-md"
+                    : "border-white/10 bg-white/5 text-foreground/80 backdrop-blur-sm hover:border-white/20 hover:bg-white/10 hover:text-foreground hover:shadow-lg"
+                }
+              `}
+            >
+              <div className="absolute inset-0 -z-10 bg-gradient-to-br from-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+              <CryptoIcon ticker={item.ticker} size="sm" className="transition-transform duration-300 group-hover:scale-110" />
+              <span className="w-full truncate text-[10px]">{item.name}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

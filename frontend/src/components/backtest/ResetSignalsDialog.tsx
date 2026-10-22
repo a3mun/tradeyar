@@ -86,27 +86,15 @@ const handleReset = async () => {
   setBusy(true);
   setError("");
   try {
-    // 🔴 فاز ۱۰.۸ — استفاده از fetch خام (بدون axios) برای اطمینان از ارسال هدر
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://api.trademun.ir";
-    const res = await fetch(`${apiUrl}/backtest/reset`, {
-      method: "DELETE",
+    // 🔴 استفاده از api (axios) به جای fetch خام
+    const res = await api.delete("/backtest/reset", {
       headers: {
         "X-API-Key": passcode.trim(),
       },
     });
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw {
-        response: {
-          status: res.status,
-          data: { detail: data.detail || "خطا در ریست" },
-        },
-      };
-    }
-
-    const data = await res.json();
-    onSuccess(data?.deleted ?? 0);
+    const deleted = res.data?.deleted ?? 0;
+    onSuccess(deleted);
     onClose();
   } catch (e: unknown) {
     const err = e as {
