@@ -6,6 +6,11 @@ FastAPI app — نقطه ورود
 """
 
 import logging
+
+from api.routers import analyze, backtest, orderbook, scan, symbols
+from api.routers import auth as auth_router
+from api.routers import ws as ws_router
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +20,7 @@ from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import ws as ws_router
+from api.routers import subscription, admin
 
 # ═══════════════════════════════════════════════════════════
 # Logging
@@ -82,8 +88,9 @@ app.include_router(symbols.router)
 app.include_router(scan.router)
 app.include_router(backtest.router)
 app.include_router(orderbook.router)
-
-
+app.include_router(auth_router.router)
+app.include_router(subscription.router)
+app.include_router(admin.router)  # در بخش include_router
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket
 # ═══════════════════════════════════════════════════════════

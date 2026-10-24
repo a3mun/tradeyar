@@ -74,6 +74,30 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
 
+    # ─── JWT (فاز ۱۱) ───
+    JWT_SECRET: str = "change-me-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 60 * 24 * 7  # ۷ روز
+
+    # ─── Admin (فاز ۱۱) ───
+    ADMIN_PHONES: str = "09129630901,09371069753"  # با کاما جدا
+
+    # ─── فراز SMS (فاز ۱۱) ───
+    FARAZ_API_KEY: str = ""
+    FARAZ_PATTERN_CODE: str = ""  # کد پترن OTP
+    FARAZ_SENDER: str = "+983000505"  # پیش‌فرض فراز
+
+    # ─── پلن رایگان (فاز ۱۱) ───
+    FREE_PLAN_DAYS: int = 3
+
+    # ─── ارتباط ───
+    CONTACT_TELEGRAM: str = "asemun_1993"
+    CONTACT_BALE: str = "asemun_1993"
+
+    # ─── پرداخت (فاز ۱۱) ───
+    CARD_NUMBER: str = "5859-4710-2303-7983"  # شماره کارت خودت رو بذار
+    CARD_HOLDER: str = "محمدمهدی"  # اسم صاحب کارت
+
 
 # ═══════════════════════════════════════════════════════════
 # Singleton

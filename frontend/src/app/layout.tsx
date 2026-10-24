@@ -3,6 +3,7 @@ import { Vazirmatn } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/lib/hooks/useWebSocket";
 import { SignalDataProvider } from "@/hooks/useSignalData";
+import { AuthGuard } from "@/components/layout/AuthGuard"; // ⬅️ اضافه شد
 import "./globals.css";
 import { BottomNav } from "@/components/ui/bottom-nav";
 
@@ -45,14 +46,16 @@ export default function RootLayout({
       <body
         className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}
       >
-        <WebSocketProvider>
-          <SignalDataProvider>
-            <TooltipProvider>
-              {children}
-              <BottomNav />
-            </TooltipProvider>
-          </SignalDataProvider>
-        </WebSocketProvider>
+        <AuthGuard>
+          <WebSocketProvider>
+            <SignalDataProvider>
+              <TooltipProvider>
+                {children}
+                <BottomNav />
+              </TooltipProvider>
+            </SignalDataProvider>
+          </WebSocketProvider>
+        </AuthGuard>
       </body>
     </html>
   );

@@ -1,19 +1,5 @@
 "use client";
 
-/**
- * Footer — فوتر سایت (فاز ۱۰.۳)
- * ============================================================
- * موبایل: Compact (لوگو + لینک‌ها + سلب مسئولیت + کپی‌رایت)
- * دسکتاپ: سه‌ستونه (برند | اطلاعات | سلب مسئولیت)
- *
- * ═══ تغییرات فاز ۱۰.۳ ═══
- *   • موبایل فشرده شد (لوگو بدون متن تکراری)
- *   • لینک‌ها در یک ردیف افقی
- *   • سلب مسئولیت یک‌خطی
- *   • حذف تکرار «تریدمون / Trademun / دستیار هوشمند»
- *   • پاپ‌آپ دیسکلیمر دست‌نخورده
- */
-
 import { useEffect, useState } from "react";
 import { Heart, AlertTriangle, Shield, Globe, Send } from "lucide-react";
 
@@ -89,10 +75,11 @@ export function Footer() {
       {/* ═══ فوتر ═══ */}
       <footer className="mt-8 border-t border-border/40 bg-background/60">
         <div className="container mx-auto px-4 py-5 md:py-6">
+          
           {/* ═══════════════════════════════════════════════
               📱 موبایل — Compact
               ═══════════════════════════════════════════════ */}
-          <div className="flex flex-col items-center gap-3 text-center md:hidden">
+          <div className="flex flex-col items-center gap-4 text-center md:hidden">
             {/* لوگو */}
             <img
               src="/icon-512.png"
@@ -125,8 +112,25 @@ export function Footer() {
               </a>
             </div>
 
+            {/* نشان اینماد در موبایل */}
+            <a
+              referrerPolicy="origin"
+              target="_blank"
+              href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+              rel="noopener noreferrer"
+              className="mt-2 block"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                referrerPolicy="origin"
+                src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+                alt="نماد اعتماد الکترونیکی"
+                className="h-24 w-auto mx-auto object-contain cursor-pointer"
+              />
+            </a>
+
             {/* سلب مسئولیت یک خط */}
-            <p className="text-[10px] text-yellow-500/80">
+            <p className="text-[10px] text-yellow-500/80 mt-2">
               ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن
             </p>
 
@@ -141,11 +145,11 @@ export function Footer() {
           </div>
 
           {/* ═══════════════════════════════════════════════
-              🖥️ دسکتاپ — سه‌ستونه
+              🖥️ دسکتاپ — سه‌ستونه + اینماد
               ═══════════════════════════════════════════════ */}
           <div className="hidden md:block">
             {/* ردیف بالا */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 text-right">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 text-right">
               {/* ستون ۱: برند */}
               <div className="flex flex-row items-start gap-3">
                 <img
@@ -209,6 +213,25 @@ export function Footer() {
                     شماست.
                   </div>
                 </div>
+              </div>
+
+              {/* ستون ۴: نشان اینماد */}
+              <div className="flex items-center justify-center border-r border-border/30 pr-4">
+                <a
+                  referrerPolicy="origin"
+                  target="_blank"
+                  href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+                  rel="noopener noreferrer"
+                  className="block transition-transform hover:scale-105"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    referrerPolicy="origin"
+                    src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+                    alt="نماد اعتماد الکترونیکی"
+                    className="h-28 w-auto object-contain cursor-pointer"
+                  />
+                </a>
               </div>
             </div>
 

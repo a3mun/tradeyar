@@ -337,3 +337,92 @@ class SparklineResponse(BaseModel):
     close_series: list[float] = Field(default_factory=list)
     price: float = 0.0
     timestamp: datetime = Field(default_factory=_utcnow_aware)
+
+
+# ═══════════════════════════════════════════════════════════
+# ۹. احراز هویت (فاز ۱۱)
+# ═══════════════════════════════════════════════════════════
+class SendOTPRequest(BaseModel):
+    phone: str = Field(..., min_length=10, max_length=13)
+
+
+class SendOTPResponse(BaseModel):
+    ok: bool = True
+    message: str = "کد ورود ارسال شد"
+    retry_after: int = 60  # ثانیه
+
+
+class VerifyOTPRequest(BaseModel):
+    phone: str
+    code: str = Field(..., min_length=4, max_length=6)
+
+
+class TokenResponse(BaseModel):
+    ok: bool = True
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRead
+    is_new_user: bool = False
+
+
+class UserRead(BaseModel):
+    id: int
+    phone: str
+    full_name: Optional[str] = None  # ⬅️ اضافه شد
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+
+
+# ═══════════════════════════════════════════════════════════
+# ۱۰. اشتراک (فاز ۱۱)
+# ═══════════════════════════════════════════════════════════
+class SubscriptionRead(BaseModel):
+    id: int
+    plan: str
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    status: str
+    days_left: Optional[int] = None
+
+
+class PaymentRequestCreate(BaseModel):
+    plan: str  # "1_month", "3_months", "6_months", "12_months"
+    receipt_note: Optional[str] = None
+    full_name: Optional[str] = None  # ⬅️ اضافه شد
+    payment_time: Optional[str] = None  # ⬅️ اضافه شد
+
+
+class PaymentRequestRead(BaseModel):
+    id: int
+    user_id: int
+    amount: int
+    plan: str
+    status: str
+    receipt_note: Optional[str] = None
+    admin_note: Optional[str] = None
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+    user_phone: Optional[str] = None  # فقط برای ادمین
+
+
+class AdminUserRead(BaseModel):
+    id: int
+    phone: str
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
+    subscription: Optional[SubscriptionRead] = None
+
+
+class AdminUpdateSubscription(BaseModel):
+    plan: str  # free | monthly | yearly | unlimited
+    days: Optional[int] = None  # اگه None و plan=monthly → 30 روز
+
+
+class AdminReviewPayment(BaseModel):
+    action: str  # approve | reject
+    admin_note: Optional[str] = None
+
+
+TokenResponse.model_rebuild()

@@ -12,7 +12,15 @@ trademun.ir {
     log {
         output file /data/frontend-access.log
     }
+
+ # ⬅️ این بلاک رو برای تایید اینماد اضافه کن
+    handle /32191391.txt {
+        root * /srv/frontend/public
+        file_server
+    }
+
 }
+
 
 www.trademun.ir {
     redir https://trademun.ir{uri}
