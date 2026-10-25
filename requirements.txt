@@ -1,6 +1,5 @@
 # ═══════════════════════════════════════════════════════════
 # Trademun — requirements.txt
-# فاز ۷: WebSocket + FastAPI Backend + Next.js Frontend
 # ═══════════════════════════════════════════════════════════
 # ⚠️ فقط پکیج‌های **واقعاً استفاده‌شده**.
 #    هر پکیج جدید را با دلیل اضافه کن، نه به‌صورت احتیاطی.
@@ -26,6 +25,7 @@ websockets>=13.0
 
 # ─── Database ───
 sqlmodel>=0.0.22
+psycopg[binary]>=3.2.0
 
 # ─── Scheduler ───
 apscheduler>=3.10.4
@@ -34,13 +34,22 @@ apscheduler>=3.10.4
 pytest>=8.3.0
 httpx>=0.27.0
 
-psycopg[binary]>=3.2.0
-
-Pillow>=10.0.0
-requests>=2.31.0
-
+# ─── فاز ۱۱: احراز هویت ───
 python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.9
 
+# ─── فاز ۱۱: فراز SMS ───
+farazsms>=1.1.0
+
+# ─── فاز ۱۲: اکسل ───
 openpyxl>=3.1.2
 
-farazsms>=1.1.0
+# ─── فاز ۱۲: تاریخ شمسی ───
+jdatetime>=5.2.0
+pytz>=2024.1
+tzdata>=2024.1
+
+# ─── سایر ───
+Pillow>=10.0.0
+email-validator>=2.1.0
