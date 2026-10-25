@@ -415,6 +415,10 @@ class AdminUserRead(BaseModel):
     subscription: Optional[SubscriptionRead] = None
 
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=50)
+
+
 class AdminUpdateSubscription(BaseModel):
     plan: str  # free | monthly | yearly | unlimited
     days: Optional[int] = None  # اگه None و plan=monthly → 30 روز

@@ -4,14 +4,15 @@ export const getToken = () => {
 };
 
 export const setToken = (token: string) => {
-  if (typeof window === "undefined") return;
   localStorage.setItem("trademun_token", token);
+  // ⬅️ ذخیره در کوکی برای middleware
+  document.cookie = `trademun_token=${token}; path=/; max-age=604800`; // ۷ روز
 };
 
 export const removeToken = () => {
-  if (typeof window === "undefined") return;
   localStorage.removeItem("trademun_token");
   localStorage.removeItem("trademun_user");
+  document.cookie = "trademun_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
 };
 
 export const getUser = () => {
@@ -21,6 +22,5 @@ export const getUser = () => {
 };
 
 export const setUser = (user: any) => {
-  if (typeof window === "undefined") return;
   localStorage.setItem("trademun_user", JSON.stringify(user));
 };

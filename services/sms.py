@@ -7,6 +7,7 @@ import logging
 from farazsms import FarazSMS, FarazError
 from api.config import settings
 from datetime import datetime
+import jdatetime
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ def send_subscription_activated_sms(
 
     try:
         sms = FarazSMS(settings.FARAZ_API_KEY.strip())
-        date_str = end_date.strftime("%Y/%m/%d")
+        # تبدیل تاریخ به شمسی
+        date_str = jdatetime.date.fromgregorian(date=end_date).strftime("%Y/%m/%d")
 
         # ارسال متغیرها طبق پترن %plan% و %date%
         sms.send_pattern(

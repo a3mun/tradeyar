@@ -20,7 +20,7 @@ from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import ws as ws_router
-from api.routers import subscription, admin
+from api.routers import admin, subscription
 
 # ═══════════════════════════════════════════════════════════
 # Logging
