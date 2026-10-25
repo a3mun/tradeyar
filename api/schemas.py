@@ -349,12 +349,22 @@ class SendOTPRequest(BaseModel):
 class SendOTPResponse(BaseModel):
     ok: bool = True
     message: str = "کد ورود ارسال شد"
-    retry_after: int = 60  # ثانیه
+    retry_after: int = 60
 
 
 class VerifyOTPRequest(BaseModel):
     phone: str
     code: str = Field(..., min_length=4, max_length=6)
+
+
+# ⬅️ این باید قبل از TokenResponse باشه
+class UserRead(BaseModel):
+    id: int
+    phone: str
+    full_name: Optional[str] = None
+    is_active: bool
+    is_admin: bool
+    created_at: datetime
 
 
 class TokenResponse(BaseModel):
@@ -363,15 +373,6 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserRead
     is_new_user: bool = False
-
-
-class UserRead(BaseModel):
-    id: int
-    phone: str
-    full_name: Optional[str] = None  # ⬅️ اضافه شد
-    is_active: bool
-    is_admin: bool
-    created_at: datetime
 
 
 # ═══════════════════════════════════════════════════════════

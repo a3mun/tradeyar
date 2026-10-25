@@ -29,7 +29,8 @@ WORKDIR $HOME/app
 
 # ─── نصب پکیج‌های پایتون ───
 COPY --chown=user requirements.txt ./
-RUN pip install --user --no-cache-dir -r requirements.txt
+RUN pip install --user --no-cache-dir --default-timeout=1000 -r requirements.txt
+
 
 # ─── کپی کد پروژه ───
 COPY --chown=user . .
