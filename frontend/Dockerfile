@@ -4,9 +4,17 @@
 
 # ─── Stage 1: Dependencies ───
 FROM node:20-alpine AS deps
+
+# ⬅️ تغییر mirror به علی‌بابا (dl-cdn در ایران جواب نمی‌ده — TLS error)
+RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories
+
+# ⬅️ نصب libc6-compat (فقط یک بار)
 RUN apk add --no-cache libc6-compat
+
 WORKDIR /app
 COPY package.json package-lock.json* ./
+
+# ⬅️ mirror npm به پارس‌پک (سریع‌تر از npmmirror روی سرور شما)
 RUN npm config set registry https://mirror.abrha.net/repository/npm/ \
  && npm ci --prefer-offline --no-audit \
     --fetch-retries=5 \
