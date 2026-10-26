@@ -362,6 +362,7 @@ class UserRead(BaseModel):
     id: int
     phone: str
     full_name: Optional[str] = None
+    email: Optional[str] = None  # ⬅️ اضافه شد
     is_active: bool
     is_admin: bool
     created_at: datetime
@@ -417,7 +418,10 @@ class AdminUserRead(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    full_name: str = Field(..., min_length=2, max_length=50)
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    old_password: Optional[str] = None  # ⬅️ اضافه شد
+    new_password: Optional[str] = None  # ⬅️ اضافه شد (به جای password)
 
 
 class AdminUpdateSubscription(BaseModel):

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getToken } from "@/lib/auth";
+import { getToken, getUser } from "@/lib/auth";
 
 import { Header } from "@/components/layout/Header";
 import { Marquee } from "@/components/layout/Marquee";
@@ -28,18 +28,63 @@ import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
 
 export default function HomePage() {
   const router = useRouter();
+  const [isChecking, setIsChecking] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
 
-  // ⬅️ چک کردن لاگین
+  // ⬅️ چک کردن لاگین و اشتراک
   useEffect(() => {
-    if (!getToken()) {
+    const token = getToken();
+    const user = getUser();
+
+    if (!token || !user) {
       router.replace("/login");
+      return;
     }
+
+    // ادمین‌ها همیشه دسترسی دارن
+    if (user.is_admin) {
+      setHasAccess(true);
+      setIsChecking(false);
+      return;
+    }
+
+    // چک کردن اشتراک
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    fetch(`${apiUrl}/subscription/my`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => {
+        const sub = data.subscription;
+        if (sub && sub.status === "active" && sub.plan !== "free") {
+          setHasAccess(true);
+        } else {
+          // اگه اشتراک نداشت یا رایگان بود، بفرست داشبورد
+          router.replace("/dashboard");
+        }
+      })
+      .catch(() => {
+        router.replace("/dashboard");
+      })
+      .finally(() => {
+        setIsChecking(false);
+      });
   }, [router]);
 
   const { data } = useSignalData();
   const { ticker, source, timeframe, marketType, riskProfile } = useAppStore();
 
   const coherent = sourceSupportsPair(source, ticker);
+
+  // ⬅️ در حال چک کردن
+  if (isChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#07111f]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#d6ad60]"></div>
+      </div>
+    );
+  }
+
+  // ⬅️ اگه دسترسی نداشت، رندر نکن (منتظر ریدایرکت)
+  if (!hasAccess) return null;
 
   return (
     <div className="min-h-screen bg-background">

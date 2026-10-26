@@ -7,6 +7,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
+from passlib.context import CryptContext
+
 
 from api.auth import (
     create_access_token,
@@ -81,6 +83,33 @@ async def verify_otp_endpoint(
         )
         session.add(user)
         session.commit()
+    if not user:
+        is_new = True
+        user = User(...)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        sub = Subscription(...)
+        session.add(sub)
+        session.commit()
+
+        # 🔴 نوتیف به ادمین‌های متصل
+        try:
+            from api.routers.admin_ws import notify_admins
+
+            await notify_admins(
+                {
+                    "type": "new_user",
+                    "id": user.id,
+                    "user_phone": phone,
+                    "full_name": user.full_name or "نامشخص",
+                    "message": f"👤 کاربر جدید ثبت‌نام کرد: {phone}",
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[Notify] WebSocket admin failed: {e}")
+
         session.refresh(user)
         sub = Subscription(
             user_id=user.id,
@@ -117,16 +146,47 @@ async def me(user: User = Depends(get_current_user)):
     }
 
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 @router.put("/me")
 async def update_profile(
     req: UpdateProfileRequest,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    user.full_name = req.full_name
+    """آپدیت نام نمایشی، ایمیل و رمز عبور"""
+    # نام
+    if req.full_name is not None:
+        user.full_name = req.full_name
+
+    # ایمیل
+    if req.email is not None:
+        if req.email and ("@" not in req.email or "." not in req.email):
+            raise HTTPException(status_code=400, detail="ایمیل نامعتبر است")
+        user.email = req.email
+
+    # رمز عبور
+    if req.new_password:
+        if len(req.new_password) < 6:
+            raise HTTPException(
+                status_code=400, detail="رمز جدید باید حداقل ۶ حرف باشد"
+            )
+
+        # اگه کاربر قبلاً رمز داشت، باید رمز فعلی رو وارد کنه
+        if user.hashed_password:
+            if not req.old_password:
+                raise HTTPException(status_code=400, detail="رمز فعلی را وارد کنید")
+            if not pwd_context.verify(req.old_password, user.hashed_password):
+                raise HTTPException(status_code=400, detail="رمز فعلی اشتباه است")
+
+        # ذخیره رمز جدید (هش شده)
+        user.hashed_password = pwd_context.hash(req.new_password)
+
     session.add(user)
     session.commit()
     session.refresh(user)
+
     return {
         "ok": True,
         "user": UserRead.model_validate(user, from_attributes=True).model_dump(),

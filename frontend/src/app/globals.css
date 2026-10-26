@@ -1,39 +1,39 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════
-   Trademun — Global Styles (فاز ۶)
+   Trademun — Global Styles (فاز ۱۲)
    ═══════════════════════════════════════════════════════════ */
 
 @theme {
   --font-sans: var(--font-vazirmatn), system-ui, sans-serif;
 
-  /* ─── رنگ‌های اصلی (تم تاریک) ─── */
-  --color-background: #0a0e1a;
-  --color-foreground: #e6edf3;
-  --color-card: #101624;
-  --color-card-foreground: #e6edf3;
-  --color-popover: #101624;
-  --color-popover-foreground: #e6edf3;
-  --color-primary: #3b82f6;
-  --color-primary-foreground: #ffffff;
+  /* ─── رنگ‌های اصلی (تم سرمه‌ای-طلایی) ─── */
+  --color-background: #07111f;
+  --color-foreground: #f3f5f8;
+  --color-card: #0d1b2d;
+  --color-card-foreground: #f3f5f8;
+  --color-popover: #0d1b2d;
+  --color-popover-foreground: #f3f5f8;
+  --color-primary: #d6ad60;
+  --color-primary-foreground: #101827;
   --color-secondary: #1e293b;
-  --color-secondary-foreground: #e6edf3;
+  --color-secondary-foreground: #f3f5f8;
   --color-muted: #1e293b;
   --color-muted-foreground: #94a3b8;
   --color-accent: #1e293b;
-  --color-accent-foreground: #e6edf3;
+  --color-accent-foreground: #f3f5f8;
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
   --color-border: #1e293b;
   --color-input: #1e293b;
-  --color-ring: #3b82f6;
+  --color-ring: #d6ad60;
 
-  /* ─── رنگ‌های سیگنال (فقط برای Trademun) ─── */
-  --color-long: #22c55e;
+  /* ─── رنگ‌های سیگنال ─── */
+  --color-long: #10b981;
   --color-short: #ef4444;
   --color-neutral: #eab308;
   --color-resistance: #ef4444;
-  --color-support: #22c55e;
+  --color-support: #10b981;
 }
 
 /* ═══ Base ═══ */
@@ -67,7 +67,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #d6ad6060;
 }
 
 /* ═══ اعداد فارسی/انگلیسی ═══ */

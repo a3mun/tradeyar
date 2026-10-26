@@ -3,11 +3,19 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, getToken, removeToken } from "@/lib/auth";
+import { Header } from "@/components/layout/Header";
+import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LogOut, CheckCircle2, XCircle, CreditCard, Users, Calendar, Clock, Globe, Monitor, UserCheck, Download, Upload, History, PlusCircle, Activity, ShieldAlert, MinusCircle, ArrowUpDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  LogOut, CheckCircle2, XCircle, CreditCard, Users, 
+  Calendar, Clock, Globe, Monitor, UserCheck, Download, Upload, History, 
+  Activity, ShieldAlert, ArrowUpDown, Home, BarChart3, LifeBuoy, 
+  Settings, Search, Crown, Zap, TrendingUp, Bell, X
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { motion } from "framer-motion";
+import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 import Link from "next/link";
 
 const getPlanNameFa = (plan: string) => {
@@ -26,11 +34,15 @@ export default function AdminPage() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [adjustDays, setAdjustDays] = useState<number>(0);
+
+  // ⬅️ نوتیف‌ها
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
@@ -57,13 +69,35 @@ export default function AdminPage() {
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
-  const sortedUsers = [...usersList].sort((a, b) => {
-    if (!sortConfig) return 0;
-    const { key, direction } = sortConfig;
-    if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
-    if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
-    return 0;
+  // ⬅️ اتصال به WebSocket و دریافت نوتیف
+  const { connected } = useAdminNotifications((n) => {
+    setNotifications((prev) => [n, ...prev].slice(0, 5));
+    fetchData(); // رفرش خودکار
   });
+
+  // ⬅️ حذف نوتیف
+  const dismissNotification = (idx: number) => {
+    setNotifications((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // ⬅️ حذف خودکار بعد از ۱۵ ثانیه
+  useEffect(() => {
+    if (notifications.length === 0) return;
+    const timers = notifications.map((_, idx) =>
+      setTimeout(() => dismissNotification(idx), 15000)
+    );
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, [notifications.length]);
+
+  const sortedUsers = [...usersList]
+    .filter(u => u.phone.includes(searchQuery) || (u.full_name && u.full_name.includes(searchQuery)))
+    .sort((a, b) => {
+      if (!sortConfig) return 0;
+      const { key, direction } = sortConfig;
+      if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
+      if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
+      return 0;
+    });
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -132,66 +166,144 @@ export default function AdminPage() {
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
 
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#07111f] text-white">
-      <div className="absolute inset-0 z-0 opacity-20">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#d6ad6010] via-transparent to-[#10b98110]" />
+    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+      
+      {/* ═══ نوتیف‌های شناور ═══ */}
+      <div className="fixed top-20 left-4 right-4 z-[100] flex flex-col gap-2 sm:left-auto sm:right-4 sm:w-96 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((n, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 50 }}
+              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-[#d6ad60]/40 bg-[#0d1b2d] p-4 shadow-2xl backdrop-blur-xl"
+            >
+              <div className={`p-2 rounded-lg ${n.type === "new_user" ? "bg-blue-500/20" : "bg-[#d6ad60]/20"}`}>
+                <Bell className={`h-5 w-5 ${n.type === "new_user" ? "text-blue-400" : "text-[#d6ad60]"}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">{n.message || "نوتیف جدید"}</p>
+                {n.user_phone && (
+                  <p className="text-xs text-gray-400 mt-1 font-mono dir-ltr">{n.user_phone}</p>
+                )}
+              </div>
+              <button
+                onClick={() => dismissNotification(idx)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
 
-      <header className="relative z-10 flex items-center justify-between p-4 sm:p-6 border-b border-white/5">
-        <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-          <img src="/icon-192.png" alt="Trademun" className="h-10 w-10 rounded-xl object-contain" />
-          <span className="text-xl font-bold">تریدمون</span>
-        </Link>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-[#d6ad60] bg-[#d6ad60]/10 px-3 py-1 rounded-full hidden sm:inline-block">مدیر سیستم</span>
-          <Button variant="destructive" size="sm" onClick={() => { removeToken(); router.replace("/login"); }} className="gap-2">
-            <LogOut className="h-4 w-4" /> خروج
-          </Button>
-        </div>
-      </header>
-
-      <main className="relative z-10 container mx-auto p-4 py-8 max-w-6xl space-y-6">
+      <Header />
+      <main className="flex-1 container mx-auto p-4 py-8 max-w-6xl space-y-6">
         
         {/* هدر پنل */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#0d1b2dd0] p-4 rounded-2xl border border-white/10 shadow-xl backdrop-blur-xl">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="bg-[#d6ad60]/10 p-2 rounded-lg"><UserCheck className="h-6 w-6 text-[#d6ad60]" /></div>
+            <div className="bg-[#d6ad60]/10 p-2 rounded-xl border border-[#d6ad60]/20 shadow-[0_0_15px_#d6ad6040]">
+              <Crown className="h-6 w-6 text-[#d6ad60]" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold text-white">اتاق فرمان</h1>
-              <p className="text-xs text-gray-400">خوش آمدید، {user.full_name || "مدیر"}</p>
+              <h1 className="text-2xl font-bold text-white">اتاق فرمان</h1>
+              <p className="text-sm text-gray-400 flex items-center gap-2">
+                خوش آمدید، {user.full_name || "مدیر"}
+                <span className="flex items-center gap-1 text-[10px] ml-2">
+                  <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
+                  {connected ? "متصل" : "قطع"}
+                </span>
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleBackup} className="gap-2 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10"><Download className="h-4 w-4" /> بک‌آپ</Button>
-            <Button variant="outline" size="sm" onClick={handleExcel} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10"><Download className="h-4 w-4" /> خروجی اکسل</Button>
-            <Button variant="outline" size="sm" onClick={handleRestore} className="gap-2 border-orange-500/30 text-orange-500 hover:bg-orange-500/10"><Upload className="h-4 w-4" /> بازگردانی</Button>
+            <Link href="/">
+              <Button variant="outline" size="sm" className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white"><Home className="h-4 w-4" /> صفحه اصلی</Button>
+            </Link>
+            <Button variant="destructive" size="sm" onClick={() => { removeToken(); router.replace("/login"); }} className="gap-2"><LogOut className="h-4 w-4" /> خروج</Button>
           </div>
         </div>
 
         {/* کارت‌های آماری */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-[#0d1b2dd0] p-4 rounded-xl border border-white/10 shadow-lg flex items-center gap-3 backdrop-blur-md">
-            <div className="bg-[#d6ad60]/10 p-2 rounded-lg text-[#d6ad60]"><Users className="h-5 w-5" /></div>
-            <div><p className="text-xs text-gray-400">کل کاربران</p><p className="text-lg font-bold text-white">{usersList.length}</p></div>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
+            <div className="bg-[#d6ad60]/10 p-3 rounded-xl text-[#d6ad60]"><Users className="h-6 w-6" /></div>
+            <div>
+              <p className="text-xs text-gray-400">کل کاربران</p>
+              <p className="text-2xl font-bold text-white">{usersList.length}</p>
+            </div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-[#0d1b2dd0] p-4 rounded-xl border border-white/10 shadow-lg flex items-center gap-3 backdrop-blur-md">
-            <div className="bg-green-500/10 p-2 rounded-lg text-green-500"><Activity className="h-5 w-5" /></div>
-            <div><p className="text-xs text-gray-400">کاربران فعال</p><p className="text-lg font-bold text-white">{usersList.filter(u => u.plan !== "free").length}</p></div>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
+            <div className="bg-green-500/10 p-3 rounded-xl text-green-500"><TrendingUp className="h-6 w-6" /></div>
+            <div>
+              <p className="text-xs text-gray-400">کاربران فعال</p>
+              <p className="text-2xl font-bold text-white">{usersList.filter(u => u.plan !== "free" && u.is_admin === false).length}</p>
+            </div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-[#0d1b2dd0] p-4 rounded-xl border border-white/10 shadow-lg flex items-center gap-3 backdrop-blur-md">
-            <div className="bg-yellow-500/10 p-2 rounded-lg text-yellow-500"><CreditCard className="h-5 w-5" /></div>
-            <div><p className="text-xs text-gray-400">درخواست‌های در انتظار</p><p className="text-lg font-bold text-white">{payments.length}</p></div>
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
+            <div className="bg-yellow-500/10 p-3 rounded-xl text-yellow-500"><CreditCard className="h-6 w-6" /></div>
+            <div>
+              <p className="text-xs text-gray-400">درخواست‌های در انتظار</p>
+              <p className="text-2xl font-bold text-white">{payments.length}</p>
+            </div>
           </motion.div>
         </div>
 
-        {/* تب‌ها */}
-        <div className="flex gap-2 border-b border-white/10 pb-2 overflow-x-auto">
-          <Button variant={activeTab === "users" ? "default" : "ghost"} onClick={() => setActiveTab("users")} className={`gap-2 shrink-0 ${activeTab === "users" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><Users className="h-4 w-4" /> مدیریت کاربران</Button>
-          <Button variant={activeTab === "payments" ? "default" : "ghost"} onClick={() => setActiveTab("payments")} className={`gap-2 shrink-0 ${activeTab === "payments" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><CreditCard className="h-4 w-4" /> درخواست‌های پرداخت</Button>
+        {/* کارت‌های آینده (غیرفعال) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 opacity-60">
+          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
+            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><BarChart3 className="h-6 w-6" /></div>
+            <div>
+              <p className="text-sm font-bold text-gray-400">آمار بازدید سایت</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
+            </div>
+          </div>
+          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
+            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><LifeBuoy className="h-6 w-6" /></div>
+            <div>
+              <p className="text-sm font-bold text-gray-400">مدیریت تیکت‌ها</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
+            </div>
+          </div>
+          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
+            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><Settings className="h-6 w-6" /></div>
+            <div>
+              <p className="text-sm font-bold text-gray-400">تنظیمات سایت</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
+            </div>
+          </div>
         </div>
 
+        {/* نوار ابزار و تب‌ها */}
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-white/10 pb-2">
+          <div className="flex gap-2 overflow-x-auto w-full md:w-auto">
+            <Button variant={activeTab === "users" ? "default" : "ghost"} onClick={() => setActiveTab("users")} className={`gap-2 shrink-0 ${activeTab === "users" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><Users className="h-4 w-4" /> مدیریت کاربران</Button>
+            <Button variant={activeTab === "payments" ? "default" : "ghost"} onClick={() => setActiveTab("payments")} className={`gap-2 shrink-0 ${activeTab === "payments" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><CreditCard className="h-4 w-4" /> درخواست‌های پرداخت</Button>
+          </div>
+          
+          <div className="flex gap-2 w-full md:w-auto">
+            <Button variant="outline" size="sm" onClick={handleBackup} className="gap-2 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10 flex-1 md:flex-none"><Download className="h-4 w-4" /> بک‌آپ</Button>
+            <Button variant="outline" size="sm" onClick={handleExcel} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10 flex-1 md:flex-none"><Download className="h-4 w-4" /> اکسل</Button>
+            <Button variant="outline" size="sm" onClick={handleRestore} className="gap-2 border-orange-500/30 text-orange-500 hover:bg-orange-500/10 flex-1 md:flex-none"><Upload className="h-4 w-4" /> بازگردانی</Button>
+          </div>
+        </div>
+
+        {/* بخش محتوا */}
         {activeTab === "users" ? (
           <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+              <Input 
+                placeholder="جستجوی شماره یا نام..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-10 bg-[#0d1b2d] border-white/10 text-white h-11 rounded-xl"
+              />
+            </div>
+
             {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : (
               <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#0d1b2dd0] shadow-xl backdrop-blur-xl">
                 <table className="w-full text-sm text-right">
@@ -223,7 +335,7 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : payments.length === 0 ? <div className="text-center text-gray-400 py-6 bg-[#0d1b2dd0] rounded-2xl border border-white/10">هیچ درخواستی نیست.</div> : (
+            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : payments.length === 0 ? <div className="text-center text-gray-400 py-10 bg-[#0d1b2dd0] rounded-2xl border border-white/10">هیچ درخواستی نیست.</div> : (
               payments.map((p) => (
                 <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-2xl border border-white/10 bg-[#0d1b2dd0] shadow-lg backdrop-blur-xl hover:border-[#d6ad60]/30 transition-colors">
                   <div className="w-full space-y-3">
@@ -324,6 +436,7 @@ export default function AdminPage() {
           ) : (<div className="flex justify-center py-10"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#d6ad60]"></div></div>)}
         </DialogContent>
       </Dialog>
-    </main>
+      <Footer />
+    </div>
   );
 }

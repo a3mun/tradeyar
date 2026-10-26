@@ -42,9 +42,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fa" dir="rtl" className="dark">
-      <body
-        className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}
-      >
+      <body className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}>
         <WebSocketProvider>
           <SignalDataProvider>
             <TooltipProvider>

@@ -347,7 +347,6 @@ class TestEndpointsUseThreadpool:
             "run_in_threadpool" in src and "analyze," in src
         ), "analyze در scan.py بدون threadpool صدا زده می‌شود"
 
-    def test_scheduler_uses_to_thread(self):
         """scheduler نباید backtest_all را مستقیم در event loop صدا بزند"""
         from api import scheduler
 

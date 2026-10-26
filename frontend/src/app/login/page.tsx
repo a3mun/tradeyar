@@ -7,7 +7,7 @@ import { setToken, setUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send, TrendingUp, TrendingDown } from "lucide-react";
 
 type Signal = { id: number; x: number; y: number; duration: number; delay: number; size: number };
 type Candle = { id: number; start: number; peak: number; color: string; };
@@ -34,7 +34,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     setCandleHeights(
-      Array.from({ length: 25 }).map((_, i) => ({
+      Array.from({ length: 15 }).map((_, i) => ({
         id: i,
         start: 20 + (i * 7) % 40,
         peak: 50 + (i * 11) % 40,
@@ -43,13 +43,13 @@ export default function LoginPage() {
     );
 
     setFloatingSignals(
-      Array.from({ length: 25 }).map((_, i) => ({
+      Array.from({ length: 10 }).map((_, i) => ({
         id: i,
         x: -100,
         y: Math.random() * 800,
-        duration: 8 + Math.random() * 8, // سرعت آروم‌تر
+        duration: 10 + Math.random() * 8,
         delay: Math.random() * 5,
-        size: 2.5 + Math.random() * 2, 
+        size: 2 + Math.random() * 1.5,
       }))
     );
 
@@ -93,7 +93,8 @@ export default function LoginPage() {
     }
   };
 
-  const handleVerify = async (e: React.FormEvent) => {
+
+    const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code || code.length < 5) return setError("کد ۵ رقمی را وارد کنید");
     
@@ -113,8 +114,8 @@ export default function LoginPage() {
       setToken(data.access_token);
       setUser(data.user);
       
-      if (data.user.is_admin) router.push("/admin");
-      else router.push("/dashboard");
+      // ⬅️ همه به صفحه اصلی برن (ادمین هم می‌تونه از منو بره پنل)
+      router.push("/");
       
     } catch (err: any) {
       setError(err.message);
@@ -134,27 +135,27 @@ export default function LoginPage() {
       
       {/* ═══ پس‌زمینه سینمایی ═══ */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <svg className="absolute inset-0 h-full w-full opacity-80" viewBox="0 0 1200 800" preserveAspectRatio="none">
+        <svg className="absolute inset-0 h-full w-full opacity-70" viewBox="0 0 1200 800" preserveAspectRatio="none">
           <motion.path
             initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 0.8 }}
+            animate={{ pathLength: 1, opacity: 0.6 }}
             transition={{ duration: 8, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
             d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110"
             fill="none"
             stroke="#d6ad60"
-            strokeWidth="4"
+            strokeWidth="3"
             strokeLinecap="round"
           />
         </svg>
 
-        <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-30">
+        <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-40">
           {candleHeights.map((candle) => (
             <motion.div
               key={candle.id}
-              initial={{ height: `${candle.start}%`, opacity: 0.3 }}
+              initial={{ height: `${candle.start}%`, opacity: 0.4 }}
               animate={{ height: [`${candle.start}%`, `${candle.peak}%`, `${candle.start}%`] }}
-              transition={{ duration: 6 + (candle.id % 5), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }}
-              className={`w-3 sm:w-4 rounded-t-sm ${candle.color} shadow-lg`}
+              transition={{ duration: 5 + (candle.id % 3), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }}
+              className={`w-3 sm:w-4 rounded-t-sm ${candle.color}`}
             />
           ))}
         </div>
@@ -165,17 +166,17 @@ export default function LoginPage() {
             initial={{ x: signal.x, y: signal.y, opacity: 0 }}
             animate={{ 
               x: 1200, 
-              y: [signal.y, signal.y + 40, signal.y - 40, signal.y],
-              opacity: [0, 0.8, 0], 
-              scale: [1, 1.4, 1] 
+              y: [signal.y, signal.y + 30, signal.y - 30, signal.y],
+              opacity: [0, 0.7, 0], 
+              scale: [1, 1.3, 1] 
             }}
             transition={{ duration: signal.duration, repeat: Infinity, ease: "linear", delay: signal.delay }}
-            className="absolute rounded-full bg-[#d6ad60] shadow-[0_0_25px_#d6ad60]"
-            style={{ width: `${signal.size * 5}px`, height: `${signal.size * 5}px` }}
+            className="absolute rounded-full bg-[#d6ad60] shadow-[0_0_15px_#d6ad60]"
+            style={{ width: `${signal.size * 4}px`, height: `${signal.size * 4}px` }}
           />
         ))}
 
-        <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/80 via-[#07111f]/60 to-[#07111f]/95" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/60 via-[#07111f]/40 to-[#07111f]/80" />
       </div>
 
       {/* هدر */}
@@ -190,9 +191,9 @@ export default function LoginPage() {
         </div>
       </header>
 
-      <div className="relative z-10 mx-auto grid w-full max-w-5xl flex-1 items-center gap-12 p-4 sm:p-6 lg:grid-cols-2">
+      <div className="relative z-10 mx-auto grid w-full max-w-5xl flex-1 items-center gap-8 p-4 sm:p-6 lg:grid-cols-2">
         
-        {/* ═══ دسکتاپ: متن معرفی ثابت ═══ */}
+        {/* ═══ دسکتاپ: متن معرفی ═══ */}
         <div className="hidden lg:block">
           <span className="text-xs tracking-widest text-[#d6ad60]">SMARTER MARKET INSIGHTS</span>
           <h1 className="mt-6 text-5xl font-bold leading-tight">
@@ -200,7 +201,7 @@ export default function LoginPage() {
             <span className="text-[#d6ad60]">با تریدمون</span>
           </h1>
           <p className="mt-6 text-sm leading-relaxed text-gray-400">
-            با تریدمون، تحلیل تکنیکال دقیق و سیگنال‌های لحظه‌ای رو از صرافی‌های ایرانی دریافت کن.
+            با تریدمون، تحلیل تکنیکال دقیق و سیگنال‌های لحظه‌ای رو از صرافی‌های معتبر و بازار سرمایه ایران (بورس) دریافت کن. تصمیم بهتر، با دید بهتر.
           </p>
           <div className="mt-8 space-y-3 text-sm">
             {FEATURES.map((f, i) => (
@@ -213,68 +214,64 @@ export default function LoginPage() {
         </div>
 
         {/* ═══ فرم ورود ═══ */}
-        <div className="relative w-full pt-16 lg:pt-0">
+        <div className="relative w-full">
           
-          {/* ⬅️ موبایل: تیتر بالای فرم با فاصله زیاد */}
-          <div className="mb-10 text-center lg:hidden">
+          {/* موبایل: متن معرفی */}
+          <div className="mb-6 text-center lg:hidden">
             <h1 className="text-2xl font-bold leading-tight">
               تحلیل بازارهای مالی
             </h1>
           </div>
 
-          <form onSubmit={handleVerify} className="relative w-full rounded-3xl border border-white/10 bg-[#0d1b2dd0] p-6 sm:p-8 shadow-2xl backdrop-blur-2xl">
-            
-            {/* ⬅️ موبایل: نوتیفیکیشن شناور داخل فرم (بالای ورودی‌ها) */}
-            <div className="mb-6 flex justify-center lg:hidden">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeFeature}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.5 }}
-                  className="flex items-center gap-2 rounded-full border border-[#d6ad6040] bg-[#0d1b2de0] px-4 py-2 text-xs text-[#d6ad60] shadow-lg backdrop-blur-md"
-                >
-                  {(() => {
-                    const Icon = FEATURES[activeFeature].icon;
-                    return <Icon className="h-4 w-4" />;
-                  })()}
-                  <span>{FEATURES[activeFeature].text}</span>
-                </motion.div>
-              </AnimatePresence>
-            </div>
+          {/* نوتیف (بالای فرم) */}
+          <div className="mb-4 flex justify-center lg:hidden">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeFeature}
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ duration: 0.5 }}
+                className="flex items-center gap-2 rounded-full border border-[#d6ad6040] bg-[#0d1b2de0] px-4 py-2 text-xs text-[#d6ad60] shadow-lg backdrop-blur-md"
+              >
+                {(() => {
+                  const Icon = FEATURES[activeFeature].icon;
+                  return <Icon className="h-4 w-4" />;
+                })()}
+                <span>{FEATURES[activeFeature].text}</span>
+              </motion.div>
+            </AnimatePresence>
+          </div>
 
-            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-[#d6ad6050] bg-[#d6ad6010]">
-              <img src="/icon-192.png" alt="Trademun" className="h-8 w-8 object-contain" />
-            </div>
+          <form onSubmit={handleVerify} className="relative w-full rounded-2xl border border-white/10 bg-[#0d1b2dd0] p-5 sm:p-6 shadow-2xl backdrop-blur-xl">
             
-            <h2 className="text-2xl font-bold">ورود به تریدمون</h2>
-            <p className="mt-2 mb-8 text-sm text-gray-400">
+            <h2 className="text-xl font-bold mb-1">ورود به تریدمون</h2>
+            <p className="mb-6 text-xs text-gray-400">
               {step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`}
             </p>
 
-            {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</div>}
+            {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500">{error}</div>}
 
             {step === 1 ? (
               <div className="space-y-4">
                 <div>
                   <label className="mb-2 block text-xs text-gray-400">شماره موبایل</label>
-                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/30 px-4 transition-colors focus-within:border-[#d6ad60]">
+                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/30 px-3 transition-colors focus-within:border-[#d6ad60]">
                     <span className="text-sm text-[#d6ad60] pl-3 border-r border-white/10" dir="ltr">+98</span>
                     <Input
                       type="tel"
-                      placeholder="912 000 0000"
+                      placeholder="0912 000 0000"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      className="border-0 bg-transparent text-right text-lg text-white shadow-none focus-visible:ring-0"
+                      className="border-0 bg-transparent text-right text-base text-white shadow-none focus-visible:ring-0 h-11"
                       maxLength={11}
                       dir="ltr"
                     />
                   </div>
                 </div>
                 
-                <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-base font-bold text-[#101827] hover:opacity-90">
+                <Button onClick={handleSendOtp} disabled={loading} className="h-11 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90">
                   {loading ? "در حال ارسال..." : "دریافت کد ورود"}
                 </Button>
               </div>
@@ -292,17 +289,17 @@ export default function LoginPage() {
                     placeholder="- - - - -"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    className="h-14 border-white/10 bg-black/30 text-center text-2xl tracking-[0.5em] text-white focus-visible:ring-[#d6ad60]"
+                    className="h-12 border-white/10 bg-black/30 text-center text-xl tracking-[0.5em] text-white focus-visible:ring-[#d6ad60]"
                     maxLength={5}
                     dir="ltr"
                   />
                 </div>
                 
-                <Button type="submit" disabled={loading} className="h-12 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-base font-bold text-[#101827] hover:opacity-90">
+                <Button type="submit" disabled={loading} className="h-11 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90">
                   {loading ? "در حال بررسی..." : "ورود به حساب"}
                 </Button>
                 
-                <div className="text-center text-sm">
+                <div className="text-center text-xs">
                   {timer > 0 ? (
                     <span className="text-gray-500">ارسال مجدد در {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</span>
                   ) : (
@@ -312,11 +309,36 @@ export default function LoginPage() {
               </div>
             )}
           </form>
+
+          {/* ⬅️ LONG/SHORT زیر کارت (دسکتاپ و موبایل) */}
+          <div className="mt-6 flex items-center justify-center gap-8 opacity-80">
+            <motion.div
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-2 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]"
+            >
+              LONG
+            </motion.div>
+            <motion.div
+              animate={{ opacity: [1, 0.4, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-2 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]"
+            >
+              SHORT
+            </motion.div>
+          </div>
+
+          {/* ⬅️ موبایل: متن جذاب زیر فرم */}
+          <div className="mt-6 text-center lg:hidden">
+            <p className="text-xs text-gray-400 leading-relaxed">
+              با تریدمون، تحلیل تکنیکال دقیق و سیگنال‌های لحظه‌ای رو از صرافی‌های معتبر و بازار سرمایه ایران (بورس) دریافت کن. تصمیم بهتر، با دید بهتر.
+            </p>
+          </div>
         </div>
       </div>
 
       {/* فوتر */}
-      <footer className="relative z-10 border-t border-white/5 bg-[#07111f]/50 px-4 py-4 text-center text-[10px] text-gray-500 backdrop-blur-sm sm:px-6">
+      <footer className="relative z-10 border-t border-white/5 bg-[#07111f]/50 px-4 py-3 text-center text-[10px] text-gray-500 backdrop-blur-sm sm:px-6">
         <div className="flex flex-wrap items-center justify-center gap-4">
           <span>© 2026 تریدمون</span>
           <span className="hidden sm:inline">•</span>
@@ -332,8 +354,8 @@ export default function LoginPage() {
             <Send className="h-3 w-3" /> ble.ir/trademun
           </a>
         </div>
-        <p className="mt-2 text-[9px] opacity-70">
-          ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارند. مسئولیت سود یا ضرر بر عهده شماست.
+        <p className="mt-1 text-[9px] opacity-70">
+          ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارند.
         </p>
       </footer>
     </main>

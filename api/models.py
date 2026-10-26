@@ -63,13 +63,14 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(unique=True, index=True)
     full_name: Optional[str] = None
+    email: Optional[str] = None  # ⬅️ اضافه شد
+    hashed_password: Optional[str] = None  # ⬅️ اضافه شد
     is_active: bool = Field(default=True)
     is_admin: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)
     last_login: Optional[datetime] = None
     last_ip: Optional[str] = None
     last_user_agent: Optional[str] = None
-    hashed_password: Optional[str] = None  # ⬅️ اضافه شد
 
 
 class OTPCode(SQLModel, table=True):

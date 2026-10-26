@@ -43,13 +43,22 @@ class Settings(BaseSettings):
 
     NOBITEX_API_KEY: str = ""
     NOBITEX_SECRET_KEY: str = ""
+
+    # ─── تلگرام ───
     TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    TELEGRAM_API_BASE: str = "https://api.telegram.org"
+
+    # ─── بله ───
+    BALE_BOT_TOKEN: str = ""
+    BALE_CHAT_ID: str = ""
+
     ADMIN_API_KEY: str = ""
 
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
-    ADMIN_PHONES: str = "09129630901"  # ⬅️ فقط شماره اصلی
+    ADMIN_PHONES: str = "09129630901"
 
     FARAZ_API_KEY: str = ""
     FARAZ_PATTERN_CODE: str = ""

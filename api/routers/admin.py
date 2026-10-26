@@ -52,6 +52,9 @@ async def restore_backup(
     return {"ok": True, "message": "دیتابیس بازگردانی شد"}
 
 
+# ═══════════════════════════════════════════════════════════
+# ۲. خروجی اکسل
+# ═══════════════════════════════════════════════════════════
 @router.get("/users/excel")
 async def export_users_excel(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -61,14 +64,13 @@ async def export_users_excel(
     wb = Workbook()
     ws = wb.active
     ws.title = "کاربران تریدمون"
-
-    # ⬅️ راست‌چین کردن شیت
     ws.sheet_view.rightToLeft = True
 
-    # هدرها
     headers = [
         "شماره موبایل",
         "نام",
+        "ایمیل",
+        "رمز (فعال/غیرفعال)",
         "نقش",
         "تاریخ عضویت",
         "آخرین ورود",
@@ -80,13 +82,11 @@ async def export_users_excel(
     ]
     ws.append(headers)
 
-    # استایل هدر
     for cell in ws[1]:
         cell.font = Font(name="Arial", bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="14213D")
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # داده‌ها
     for u in users:
         sub = session.exec(
             select(Subscription)
@@ -121,6 +121,8 @@ async def export_users_excel(
             [
                 u.phone,
                 u.full_name or "نامشخص",
+                u.email or "ثبت نشده",
+                "تعیین شده" if u.hashed_password else "تعیین نشده",
                 "مدیر" if u.is_admin else "کاربر",
                 u.created_at.strftime("%Y-%m-%d") if u.created_at else "نامشخص",
                 u.last_login.strftime("%Y-%m-%d %H:%M") if u.last_login else "نامشخص",
@@ -140,7 +142,6 @@ async def export_users_excel(
             ]
         )
 
-    # ⬅️ تنظیم عرض ستون‌ها
     for column in ws.columns:
         max_length = max(len(str(cell.value or "")) for cell in column)
         ws.column_dimensions[get_column_letter(column[0].column)].width = min(

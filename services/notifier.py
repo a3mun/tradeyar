@@ -1,252 +1,274 @@
 """
 services/notifier.py
-ارسال سیگنال به تلگرام (با پروکسی) و بله
-============================================================
+ارسال سیگنال به تلگرام و بله — فاز ۱۳ (نسخه نهایی)
 """
 
 import logging
-import os
-import random
-
 import requests
-from dotenv import load_dotenv
-
-load_dotenv()
+from api.config import settings
 
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-TELEGRAM_API_BASE = os.getenv("TELEGRAM_API_BASE", "https://api.telegram.org")
 
-BALE_TOKEN = os.getenv("BALE_BOT_TOKEN", "")
-BALE_CHAT_ID = os.getenv("BALE_CHAT_ID", "")
-
-TICKER_FA = {
-    "BTC": "بیت‌کوین",
-    "ETH": "اتریوم",
-    "XAUT": "تتر_گلد",
-    "PAXG": "پکس_گلد",
-    "ENA": "انا",
-    "USDT": "تتر",
-    "SOL": "سولانا",
-    "BNB": "بایننس_کوین",
-    "XRP": "ریپل",
-    "DOGE": "دوج_کوین",
-    "ADA": "کاردانو",
-    "TRX": "ترون",
-    "DOT": "پولکادات",
-    "LTC": "لایت_کوین",
-    "AVAX": "آوالانچ",
-    "LINK": "چین_لینک",
-    "MATIC": "ماتیک",
-    "UNI": "یونی‌سواپ",
-    "ATOM": "کازموس",
-    "TON": "تون_کوین",
-    "SHIB": "شیبا_اینو",
-    "PEPE": "پپه",
-    "XAU": "طلا",
-    "MAGIC": "مجیک",
-}
-
-SOURCE_FA = {
-    "nobitex": "نوبیتکس",
-    "bitpin": "بیت‌پین",
-    "wallex": "والکس",
-    "tabdeal": "تبدیل",
-    "tsetmc": "بورس",
-}
+# ═══════════════════════════════════════════════════════════
+# ۱. تابع کمکی برای گرد کردن قیمت‌ها
+# ═══════════════════════════════════════════════════════════
+def _format_price(price: float) -> str:
+    if price is None:
+        return "0"
+    if price > 1000:
+        return f"{price:,.0f}"
+    return f"{price:.3f}".rstrip("0").rstrip(".")
 
 
-def _fmt(num, for_telegram: bool = False) -> str:
-    if num is None or num == "—" or num == 0:
-        return "—"
-    try:
-        if for_telegram:
-            return str(int(float(num)))  # 🔴 بدون کاما برای تلگرام
-        return f"{int(float(num)):,}"  # 🔴 با کاما برای بله
-    except (ValueError, TypeError):
-        return str(num)
+# ═══════════════════════════════════════════════════════════
+# ۲. ساخت پیام برای تلگرام (با HTML)
+# ═══════════════════════════════════════════════════════════
+def _build_telegram_message(signal: dict) -> str:
+    direction = signal.get("direction", "neutral")
+    confidence = signal.get("confidence", 0)
 
+    # آیکون و متن بر اساس جهت
+    if direction == "long":
+        status_icon = "🟢"
+        status_text = "خرید (LONG)"
+        market_icon = "📈"
+        regime_text = "صعودی"
+    elif direction == "short":
+        status_icon = "🔴"
+        status_text = "فروش (SHORT)"
+        market_icon = "📉"
+        regime_text = "نزولی"
+    else:
+        status_icon = "🟡"
+        status_text = "خنثی"
+        market_icon = "➖"
+        regime_text = "خنثی"
 
-def _build_signal_message(data: dict, for_telegram: bool = False) -> str:
-    ticker = data.get("ticker", "—")
-    ticker_clean = ticker.replace("-", "")
-    ticker_base = (
-        ticker_clean.split("_")[0]
-        if "_" in ticker_clean
-        else ticker_clean.split("-")[0]
+    # سطح اطمینان
+    if confidence >= 70:
+        conf_text = "اطمینان قوی"
+    elif confidence >= 50:
+        conf_text = "اطمینان متوسط"
+    else:
+        conf_text = "اطمینان ضعیف"
+
+    # بازار و ریسک
+    market_type_fa = "فیوچرز" if signal.get("market_type") == "futures" else "اسپات"
+    risk_fa = (
+        "جسورانه 🚀" if signal.get("risk_profile") == "aggressive" else "محتاطانه 🛡️"
     )
 
-    ticker_fa = TICKER_FA.get(ticker_base.upper(), ticker_base)
-    source = data.get("source", "—")
-    source_fa = SOURCE_FA.get(source.lower(), source)
+    # صرافی
+    source_map = {
+        "nobitex": "نوبیتکس",
+        "bitpin": "بیت‌پین",
+        "wallex": "والکس",
+        "tabdeal": "تبدیل",
+    }
+    source_fa = source_map.get(signal.get("source", ""), signal.get("source", ""))
 
-    signal = data.get("signal", "—")
-    confidence = data.get("confidence", 0)
-    price = _fmt(data.get("price"), for_telegram)
-    tp = _fmt(data.get("tp"), for_telegram)
-    sl = _fmt(data.get("sl"), for_telegram)
-    rr_net = data.get("rr_net", "—")
-    market = data.get("market_type", "spot")
-    profile = data.get("risk_profile", "aggressive")
-    tf = data.get("tf", "—")
-    had_trap = data.get("had_trap", False)
-    trap_type = data.get("trap_type")
+    ticker_clean = signal.get("ticker", "").replace("-", "")
 
-    if "LONG" in signal.upper():
-        regime_fa = "صعودی"
-    elif "SHORT" in signal.upper():
-        regime_fa = "نزولی"
-    else:
-        regime_fa = "خنثی"
+    # فرمت قیمت‌ها
+    price_str = _format_price(signal.get("price", 0))
+    tp_str = _format_price(signal.get("tp", 0))
+    sl_str = _format_price(signal.get("sl", 0))
+    rr_str = f"{signal.get('rr', 0):.2f}"
 
-    if confidence >= 70:
-        confidence_str = "قوی"
-    elif confidence >= 50:
-        confidence_str = "متوسط"
-    else:
-        confidence_str = "ضعیف"
-
-    signal_upper = signal.upper()
-    if "LONG" in signal_upper:
-        signal_emoji, signal_fa = "🟢", "خرید (LONG)"
-    elif "SHORT" in signal_upper:
-        signal_emoji, signal_fa = "🔴", "فروش (SHORT)"
-    else:
-        signal_emoji, signal_fa = "⚪", "خنثی"
-
-    market_fa = "اسپات 💵" if market == "spot" else "فیوچرز 📈"
-    profile_fa = "جسورانه 🚀" if profile == "aggressive" else "محتاطانه 🛡"
-
-    topic_hashtags = [
-        "#کریپتو",
-        "#سیگنال",
-        "#تحلیل_تکنیکال",
-        "#ترید",
-        "#بازار_مالی",
-        "#ارز_دیجیتال",
-    ]
-    random_topics = random.sample(topic_hashtags, 2)
-    hashtags = [
-        "#تریدمون_نشه؟",  # 🔴 اول: ثابت + فارسی + راست‌چین
-        f"#{ticker_fa}",
-        f"#{source_fa}",
-        *random_topics,
-    ]
-
-    trap_line = ""
-    if had_trap and trap_type:
-        trap_labels = {
-            "bull_trap": "تله صعودی",
-            "bear_trap": "تله نزولی",
-            "fake_breakout": "شکست جعلی",
-            "exhaustion": "خستگی روند",
-        }
-        trap_label = trap_labels.get(trap_type, trap_type)
-        if for_telegram:
-            trap_line = f"\n⚠️ <b>هشدار:</b> احتمال {trap_label}"
-        else:
-            trap_line = f"\n⚠️ *هشدار:* احتمال {trap_label}"
-
-    scenarios = data.get("scenarios", [])
-    override_reason = data.get("override_reason", "")
-    conclusion = ""
-    if override_reason:
-        conclusion = f"⚠️ {override_reason}"
-    elif scenarios and len(scenarios) > 0:
-        sc = scenarios[0]
-        conclusion = f"📊 {sc.get('condition', '')} (احتمال {int(sc.get('probability', 0.5) * 100)}%) → {sc.get('action', '')}"
-
-    if conclusion:
-        if for_telegram:
-            conclusion_line = f"\n💡 <b>جمع‌بندی:</b> {conclusion}"
-        else:
-            conclusion_line = f"\n💡 *جمع‌بندی:* {conclusion}"
-    else:
-        conclusion_line = ""
-
-    if for_telegram:
-        status_line_html = f"{signal_emoji} <b>وضعیت:</b> {signal_fa} · اطمینان <b>{confidence_str}</b> ({confidence}%)"
-
-        msg = (
-            f"📊 <b>سیگنال جدید | Trademun</b>\n\n"
-            f"💎 <b>نماد:</b> <code>{ticker}</code>\n"
-            f"🏦 <b>صرافی:</b> {source_fa}\n"
-            f"⏱ <b>تایم‌فریم:</b> {tf}\n"
-            f"⚙️ <b>بازار:</b> {market_fa} · {profile_fa}\n\n"
-            f"<blockquote>"
-            f"{status_line_html}\n"
-            f"💰 <b>قیمت ورود:</b> <code>{price}</code>\n"
-            f"🎯 <b>حد سود (TP):</b> <code>{tp}</code>\n"
-            f"🛡 <b>حد ضرر (SL):</b> <code>{sl}</code>"
-            f"</blockquote>\n\n"
-            f"⚖️ <b>نسبت سود به ضرر:</b> <code>{rr_net}</code>\n\n"
-            f"📈 <b>جهت بازار:</b> {regime_fa}\n"
-            f"{trap_line}\n"
-            f"{conclusion_line}\n\n"
-            f"🔗 <b>سایت:</b> trademun.ir\n"
-            f"📢 <b>کانال:</b> @trademun\n\n"
-            f"{' '.join(hashtags)}\n"
-        )
-    else:
-        # ... (بخش بله دست‌نخورده بمونه) ...
-
-        status_line_md = f"{signal_emoji} *وضعیت:* {signal_fa} · اطمینان *{confidence_str}* ({confidence}%)"
-
-        msg = (
-            f"📊 *سیگنال جدید | Trademun*\n\n"
-            f"💎 *نماد:* {ticker}\n"
-            f"🏦 *صرافی:* {source_fa}\n"
-            f"⏱ *تایم‌فریم:* {tf}\n"
-            f"⚙️ *بازار:* {market_fa} · {profile_fa}\n\n"
-            f"{status_line_md}\n"
-            f"💰 *قیمت ورود:* {price}\n"
-            f"🎯 *حد سود (TP):* {tp}\n"
-            f"🛡 *حد ضرر (SL):* {sl}\n"
-            f"⚖️ *نسبت سود به ضرر:* {rr_net}\n\n"
-            f"📈 *جهت بازار:* {regime_fa}\n"
-            f"{trap_line}\n"
-            f"{conclusion_line}\n\n"
-            f"🔗 *سایت:* trademun.ir\n"
-            f"📢 *کانال:* @trademun\n\n"
-            f"{' '.join(hashtags)}\n"
-        )
+    # استفاده از تگ‌های HTML برای تلگرام
+    msg = (
+        f"📊 سیگنال جدید | Trademun\n\n"
+        f"<blockquote>"
+        f"💎 نماد: <b>{signal.get('ticker', '')}</b>\n"
+        f"🏦 صرافی: {source_fa}\n"
+        f"⏱️ تایم‌فریم: {signal.get('tf', '')}\n"
+        f"⚙️ بازار: {market_type_fa} {market_icon} · {risk_fa}"
+        f"</blockquote>\n\n"
+        f"{status_icon} <b>{status_text}</b> · {conf_text} ({confidence}%)\n"
+        f"📈 جهت بازار: {regime_text}\n\n"
+        f"<blockquote>"
+        f"💰 قیمت ورود: <code>{price_str}</code>\n"
+        f"🎯 حد سود: <code>{tp_str}</code>\n"
+        f"🛡️ حد ضرر: <code>{sl_str}</code>\n"
+        f"⚖️ نسبت سود به ضرر: <b>{rr_str}</b>"
+        f"</blockquote>\n\n"
+        f"🌠 تحلیل بازارهای مالی با تریدمون\n\n"
+        f"🔗 <a href='https://trademun.ir'>سایت: trademun.ir</a>\n"
+        f"📢 <a href='https://t.me/trademun'>کانال: @trademun</a>\n\n"
+        f"#تریدمون_نشه؟ #کریپتو #ترید #{ticker_clean}"
+    )
     return msg
 
 
-def _send_to_bale(message: str) -> None:
-    if not BALE_TOKEN or not BALE_CHAT_ID:
-        return
-    try:
-        requests.post(
-            f"https://tapi.bale.ai/bot{BALE_TOKEN}/sendMessage",
-            data={"chat_id": BALE_CHAT_ID, "text": message, "parse_mode": "Markdown"},
-            timeout=30,
+# ═══════════════════════════════════════════════════════════
+# ۳. ساخت پیام برای بله (بدون HTML)
+# ═══════════════════════════════════════════════════════════
+def _build_bale_message(signal: dict) -> str:
+    direction = signal.get("direction", "neutral")
+    confidence = signal.get("confidence", 0)
+
+    # آیکون و متن بر اساس جهت
+    if direction == "long":
+        status_icon = "🟢"
+        status_text = "خرید (LONG)"
+        market_icon = "📈"
+        regime_text = "صعودی"
+    elif direction == "short":
+        status_icon = "🔴"
+        status_text = "فروش (SHORT)"
+        market_icon = "📉"
+        regime_text = "نزولی"
+    else:
+        status_icon = "🟡"
+        status_text = "خنثی"
+        market_icon = "➖"
+        regime_text = "خنثی"
+
+    # سطح اطمینان
+    if confidence >= 70:
+        conf_text = "اطمینان قوی"
+    elif confidence >= 50:
+        conf_text = "اطمینان متوسط"
+    else:
+        conf_text = "اطمینان ضعیف"
+
+    # بازار و ریسک
+    market_type_fa = "فیوچرز" if signal.get("market_type") == "futures" else "اسپات"
+    risk_fa = (
+        "جسورانه 🚀" if signal.get("risk_profile") == "aggressive" else "محتاطانه 🛡️"
+    )
+
+    # صرافی
+    source_map = {
+        "nobitex": "نوبیتکس",
+        "bitpin": "بیت‌پین",
+        "wallex": "والکس",
+        "tabdeal": "تبدیل",
+    }
+    source_fa = source_map.get(signal.get("source", ""), signal.get("source", ""))
+
+    ticker_clean = signal.get("ticker", "").replace("-", "")
+
+    # فرمت قیمت‌ها
+    price_str = _format_price(signal.get("price", 0))
+    tp_str = _format_price(signal.get("tp", 0))
+    sl_str = _format_price(signal.get("sl", 0))
+    rr_str = f"{signal.get('rr', 0):.2f}"
+
+    # بله از blockquote پشتیبانی نمی‌کنه، پس از خط جداکننده ساده استفاده می‌کنیم
+    msg = (
+        f"📊 سیگنال جدید | Trademun\n\n"
+        f"💎 نماد: {signal.get('ticker', '')}\n"
+        f"🏦 صرافی: {source_fa}\n"
+        f"⏱️ تایم‌فریم: {signal.get('tf', '')}\n"
+        f"⚙️ بازار: {market_type_fa} {market_icon} · {risk_fa}\n\n"
+        f"{status_icon} {status_text} · {conf_text} ({confidence}%)\n"
+        f"📈 جهت بازار: {regime_text}\n\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"💰 قیمت ورود: {price_str}\n"
+        f"🎯 حد سود: {tp_str}\n"
+        f"🛡️ حد ضرر: {sl_str}\n"
+        f"⚖️ نسبت سود به ضرر: {rr_str}\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🌠 تحلیل بازارهای مالی با تریدمون\n\n"
+        f"🔗 سایت: trademun.ir\n"
+        f"📢 کانال: @trademun\n\n"
+        f"#تریدمون_نشه؟ #کریپتو #ترید #{ticker_clean}"
+    )
+    return msg
+
+
+# ═══════════════════════════════════════════════════════════
+# ۴. ارسال به تلگرام
+# ═══════════════════════════════════════════════════════════
+def send_telegram(signal: dict) -> bool:
+    if signal.get("confidence", 0) < 55:
+        logger.info(
+            f"[Telegram] سیگنال {signal.get('ticker')} رد شد (اطمینان {signal.get('confidence')}%)"
         )
-        logger.info("[Bale] ✅")
-    except Exception as e:
-        logger.warning(f"[Bale] ❌ {e}")
+        return False
 
+    token = settings.TELEGRAM_BOT_TOKEN
+    chat_id = settings.TELEGRAM_CHAT_ID
+    api_base = settings.TELEGRAM_API_BASE or "https://api.telegram.org"
 
-def _send_to_telegram(message: str) -> None:
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+    if not token or not chat_id:
+        logger.warning("[Telegram] تنظیمات کامل نیست")
+        return False
+
+    msg = _build_telegram_message(signal)
+
+    url = f"{api_base}/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": msg,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+
     try:
-        resp = requests.post(
-            f"{TELEGRAM_API_BASE}/bot{TELEGRAM_TOKEN}/sendMessage",
-            data={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"},
-            timeout=15,
+        resp = requests.post(url, json=payload, timeout=15)
+        if resp.status_code == 200:
+            logger.info(f"[Telegram] ✅ {signal.get('ticker')}")
+            return True
+        logger.warning(
+            f"[Telegram] ❌ status={resp.status_code} body={resp.text[:200]}"
         )
-        resp.raise_for_status()
-        logger.info("[Telegram] ✅")
+        return False
     except Exception as e:
-        logger.warning(f"[Telegram] ❌ {e}")
+        logger.exception(f"[Telegram] خطا: {e}")
+        return False
 
 
-def notify_signal(data: dict) -> None:
+# ═══════════════════════════════════════════════════════════
+# ۵. ارسال به بله
+# ═══════════════════════════════════════════════════════════
+def send_bale(signal: dict) -> bool:
+    if signal.get("confidence", 0) < 55:
+        logger.info(
+            f"[Bale] سیگنال {signal.get('ticker')} رد شد (اطمینان {signal.get('confidence')}%)"
+        )
+        return False
+
+    token = settings.BALE_BOT_TOKEN
+    chat_id = settings.BALE_CHAT_ID
+    api_base = "https://tapi.bale.ai"
+
+    if not token or not chat_id:
+        logger.warning("[Bale] تنظیمات کامل نیست")
+        return False
+
+    msg = _build_bale_message(signal)
+
+    url = f"{api_base}/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": msg,
+    }
+
     try:
-        _send_to_bale(_build_signal_message(data, for_telegram=False))
-        _send_to_telegram(_build_signal_message(data, for_telegram=True))
+        resp = requests.post(url, json=payload, timeout=15)
+        if resp.status_code == 200:
+            logger.info(f"[Bale] ✅ {signal.get('ticker')}")
+            return True
+        logger.warning(f"[Bale] ❌ status={resp.status_code} body={resp.text[:200]}")
+        return False
     except Exception as e:
-        logger.exception(f"[Notifier] خطا: {e}")
+        logger.exception(f"[Bale] خطا: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════
+# ۶. تابع اصلی (ارسال به هر دو)
+# ═══════════════════════════════════════════════════════════
+def notify_signal(signal: dict) -> None:
+    """ارسال سیگنال به تلگرام و بله (فقط اطمینان > 55%)"""
+    if signal.get("confidence", 0) < 55:
+        logger.info(
+            f"[Notify] سیگنال {signal.get('ticker')} رد شد (اطمینان {signal.get('confidence')}%)"
+        )
+        return
+
+    send_telegram(signal)
+    send_bale(signal)

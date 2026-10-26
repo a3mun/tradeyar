@@ -82,4 +82,21 @@ async def create_payment_request(
     session.commit()
     session.refresh(pr)
 
+    # 🔴 نوتیف به ادمین‌های متصل
+    try:
+        from api.routers.admin_ws import notify_admins
+
+        await notify_admins(
+            {
+                "type": "new_payment_request",
+                "id": pr.id,
+                "user_phone": user.phone,
+                "full_name": req.full_name or "نامشخص",
+                "plan": req.plan,
+                "message": f"🔔 درخواست جدید از {user.phone}",
+            }
+        )
+    except Exception as e:
+        logger.warning(f"[Notify] WebSocket admin failed: {e}")
+
     return {"ok": True, "message": "درخواست شما ثبت شد", "id": pr.id}
