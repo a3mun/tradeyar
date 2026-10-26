@@ -47,7 +47,8 @@ export function Footer() {
           
           {/* موبایل */}
           <div className="flex flex-col items-center gap-4 text-center md:hidden">
-            <img src="/icon-512.png" alt="Trademun" className="h-12 w-12 rounded-xl object-contain" />
+            {/* ⬅️ لوگوی مستطیلی بزرگ‌تر */}
+            <img src="/icon-512.png" alt="Trademun" className="h-16 w-auto rounded-xl object-contain" />
             <div className="flex items-center gap-3 text-[11px]">
               <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-gray-400 transition-colors hover:text-[#d6ad60]"><Globe className="h-3 w-3" /><span dir="ltr">trademun.ir</span></a>
               <span className="text-gray-600" aria-hidden="true">·</span>
@@ -59,22 +60,18 @@ export function Footer() {
               <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="نماد اعتماد الکترونیکی" className="h-24 w-auto mx-auto object-contain cursor-pointer" />
             </a>
             <p className="text-[10px] text-yellow-500/80 mt-2">⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن</p>
-            <p className="flex items-center gap-1.5 text-[10px] text-gray-500"><span>© {year}</span><span aria-hidden="true">·</span><span>طراحی با</span><Heart className="h-3 w-3 fill-red-500 text-red-500" /><span>آسمون</span></p>
+            <div className="flex flex-col gap-1 mt-2">
+              <p className="text-[10px] text-gray-500">طراحی و توسعه: <span className="text-gray-300 font-medium">آسمون</span> | © {year} تریدمون</p>
+              <p className="text-[9px] text-gray-600 dir-ltr">Designed by Asemun · © {year} Trademun</p>
+            </div>
           </div>
 
           {/* دسکتاپ */}
           <div className="hidden md:block">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 text-right">
-              <div className="flex flex-row items-start gap-3">
-                <img src="/icon-512.png" alt="Trademun" className="h-16 w-16 rounded-xl object-contain shrink-0" />
-                <div className="flex-1 text-right">
-                  <h3 className="text-lg font-bold text-white leading-none">تریدمون</h3>
-                  <p className="text-[10px] text-[#d6ad60] mt-1">Trademun</p>
-                  <div className="flex items-center gap-1.5 mt-2 justify-start">
-                    <span className="rounded-md bg-[#d6ad60]/10 px-2 py-0.5 text-[9px] text-[#d6ad60]">v6.0</span>
-                    <span className="text-[9px] text-gray-500">دستیار هوشمند بازار</span>
-                  </div>
-                </div>
+              {/* ⬅️ لوگو بزرگ‌تر و بدون متن اضافی */}
+              <div className="flex flex-row items-center justify-start gap-4">
+                <img src="/icon-512.png" alt="Trademun" className="h-24 w-auto rounded-xl object-contain shrink-0" />
               </div>
 
               <div className="space-y-2">
@@ -82,7 +79,6 @@ export function Footer() {
                 <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] text-gray-400 transition-colors hover:text-[#d6ad60] justify-start"><Globe className="h-3.5 w-3.5" /><span dir="ltr">trademun.ir</span></a>
                 <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] text-gray-400 transition-colors hover:text-[#d6ad60] justify-start"><Send className="h-3.5 w-3.5" /><span dir="ltr">t.me/trademun</span></a>
                 <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] text-gray-400 transition-colors hover:text-[#d6ad60] justify-start"><Send className="h-3.5 w-3.5" /><span dir="ltr">ble.ir/trademun</span></a>
-                <p className="text-[10px] text-gray-500 pt-2">© {year} · همه حقوق محفوظ است</p>
               </div>
 
               <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-right">
@@ -102,15 +98,14 @@ export function Footer() {
               </div>
             </div>
 
+            {/* ⬅️ متن پایین فوتر — رسمی‌تر و با خط انگلیسی */}
             <div className="border-t border-[#d6ad60]/10 pt-4">
-              <div className="flex flex-row items-center justify-between gap-2 text-[11px] text-gray-400">
-                <div className="flex items-center gap-1.5">
-                  <span>طراحی و ساخت با</span>
-                  <Heart className="h-3.5 w-3.5 fill-red-500 text-red-500 animate-pulse" />
-                  <span>توسط</span>
-                  <span className="font-bold text-[#d6ad60]">آسمون</span>
+              <div className="flex flex-row items-center justify-between gap-2 text-[11px]">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-gray-400">طراحی و توسعه: <span className="font-bold text-[#d6ad60]">آسمون</span> <span className="mx-1 text-gray-600">|</span> © {year} تریدمون</span>
+                  <span className="text-[9px] text-gray-600 dir-ltr">Designed by Asemun · © {year} Trademun</span>
                 </div>
-                <p className="text-[10px] opacity-70">⚠️ معامله در بازارهای مالی ریسک بالایی داره</p>
+                <p className="text-[10px] text-gray-600 opacity-70">⚠️ معامله در بازارهای مالی ریسک بالایی داره</p>
               </div>
             </div>
           </div>

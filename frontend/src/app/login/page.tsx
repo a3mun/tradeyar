@@ -7,7 +7,7 @@ import { setToken, setUser, getToken, getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send } from "lucide-react";
 
 type Signal = { id: number; x: number; y: number; duration: number; delay: number; size: number };
 type Candle = { id: number; start: number; peak: number; color: string; };
@@ -20,14 +20,16 @@ const FEATURES = [
 
 export default function LoginPage() {
   const router = useRouter();
+  
   // ⬅️ اگه کاربر لاگین‌کرده، نفرستش /login — بفرستش صفحه اصلی
-useEffect(() => {
-  const token = getToken();
-  const user = getUser();
-  if (token && user) {
-    router.replace("/");
-  }
-}, [router]);
+  useEffect(() => {
+    const token = getToken();
+    const user = getUser();
+    if (token && user) {
+      router.replace("/");
+    }
+  }, [router]);
+
   const [step, setStep] = useState<1 | 2>(1);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -101,8 +103,7 @@ useEffect(() => {
     }
   };
 
-
-    const handleVerify = async (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code || code.length < 5) return setError("کد ۵ رقمی را وارد کنید");
     
@@ -187,11 +188,10 @@ useEffect(() => {
         <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/60 via-[#07111f]/40 to-[#07111f]/80" />
       </div>
 
-      {/* هدر */}
+      {/* هدر — ⬅️ فقط لوگو، بدون متن اضافی */}
       <header className="relative z-10 flex items-center justify-between p-4 sm:p-6">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-          <img src="/icon-192.png" alt="Trademun" className="h-10 w-10 rounded-xl object-contain" />
-          <span className="text-xl font-bold">تریدمون</span>
+          <img src="/icon-512.png" alt="Trademun" className="h-12 w-auto rounded-xl object-contain" />
         </Link>
         <div className="flex items-center gap-2 text-xs text-gray-400">
           <div className="h-2 w-2 animate-pulse rounded-full bg-[#10b981]" />

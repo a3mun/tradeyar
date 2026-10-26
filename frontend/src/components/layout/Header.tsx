@@ -76,6 +76,7 @@ export function Header() {
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
+          {/* ⬅️ لوگوی جدید */}
           <img src="/icon-192.png" alt="Trademun" className="h-10 w-10 rounded-xl object-contain" />
           <div>
             <h1 className="text-lg font-bold leading-none text-white">تریدمون</h1>

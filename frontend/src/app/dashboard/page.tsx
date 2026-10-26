@@ -32,6 +32,19 @@ const getPlanNameFa = (plan: string) => {
   return map[plan] || plan || "نامشخص";
 };
 
+// ⬅️ تابع جدید برای تشخیص وضعیت فعال/منقضی
+const getSubStatus = (sub: any) => {
+  if (!sub) return { active: false, text: "نامشخص" };
+  const endDate = sub.end_date ? new Date(sub.end_date) : null;
+  const now = new Date();
+  const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
+  
+  if (sub.status === "active" && !isExpired) {
+    return { active: true, text: "فعال" };
+  }
+  return { active: false, text: "منقضی" };
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUserData] = useState<any>(null);
@@ -122,6 +135,8 @@ export default function DashboardPage() {
 
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
 
+  const subStatus = getSubStatus(sub);
+
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
       <Header />
@@ -159,7 +174,11 @@ export default function DashboardPage() {
               </div>
               {sub ? (
                 <>
-                  <h2 className="text-2xl font-bold text-white">{getPlanNameFa(sub.plan)}</h2>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                    {getPlanNameFa(sub.plan)}
+                    {/* ⬅️ نقطه رنگی وضعیت */}
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${subStatus.active ? "bg-green-500" : "bg-red-500"}`} />
+                  </h2>
                   <div className="flex items-center gap-2 text-sm text-gray-400">
                     <Clock className="h-4 w-4" />
                     <span>انقضا: {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fa-IR') : "نامحدود"}</span>
@@ -177,7 +196,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* فرم تمدید */}
+          {/* فرم تمدید — بدون تغییر */}
           {success ? (
             <div className="relative z-10 mt-6 flex items-center gap-2 text-green-500 bg-green-500/10 p-4 rounded-xl border border-green-500/20">
               <CheckCircle2 className="h-5 w-5" />
@@ -325,7 +344,10 @@ export default function DashboardPage() {
               <div className="bg-[#d6ad60]/10 p-2 rounded-lg text-[#d6ad60]"><ShieldCheck className="h-4 w-4" /></div>
               <div className="min-w-0">
                 <p className="text-[10px] text-gray-400">وضعیت</p>
-                <p className="text-sm text-green-500">فعال</p>
+                {/* ⬅️ نمایش پویا */}
+                <p className={`text-sm ${subStatus.active ? "text-green-500" : "text-red-500"}`}>
+                  {subStatus.text}
+                </p>
               </div>
             </div>
           </div>
@@ -333,16 +355,18 @@ export default function DashboardPage() {
 
         {/* ═══ دسترسی سریع ═══ */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Button variant="outline" className="group h-20 justify-between rounded-2xl border-white/10 bg-[#0d1b2dd0] px-6 text-white hover:bg-white/5 hover:border-[#d6ad60]/30 transition-all">
-            <div className="flex items-center gap-3 text-right">
-              <div className="bg-[#d6ad60]/10 p-3 rounded-xl text-[#d6ad60] group-hover:scale-110 transition-transform"><MessageSquare className="h-6 w-6" /></div>
-              <div>
-                <p className="font-bold text-sm">ارسال تیکت به پشتیبانی</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">سوال یا مشکلی داری؟ بهمون بگو</p>
+          <Link href="/dashboard/tickets" className="block">
+            <Button variant="outline" className="group h-20 w-full justify-between rounded-2xl border-white/10 bg-[#0d1b2dd0] px-6 text-white hover:bg-white/5 hover:border-[#d6ad60]/30 transition-all">
+              <div className="flex items-center gap-3 text-right">
+                <div className="bg-[#d6ad60]/10 p-3 rounded-xl text-[#d6ad60] group-hover:scale-110 transition-transform"><MessageSquare className="h-6 w-6" /></div>
+                <div>
+                  <p className="font-bold text-sm">ارسال تیکت به پشتیبانی</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">سوال یا مشکلی داری؟ بهمون بگو</p>
+                </div>
               </div>
-            </div>
-            <ArrowRight className="h-5 w-5 text-gray-500 group-hover:text-[#d6ad60] transition-colors" />
-          </Button>
+              <ArrowRight className="h-5 w-5 text-gray-500 group-hover:text-[#d6ad60] transition-colors" />
+            </Button>
+          </Link>
           <Button variant="outline" className="group h-20 justify-between rounded-2xl border-white/10 bg-[#0d1b2dd0] px-6 text-white hover:bg-white/5 hover:border-[#d6ad60]/30 transition-all">
             <div className="flex items-center gap-3 text-right">
               <div className="bg-[#d6ad60]/10 p-3 rounded-xl text-[#d6ad60] group-hover:scale-110 transition-transform"><Sparkles className="h-6 w-6" /></div>

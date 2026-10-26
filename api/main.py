@@ -15,13 +15,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware  # ⬅️ جدید
 
 from api.config import settings
 from api.database import init_db, migrate_db
-from api.routers import analyze, backtest, orderbook, scan, symbols
-from api.routers import ws as ws_router
 from api.routers import admin, subscription
-from api.routers import admin_ws  # ⬅️ اضافه شد
+from api.routers import admin_ws
 
 # ═══════════════════════════════════════════════════════════
 # Logging
@@ -80,6 +79,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ⬅️ اضافه شده: استخراج IP واقعی از هدرهای Caddy
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 
 # ═══════════════════════════════════════════════════════════
 # Routers
@@ -91,7 +93,7 @@ app.include_router(backtest.router)
 app.include_router(orderbook.router)
 app.include_router(auth_router.router)
 app.include_router(subscription.router)
-app.include_router(admin.router)  # در بخش include_router
+app.include_router(admin.router)
 app.include_router(admin_ws.router)
 
 
