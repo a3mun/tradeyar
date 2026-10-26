@@ -1,7 +1,5 @@
 # ═══════════════════════════════════════════════════════════
-# Trademun — Dockerfile برای Hugging Face Spaces
-# ═══════════════════════════════════════════════════════════
-# استاندارد HF: پورت 7860 · کاربر non-root · خواندن از /data
+# Trademun — API Dockerfile (Root)
 # ═══════════════════════════════════════════════════════════
 
 FROM python:3.11-slim
@@ -19,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── کاربر non-root (استاندارد HF) ───
+# ─── کاربر non-root ───
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
@@ -27,15 +25,16 @@ ENV HOME=/home/user \
 
 WORKDIR $HOME/app
 
-# ─── نصب پکیج‌های پایتون ───
+# ─── نصب پکیج‌های پایتون (با mirror پارس‌پک) ───
 COPY --chown=user requirements.txt ./
-RUN pip install --user --no-cache-dir --default-timeout=1000 -r requirements.txt
-
+RUN pip config set global.index-url https://mirror.abrha.net/repository/pypi/simple/ \
+ && pip config set global.trusted-host mirror.abrha.net \
+ && pip install --user --no-cache-dir --default-timeout=1000 -r requirements.txt
 
 # ─── کپی کد پروژه ───
 COPY --chown=user . .
 
-# ─── پورت HF ───
+# ─── پورت ───
 EXPOSE 7860
 
 # ─── Health check ───
