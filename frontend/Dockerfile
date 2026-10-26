@@ -7,7 +7,11 @@ FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --prefer-offline --no-audit
+RUN npm config set registry https://mirror.abrha.net/repository/npm/ \
+ && npm ci --prefer-offline --no-audit \
+    --fetch-retries=5 \
+    --fetch-retry-mintimeout=20000 \
+    --fetch-retry-maxtimeout=120000
 
 # ─── Stage 2: Builder ───
 FROM node:20-alpine AS builder

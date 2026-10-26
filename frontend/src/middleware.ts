@@ -9,10 +9,10 @@ export function middleware(request: NextRequest) {
   const protectedPaths = ['/', '/dashboard', '/admin'];
   const isProtected = protectedPaths.includes(pathname) || pathname.startsWith('/dashboard') || pathname.startsWith('/admin');
 
-  // اگه مسیر محافظت شده بود و توکن نبود، بفرست لاگین
-  if (isProtected && !token) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
+
+  
+  // ⬅️ حذف شد: redirect از /login به /dashboard
+  // (اگه کاربر لاگین‌کرده بیاد /login، خود page لاگین با useEffect می‌فرستدش)
 
   // اگه کاربر لاگین بود و توی صفحه لاگین بود، بفرستش داشبورد
   if (pathname === '/login' && token) {

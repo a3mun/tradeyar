@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getToken, getUser } from "@/lib/auth";
+import { motion } from "framer-motion";
+import { Lock, CreditCard, LayoutDashboard, Home } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 import { Header } from "@/components/layout/Header";
 import { Marquee } from "@/components/layout/Marquee";
@@ -54,15 +58,19 @@ export default function HomePage() {
       .then(res => res.json())
       .then(data => {
         const sub = data.subscription;
-        if (sub && sub.status === "active" && sub.plan !== "free") {
+        // ⬅️ تغییر: چک هم status هم end_date (defense in depth)
+        const endDate = sub?.end_date ? new Date(sub.end_date) : null;
+        const now = new Date();
+        const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
+
+        if (sub && sub.status === "active" && !isExpired) {
           setHasAccess(true);
         } else {
-          // اگه اشتراک نداشت یا رایگان بود، بفرست داشبورد
-          router.replace("/dashboard");
+          setHasAccess(false);
         }
       })
       .catch(() => {
-        router.replace("/dashboard");
+        setHasAccess(false);
       })
       .finally(() => {
         setIsChecking(false);
@@ -83,8 +91,46 @@ export default function HomePage() {
     );
   }
 
-  // ⬅️ اگه دسترسی نداشت، رندر نکن (منتظر ریدایرکت)
-  if (!hasAccess) return null;
+  // ⬅️ کاربر بدون اشتراک: صفحه اصلی بمونه، ولی کارت خرید اشتراک ببینه
+  if (!hasAccess) {
+    return (
+      <div className="min-h-screen bg-[#07111f] text-white">
+        <Header />
+        <main className="container mx-auto max-w-2xl px-4 py-12 sm:py-20">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="rounded-3xl border border-[#d6ad60]/20 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-6 sm:p-10 text-center shadow-2xl"
+          >
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#d6ad60]/10">
+              <Lock className="h-8 w-8 text-[#d6ad60]" />
+            </div>
+            <h2 className="mb-3 text-2xl sm:text-3xl font-bold">
+              دسترسی به تحلیل‌ها نیازمند اشتراک فعال است
+            </h2>
+            <p className="mb-6 text-sm leading-relaxed text-gray-400">
+              برای مشاهده سیگنال‌ها، تحلیل هوش مصنوعی، اسکنر بازار و بررسی قیمت لحظه‌ای،
+              از داشبورد خود اشتراک تهیه کن یا درخواست تمدید بده.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <Link href="/dashboard">
+                <Button className="h-11 w-full sm:w-auto gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
+                  <CreditCard className="h-4 w-4" /> خرید / تمدید اشتراک
+                </Button>
+              </Link>
+              <Link href="/dashboard">
+                <Button variant="outline" className="h-11 w-full sm:w-auto gap-2 border-white/20 text-white hover:bg-white/5">
+                  <LayoutDashboard className="h-4 w-4" /> داشبورد من
+                </Button>
+              </Link>
+            </div>
+          </motion.div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

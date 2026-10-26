@@ -37,6 +37,17 @@ async def get_my_subscription(
         session.commit()
         session.refresh(sub)
 
+    # ⬅️ تغییر: status رو لحظه‌ای محاسبه کن
+    now = datetime.now(timezone.utc)
+    actual_status = "active"
+    if sub.end_date:
+        # اگه end_date timezone نداره، آگاهش کن
+        end = sub.end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end < now:
+            actual_status = "expired"
+
     return {
         "ok": True,
         "subscription": {
@@ -44,7 +55,7 @@ async def get_my_subscription(
             "plan": sub.plan,
             "start_date": sub.start_date.isoformat(),
             "end_date": sub.end_date.isoformat() if sub.end_date else None,
-            "status": sub.status,
+            "status": actual_status,  # ⬅️ تغییر: مقدار محاسبه‌شده، نه مقدار ذخیره‌شده
         },
     }
 

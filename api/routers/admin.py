@@ -24,6 +24,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
+def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, bool]:
+    """
+    محاسبه‌ی وضعیت اشتراک از روی end_date (نه status دیتابیس).
+    خروجی: (status_text, is_active)
+    status_text ∈ {active, expired, free, admin}
+    """
+    if is_admin:
+        return "admin", True
+    if not sub:
+        return "free", False
+    if not sub.end_date:
+        return "active", True
+    end = sub.end_date
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if end > now:
+        # اگه پلن free بود ولی هنوز وقت داره
+        if sub.plan == "free":
+            return "free_active", True
+        return "active", True
+    # منقضی شده
+    return "expired", False
+
+
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
     from api.config import BASE_DIR
@@ -77,6 +102,7 @@ async def export_users_excel(
         "آخرین IP",
         "پلن فعلی",
         "تاریخ انقضا",
+        "وضعیت",
         "تاریخچه پلن‌ها",
         "تاریخچه پرداخت‌ها",
     ]
@@ -103,6 +129,15 @@ async def export_users_excel(
             .where(PaymentRequest.user_id == u.id)
             .order_by(PaymentRequest.created_at.asc())
         ).all()
+
+        status_text, _ = _calc_sub_status(sub, u.is_admin)
+        status_fa = {
+            "active": "فعال",
+            "expired": "منقضی",
+            "free_active": "رایگان (فعال)",
+            "free": "بدون اشتراک",
+            "admin": "مدیر",
+        }.get(status_text, "نامشخص")
 
         subs_history = " | ".join(
             [
@@ -137,6 +172,7 @@ async def export_users_excel(
                         else "نامشخص"
                     )
                 ),
+                status_fa,
                 subs_history or "ندارد",
                 pay_history or "ندارد",
             ]
@@ -176,6 +212,10 @@ async def list_users(
             .where(Subscription.user_id == u.id)
             .order_by(Subscription.created_at.desc())
         ).first()
+
+        # ⬅️ وضعیت محاسبه‌شده از end_date
+        status_text, is_active = _calc_sub_status(sub, u.is_admin)
+
         result.append(
             {
                 "id": u.id,
@@ -196,6 +236,9 @@ async def list_users(
                     if u.is_admin
                     else (sub.end_date.isoformat() if sub and sub.end_date else None)
                 ),
+                # ⬅️ فیلدهای جدید
+                "sub_status": status_text,  # active | expired | free | free_active | admin
+                "is_active_sub": is_active,  # boolean
             }
         )
     return {"ok": True, "items": result}

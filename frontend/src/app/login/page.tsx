@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { setToken, setUser } from "@/lib/auth";
+import { setToken, setUser, getToken, getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +20,14 @@ const FEATURES = [
 
 export default function LoginPage() {
   const router = useRouter();
+  // ⬅️ اگه کاربر لاگین‌کرده، نفرستش /login — بفرستش صفحه اصلی
+useEffect(() => {
+  const token = getToken();
+  const user = getUser();
+  if (token && user) {
+    router.replace("/");
+  }
+}, [router]);
   const [step, setStep] = useState<1 | 2>(1);
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");

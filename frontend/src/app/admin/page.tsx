@@ -11,8 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   LogOut, CheckCircle2, XCircle, CreditCard, Users, 
   Calendar, Clock, Globe, Monitor, UserCheck, Download, Upload, History, 
-  Activity, ShieldAlert, ArrowUpDown, Home, BarChart3, LifeBuoy, 
-  Settings, Search, Crown, Zap, TrendingUp, Bell, X
+  Activity, ShieldAlert, ArrowUpDown, Home, Crown, TrendingUp, Bell, X
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
@@ -26,15 +25,64 @@ const getPlanNameFa = (plan: string) => {
   return map[plan] || plan || "نامشخص";
 };
 
+const formatFaDate = (iso: string | null) => {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("fa-IR");
+  } catch {
+    return "—";
+  }
+};
+
+const formatFaDateTime = (iso: string | null) => {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("fa-IR", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return "—";
+  }
+};
+
+// ⬅️ رنگ نقطه بر اساس وضعیت اشتراک
+const statusDot = (status: string) => {
+  switch (status) {
+    case "active":
+      return "bg-green-500 shadow-[0_0_8px_#22c55e]";
+    case "free_active":
+      return "bg-yellow-500 shadow-[0_0_8px_#eab308]";
+    case "expired":
+      return "bg-red-500 shadow-[0_0_8px_#ef4444]";
+    case "free":
+      return "bg-red-500/60";
+    case "admin":
+      return "bg-blue-500 shadow-[0_0_8px_#3b82f6]";
+    default:
+      return "bg-gray-500";
+  }
+};
+
+const statusLabel = (status: string) => {
+  switch (status) {
+    case "active": return "فعال";
+    case "free_active": return "رایگان (فعال)";
+    case "expired": return "منقضی";
+    case "free": return "بدون اشتراک";
+    case "admin": return "مدیر";
+    default: return "نامشخص";
+  }
+};
+
 export default function AdminPage() {
   const router = useRouter();
   const [user, setUserData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"payments" | "users">("users");
   const [payments, setPayments] = useState<any[]>([]);
+  const [pendingCount, setPendingCount] = useState<number>(0);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("all");
 
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
@@ -46,6 +94,14 @@ export default function AdminPage() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
+
+  // ⬅️ شمارش درخواست‌های در انتظار — یک بار در mount
+  useEffect(() => {
+    fetch(`${apiUrl}/admin/payments`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => setPendingCount((data.items || []).length))
+      .catch(() => {});
+  }, [apiUrl, token]);
 
   useEffect(() => {
     const u = getUser();
@@ -60,7 +116,10 @@ export default function AdminPage() {
       if (activeTab === "payments") {
         const res = await fetch(`${apiUrl}/admin/payments`, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
-        if (res.ok) setPayments(data.items || []);
+        if (res.ok) {
+          setPayments(data.items || []);
+          setPendingCount((data.items || []).length);
+        }
       } else {
         const res = await fetch(`${apiUrl}/admin/users`, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
@@ -72,7 +131,7 @@ export default function AdminPage() {
   // ⬅️ اتصال به WebSocket و دریافت نوتیف
   const { connected } = useAdminNotifications((n) => {
     setNotifications((prev) => [n, ...prev].slice(0, 5));
-    fetchData(); // رفرش خودکار
+    fetchData();
   });
 
   // ⬅️ حذف نوتیف
@@ -89,15 +148,25 @@ export default function AdminPage() {
     return () => timers.forEach((t) => clearTimeout(t));
   }, [notifications.length]);
 
-  const sortedUsers = [...usersList]
-    .filter(u => u.phone.includes(searchQuery) || (u.full_name && u.full_name.includes(searchQuery)))
-    .sort((a, b) => {
-      if (!sortConfig) return 0;
-      const { key, direction } = sortConfig;
-      if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
-      if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
-      return 0;
+  // ⬅️ فیلتر + جستجو + مرتب‌سازی
+  const filteredUsers = usersList
+    .filter(u => {
+      const matchSearch = u.phone.includes(searchQuery) || (u.full_name && u.full_name.includes(searchQuery));
+      if (!matchSearch) return false;
+      if (statusFilter === "active") return u.is_active_sub || u.is_admin;
+      if (statusFilter === "expired") return !u.is_active_sub && !u.is_admin;
+      return true;
     });
+
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    if (!sortConfig) return 0;
+    const { key, direction } = sortConfig;
+    const aVal = a[key] ?? "";
+    const bVal = b[key] ?? "";
+    if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -164,6 +233,8 @@ export default function AdminPage() {
   };
 
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
+
+  const activeUsersCount = usersList.filter(u => u.is_active_sub || u.is_admin).length;
 
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
@@ -240,41 +311,16 @@ export default function AdminPage() {
             <div className="bg-green-500/10 p-3 rounded-xl text-green-500"><TrendingUp className="h-6 w-6" /></div>
             <div>
               <p className="text-xs text-gray-400">کاربران فعال</p>
-              <p className="text-2xl font-bold text-white">{usersList.filter(u => u.plan !== "free" && u.is_admin === false).length}</p>
+              <p className="text-2xl font-bold text-white">{activeUsersCount}</p>
             </div>
           </motion.div>
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
             <div className="bg-yellow-500/10 p-3 rounded-xl text-yellow-500"><CreditCard className="h-6 w-6" /></div>
             <div>
               <p className="text-xs text-gray-400">درخواست‌های در انتظار</p>
-              <p className="text-2xl font-bold text-white">{payments.length}</p>
+              <p className="text-2xl font-bold text-white">{pendingCount}</p>
             </div>
           </motion.div>
-        </div>
-
-        {/* کارت‌های آینده (غیرفعال) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 opacity-60">
-          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
-            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><BarChart3 className="h-6 w-6" /></div>
-            <div>
-              <p className="text-sm font-bold text-gray-400">آمار بازدید سایت</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
-            </div>
-          </div>
-          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
-            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><LifeBuoy className="h-6 w-6" /></div>
-            <div>
-              <p className="text-sm font-bold text-gray-400">مدیریت تیکت‌ها</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
-            </div>
-          </div>
-          <div className="bg-[#0d1b2d]/50 p-5 rounded-2xl border border-white/5 shadow-lg flex items-center gap-4 cursor-not-allowed">
-            <div className="bg-white/5 p-3 rounded-xl text-gray-400"><Settings className="h-6 w-6" /></div>
-            <div>
-              <p className="text-sm font-bold text-gray-400">تنظیمات سایت</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">به زودی...</p>
-            </div>
-          </div>
         </div>
 
         {/* نوار ابزار و تب‌ها */}
@@ -294,14 +340,25 @@ export default function AdminPage() {
         {/* بخش محتوا */}
         {activeTab === "users" ? (
           <div className="space-y-4">
-            <div className="relative">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-              <Input 
-                placeholder="جستجوی شماره یا نام..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-10 bg-[#0d1b2d] border-white/10 text-white h-11 rounded-xl"
-              />
+            {/* جستجو + فیلتر */}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Input 
+                  placeholder="جستجوی شماره یا نام..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pr-4 pl-4 bg-[#0d1b2d] border-white/10 text-white h-11 rounded-xl"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="h-11 rounded-xl border border-white/10 bg-[#0d1b2d] px-4 text-sm text-white"
+              >
+                <option value="all">همه ({usersList.length})</option>
+                <option value="active">فعال ({activeUsersCount})</option>
+                <option value="expired">منقضی ({usersList.length - activeUsersCount})</option>
+              </select>
             </div>
 
             {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : (
@@ -309,23 +366,36 @@ export default function AdminPage() {
                 <table className="w-full text-sm text-right">
                   <thead className="bg-white/5 text-gray-400">
                     <tr>
-                      <th className="px-4 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('phone')}>شماره موبایل {sortConfig?.key === 'phone' && <ArrowUpDown className="inline h-3 w-3" />}</th>
-                      <th className="px-4 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('full_name')}>نام {sortConfig?.key === 'full_name' && <ArrowUpDown className="inline h-3 w-3" />}</th>
-                      <th className="px-4 py-3 font-medium">نقش</th>
-                      <th className="px-4 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('plan')}>پلن {sortConfig?.key === 'plan' && <ArrowUpDown className="inline h-3 w-3" />}</th>
-                      <th className="px-4 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('created_at')}>تاریخ عضویت {sortConfig?.key === 'created_at' && <ArrowUpDown className="inline h-3 w-3" />}</th>
-                      <th className="px-4 py-3 font-medium">عملیات</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('phone')}>شماره {sortConfig?.key === 'phone' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('full_name')}>نام {sortConfig?.key === 'full_name' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium">نقش</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('plan')}>پلن {sortConfig?.key === 'plan' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('end_date')}>اعتبار {sortConfig?.key === 'end_date' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('last_login')}>آخرین ورود {sortConfig?.key === 'last_login' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium cursor-pointer hover:text-[#d6ad60]" onClick={() => requestSort('created_at')}>عضویت {sortConfig?.key === 'created_at' && <ArrowUpDown className="inline h-3 w-3" />}</th>
+                      <th className="px-3 py-3 font-medium">عملیات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {sortedUsers.map((u) => (
+                    {sortedUsers.length === 0 ? (
+                      <tr><td colSpan={8} className="text-center py-8 text-gray-400">کاربری با این فیلتر یافت نشد.</td></tr>
+                    ) : sortedUsers.map((u) => (
                       <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                        <td className="px-4 py-3 font-mono dir-ltr font-bold text-white">{u.phone}</td>
-                        <td className="px-4 py-3 text-gray-300">{u.full_name}</td>
-                        <td className="px-4 py-3">{u.is_admin ? <span className="text-green-500 text-xs font-bold bg-green-500/10 px-2 py-1 rounded flex items-center gap-1 w-fit"><ShieldAlert className="h-3 w-3" /> مدیر</span> : <span className="text-gray-400 text-xs">کاربر</span>}</td>
-                        <td className="px-4 py-3"><span className="bg-[#d6ad60]/10 text-[#d6ad60] px-2 py-1 rounded text-xs font-bold">{getPlanNameFa(u.plan)}</span></td>
-                        <td className="px-4 py-3 text-gray-400 text-xs">{new Date(u.created_at).toLocaleDateString('fa-IR')}</td>
-                        <td className="px-4 py-3"><Button size="sm" variant="outline" className="text-xs h-8 gap-1 border-white/10 text-gray-300 hover:text-white hover:bg-white/10" onClick={() => openUserDetails(u)}><History className="h-3 w-3" /> جزئیات</Button></td>
+                        <td className="px-3 py-3 font-mono dir-ltr font-bold text-white text-xs">{u.phone}</td>
+                        <td className="px-3 py-3 text-gray-300 text-xs">{u.full_name}</td>
+                        <td className="px-3 py-3">{u.is_admin ? <span className="text-green-500 text-[10px] font-bold bg-green-500/10 px-2 py-1 rounded flex items-center gap-1 w-fit"><ShieldAlert className="h-3 w-3" /> مدیر</span> : <span className="text-gray-400 text-[10px]">کاربر</span>}</td>
+                        <td className="px-3 py-3"><span className="bg-[#d6ad60]/10 text-[#d6ad60] px-2 py-1 rounded text-[10px] font-bold">{getPlanNameFa(u.plan)}</span></td>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full ${statusDot(u.sub_status)}`} />
+                            <span className="text-[10px] text-gray-400">
+                              {u.is_admin ? "نامحدود" : formatFaDate(u.end_date)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-gray-400 text-[10px]">{formatFaDateTime(u.last_login)}</td>
+                        <td className="px-3 py-3 text-gray-400 text-[10px]">{formatFaDate(u.created_at)}</td>
+                        <td className="px-3 py-3"><Button size="sm" variant="outline" className="text-[10px] h-7 gap-1 border-white/10 text-gray-300 hover:text-white hover:bg-white/10" onClick={() => openUserDetails(u)}><History className="h-3 w-3" /> جزئیات</Button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -371,8 +441,8 @@ export default function AdminPage() {
             <div className="space-y-6 py-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm bg-black/20 p-4 rounded-xl border border-white/5">
                 <div><span className="text-gray-400">نام:</span> {userDetails.user.full_name || "نامشخص"}</div>
-                <div><span className="text-gray-400">تاریخ عضویت:</span> {new Date(userDetails.user.created_at).toLocaleDateString('fa-IR')}</div>
-                <div><span className="text-gray-400">آخرین ورود:</span> {userDetails.user.last_login ? new Date(userDetails.user.last_login).toLocaleString('fa-IR') : "نامشخص"}</div>
+                <div><span className="text-gray-400">تاریخ عضویت:</span> {formatFaDate(userDetails.user.created_at)}</div>
+                <div><span className="text-gray-400">آخرین ورود:</span> {formatFaDateTime(userDetails.user.last_login)}</div>
                 <div><span className="text-gray-400">آخرین IP:</span> <span className="font-mono dir-ltr text-gray-300">{userDetails.user.last_ip}</span></div>
                 <div className="sm:col-span-2"><span className="text-gray-400">مرورگر:</span> <span className="text-xs text-gray-300" title={userDetails.user.last_user_agent}>{userDetails.user.last_user_agent}</span></div>
               </div>
@@ -411,10 +481,10 @@ export default function AdminPage() {
               <div>
                 <h4 className="font-bold text-sm mb-2 text-[#d6ad60]">تاریخچه اشتراک‌ها:</h4>
                 <div className="space-y-2">
-                  {userDetails.subscriptions.map((s: any) => (
+                  {userDetails.subscriptions.length === 0 ? <p className="text-xs text-gray-500">ندارد</p> : userDetails.subscriptions.map((s: any) => (
                     <div key={s.id} className="text-xs flex justify-between items-center bg-white/5 p-2 rounded border border-white/5">
                       <span className="font-bold text-gray-200">{getPlanNameFa(s.plan)}</span>
-                      <span className="text-gray-400">تا {s.end ? new Date(s.end).toLocaleDateString('fa-IR') : "نامحدود"}</span>
+                      <span className="text-gray-400">تا {s.end ? formatFaDate(s.end) : "نامحدود"}</span>
                     </div>
                   ))}
                 </div>
@@ -423,11 +493,11 @@ export default function AdminPage() {
               <div>
                 <h4 className="font-bold text-sm mb-2 text-[#d6ad60]">تاریخچه پرداخت‌ها:</h4>
                 <div className="space-y-2">
-                  {userDetails.payments.map((p: any) => (
+                  {userDetails.payments.length === 0 ? <p className="text-xs text-gray-500">ندارد</p> : userDetails.payments.map((p: any) => (
                     <div key={p.id} className="text-xs flex justify-between items-center bg-white/5 p-2 rounded border border-white/5">
                       <span className="text-gray-200">{getPlanNameFa(p.plan)}</span>
                       <span className={p.status === "approved" ? "text-green-500" : p.status === "pending" ? "text-yellow-500" : "text-red-500"}>{p.status === "approved" ? "تایید شده" : p.status === "pending" ? "در انتظار" : "رد شده"}</span>
-                      <span className="text-gray-400">{new Date(p.created_at).toLocaleDateString('fa-IR')}</span>
+                      <span className="text-gray-400">{formatFaDate(p.created_at)}</span>
                     </div>
                   ))}
                 </div>
