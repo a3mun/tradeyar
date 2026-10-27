@@ -44,9 +44,9 @@ def init_db():
 
 def _add_missing_columns_sqlite(inspector, conn):
     """migration برای SQLite — ستون‌های جدید signallog."""
-    if "signallog" not in inspector.get_table_names():
+    if "signals_log" not in inspector.get_table_names():
         return
-    existing_cols = {col["name"] for col in inspector.get_columns("signallog")}
+    existing_cols = {col["name"] for col in inspector.get_columns("signals_log")}
     new_columns = [
         ("rr_net", "REAL"),
         ("fee_pct", "REAL"),
@@ -71,7 +71,7 @@ def _add_missing_columns_sqlite(inspector, conn):
         if col_name not in existing_cols:
             try:
                 conn.execute(
-                    text(f"ALTER TABLE signallog ADD COLUMN {col_name} {col_type}")
+                    text(f"ALTER TABLE signals_log ADD COLUMN {col_name} {col_type}")
                 )
                 logger.info(f"  + ستون {col_name} اضافه شد")
             except Exception as e:
@@ -86,8 +86,8 @@ def _add_missing_columns_postgres(inspector, conn):
     existing_tables = set(inspector.get_table_names())
 
     # ─── signallog: ستون‌های فاز ۸.۲ به بعد ───
-    if "signallog" in existing_tables:
-        cols = {col["name"] for col in inspector.get_columns("signallog")}
+    if "signals_log" in existing_tables:
+        cols = {col["name"] for col in inspector.get_columns("signals_log")}
         signallog_cols = [
             ("rr_net", "DOUBLE PRECISION"),
             ("fee_pct", "DOUBLE PRECISION"),
@@ -112,10 +112,10 @@ def _add_missing_columns_postgres(inspector, conn):
                 try:
                     conn.execute(
                         text(
-                            f"ALTER TABLE signallog ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                            f"ALTER TABLE signals_log ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
                         )
                     )
-                    logger.info(f"  + signallog.{col_name} اضافه شد")
+                    logger.info(f"  + signals_log.{col_name} اضافه شد")
                 except Exception as e:
                     logger.warning(f"  - signallog.{col_name}: {e}")
 
