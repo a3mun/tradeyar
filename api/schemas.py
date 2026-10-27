@@ -2,8 +2,10 @@
 api/schemas.py
 Pydantic Schemas — ورودی/خروجی API
 ============================================================
-نسخه ۱.۵: ``timestamp`` با timezone-aware UTC (جانشین ``utcnow()``
-که در Python 3.12+ منسوخ شده و مقدار naive می‌داد).
+نسخه ۱.۶ · فاز ۱۰.۱۰
+🔴 تغییرات:
+  • BacktestStats بازنویسی شد (تفکیک TP/SL/Timeout و دقت جهت)
+  • بقیه کلاس‌ها بدون تغییر (سازگاری کامل عقب‌رو)
 """
 
 from datetime import datetime, timezone
@@ -13,14 +15,6 @@ from pydantic import BaseModel, Field
 
 
 def _utcnow_aware() -> datetime:
-    """
-    UTC با timezone.
-
-    ⚠️ پیش از این ``datetime.utcnow`` بود که (۱) منسوخ است و
-       (۲) naive برمی‌گرداند. نتیجه: ``isoformat()`` بدون offset
-       تولید می‌شد و ``new Date(iso)`` در مرورگر آن را به **وقت
-       محلی کاربر** تفسیر می‌کرد — ۳:۳۰ ساعت خطا.
-    """
     return datetime.now(timezone.utc)
 
 
@@ -48,10 +42,6 @@ class AnalyzeResponse(BaseModel):
     ticker: str
     name: str = ""
     source: str
-    # ─── شفافیت fallback (نسخه ۱.۷) ───
-    # source_requested: صرافی‌ای که کاربر انتخاب کرده
-    # source_used:      صرافی‌ای که دیتا **واقعاً** از آن آمده
-    # is_fallback:      آیا این دو متفاوتند؟
     source_requested: str = ""
     source_used: str = ""
     is_fallback: bool = False
@@ -73,25 +63,19 @@ class AnalyzeResponse(BaseModel):
     # ═══ SL/TP ═══
     sl: Optional[float] = None
     tp: Optional[float] = None
-    # ⚠️ `rr` برای سازگاری عقب‌رو = R:R **خام** می‌ماند.
-    #    فرانت باید `rr_net` را نمایش دهد (نسخه ۱.۹).
     rr: Optional[float] = None
     atr: float = 0.0
     atr_mult_sl: float = 1.0
     atr_mult_tp: float = 1.5
 
-    # ═══ کارمزد و R:R واقعی (نسخه ۱.۹) ═══
-    # 🔴 R:R خام فریبنده است — کارمزد رفت‌وبرگشتی (۰.۴-۰.۶٪)
-    #    در TF کوتاه می‌تواند کل سود را بخورد.
+    # ═══ کارمزد و R:R واقعی ═══
     rr_gross: Optional[float] = None
     rr_net: Optional[float] = None
     fee_pct: Optional[float] = None
     fee_ratio: Optional[float] = None
     breakeven_pct: Optional[float] = None
     is_worthwhile: Optional[bool] = None
-    # ─── آیا این TF از نظر اقتصادی معامله‌پذیر است؟ (rr_net ≥ ۱.۳) ───
     timeframe_viable: Optional[bool] = None
-    # ─── SL/TP مقیاس‌دهی‌شده برای پوشش هزینه ───
     sl_tp_scaled: bool = False
     scale_factor: Optional[float] = None
     scale_reason: Optional[str] = None
@@ -99,8 +83,6 @@ class AnalyzeResponse(BaseModel):
     original_tp: Optional[float] = None
     rr_decay_pct: Optional[float] = None
     execution_cost: Optional[dict] = None
-    # ═══ کارمزد — نسخه ۳.۰ ═══
-    # ─── کارمزد از روی ticker و market_type ───
     trade_side_irt: bool = False
     sl_tp_type: Optional[str] = None
 
@@ -123,22 +105,15 @@ class AnalyzeResponse(BaseModel):
     traps: dict = Field(default_factory=dict)
     traps_summary: dict = Field(default_factory=dict)
     divergence: dict = Field(default_factory=dict)
-    # ─── عمق بازار (نسخه ۱.۹) ───
-    # imbalance، spread، دیوار سفارش — برای گروه «حجم»
     orderbook: Optional[dict] = None
     multi_tf_info: str = ""
     multi_tf_ok: bool = True
     neutral_explain: dict = Field(default_factory=dict)
 
-    # ═══ جدید: پاراگراف تحلیل عمیق (متن آماده) ═══
+    # ═══ متون آماده ═══
     deep_analysis: str = ""
-
-    # ═══ جدید: چک‌لیست وزنی ═══
     checklist: dict = Field(default_factory=dict)
-
-    # ═══ جدید: خروجی AI (متن آماده) ═══
     ai_export: str = ""
-
     fingerprint: str = ""
 
     # ═══ زمان ═══
@@ -149,15 +124,11 @@ class AnalyzeResponse(BaseModel):
 # ۳.۵. قیمت لحظه‌ای (Quote)
 # ═══════════════════════════════════════════════════════════
 class QuoteResponse(BaseModel):
-    """قیمت لحظه‌ای — سبک و سریع"""
-
     ok: bool = True
     ticker: str
     price: float
     change_pct: float = 0.0
     source: str
-    # ─── آیا این صرافی واقعاً این بازار را دارد؟ ───
-    # False یعنی «این صرافی این جفت‌ارز را ندارد» (نه خطای شبکه)
     available: bool = True
 
 
@@ -165,13 +136,11 @@ class QuoteResponse(BaseModel):
 # ۳. Fear & Greed
 # ═══════════════════════════════════════════════════════════
 class FearGreedResponse(BaseModel):
-    """شاخص ترس و طمع"""
-
     ok: bool = True
     ticker: str
-    value: float  # 0-100
-    label: str  # «ترس شدید», «خنثی», «طمع شدید» و...
-    color: str  # green/yellow/red
+    value: float
+    label: str
+    color: str
     icon: str
 
 
@@ -179,8 +148,6 @@ class FearGreedResponse(BaseModel):
 # ۴. نمادها
 # ═══════════════════════════════════════════════════════════
 class SymbolItem(BaseModel):
-    """یک نماد در لیست"""
-
     ticker: str
     name: str
     source: str
@@ -197,10 +164,6 @@ class SymbolsResponse(BaseModel):
 # ۵. اسکنر
 # ═══════════════════════════════════════════════════════════
 class ScanRequest(BaseModel):
-    """بدنه درخواست POST /scan"""
-
-    # ─── صرافی (نسخه ۲.۰) ───
-    # اگر نیاد، از پیش‌فرض category استفاده می‌شود
     source: Optional[Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"]] = None
     category: Literal[
         "crypto", "forex", "us_stocks", "commodities", "indices", "iran_stocks"
@@ -209,65 +172,39 @@ class ScanRequest(BaseModel):
     market_type: Literal["spot", "futures"] = "spot"
     risk_profile: Literal["aggressive", "conservative"] = "aggressive"
     limit: int = Field(default=20, ge=1, le=100)
-
-    # 🔴 فاز ۱۰.۳ — حالت اسکن
     scan_mode: Literal["pre_breakout", "active", "all"] = "all"
 
 
-# ═══════════════════════════════════════════════════════════
-# ۵.۵ عمق بازار — فاز ۶.۵ (placeholder)
-# ═══════════════════════════════════════════════════════════
-# ⚠️ این schema فقط قرارداد است. پیاده‌سازی در فاز ۶.۵.
 class OrderBookLevel(BaseModel):
-    """یک سطح قیمت در عمق بازار"""
-
     price: float
     quantity: float
-    # ─── اختیاری: تعداد سفارش در این سطح ───
     orders: int | None = None
 
 
 class OrderBook(BaseModel):
-    """
-    عمق بازار (Order Book).
-
-    ═══ کاربرد در فاز ۶.۵ ═══
-      • Imbalance خرید/فروش: نسبت حجم bids به asks
-      • اسپرد واقعی: best_ask - best_bid
-      • دیوار سفارش: سطحی با حجم غیرعادی
-      • جذب/توزیع دقیق‌تر در گروه «حجم»
-    """
-
     ok: bool = True
     ticker: str
     source: str
     timestamp: datetime = Field(default_factory=_utcnow_aware)
-
     bids: list[OrderBookLevel] = Field(default_factory=list)
     asks: list[OrderBookLevel] = Field(default_factory=list)
-
-    # ─── محاسبات مشتق (فاز ۶.۵) ───
     best_bid: float | None = None
     best_ask: float | None = None
     spread: float | None = None
     spread_pct: float | None = None
-    imbalance: float | None = None  # 0..1 — بالای ۰.۵ فشار خرید
+    imbalance: float | None = None
 
 
 class ScanItem(BaseModel):
-    """یک آیتم در نتایج اسکن"""
-
     ticker: str
     name: str
     price: float
     signal: str
     confidence: int
     direction: str
-
-    # 🔴 فاز ۱۰.۳ — Pre-breakout
     is_pre_breakout: bool = False
     pre_breakout_score: float = 0.0
-    pre_breakout_bias: str = "neutral"  # up | down | neutral
+    pre_breakout_bias: str = "neutral"
 
 
 class ScanResponse(BaseModel):
@@ -279,26 +216,35 @@ class ScanResponse(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════
-# ۶. Backtest
+# ۶. Backtest (🔴 نسخه ۱.۶ — بازنویسی‌شده)
 # ═══════════════════════════════════════════════════════════
 class BacktestStats(BaseModel):
+    # ─── کلی ───
     total: int = 0
-    wins: int = 0
-    losses: int = 0
     pending: int = 0
     expired: int = 0
-    win_rate: float = 0.0
+
+    # ─── تفکیک دقیق (خروجی backtest_service) ───
+    tp_hits: int = 0  # ✅ برد واقعی (به TP رسیده)
+    sl_hits: int = 0  # ❌ باخت واقعی (به SL رسیده)
+    timeout_wins: int = 0  # ⏰ جهت درست (تایم‌اوت شد ولی در سود بسته شد)
+    timeout_losses: int = 0  # ⏰ جهت غلط (تایم‌اوت شد ولی در ضرر بسته شد)
+    timeout_flats: int = 0  # ⏸ خنثی (تایم‌اوت شد و سر به سر)
+
+    # ─── معیارهای اصلی (برای UI) ───
+    win_rate: float = 0.0  # نرخ برد معامله (فقط TP)
+    direction_accuracy: float = 0.0  # دقت جهت (TP + Timeout Win)
+
+    # ─── روند (بر اساس پیش‌بینی لحظه ورود) ───
+    trend_correct: int = 0
+    trend_wrong: int = 0
+    trend_accuracy: float = 0.0
+
+    # ─── بقیه ───
     profit_factor: float = 0.0
     avg_rr: float = 0.0
     avg_rr_net: float = 0.0
     expectancy: float = 0.0
-    # ═══ پیش‌بینی روند (نسخه ۳.۰) ═══
-    trend_correct: int = 0
-    trend_wrong: int = 0
-    trend_accuracy: float = 0.0
-    expired_win: int = 0
-    expired_loss: int = 0
-    expired_flat: int = 0
 
 
 class BacktestResponse(BaseModel):
@@ -317,19 +263,9 @@ class ErrorResponse(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════
-# ۸. Sparkline (فاز ۸ — endpoint سبک برای نمودار)
+# ۸. Sparkline
 # ═══════════════════════════════════════════════════════════
 class SparklineResponse(BaseModel):
-    """
-    فقط سری قیمت برای نمودار SignalCard.
-
-    ⚠️ چرا endpoint جدا:
-        ``/analyze`` برای پر کردن Sparkline خیلی سنگین است
-        (~۲-۵s، چون ۲۰+ اندیکاتور + ۵ گروه تحلیل + AI export).
-        این endpoint فقط ``close`` آخرین ۳۰ کندل را می‌دهد —
-        ~۲۰x سریع‌تر (زیر ۳۰۰ms).
-    """
-
     ok: bool = True
     ticker: str
     source: str
@@ -357,12 +293,11 @@ class VerifyOTPRequest(BaseModel):
     code: str = Field(..., min_length=4, max_length=6)
 
 
-# ⬅️ این باید قبل از TokenResponse باشه
 class UserRead(BaseModel):
     id: int
     phone: str
     full_name: Optional[str] = None
-    email: Optional[str] = None  # ⬅️ اضافه شد
+    email: Optional[str] = None
     is_active: bool
     is_admin: bool
     created_at: datetime
@@ -389,10 +324,10 @@ class SubscriptionRead(BaseModel):
 
 
 class PaymentRequestCreate(BaseModel):
-    plan: str  # "1_month", "3_months", "6_months", "12_months"
+    plan: str
     receipt_note: Optional[str] = None
-    full_name: Optional[str] = None  # ⬅️ اضافه شد
-    payment_time: Optional[str] = None  # ⬅️ اضافه شد
+    full_name: Optional[str] = None
+    payment_time: Optional[str] = None
 
 
 class PaymentRequestRead(BaseModel):
@@ -405,7 +340,7 @@ class PaymentRequestRead(BaseModel):
     admin_note: Optional[str] = None
     created_at: datetime
     reviewed_at: Optional[datetime] = None
-    user_phone: Optional[str] = None  # فقط برای ادمین
+    user_phone: Optional[str] = None
 
 
 class AdminUserRead(BaseModel):
@@ -420,17 +355,17 @@ class AdminUserRead(BaseModel):
 class UpdateProfileRequest(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
-    old_password: Optional[str] = None  # ⬅️ اضافه شد
-    new_password: Optional[str] = None  # ⬅️ اضافه شد (به جای password)
+    old_password: Optional[str] = None
+    new_password: Optional[str] = None
 
 
 class AdminUpdateSubscription(BaseModel):
-    plan: str  # free | monthly | yearly | unlimited
-    days: Optional[int] = None  # اگه None و plan=monthly → 30 روز
+    plan: str
+    days: Optional[int] = None
 
 
 class AdminReviewPayment(BaseModel):
-    action: str  # approve | reject
+    action: str
     admin_note: Optional[str] = None
 
 

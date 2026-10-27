@@ -1,6 +1,12 @@
 """
 api/models.py
 مدل‌های دیتابیس — SQLModel
+============================================================
+نسخه ۲.۰ · فاز ۱۰.۱۰
+🔴 تغییرات:
+  • + exit_reason: "tp_hit" | "sl_hit" | "timeout" | None
+  • + trend_predicted_at_entry: "bull" | "bear" | "flat" | None
+  • این دو ستون، تعریف win/loss و trend_accuracy را شفاف می‌کنند
 """
 
 from datetime import datetime, timezone
@@ -57,14 +63,27 @@ class SignalLog(SQLModel, table=True):
     trend_correct: Optional[bool] = None
     is_weak: bool = Field(default=False, index=True)
 
+    # ═══ 🔴 نسخه ۲.۰ — ستون‌های جدید ═══
+    exit_reason: Optional[str] = Field(default=None, index=True)
+    # "tp_hit"    → TP خورده (برد واقعی)
+    # "sl_hit"    → SL خورده (باخت واقعی)
+    # "timeout"   → timeout شده (جهت ممکن است درست یا غلط باشد)
+    # None        → هنوز باز
+
+    trend_predicted_at_entry: Optional[str] = Field(default=None, index=True)
+    # "bull"  → در لحظه ثبت، trend_score >= +0.30
+    # "bear"  → در لحظه ثبت، trend_score <= -0.30
+    # "flat"  → در لحظه ثبت، trend_score بین -0.30 تا +0.30
+    # None    → برای سیگنال‌های قدیمی که این فیلد نداشتن
+
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
     id: Optional[int] = Field(default=None, primary_key=True)
     phone: str = Field(unique=True, index=True)
     full_name: Optional[str] = None
-    email: Optional[str] = None  # ⬅️ اضافه شد
-    hashed_password: Optional[str] = None  # ⬅️ اضافه شد
+    email: Optional[str] = None
+    hashed_password: Optional[str] = None
     is_active: bool = Field(default=True)
     is_admin: bool = Field(default=False)
     created_at: datetime = Field(default_factory=_utcnow)

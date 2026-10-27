@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * BacktestStats — آمار راستی‌آزمایی (نسخه ۶.۷ · فاز ۱۰.۹)
+ * BacktestStats — آمار راستی‌آزمایی (نسخه ۸.۰ · فاز ۱۰.۱۰)
  * ============================================================
  * 🔴 تغییرات:
- *   • کشوهای «نرخ موفقیت بر اساس قدرت سیگنال» و «دقت روند به تفکیک تایم‌فریم» همیشه باز
+ *   • بازطراحی کامل UI با تمرکز بر خوانایی و نمودارهای میله‌ای
+ *   • افزودن باکس مدرن برای تله‌ها
+ *   • بهینه‌سازی رنگ‌ها و فاصله‌ها
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -14,11 +16,12 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { BacktestResponse, SignalHistoryItem } from "@/lib/types";
-import { ResetSignalsDialog } from "@/components/backtest/ResetSignalsDialog";
+import { ResetSignalsDialog } from "./ResetSignalsDialog";
 
 const HISTORY_LIMIT = 500;
 
@@ -29,16 +32,7 @@ interface QualityStats {
   pending: number;
   expired: number;
   win_rate: number;
-  profit_factor: number;
-  avg_rr: number;
-  avg_rr_net: number;
-  expectancy: number;
-  trend_correct: number;
-  trend_wrong: number;
-  trend_accuracy: number;
-  expired_win: number;
-  expired_loss: number;
-  expired_flat: number;
+  direction_accuracy: number;
 }
 
 interface QualityResponse {
@@ -88,11 +82,9 @@ export function BacktestStats({
       string,
       {
         total: number;
-        trend_correct: number;
-        trend_wrong: number;
-        trend_total: number;
-        trend_accuracy: number;
         win_rate: number;
+        direction_accuracy: number;
+        trend_accuracy: number;
       }
     >
   >({});
@@ -141,18 +133,6 @@ export function BacktestStats({
       cancelled = true;
     };
   }, [time, profile, limit]);
-
-  const trapStats = (() => {
-    const traps = items.filter((i) => i.had_trap);
-    if (traps.length === 0) return null;
-    const withResult = traps.filter((i) => i.result);
-    if (withResult.length === 0) return null;
-    const correct = withResult.filter((i) => i.result === "loss").length;
-    return {
-      total: traps.length,
-      accuracy: (correct / withResult.length) * 100,
-    };
-  })();
 
   useEffect(() => {
     let cancelled = false;
@@ -303,10 +283,21 @@ export function BacktestStats({
 
   const s = data?.stats;
 
-  // 🔴 محاسبه دقیق از روی لیست تاریخچه (هماهنگ با چیزی که کاربر می‌بیند)
   const pendingCount = items.filter((i) => !i.result && !i.expired).length;
-  const expiredCount = items.filter((i) => i.expired && !i.result).length;
   const totalCount = items.length;
+  const closedCount = totalCount - pendingCount;
+
+  const trapStats = (() => {
+    const traps = items.filter((i) => i.had_trap);
+    if (traps.length === 0) return null;
+    const withResult = traps.filter((i) => i.result);
+    if (withResult.length === 0) return { total: traps.length, accuracy: 0 };
+    const correct = withResult.filter((i) => i.result === "loss").length;
+    return {
+      total: traps.length,
+      accuracy: (correct / withResult.length) * 100,
+    };
+  })();
 
   if (loading && !s) {
     return (
@@ -322,8 +313,6 @@ export function BacktestStats({
       <div className="space-y-3">
         <p className="py-6 text-center text-[11px] text-muted-foreground">
           هنوز سیگنالی برای این فیلتر ثبت نشده.
-          <br />
-          <span className="text-[10px]">اسکن خودکار هر ۱ ساعت اجرا می‌شه.</span>
         </p>
         <Button
           onClick={handleRun}
@@ -361,7 +350,7 @@ export function BacktestStats({
       )}
 
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-[9px] leading-relaxed text-muted-foreground">
-        💡 <b className="text-foreground/80">راهنما:</b> «نرخ موفقیت» یعنی درصد معاملاتی که به هدف (TP) رسیدن (با در نظر گرفتن کارمزد). «دقت روند» یعنی درصد دفعاتی که جهت بازار رو درست پیش‌بینی کردیم (حتی اگه به TP نرسه). برای ما دقت روند مهم‌تره، چون حتی با کارمزد صفر، اگه جهت بازار رو اشتباه ببینیم، ضرر می‌کنیم.
+        💡 <b className="text-foreground/80">راهنما:</b> «نرخ موفقیت معامله» یعنی درصد معاملاتی که به هدف (TP) رسیدن. «دقت پیش‌بینی روند» یعنی درصد دفعاتی که جهت کلی بازار رو درست تشخیص دادیم (حتی اگه به TP نرسه).
       </div>
 
       {lastCheckTime && (
@@ -371,50 +360,87 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* ═══ ۵ کارت اصلی (کل، برد، باخت، در انتظار، منقضی) ═══ */}
+      {/* ═══ ۵ کارت خلاصه وضعیت ═══ */}
       <div className="grid grid-cols-5 gap-1 text-center">
-        <div className="rounded-md bg-muted/30 px-1 py-1">
+        <div className="rounded-md border border-border/40 bg-muted/10 px-1 py-1.5">
           <p className="text-[8px] text-muted-foreground">کل</p>
           <p className="num text-sm font-bold">{totalCount}</p>
         </div>
-        <div className="rounded-md bg-green-500/5 px-1 py-1">
-          <p className="text-[8px] text-muted-foreground">برد</p>
-          <p className="num text-sm font-bold text-green-500">{s.wins}</p>
+        <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1 py-1.5">
+          <p className="text-[8px] text-muted-foreground">برد (TP)</p>
+          <p className="num text-sm font-bold text-green-500">{s.tp_hits ?? 0}</p>
         </div>
-        <div className="rounded-md bg-red-500/5 px-1 py-1">
-          <p className="text-[8px] text-muted-foreground">باخت</p>
-          <p className="num text-sm font-bold text-red-500">{s.losses}</p>
+        <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1 py-1.5">
+          <p className="text-[8px] text-muted-foreground">باخت (SL)</p>
+          <p className="num text-sm font-bold text-red-500">{s.sl_hits ?? 0}</p>
         </div>
-        <div className="rounded-md bg-yellow-500/5 px-1 py-1">
+        <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-1 py-1.5">
           <p className="text-[8px] text-muted-foreground">در انتظار</p>
           <p className="num text-sm font-bold text-yellow-500">{pendingCount}</p>
         </div>
-        <div className="rounded-md bg-blue-500/5 px-1 py-1">
-          <p className="text-[8px] text-muted-foreground">منقضی</p>
-          <p className="num text-sm font-bold text-blue-400">{expiredCount}</p>
+        <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-1 py-1.5">
+          <p className="text-[8px] text-muted-foreground">تایم‌اوت</p>
+          <p className="num text-sm font-bold text-blue-400">{s.expired ?? 0}</p>
         </div>
       </div>
 
-      {/* ═══ نرخ موفقیت + ضریب سوددهی ═══ */}
-      <div className="grid grid-cols-2 gap-1.5">
-        <div className="rounded-md border border-green-500/20 bg-green-500/5 px-2 py-1.5 text-center">
-          <p className="text-[8px] text-muted-foreground">نرخ موفقیت معامله</p>
-          <p className={`num text-sm font-bold ${winRateColor(s.win_rate)}`}>
+      {/* ═══ معیارهای اصلی ═══ */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-2 text-center shadow-sm">
+          <p className="text-[10px] text-muted-foreground mb-1 flex items-center justify-center gap-1">✅ نرخ موفقیت معامله (TP)</p>
+          <p className={`num text-xl font-bold ${winRateColor(s.win_rate)}`}>
             {s.win_rate.toFixed(1)}%
           </p>
         </div>
-        <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1.5 text-center">
-          <p className="text-[8px] text-muted-foreground">ضریب سوددهی</p>
-          <p className="num text-sm font-bold text-blue-500">
-            {s.profit_factor.toFixed(2)}
+        <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-2 text-center shadow-sm">
+          <p className="text-[10px] text-muted-foreground mb-1 flex items-center justify-center gap-1">🎯 دقت پیش‌بینی روند</p>
+          <p className={`num text-xl font-bold ${winRateColor(s.direction_accuracy ?? 0)}`}>
+            {(s.direction_accuracy ?? 0).toFixed(1)}%
           </p>
         </div>
       </div>
 
-      {/* ═══ نرخ موفقیت بر اساس قدرت سیگنال (همیشه باز) ═══ */}
+      {/* ═══ تفکیک دقیق (نمودار میله‌ای) ═══ */}
+      <div className="rounded-lg border border-border/40 bg-muted/10 p-2.5">
+        <div className="mb-2 flex items-center justify-between text-[10px] text-muted-foreground px-1">
+          <span className="font-medium">جزئیات نتایج (از {closedCount} معامله بسته‌شده)</span>
+        </div>
+        
+        {closedCount === 0 ? (
+          <p className="text-center text-[10px] text-muted-foreground py-2">
+            هنوز معامله‌ای بسته نشده است.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {[
+              { label: "برد واقعی (TP)", count: s.tp_hits ?? 0, color: "bg-green-500", textColor: "text-green-500" },
+              { label: "باخت واقعی (SL)", count: s.sl_hits ?? 0, color: "bg-red-500", textColor: "text-red-500" },
+              { label: "جهت درست (تایم‌اوت در سود)", count: s.timeout_wins ?? 0, color: "bg-green-400", textColor: "text-green-400" },
+              { label: "جهت غلط (تایم‌اوت در ضرر)", count: s.timeout_losses ?? 0, color: "bg-red-400", textColor: "text-red-400" },
+              { label: "خنثی (تایم‌اوت سر به سر)", count: s.timeout_flats ?? 0, color: "bg-muted-foreground", textColor: "text-muted-foreground" },
+            ].map((item) => {
+              if (item.count === 0) return null;
+              const percent = (item.count / closedCount) * 100;
+              return (
+                <div key={item.label} className="flex items-center gap-2 text-[9px]">
+                  <span className="w-32 shrink-0 text-muted-foreground text-right">{item.label}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/40">
+                    <div className={`h-full ${item.color}`} style={{ width: `${percent}%` }} />
+                  </div>
+                  <span className={`num w-14 text-left font-bold ${item.textColor}`}>
+                    {item.count} ({percent.toFixed(0)}٪)
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ نرخ موفقیت بر اساس قدرت سیگنال ═══ */}
       {quality && (quality.strong.total > 0 || quality.normal.total > 0 || quality.weak.total > 0) && (
-        <div className="rounded-lg border border-border/40 bg-muted/10 p-2">
-          <div className="mb-1.5 flex items-center justify-between text-[9px] text-muted-foreground px-1">
+        <div className="rounded-lg border border-border/40 bg-muted/10 p-2.5">
+          <div className="mb-1.5 flex items-center justify-between text-[10px] text-muted-foreground px-1">
             <span className="font-medium">نرخ موفقیت بر اساس قدرت سیگنال</span>
           </div>
           
@@ -434,8 +460,8 @@ export function BacktestStats({
                   <span className={`text-[9px] font-medium`}>{label}</span>
                   <div className="flex items-center gap-2 text-[9px]">
                     <span className="num text-muted-foreground">تعداد: {q.total}</span>
-                    <span className={`num font-bold ${winRateColor(q.win_rate)}`}>{q.win_rate.toFixed(0)}٪ موفق</span>
-                    <span className="num text-purple-400 font-medium">{q.trend_accuracy.toFixed(0)}٪ روند</span>
+                    <span className={`num font-bold ${winRateColor(q.win_rate)}`}>{q.win_rate.toFixed(0)}٪ برد</span>
+                    <span className="num text-purple-400 font-medium">{(q.direction_accuracy ?? 0).toFixed(0)}٪ پیش‌بینی</span>
                   </div>
                 </div>
               );
@@ -444,12 +470,12 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* ═══ دقت روند (با تفکیک تایم‌فریم، همیشه باز) ═══ */}
+      {/* ═══ دقت روند (با تفکیک تایم‌فریم) ═══ */}
       {(s.trend_correct ?? 0) + (s.trend_wrong ?? 0) > 0 && (
-        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2">
+        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2.5">
           <div className="mb-1 flex items-center justify-between">
-            <span className="flex items-center gap-1 text-[9px] font-medium text-purple-400">🎯 دقت پیش‌بینی جهت بازار</span>
-            <span className="num text-sm font-bold text-purple-400">{s.trend_accuracy?.toFixed(1) ?? "—"}٪</span>
+            <span className="flex items-center gap-1 text-[10px] font-medium text-purple-400">🎯 دقت پیش‌بینی روند در تایم‌فریم‌ها</span>
+            <span className="num text-sm font-bold text-purple-400">{(s.trend_accuracy ?? 0).toFixed(1)}٪</span>
           </div>
           <div className="flex items-center justify-between text-[9px] text-muted-foreground mb-2">
             <span className="text-green-500">✅ {s.trend_correct ?? 0} درست</span>
@@ -457,7 +483,7 @@ export function BacktestStats({
           </div>
 
           {Object.keys(tfStats).length > 0 && (
-            <div className="mt-1.5 space-y-1 border-t border-purple-500/20 pt-2">
+            <div className="mt-1.5 space-y-1.5 border-t border-purple-500/20 pt-2">
               <div className="text-[9px] text-muted-foreground mb-1">دقت به تفکیک تایم‌فریم:</div>
               {Object.entries(tfStats)
                 .sort((a, b) => {
@@ -466,7 +492,7 @@ export function BacktestStats({
                 })
                 .map(([tf, stat]) => {
                   const acc = stat.trend_accuracy ?? 0;
-                  if (stat.trend_total === 0) return null;
+                  if (stat.total === 0) return null;
                   const color = acc >= 70 ? "text-green-500 bg-green-500" : acc >= 50 ? "text-yellow-500 bg-yellow-500" : "text-red-500 bg-red-500";
                   return (
                     <div key={tf} className="flex items-center gap-2 text-[9px]">
@@ -485,8 +511,10 @@ export function BacktestStats({
 
       {/* ═══ تله‌ها ═══ */}
       {trapStats && trapStats.total > 0 && (
-        <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-2.5">
-          <p className="mb-1.5 text-[10px] font-medium text-orange-400">⚠️ دقت هشدار تله‌ها</p>
+        <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-2.5 shadow-sm">
+          <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-orange-400">
+            <AlertTriangle className="h-3.5 w-3.5" /> دقت هشدار تله‌ها
+          </p>
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-muted-foreground">{trapStats.total} سیگنال همراه با تله</span>
             <span className="num font-bold text-orange-400">{trapStats.accuracy.toFixed(0)}% درست</span>
@@ -495,7 +523,7 @@ export function BacktestStats({
       )}
 
       {/* ═══ دکمه‌ها ═══ */}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-3 gap-2 pt-2">
         <Button onClick={handleRun} disabled={running} size="sm" variant="default">
           {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} بررسی
         </Button>

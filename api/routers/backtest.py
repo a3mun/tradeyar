@@ -2,9 +2,10 @@
 api/routers/backtest.py
 راستی‌آزمایی — endpoints
 ============================================================
-نسخه ۳.۱ · فاز ۱۰.۸
+نسخه ۳.۲ · فاز ۱۰.۱۰
 🔴 تغییرات:
-  • پارامتر limit برای /backtest و /by-tf و /by-quality
+  • + خروجی exit_reason و trend_predicted_at_entry در تاریخچه
+  • اصلاح منطق ریست (حذف با X-API-Key)
 """
 
 import logging
@@ -19,6 +20,7 @@ from api.database import get_session
 from api.deps import rate_limit_for
 from api.models import SignalLog
 from api.schemas import BacktestResponse, BacktestStats
+from api.config import settings
 from services.backtest_service import (
     backtest_all,
     compute_stats,
@@ -51,13 +53,13 @@ async def backtest_stats(
         risk_profile=risk_profile,
         limit=limit,
     )
+
+    # پر کردن فیلدهای نبوده با مقادیر پیش‌فرض
     stats.setdefault("avg_rr_net", 0.0)
     stats.setdefault("trend_correct", 0)
     stats.setdefault("trend_wrong", 0)
     stats.setdefault("trend_accuracy", 0.0)
-    stats.setdefault("expired_win", 0)
-    stats.setdefault("expired_loss", 0)
-    stats.setdefault("expired_flat", 0)
+
     return BacktestResponse(stats=BacktestStats(**stats), items=[])
 
 
@@ -132,8 +134,11 @@ async def backtest_history(
                 "trap_type": r.trap_type,
                 "orderbook_available": r.orderbook_available,
                 "trade_side_irt": r.trade_side_irt,
-                "trend_correct": getattr(r, "trend_correct", None),
-                "is_weak": getattr(r, "is_weak", False),
+                "trend_correct": r.trend_correct,
+                "is_weak": r.is_weak,
+                # 🔴 فیلدهای جدید فاز ۱۰.۱۰
+                "exit_reason": r.exit_reason,
+                "trend_predicted_at_entry": r.trend_predicted_at_entry,
             }
             for r in rows
         ],
@@ -180,9 +185,6 @@ async def backtest_reset(
     session: Session = Depends(get_session),
 ):
     """پاک کردن همه‌ی سیگنال‌ها — نیاز به X-API-Key."""
-    import logging
-    from api.config import settings
-
     audit_log = logging.getLogger("api.deps")
 
     admin_key = (settings.ADMIN_API_KEY or "").strip()

@@ -2,15 +2,17 @@
 services/signal_recorder.py
 ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۵.۳ · فاز ۱۰.۸
-🔴 تغییرات:
-  • بازگشت به ON CONFLICT DO NOTHING (برای حل Race Condition)
-  • حذف چک دستی existing_pending (چون unique_constraint هست)
+نسخه ۶.۰ · فاز ۱۰.۱۰
+🔴 تغییرات نسبت به ۵.۳:
+  • + trend_predicted_at_entry در ورودی‌ها
+  • + فیلتر نرم confidence < 35 (برای جلوگیری از آمار کاذب)
+  • + Cooldown ۵ دقیقه‌ای در همان TF (جلوگیری از تکرار)
+  • حفظ دیتای کامل برای یکپارچگی با UI و Backtest
 """
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from sqlalchemy import insert
@@ -37,6 +39,12 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 _TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
+
+# حداقل اطمینان برای ثبت سیگنال (حتی برای کاربر جسور)
+MIN_CONFIDENCE_TO_RECORD = 35
+
+# مدت زمان Cooldown برای جلوگیری از ثبت تکراری در یک TF (به دقیقه)
+COOLDOWN_MINUTES_SAME_TF = 5
 
 
 def _utcnow() -> datetime:
@@ -93,7 +101,6 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
     else:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        # 🔴 RETURNING برای تشخیص دقیق درج جدید
         stmt = pg_insert(SignalLog).values(**values)
         stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
         stmt = stmt.returning(SignalLog.id)
@@ -101,8 +108,6 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
         result = session.execute(stmt)
         inserted_id = result.fetchone()
         session.commit()
-
-        # اگه inserted_id وجود داشته باشه، یعنی رکورد جدید درج شده
         return inserted_id is not None
 
 
@@ -114,6 +119,33 @@ def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:
     if consensus == "weak":
         return True
     return False
+
+
+def _has_recent_same_tf_signal(
+    session: Session,
+    ticker: str,
+    direction: str,
+    source: str,
+    tf_name: str,
+    market_type: str = "futures",
+    risk_profile: str = "aggressive",
+) -> bool:
+    """
+    آیا سیگنال مشابهی در همین TF در چند دقیقه اخیر ثبت شده است؟
+    (جهت‌های مختلف، market_type‌ها و risk_profile‌ها مستقل هستند)
+    """
+    cutoff = _utcnow() - timedelta(minutes=COOLDOWN_MINUTES_SAME_TF)
+    existing = session.exec(
+        select(SignalLog)
+        .where(SignalLog.ticker == ticker)
+        .where(SignalLog.direction == direction)
+        .where(SignalLog.source == source)
+        .where(SignalLog.tf == tf_name)
+        .where(SignalLog.market_type == market_type)
+        .where(SignalLog.risk_profile == risk_profile)
+        .where(SignalLog.timestamp >= cutoff)
+    ).first()
+    return existing is not None
 
 
 def record_signal(
@@ -143,19 +175,29 @@ def record_signal(
     orderbook_available: bool = False,
     trade_side_irt: bool = False,
     origin: str = "auto_scan",
+    trend_predicted_at_entry: str = "flat",
 ) -> bool:
     """
-    ثبت سیگنال — نسخه ۵.۳.
+    ثبت سیگنال — نسخه ۶.۰.
     """
+    # ═══ ۱. فیلترهای اولیه ═══
     if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:
         return False
 
     if not SigEnum.is_directional(signal):
         return False
+
     if not price or price <= 0:
         return False
 
-    # 🔴 جلوگیری از ثبت سیگنال ناقص (بدون حد سود و ضرر)
+    # 🔴 فیلتر نرم: سیگنال‌های با اطمینان بسیار پایین حتی در پروفایل جسور هم ثبت نمی‌شن
+    if confidence < MIN_CONFIDENCE_TO_RECORD:
+        logger.debug(
+            f"[Recorder] سیگنال خیلی ضعیف رد شد: {ticker} {tf_name} (conf={confidence}%)"
+        )
+        return False
+
+    # 🔴 جلوگیری از ثبت سیگنال ناقص
     if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
         logger.debug(f"[Recorder] سیگنال ناقص (بدون SL/TP): {ticker}")
         return False
@@ -219,10 +261,22 @@ def record_signal(
         "orderbook_available": bool(orderbook_available),
         "trade_side_irt": bool(trade_side_irt),
         "is_weak": is_weak,
+        "trend_predicted_at_entry": trend_predicted_at_entry,
     }
 
     try:
         with Session(engine) as session:
+            # ═══ ۲. چک Cooldown در همان TF ═══
+            if _has_recent_same_tf_signal(
+                session, ticker, direction, source, tf_name, market_type, risk_profile
+            ):
+                logger.info(
+                    f"[Recorder] ⏳ Cooldown active for {ticker} {tf_name} {signal} "
+                    f"(less than {COOLDOWN_MINUTES_SAME_TF}m ago)"
+                )
+                return False
+
+            # ═══ ۳. درج در دیتابیس ═══
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
@@ -232,7 +286,6 @@ def record_signal(
                 f"({source}, {confidence}%, {market_type})"
             )
 
-            # 🔴 ارسال نوتیفیکیشن به تلگرام و بله
             try:
                 from services.notifier import notify_signal
 
@@ -243,7 +296,7 @@ def record_signal(
             return True
         return False
     except IntegrityError:
-        logger.debug(f"[Recorder] تکراری: {ticker} {tf_name}")
+        logger.debug(f"[Recorder] تکراری در دیتابیس: {ticker} {tf_name}")
         return False
     except Exception:
         logger.exception(f"[Recorder] خطا {ticker} {tf_name} {signal}")

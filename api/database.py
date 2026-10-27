@@ -63,7 +63,10 @@ def _add_missing_columns_sqlite(inspector, conn):
         ("expired_pnl_pct", "REAL"),
         ("expired_bias", "TEXT"),
         ("is_weak", "INTEGER DEFAULT 0"),
+        ("exit_reason", "TEXT"),
+        ("trend_predicted_at_entry", "TEXT"),
     ]
+
     for col_name, col_type in new_columns:
         if col_name not in existing_cols:
             try:
@@ -101,6 +104,8 @@ def _add_missing_columns_postgres(inspector, conn):
             ("expired_pnl_pct", "DOUBLE PRECISION"),
             ("expired_bias", "VARCHAR"),
             ("is_weak", "BOOLEAN DEFAULT FALSE"),
+            ("exit_reason", "VARCHAR"),
+            ("trend_predicted_at_entry", "VARCHAR"),
         ]
         for col_name, col_type in signallog_cols:
             if col_name not in cols:

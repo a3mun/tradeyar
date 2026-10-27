@@ -106,3 +106,8 @@ structure.txt
 CODE_REVIEW_*.md
 PROJECT_STATUS.md
 render_worker/.env
+
+# Local dev/debug
+check_schema.py
+seed_test_data.py
+data/*.bak
