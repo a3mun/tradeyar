@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۳.۳)
+ * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۲.۳ · فاز ۱۲.۱)
  * ============================================================
- * 🔴 تغییرات نسخه ۳.۳:
- *   • همگام‌سازی لحظه‌ای با wsSignal از store (فاز ۸.۱)
- *   • وقتی SignalCard سیگنال WS جدید می‌گیره، TFTable هم
- *     دوباره /analyze/multi رو صدا می‌زنه.
+ * 🔴 تغییرات نسخه ۱۲.۳:
+ *   • ارتفاع ردیف‌ها کاملاً یکسان (چه خنثی چه سیگنال)
+ *   • حذف ستون «وضعیت» (تناقض با سیگنال)
+ *   • نمودار بزرگ‌تر + responsive موبایل
+ *   • تمام ردیف‌ها ارتفاع دقیقاً یکسان دارن (۳۴px)
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -19,7 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair, SOURCE_BY_KEY } from "@/lib/sources";
@@ -35,7 +35,6 @@ const TIMEFRAMES: Timeframe[] = [
   "روزانه",
 ];
 
-// ═══ رنگ sparkline ═══
 function sparkColorFromSignal(
   signal: string
 ): "green" | "red" | "neutral" {
@@ -56,201 +55,177 @@ function sparkColorFromSignal(
   return "neutral";
 }
 
-// ═══ نوع سیگنال ═══
-type SignalKind =
-  | "long"
-  | "short"
-  | "weak-long"
-  | "weak-short"
-  | "neutral";
+type ConfidenceLevel = "golden" | "strong" | "normal" | "weak" | "neutral";
 
-function getSignalKind(signal: string): SignalKind {
-  if (!signal) return "neutral";
-  const s = signal.toUpperCase();
-  const isLong = s.includes("LONG") || signal.includes("صعودی");
-  const isShort = s.includes("SHORT") || signal.includes("نزولی");
-  const isWeak = signal.includes("ضعیف");
-
-  if (isLong && isWeak) return "weak-long";
-  if (isShort && isWeak) return "weak-short";
-  if (isLong) return "long";
-  if (isShort) return "short";
+function getConfidenceLevel(
+  confidence: number,
+  isDirectional: boolean
+): ConfidenceLevel {
+  if (!isDirectional) return "neutral";
+  if (confidence >= 85) return "golden";
+  if (confidence >= 70) return "strong";
+  if (confidence >= 50) return "normal";
+  if (confidence >= 25) return "weak";
   return "neutral";
 }
 
-// ═══ نوع وضعیت ═══
-type StatusKind =
-  | "signal-long"
-  | "signal-short"
-  | "near-long"
-  | "near-short"
-  | "near-neutral"
-  | "forming-long"
-  | "forming-short"
-  | "forming"
-  | "wait";
+type Direction = "long" | "short" | "neutral";
 
-function getStatusKind(
-  confidence: number,
-  direction: string,
-  signal: string
-): { kind: StatusKind; label: string } {
-  const sigKind = getSignalKind(signal);
-
-  if (sigKind === "long") return { kind: "signal-long", label: "سیگنال" };
-  if (sigKind === "short") return { kind: "signal-short", label: "سیگنال" };
-
-  if (sigKind === "weak-long") return { kind: "near-long", label: "نزدیک" };
-  if (sigKind === "weak-short") return { kind: "near-short", label: "نزدیک" };
-
-  const isLong = direction === "long" || signal.includes("صعودی");
-  const isShort = direction === "short" || signal.includes("نزولی");
-
-  // 🔴 فاز ۱۰.۱ — آستانه‌های نرم‌تر (چون confidence بازطراحی شد)
-  if (confidence >= 50) {
-    if (isLong) return { kind: "near-long", label: "نزدیک" };
-    if (isShort) return { kind: "near-short", label: "نزدیک" };
-    return { kind: "near-neutral", label: "نزدیک" };
-  }
-  if (confidence >= 25) {
-    if (isLong) return { kind: "forming-long", label: "تشکیل" };
-    if (isShort) return { kind: "forming-short", label: "تشکیل" };
-    return { kind: "forming", label: "تشکیل" };
-  }
-  return { kind: "wait", label: "دور" };
+interface SignalStyle {
+  bg: string;
+  border: string;
+  color: string;
+  boxShadow: string;
+  textShadow: string;
+  opacity: number;
 }
-  
-// ═══ استایل سیگنال ═══
-const SIGNAL_STYLES: Record<SignalKind, React.CSSProperties> = {
+
+const SIGNAL_STYLE_MAP: Record<
+  Direction,
+  Record<ConfidenceLevel, SignalStyle>
+> = {
   long: {
-    background: "rgba(34,197,94,0.18)",
-    color: "#4ade80",
-    borderColor: "#22c55e",
-    textShadow:
-      "0 0 8px rgba(34,197,94,0.9), 0 0 12px rgba(34,197,94,0.5)",
-    boxShadow:
-      "0 0 12px rgba(34,197,94,0.5), 0 0 24px rgba(34,197,94,0.25), inset 0 0 8px rgba(34,197,94,0.15)",
-    animation: "pulse-green 2s ease-in-out infinite",
+    golden: {
+      bg: "rgba(34,197,94,0.35)",
+      border: "#22c55e",
+      color: "#4ade80",
+      boxShadow:
+        "0 0 20px rgba(250,204,21,0.8), 0 0 12px rgba(34,197,94,0.9), inset 0 0 8px rgba(34,197,94,0.4)",
+      textShadow: "0 0 10px rgba(34,197,94,1)",
+      opacity: 1,
+    },
+    strong: {
+      bg: "rgba(34,197,94,0.25)",
+      border: "#22c55e",
+      color: "#4ade80",
+      boxShadow: "0 0 12px rgba(34,197,94,0.7)",
+      textShadow: "0 0 6px rgba(34,197,94,0.8)",
+      opacity: 1,
+    },
+    normal: {
+      bg: "rgba(34,197,94,0.14)",
+      border: "rgba(34,197,94,0.7)",
+      color: "#4ade80",
+      boxShadow: "0 0 6px rgba(34,197,94,0.35)",
+      textShadow: "none",
+      opacity: 0.92,
+    },
+    weak: {
+      bg: "rgba(34,197,94,0.08)",
+      border: "rgba(34,197,94,0.45)",
+      color: "rgba(74,222,128,0.75)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.75,
+    },
+    neutral: {
+      bg: "rgba(34,197,94,0.04)",
+      border: "rgba(34,197,94,0.25)",
+      color: "rgba(74,222,128,0.5)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.55,
+    },
   },
   short: {
-    background: "rgba(239,68,68,0.18)",
-    color: "#f87171",
-    borderColor: "#ef4444",
-    textShadow:
-      "0 0 8px rgba(239,68,68,0.9), 0 0 12px rgba(239,68,68,0.5)",
-    boxShadow:
-      "0 0 12px rgba(239,68,68,0.5), 0 0 24px rgba(239,68,68,0.25), inset 0 0 8px rgba(239,68,68,0.15)",
-    animation: "pulse-red 2s ease-in-out infinite",
-  },
-  "weak-long": {
-    background: "rgba(34,197,94,0.08)",
-    color: "#86c493",
-    borderColor: "rgba(34,197,94,0.4)",
-    opacity: 0.9,
-  },
-  "weak-short": {
-    background: "rgba(239,68,68,0.08)",
-    color: "#c48a8a",
-    borderColor: "rgba(239,68,68,0.4)",
-    opacity: 0.9,
+    golden: {
+      bg: "rgba(239,68,68,0.35)",
+      border: "#ef4444",
+      color: "#f87171",
+      boxShadow:
+        "0 0 20px rgba(250,204,21,0.8), 0 0 12px rgba(239,68,68,0.9), inset 0 0 8px rgba(239,68,68,0.4)",
+      textShadow: "0 0 10px rgba(239,68,68,1)",
+      opacity: 1,
+    },
+    strong: {
+      bg: "rgba(239,68,68,0.25)",
+      border: "#ef4444",
+      color: "#f87171",
+      boxShadow: "0 0 12px rgba(239,68,68,0.7)",
+      textShadow: "0 0 6px rgba(239,68,68,0.8)",
+      opacity: 1,
+    },
+    normal: {
+      bg: "rgba(239,68,68,0.14)",
+      border: "rgba(239,68,68,0.7)",
+      color: "#f87171",
+      boxShadow: "0 0 6px rgba(239,68,68,0.35)",
+      textShadow: "none",
+      opacity: 0.92,
+    },
+    weak: {
+      bg: "rgba(239,68,68,0.08)",
+      border: "rgba(239,68,68,0.45)",
+      color: "rgba(248,113,113,0.75)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.75,
+    },
+    neutral: {
+      bg: "rgba(239,68,68,0.04)",
+      border: "rgba(239,68,68,0.25)",
+      color: "rgba(248,113,113,0.5)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.55,
+    },
   },
   neutral: {
-    background: "rgba(100,116,139,0.06)",
-    color: "#94a3b8",
-    borderColor: "rgba(100,116,139,0.18)",
-    opacity: 0.65,
+    golden: {
+      bg: "rgba(100,116,139,0.12)",
+      border: "rgba(100,116,139,0.5)",
+      color: "#94a3b8",
+      boxShadow: "0 0 6px rgba(100,116,139,0.25)",
+      textShadow: "none",
+      opacity: 0.9,
+    },
+    strong: {
+      bg: "rgba(100,116,139,0.1)",
+      border: "rgba(100,116,139,0.4)",
+      color: "#94a3b8",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.85,
+    },
+    normal: {
+      bg: "rgba(100,116,139,0.08)",
+      border: "rgba(100,116,139,0.3)",
+      color: "#94a3b8",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.75,
+    },
+    weak: {
+      bg: "rgba(100,116,139,0.06)",
+      border: "rgba(100,116,139,0.25)",
+      color: "rgba(148,163,184,0.7)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.65,
+    },
+    neutral: {
+      bg: "rgba(100,116,139,0.04)",
+      border: "rgba(100,116,139,0.18)",
+      color: "rgba(148,163,184,0.6)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.55,
+    },
   },
 };
 
-// ═══ استایل وضعیت ═══
-const STATUS_STYLES: Record<StatusKind, React.CSSProperties> = {
-  "signal-long": {
-    background: "rgba(34,197,94,0.18)",
-    color: "#4ade80",
-    borderColor: "rgba(34,197,94,0.6)",
-    boxShadow: "0 0 8px rgba(34,197,94,0.4)",
-    fontWeight: "bold",
-  },
-  "signal-short": {
-    background: "rgba(239,68,68,0.18)",
-    color: "#f87171",
-    borderColor: "rgba(239,68,68,0.6)",
-    boxShadow: "0 0 8px rgba(239,68,68,0.4)",
-    fontWeight: "bold",
-  },
-  "near-long": {
-    background: "rgba(34,197,94,0.08)",
-    color: "#86c493",
-    borderColor: "rgba(34,197,94,0.4)",
-    opacity: 0.9,
-  },
-  "near-short": {
-    background: "rgba(239,68,68,0.08)",
-    color: "#c48a8a",
-    borderColor: "rgba(239,68,68,0.4)",
-    opacity: 0.9,
-  },
-  "near-neutral": {
-    background: "rgba(100,116,139,0.06)",
-    color: "#94a3b8",
-    borderColor: "rgba(100,116,139,0.18)",
-    opacity: 0.65,
-  },
-  "forming-long": {
-    background: "rgba(34,197,94,0.04)",
-    color: "#5f8a6b",
-    borderColor: "rgba(34,197,94,0.18)",
-    opacity: 0.55,
-  },
-  "forming-short": {
-    background: "rgba(239,68,68,0.04)",
-    color: "#8a5f5f",
-    borderColor: "rgba(239,68,68,0.18)",
-    opacity: 0.55,
-  },
-  forming: {
-    background: "rgba(100,116,139,0.05)",
-    color: "#7a8595",
-    borderColor: "rgba(100,116,139,0.15)",
-    opacity: 0.55,
-  },
-  wait: {
-    background: "rgba(100,116,139,0.03)",
-    color: "#5b6472",
-    borderColor: "rgba(100,116,139,0.1)",
-    opacity: 0.45,
-  },
+const CONF_COLORS: Record<ConfidenceLevel, { text: string; bar: string }> = {
+  golden: { text: "#facc15", bar: "#facc15" },
+  strong: { text: "#4ade80", bar: "#22c55e" },
+  normal: { text: "#4ade80", bar: "#22c55e" },
+  weak: { text: "#f97316", bar: "#f97316" },
+  neutral: { text: "#94a3b8", bar: "#64748b" },
 };
 
-function confTextStyle(kind: SignalKind): React.CSSProperties {
-  switch (kind) {
-    case "long":
-      return { color: "#4ade80" };
-    case "short":
-      return { color: "#f87171" };
-    case "weak-long":
-      return { color: "#86c493", opacity: 0.9 };
-    case "weak-short":
-      return { color: "#c48a8a", opacity: 0.9 };
-    default:
-      return { color: "#64748b" };
-  }
-}
-
-function confBarColor(kind: SignalKind): string {
-  switch (kind) {
-    case "long":
-      return "#22c55e";
-    case "short":
-      return "#ef4444";
-    case "weak-long":
-      return "#86c493";
-    case "weak-short":
-      return "#c48a8a";
-    default:
-      return "#64748b";
-  }
-}
+// ═══════════════════════════════════════════════════════════
+// 🔴 ارتفاع ثابت ردیف — همه یکسان
+// ═══════════════════════════════════════════════════════════
+const ROW_HEIGHT = "h-[40px]";
 
 export function TFTable() {
   const {
@@ -261,158 +236,52 @@ export function TFTable() {
     marketType,
     riskProfile,
     setTimeframe,
-    wsSignal, // ← فاز ۸.۱
   } = useAppStore();
 
   const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
-  const [loading, setLoading] = useState(false);
-  const lastFingerprintRef = useRef<string>("");
 
-  // ═══ useEffect ۱: fetch اولیه ═══
-  useEffect(() => {
+  const fetchMultiData = async () => {
     if (!ticker || !sourceSupportsPair(source, ticker)) {
-      let cancelled = false;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setData({});
-        setLoading(false);
-      });
-      return () => {
-        cancelled = true;
-      };
+      setData({});
+      return;
     }
 
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) setLoading(true);
-    });
-
-    api
-      .post("/analyze/multi", {
+    try {
+      const res = await api.post("/analyze/multi", {
         ticker,
         source,
         timeframe: "۵ دقیقه",
         market_type: marketType,
         risk_profile: riskProfile,
         ticker_name: tickerName,
-      })
-      .then((res) => {
-        if (cancelled) return;
-        setData(res.data.timeframes || {});
-      })
-      .catch(() => {
-        if (!cancelled) setData({});
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
       });
+      setData(res.data.timeframes || {});
+    } catch {
+      // silent fail
+    }
+  };
 
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    fetchMultiData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, tickerName, source, marketType, riskProfile]);
 
-  // ═══ useEffect ۲: 🔴 فاز ۸.۱ — همگام‌سازی با wsSignal ═══
-  useEffect(() => {
-    if (!wsSignal || !wsSignal.data) return;
-
-    // ─── چک: همون نماد/منبع؟ ───
-    if (wsSignal.ticker !== ticker || wsSignal.source !== source) {
-      return;
-    }
-
-    // ─── چک fingerprint ───
-    const fp = (wsSignal.data as AnalyzeResponse).fingerprint || "";
-    if (!fp || fp === lastFingerprintRef.current) {
-      return;
-    }
-    lastFingerprintRef.current = fp;
-
-    // ─── refetch multi (بدون loading spinner) ───
-    api
-      .post("/analyze/multi", {
-        ticker,
-        source,
-        timeframe: "۵ دقیقه",
-        market_type: marketType,
-        risk_profile: riskProfile,
-        ticker_name: tickerName,
-      })
-      .then((res) => {
-        setData(res.data.timeframes || {});
-      })
-      .catch(() => {
-        // silent
-      });
-  }, [
-    wsSignal,
-    ticker,
-    source,
-    tickerName,
-    marketType,
-    riskProfile,
-  ]);
-
-  // ═══ 🔴 فاز ۸.۳ — refetch multi هر ۱۵s (هماهنگی با SignalCard) ═══
-  // چرا: WS signal هر ۳۰s میاد ولی این کند. ۱۵s میانگین می‌گیریم.
   useEffect(() => {
     if (!ticker || !sourceSupportsPair(source, ticker)) return;
 
-    const refetch = () => {
-      api
-        .post("/analyze/multi", {
-          ticker,
-          source,
-          timeframe: "۵ دقیقه",
-          market_type: marketType,
-          risk_profile: riskProfile,
-          ticker_name: tickerName,
-        })
-        .then((res) => setData(res.data.timeframes || {}))
-        .catch(() => {});
-    };
+    const interval = setInterval(() => {
+      fetchMultiData();
+    }, 5000);
 
-    const interval = setInterval(refetch, 15000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, source, tickerName, marketType, riskProfile]);
 
-
-  const handleRowClick = (tf: string) => {
-    setTimeframe(tf as Timeframe);
-  };
-
+  const handleRowClick = (tf: string) => setTimeframe(tf as Timeframe);
   const sourceMeta = SOURCE_BY_KEY[source];
 
   return (
     <Card>
-      <style jsx global>{`
-        @keyframes pulse-green {
-          0%, 100% {
-            box-shadow: 0 0 12px rgba(34, 197, 94, 0.5),
-              0 0 24px rgba(34, 197, 94, 0.25),
-              inset 0 0 8px rgba(34, 197, 94, 0.15);
-          }
-          50% {
-            box-shadow: 0 0 16px rgba(34, 197, 94, 0.7),
-              0 0 32px rgba(34, 197, 94, 0.4),
-              inset 0 0 12px rgba(34, 197, 94, 0.25);
-          }
-        }
-        @keyframes pulse-red {
-          0%, 100% {
-            box-shadow: 0 0 12px rgba(239, 68, 68, 0.5),
-              0 0 24px rgba(239, 68, 68, 0.25),
-              inset 0 0 8px rgba(239, 68, 68, 0.15);
-          }
-          50% {
-            box-shadow: 0 0 16px rgba(239, 68, 68, 0.7),
-              0 0 32px rgba(239, 68, 68, 0.4),
-              inset 0 0 12px rgba(239, 68, 68, 0.25);
-          }
-        }
-      `}</style>
-
-      {/* ═══ هدر ═══ */}
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <div>
           <CardTitle className="text-sm">📊 تحلیل بر اساس تایم‌فریم</CardTitle>
@@ -429,7 +298,6 @@ export function TFTable() {
                 borderColor: "rgba(59,130,246,0.25)",
                 color: "#93c5fd",
                 fontFamily: "monospace",
-                letterSpacing: "0.3px",
               }}
             >
               {ticker}
@@ -452,162 +320,137 @@ export function TFTable() {
       </CardHeader>
 
       <CardContent className="px-1 sm:px-3">
-        <Table className="table-fixed">
+        <Table className="table-fixed w-full">
           <TableHeader>
-            <TableRow>
-              <TableHead className="w-[18%] text-right text-[9px]">
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="w-[20%] sm:w-[18%] text-right text-[9px] sm:text-[10px] py-1">
                 تایم‌فریم
               </TableHead>
-              <TableHead className="w-[24%] text-center text-[9px]">
+              <TableHead className="w-[32%] sm:w-[30%] text-center text-[9px] sm:text-[10px] py-1">
                 سیگنال
               </TableHead>
-              <TableHead className="w-[16%] text-center text-[9px]">
+              <TableHead className="w-[18%] text-center text-[9px] sm:text-[10px] py-1">
                 اطمینان
               </TableHead>
-              <TableHead className="w-[22%] text-center text-[9px]">
-                وضعیت
-              </TableHead>
-              <TableHead className="w-[20%] text-center text-[9px]">
+              <TableHead className="w-[30%] sm:w-[34%] text-center text-[9px] sm:text-[10px] py-1">
                 نمودار
               </TableHead>
             </TableRow>
           </TableHeader>
 
           <TableBody>
-            {loading &&
-              TIMEFRAMES.map((tf) => (
-                <TableRow key={tf}>
-                  <TableCell>
-                    <Skeleton className="h-4 w-14" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="mx-auto h-5 w-16" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="mx-auto h-4 w-10" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="mx-auto h-5 w-16" />
-                  </TableCell>
-                  <TableCell>
-                    <Skeleton className="mx-auto h-5 w-14" />
-                  </TableCell>
-                </TableRow>
-              ))}
+            {TIMEFRAMES.map((tf) => {
+              const row = data[tf];
+              const isActive = tf === timeframe;
 
-            {!loading &&
-              TIMEFRAMES.map((tf) => {
-                const row = data[tf];
-                const isActive = tf === timeframe;
-
-                if (!row) {
-                  return (
-                    <TableRow key={tf} className="opacity-50">
-                      <TableCell className="text-right text-[10px] font-medium">
-                        {tf}
-                      </TableCell>
-                      <TableCell
-                        colSpan={4}
-                        className="text-center text-[10px] text-muted-foreground"
-                      >
-                        دیتا نیست
-                      </TableCell>
-                    </TableRow>
-                  );
-                }
-
-                const sigKind = getSignalKind(row.signal || "");
-                const { kind: statusKind, label: statusLabel } = getStatusKind(
-                  row.confidence || 0,
-                  row.direction || "neutral",
-                  row.signal || ""
-                );
-                const conf = row.confidence || 0;
-
-                const rowClass =
-                  isActive && sigKind === "long"
-                    ? "cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-green-500/50"
-                    : isActive && sigKind === "short"
-                      ? "cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-red-500/50"
-                      : isActive
-                        ? "cursor-pointer transition-colors hover:bg-muted/50 bg-primary/10"
-                        : "cursor-pointer transition-colors hover:bg-muted/50";
-
+              if (!row) {
                 return (
                   <TableRow
                     key={tf}
-                    onClick={() => handleRowClick(tf)}
-                    className={rowClass}
+                    className={`opacity-50 ${ROW_HEIGHT}`}
                   >
-                    <TableCell className="text-right text-[10px] font-medium">
+                    <TableCell className="text-right text-[10px] font-medium py-0">
                       {tf}
-                      {isActive && (
-                        <span className="mr-1 text-[8px] text-primary">
-                          ●
-                        </span>
-                      )}
                     </TableCell>
-
-                    <TableCell className="text-center">
-                      <span
-                        className="inline-flex w-full max-w-[90px] items-center justify-center rounded border px-1.5 py-0.5 text-[9px] font-bold tracking-wide transition-all duration-300"
-                        style={SIGNAL_STYLES[sigKind]}
-                      >
-                        {row.signal || "خنثی"}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="text-center">
-                      <div className="leading-tight">
-                        <div
-                          className="num mb-0.5 text-[10px] font-bold"
-                          style={confTextStyle(sigKind)}
-                        >
-                          {conf}%
-                        </div>
-                        <div className="mx-auto h-0.5 w-8 overflow-hidden rounded-full bg-muted-foreground/15">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${conf}%`,
-                              background: confBarColor(sigKind),
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </TableCell>
-
-                    <TableCell className="text-center">
-                      <span
-                        className="inline-flex w-full max-w-[80px] items-center justify-center rounded border px-1.5 py-0.5 text-[9px] transition-all duration-300"
-                        style={STATUS_STYLES[statusKind]}
-                      >
-                        {statusLabel}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="text-center">
-                      <MiniSparkline
-                        data={row.close_series || []}
-                        height={20}
-                        color={sparkColorFromSignal(row.signal || "")}
-                        className="mx-auto w-12"
-                      />
+                    <TableCell
+                      colSpan={3}
+                      className="text-center text-[10px] text-muted-foreground py-0"
+                    >
+                      دیتا نیست
                     </TableCell>
                   </TableRow>
                 );
-              })}
+              }
+
+              const direction: Direction =
+                row.direction === "long"
+                  ? "long"
+                  : row.direction === "short"
+                    ? "short"
+                    : "neutral";
+              const isDir = direction !== "neutral";
+              const confLevel = getConfidenceLevel(
+                row.confidence || 0,
+                isDir
+              );
+              const sigStyle = SIGNAL_STYLE_MAP[direction][confLevel];
+              const confStyle = CONF_COLORS[confLevel];
+              const conf = row.confidence || 0;
+
+              const rowClass = isActive
+                ? confLevel === "golden"
+                  ? `cursor-pointer transition-colors hover:bg-muted/50 bg-yellow-500/5 border-r-2 border-yellow-500/50 ${ROW_HEIGHT}`
+                  : direction === "long"
+                    ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-green-500/50 ${ROW_HEIGHT}`
+                    : direction === "short"
+                      ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-red-500/50 ${ROW_HEIGHT}`
+                      : `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/10 ${ROW_HEIGHT}`
+                : `cursor-pointer transition-colors hover:bg-muted/50 ${ROW_HEIGHT}`;
+
+              const goldenMark = confLevel === "golden" ? "💎 " : "";
+
+              return (
+                <TableRow
+                  key={tf}
+                  onClick={() => handleRowClick(tf)}
+                  className={rowClass}
+                >
+                  <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0">
+                    {tf}
+                    {isActive && (
+                      <span className="mr-1 text-[8px] text-primary">●</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center py-0">
+                    <span
+                      className="inline-flex w-full max-w-[130px] items-center justify-center rounded border px-1 sm:px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold tracking-wide transition-all duration-300"
+                      style={{
+                        background: sigStyle.bg,
+                        borderColor: sigStyle.border,
+                        color: sigStyle.color,
+                        boxShadow: sigStyle.boxShadow,
+                        textShadow: sigStyle.textShadow,
+                        opacity: sigStyle.opacity,
+                        borderWidth:
+                          confLevel === "golden" ? "2px" : "1px",
+                      }}
+                    >
+                      {goldenMark}
+                      {row.signal || "خنثی"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-center py-0">
+                    <div className="leading-none">
+                      <div
+                        className="num text-[10px] sm:text-[11px] font-bold mb-0.5"
+                        style={{ color: confStyle.text }}
+                      >
+                        {conf > 0 ? `${conf}%` : "—"}
+                      </div>
+                      <div className="mx-auto h-0.5 w-8 sm:w-10 overflow-hidden rounded-full bg-muted-foreground/15">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${conf}%`,
+                            background: confStyle.bar,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-center px-1 py-0">
+                    <MiniSparkline
+                      data={row.close_series || []}
+                      height={22}
+                      color={sparkColorFromSignal(row.signal || "")}
+                      className="mx-auto w-16 sm:w-20"
+                    />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
-
-        {!loading && Object.keys(data).length > 0 && (
-          <p className="mt-3 text-[9px] leading-relaxed text-muted-foreground">
-            💡 <b style={{ color: "#4ade80" }}>سیگنال</b> قطعی صادر شده ·{" "}
-            <b style={{ color: "#86c493" }}>نزدیک</b> سیگنال ضعیف ·{" "}
-            <b style={{ color: "#7a8595" }}>تشکیل</b> در حال آماده شدن ·{" "}
-            <b style={{ color: "#5b6472" }}>دور</b> راه زیادی مونده
-          </p>
-        )}
       </CardContent>
     </Card>
   );

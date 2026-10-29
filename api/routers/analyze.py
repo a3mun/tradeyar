@@ -7,15 +7,7 @@ Endpointهای تحلیل
 - GET  /analyze/deep         → پاراگراف تحلیل عمیق
 - GET  /analyze/quote        → قیمت لحظه‌ای
 - GET  /analyze/fear-greed   → شاخص ترس و طمع
-
-باگ ۶ (نسخه ۱.۵):
-    بدنه‌ی همه‌ی این endpointها sync است (requests + pandas +
-    SQLModel) ولی امضای آن‌ها ``async def`` بود. یعنی هر تحلیل،
-    **event loop را قفل می‌کرد** و تا تمام شدنش هیچ درخواست
-    دیگری — حتی ``GET /health`` — جواب نمی‌گرفت.
-
-    حالا همه‌ی فراخوانی‌های sync با ``run_in_threadpool`` به
-    thread جدا می‌روند.
+- GET  /analyze/sparkline    → نمودار سبک
 """
 
 import logging
@@ -52,7 +44,6 @@ async def analyze_endpoint(req: AnalyzeRequest, request: Request):
     """تحلیل کامل یک نماد (شامل پاراگراف، چک‌لیست، AI export)"""
     rate_limit_for(request, "analyze", limit=60, window_sec=60)
 
-    # ─── sync → threadpool ───
     result = await run_in_threadpool(
         analyze,
         ticker=req.ticker,
@@ -78,14 +69,9 @@ async def analyze_endpoint(req: AnalyzeRequest, request: Request):
 # ═══════════════════════════════════════════════════════════
 @router.post("/multi")
 async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
-    """
-    تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF).
-
-    ⚠️ این endpoint ۶ تحلیل کامل انجام می‌دهد — سنگین‌ترین
-       مسیر پروژه. ``analyze_multi_tf`` خودش هر TF را در
-       thread جدا اجرا می‌کند، پس اینجا فقط یک hop لازم است.
-    """
-    rate_limit_for(request, "analyze_multi", limit=20, window_sec=60)
+    """تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF)."""
+    # 🔴 افزایش سقف مجاز به ۶۰ درخواست در دقیقه برای جلوگیری از خطای 429
+    rate_limit_for(request, "analyze_multi", limit=60, window_sec=60)
 
     tfs = await run_in_threadpool(
         analyze_multi_tf,
@@ -99,7 +85,6 @@ async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
     if not tfs:
         raise HTTPException(status_code=404, detail="تحلیل چند TF ناموفق بود")
 
-    # ─── چک‌لیست وزنی (سبک، ولی sync) ───
     cl = await run_in_threadpool(checklist, tfs, req.timeframe)
 
     return {
@@ -139,15 +124,14 @@ async def deep_analyze_endpoint(
     if not tfs:
         raise HTTPException(status_code=404, detail="تحلیل ناموفق بود")
 
-    # ─── امضای deep_analysis: (ticker, name, tfs, gsr, risk_profile, tf_name) ───
     paragraph = await run_in_threadpool(
         deep_analysis,
-        ticker,  # ticker
-        ticker_name or ticker,  # name
-        tfs,  # tfs
-        None,  # gsr
-        risk_profile,  # risk_profile
-        timeframe,  # tf_name
+        ticker,
+        ticker_name or ticker,
+        tfs,
+        None,
+        risk_profile,
+        timeframe,
     )
 
     return {
@@ -167,16 +151,9 @@ async def quote_endpoint(
     ticker: str,
     source: str = "nobitex",
 ):
-    """
-    قیمت لحظه‌ای — برای poll هر ۵ ثانیه.
-
-    ⚠️ چون فرانت هر ۵ ثانیه poll می‌کند، این endpoint باید
-       سبک بماند؛ ولی حتی همین یک ``requests.get`` هم نباید
-       event loop را بگیرد — پس threadpool.
-    """
+    """قیمت لحظه‌ای — برای poll هر ۵ ثانیه."""
     from services.analyzer_service import quote as get_quote
 
-    # ─── سقف بالاتر چون polling مکرر است ───
     rate_limit_for(request, "quote", limit=180, window_sec=60)
 
     result = await run_in_threadpool(get_quote, ticker=ticker, source=source)
@@ -219,14 +196,7 @@ async def sparkline_endpoint(
     source: str = "nobitex",
     timeframe: str = "۵ دقیقه",
 ):
-    """
-    سری قیمت برای نمودار SignalCard — سبک و سریع.
-
-    ⚠️ چرا جدا از /analyze:
-        /analyze سنگین است (۲۰+ اندیکاتور). این endpoint
-        فقط close آخرین ۳۰ کندل را می‌دهد تا نمودار سریع
-        بیاید، بعد از ۳۰s سیگنال کامل از WS می‌آید.
-    """
+    """سری قیمت برای نمودار SignalCard — سبک و سریع."""
     rate_limit_for(request, "sparkline", limit=120, window_sec=60)
 
     result = await run_in_threadpool(

@@ -98,12 +98,15 @@ def check_pending_signals(trigger: str = "scheduler") -> dict:
         try:
             result = backtest_all(max_checks=300)
             updated = result.get("updated", 0)
-            if updated > 0:
-                logger.info(f"[Backtest/{trigger}] ✅ {updated} به‌روز")
-            else:
-                logger.info(
-                    f"[Backtest/{trigger}] {result.get('checked', 0)} بررسی، تغییری نبود"
-                )
+            errors = result.get("errors", 0)
+            skipped = result.get("skipped", 0)
+
+            # 🔴 لاگ کامل شامل errors و skipped
+            logger.info(
+                f"[Backtest/{trigger}] ✅ updated={updated} | "
+                f"errors={errors} | skipped={skipped} | "
+                f"win={result.get('win', 0)} | loss={result.get('loss', 0)}"
+            )
             return {"ok": True, **result}
         except Exception as e:
             logger.exception(f"[Backtest/{trigger}] خطا")
@@ -115,6 +118,8 @@ def check_pending_signals(trigger: str = "scheduler") -> dict:
                 "expired": 0,
                 "win": 0,
                 "loss": 0,
+                "errors": 0,  # 🔴 اضافه شد
+                "skipped": 0,  # 🔴 اضافه شد
             }
 
 

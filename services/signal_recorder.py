@@ -2,12 +2,11 @@
 services/signal_recorder.py
 ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۶.۰ · فاز ۱۰.۱۰
-🔴 تغییرات نسبت به ۵.۳:
-  • + trend_predicted_at_entry در ورودی‌ها
-  • + فیلتر نرم confidence < 35 (برای جلوگیری از آمار کاذب)
-  • + Cooldown ۵ دقیقه‌ای در همان TF (جلوگیری از تکرار)
-  • حفظ دیتای کامل برای یکپارچگی با UI و Backtest
+نسخه ۶.۴ · فاز ۱۲.۴
+🔴 تغییرات:
+  • MIN_CONFIDENCE_TO_RECORD = 25
+  • استثنا برای سیگنال قوی (≥ 70%): حتی اگه is_worthwhile=False ثبت می‌شه
+  • لاگ دقیق برای دیباگ
 """
 
 import json
@@ -25,7 +24,6 @@ from core.contracts import Signal as SigEnum
 
 logger = logging.getLogger(__name__)
 
-
 # ═══════════════════════════════════════════════════════════
 # تنظیمات
 # ═══════════════════════════════════════════════════════════
@@ -39,25 +37,15 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 _TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
-
-# حداقل اطمینان برای ثبت سیگنال (حتی برای کاربر جسور)
-MIN_CONFIDENCE_TO_RECORD = 35
-
-# مدت زمان Cooldown برای جلوگیری از ثبت تکراری در یک TF (به دقیقه)
+MIN_CONFIDENCE_TO_RECORD = 25
 COOLDOWN_MINUTES_SAME_TF = 5
+
+# 🔴 استثنا: سیگنال‌های قوی (بالاتر از این) حتی با is_worthwhile=False ثبت می‌شن
+STRONG_CONFIDENCE_BYPASS = 70
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _extract_quote(ticker: str) -> str:
-    upper = ticker.upper()
-    if "IRT" in upper or "TMN" in upper:
-        return "IRT"
-    if "USDT" in upper or "USD" in upper:
-        return "USDT"
-    return "USDT"
 
 
 def _signal_base(signal: str) -> str:
@@ -69,27 +57,14 @@ def _signal_base(signal: str) -> str:
 
 
 def _dedup_key_simple(
-    ticker: str,
-    tf_name: str,
-    signal: str,
-    source: str,
-    market_type: str,
-    risk_profile: str = "aggressive",
+    ticker, tf_name, signal, source, market_type, risk_profile
 ) -> str:
     return "|".join(
-        [
-            ticker,
-            tf_name,
-            _signal_base(signal),
-            source,
-            market_type,
-            risk_profile,
-        ]
+        [ticker, tf_name, _signal_base(signal), source, market_type, risk_profile]
     )
 
 
 def _insert_ignore_conflict(session: Session, values: dict) -> bool:
-    """درج با نادیده‌گرفتن تعارض روی dedup_key."""
     if is_sqlite:
         from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -104,7 +79,6 @@ def _insert_ignore_conflict(session: Session, values: dict) -> bool:
         stmt = pg_insert(SignalLog).values(**values)
         stmt = stmt.on_conflict_do_nothing(index_elements=["dedup_key"])
         stmt = stmt.returning(SignalLog.id)
-
         result = session.execute(stmt)
         inserted_id = result.fetchone()
         session.commit()
@@ -122,18 +96,8 @@ def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:
 
 
 def _has_recent_same_tf_signal(
-    session: Session,
-    ticker: str,
-    direction: str,
-    source: str,
-    tf_name: str,
-    market_type: str = "futures",
-    risk_profile: str = "aggressive",
+    session, ticker, direction, source, tf_name, market_type, risk_profile
 ) -> bool:
-    """
-    آیا سیگنال مشابهی در همین TF در چند دقیقه اخیر ثبت شده است؟
-    (جهت‌های مختلف، market_type‌ها و risk_profile‌ها مستقل هستند)
-    """
     cutoff = _utcnow() - timedelta(minutes=COOLDOWN_MINUTES_SAME_TF)
     existing = session.exec(
         select(SignalLog)
@@ -177,52 +141,68 @@ def record_signal(
     origin: str = "auto_scan",
     trend_predicted_at_entry: str = "flat",
 ) -> bool:
-    """
-    ثبت سیگنال — نسخه ۶.۰.
-    """
-    # ═══ ۱. فیلترهای اولیه ═══
+
+    # ═══ لاگ ورودی ═══
+    logger.info(
+        f"[Recorder] 🔍 trying: {ticker} {tf_name} signal={signal} "
+        f"conf={confidence}% direction={direction} "
+        f"is_worthwhile={is_worthwhile}"
+    )
+
+    # ═══ چک‌های اولیه ═══
     if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:
+        logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: TF ۱ دقیقه برای IRT رد شد")
         return False
 
     if not SigEnum.is_directional(signal):
-        return False
-
-    if not price or price <= 0:
-        return False
-
-    # 🔴 فیلتر نرم: سیگنال‌های با اطمینان بسیار پایین حتی در پروفایل جسور هم ثبت نمی‌شن
-    if confidence < MIN_CONFIDENCE_TO_RECORD:
         logger.debug(
-            f"[Recorder] سیگنال خیلی ضعیف رد شد: {ticker} {tf_name} (conf={confidence}%)"
+            f"[Recorder] ⏭ {ticker} {tf_name}: signal={signal} directional نیست"
         )
         return False
 
-    # 🔴 جلوگیری از ثبت سیگنال ناقص
-    if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
-        logger.debug(f"[Recorder] سیگنال ناقص (بدون SL/TP): {ticker}")
+    if not price or price <= 0:
+        logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: price={price} نامعتبر")
         return False
 
+    if confidence < MIN_CONFIDENCE_TO_RECORD:
+        logger.debug(
+            f"[Recorder] ⏭ {ticker} {tf_name}: conf={confidence}% "
+            f"< {MIN_CONFIDENCE_TO_RECORD}%"
+        )
+        return False
+
+    # 🔴 فاز ۱۲.۴ — استثنا برای سیگنال قوی
+    if is_worthwhile is False:
+        if confidence < STRONG_CONFIDENCE_BYPASS:
+            logger.info(
+                f"[Recorder] ⏭ {ticker} {tf_name}: is_worthwhile=False "
+                f"(R:R پایین) — conf={confidence}% < {STRONG_CONFIDENCE_BYPASS}%"
+            )
+            return False
+        # سیگنال قوی با R:R پایین — ثبت با هشدار
+        logger.warning(
+            f"[Recorder] ⚠️ {ticker} {tf_name}: is_worthwhile=False ولی "
+            f"conf={confidence}% ≥ {STRONG_CONFIDENCE_BYPASS}% — ثبت با هشدار"
+        )
+
+    if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
+        logger.debug(
+            f"[Recorder] ⏭ {ticker} {tf_name}: sl/tp تعریف نشده " f"(sl_tp={sl_tp})"
+        )
+        return False
+
+    # ═══ ساخت values ═══
     is_weak = _compute_is_weak(signal, confidence, consensus)
     now = _utcnow()
-
     dedup = _dedup_key_simple(
-        ticker=ticker,
-        tf_name=tf_name,
-        signal=signal,
-        source=source,
-        market_type=market_type,
-        risk_profile=risk_profile,
+        ticker, tf_name, signal, source, market_type, risk_profile
     )
 
-    sl: Optional[float] = None
-    tp: Optional[float] = None
-    sl_tp_type: Optional[str] = None
-    if sl_tp:
-        sl = sl_tp.get("sl")
-        tp = sl_tp.get("tp")
-        sl_tp_type = sl_tp.get("type")
+    sl = sl_tp.get("sl") if sl_tp else None
+    tp = sl_tp.get("tp") if sl_tp else None
+    sl_tp_type = sl_tp.get("type") if sl_tp else None
 
-    active_trap: Optional[str] = None
+    active_trap = None
     if traps:
         for key, val in traps.items():
             if isinstance(val, dict) and val.get("active"):
@@ -266,38 +246,39 @@ def record_signal(
 
     try:
         with Session(engine) as session:
-            # ═══ ۲. چک Cooldown در همان TF ═══
+            # ═══ cooldown ═══
             if _has_recent_same_tf_signal(
                 session, ticker, direction, source, tf_name, market_type, risk_profile
             ):
                 logger.info(
-                    f"[Recorder] ⏳ Cooldown active for {ticker} {tf_name} {signal} "
-                    f"(less than {COOLDOWN_MINUTES_SAME_TF}m ago)"
+                    f"[Recorder] ⏭ {ticker} {tf_name}: cooldown "
+                    f"({COOLDOWN_MINUTES_SAME_TF} دقیقه — سیگنال مشابه اخیراً ثبت شده)"
                 )
                 return False
 
-            # ═══ ۳. درج در دیتابیس ═══
+            # ═══ insert ═══
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
-            weak_flag = " [ضعیف]" if is_weak else ""
-            logger.info(
-                f"[Recorder] ✅ {ticker} {tf_name} {signal}{weak_flag} "
-                f"({source}, {confidence}%, {market_type})"
-            )
-
+            logger.info(f"[Recorder] ✅ {ticker} {tf_name} {signal} ({confidence}%)")
             try:
                 from services.notifier import notify_signal
 
                 notify_signal(values)
+                logger.info(f"[Recorder] 📤 notified: {ticker} {tf_name}")
             except Exception as e:
-                logger.warning(f"[Recorder] Notifier failed: {e}")
-
+                logger.warning(f"[Recorder] ❌ Notifier failed: {e}")
             return True
-        return False
+        else:
+            logger.info(
+                f"[Recorder] ⏭ {ticker} {tf_name}: dedup "
+                f"(سیگنال مشابه قبلاً ثبت شده)"
+            )
+            return False
+
     except IntegrityError:
-        logger.debug(f"[Recorder] تکراری در دیتابیس: {ticker} {tf_name}")
+        logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: IntegrityError")
         return False
     except Exception:
-        logger.exception(f"[Recorder] خطا {ticker} {tf_name} {signal}")
+        logger.exception(f"[Recorder] ❌ خطا {ticker} {tf_name}")
         return False

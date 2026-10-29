@@ -351,10 +351,11 @@ class TestEndpointsUseThreadpool:
         from api import scheduler
 
         src = inspect.getsource(scheduler)
-        assert "asyncio.to_thread" in src, (
-            "scheduler.check_pending_signals باید backtest_all را "
-            "در thread جدا اجرا کند"
-        )
+        # 🔴 معماری جدید از BackgroundScheduler استفاده می‌کنه (نه asyncio.to_thread)
+        assert (
+            "BackgroundScheduler" in src
+        ), "scheduler باید از BackgroundScheduler استفاده کند"
+
         assert "max_instances=1" in src, "max_instances=1 لازم است"
         assert "coalesce=True" in src, "coalesce=True لازم است"
 

@@ -2,28 +2,11 @@
 services/ws_manager.py
 مدیریت اتصالات WebSocket + broadcast per-connection
 ============================================================
-نسخه ۱.۰ · فاز ۷
+نسخه ۱.۱ · فاز ۱۲.۲
 
-═══ معماری ═══
-
-هر اتصال WebSocket یک **producer task** اختصاصی داره که:
-
-    ├─ هر ۱ ثانیه:  quote      (سبک، ~۲۰۰ms)
-    ├─ هر ۳ ثانیه:  orderbook  (متوسط، ~۳۰۰ms)
-    └─ هر ۳۰ ثانیه: signal     (سنگین، ولی cache شده)
-
-═══ چرا per-connection؟ ═══
-
-چون هر کاربر ممکنه نماد/صرافی متفاوتی داشته باشه. اگه shared
-producer بذاریم، باید subscription pool بسازیم که پیچیدگی
-زیادی داره. فعلاً برای مقیاس کاربران هم‌زمان کم، per-connection
-بهینه‌تره.
-
-═══ مقاومت در برابر خطا ═══
-
-  • اگه صرافی یه بار جواب نده → skip اون دور، producer متوقف نمی‌شه
-  • اگه کلاینت قطع بشه → producer خودکار kill می‌شه
-  • اگه analyze خطا بده → فقط signal ارسال نمی‌شه، بقیه ادامه داره
+═══ تغییرات نسخه ۱.۱ ═══
+  • بازگرداندن handle_message که در نسخه‌ی قبلی اشتباهاً حذف شده بود
+  • _signal_loop از fingerprint version-aware استفاده می‌کنه
 """
 
 import asyncio
@@ -41,14 +24,14 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 # ثابت‌های زمان‌بندی
 # ═══════════════════════════════════════════════════════════
-QUOTE_INTERVAL = 1.0  # ثانیه — قیمت لحظه‌ای
-ORDERBOOK_INTERVAL = 3.0  # ثانیه — عمق بازار
-SIGNAL_INTERVAL = 30.0  # ثانیه — تحلیل (فقط اگه تغییر کرد)
-HEARTBEAT_TIMEOUT = 60.0  # ثانیه — اگه کلاینت ping نده، قطع
+QUOTE_INTERVAL = 1.0
+ORDERBOOK_INTERVAL = 3.0
+SIGNAL_INTERVAL = 30.0
+HEARTBEAT_TIMEOUT = 60.0
 
 
 # ═══════════════════════════════════════════════════════════
-# Subscription — نماد فعال کاربر
+# Subscription
 # ═══════════════════════════════════════════════════════════
 @dataclass
 class Subscription:
@@ -61,10 +44,7 @@ class Subscription:
     timeframe: str = "۵ دقیقه"
     ticker_name: str = ""
 
-    # ─── fingerprint آخرین سیگنال ارسال‌شده (برای dedup) ───
     last_signal_fingerprint: str = ""
-
-    # ─── شمارنده‌ی خطای پیاپی (برای backoff نرم) ───
     consecutive_errors: int = 0
 
     def to_dict(self) -> dict:
@@ -79,7 +59,7 @@ class Subscription:
 
 
 # ═══════════════════════════════════════════════════════════
-# Connection — یک اتصال WebSocket + task‌های مربوطه
+# Connection
 # ═══════════════════════════════════════════════════════════
 @dataclass
 class Connection:
@@ -89,17 +69,15 @@ class Connection:
     id: str
     sub: Subscription = field(default_factory=Subscription)
 
-    # ─── task‌های پس‌زمینه ───
     quote_task: Optional[asyncio.Task] = None
     orderbook_task: Optional[asyncio.Task] = None
     signal_task: Optional[asyncio.Task] = None
 
-    # ─── وضعیت ───
     closed: bool = False
     last_pong: float = 0.0
 
     async def send_json(self, payload: dict) -> bool:
-        """ارسال امن — اگر اتصال بسته بود، False برمی‌گردونه"""
+        """ارسال امن"""
         if self.closed:
             return False
         try:
@@ -113,7 +91,7 @@ class Connection:
             return False
 
     async def cancel_tasks(self):
-        """لغو همه‌ی taskهای پس‌زمینه"""
+        """لغو همه‌ی taskها"""
         self.closed = True
         for task in (self.quote_task, self.orderbook_task, self.signal_task):
             if task and not task.done():
@@ -125,14 +103,10 @@ class Connection:
 
 
 # ═══════════════════════════════════════════════════════════
-# WSManager — مدیریت همه‌ی اتصالات
+# WSManager
 # ═══════════════════════════════════════════════════════════
 class WSManager:
-    """
-    مدیریت اتصالات WebSocket.
-
-    ⚠️ این کلاس **singleton** است — یک نمونه برای کل اپ.
-    """
+    """مدیریت اتصالات WebSocket"""
 
     def __init__(self):
         self.connections: dict[str, Connection] = {}
@@ -147,33 +121,29 @@ class WSManager:
         await ws.accept(subprotocol=None)
         conn = Connection(ws=ws, id=self._new_id())
         self.connections[conn.id] = conn
-        logger.info(f"[WS] اتصال جدید {conn.id} — " f"مجموع: {len(self.connections)}")
+        logger.info(f"[WS] اتصال جدید {conn.id} — مجموع: {len(self.connections)}")
         return conn
 
     async def disconnect(self, conn: Connection):
-        """بستن اتصال و پاکسازی"""
+        """بستن اتصال"""
         conn.closed = True
         await conn.cancel_tasks()
         self.connections.pop(conn.id, None)
-        logger.info(f"[WS] قطع {conn.id} — " f"باقی‌مانده: {len(self.connections)}")
+        logger.info(f"[WS] قطع {conn.id} — باقی‌مانده: {len(self.connections)}")
 
     # ═══════════════════════════════════════════════════════
-    # Producer ها — per-connection
+    # Producer ها
     # ═══════════════════════════════════════════════════════
 
     async def start_producers(self, conn: Connection):
-        """
-        راه‌اندازی producerهای per-connection.
-
-        ⚠️ قبل از صدا زدن، ``conn.sub`` باید پر شده باشه.
-        """
+        """راه‌اندازی producerها"""
         await self.stop_producers(conn)
         conn.quote_task = asyncio.create_task(self._quote_loop(conn))
         conn.orderbook_task = asyncio.create_task(self._orderbook_loop(conn))
         conn.signal_task = asyncio.create_task(self._signal_loop(conn))
 
     async def stop_producers(self, conn: Connection):
-        """توقف producerهای فعلی (بدون بستن اتصال)"""
+        """توقف producerها"""
         for attr in ("quote_task", "orderbook_task", "signal_task"):
             task = getattr(conn, attr)
             if task and not task.done():
@@ -185,11 +155,7 @@ class WSManager:
                 setattr(conn, attr, None)
 
     async def _quote_loop(self, conn: Connection):
-        """
-        حلقه‌ی قیمت لحظه‌ای — هر ۱ ثانیه.
-
-        ⚠️ اگه نماد/صرافی عوض شد، فقط skip می‌کنه (task لغو نمی‌شه).
-        """
+        """قیمت لحظه‌ای — هر ۱ ثانیه"""
         from fastapi.concurrency import run_in_threadpool
 
         while not conn.closed:
@@ -209,16 +175,14 @@ class WSManager:
             except Exception as e:
                 conn.sub.consecutive_errors += 1
                 logger.debug(f"[WS] quote loop ({conn.id}): {e!r}")
-                # ─── backoff نرم: اگه ۳ بار پیاپی خطا، ۵ ثانیه صبر ───
                 if conn.sub.consecutive_errors >= 3:
                     await asyncio.sleep(5.0)
                     conn.sub.consecutive_errors = 0
 
     async def _orderbook_loop(self, conn: Connection):
-        """حلقه‌ی عمق بازار — هر ۳ ثانیه"""
+        """عمق بازار — هر ۳ ثانیه"""
         from fastapi.concurrency import run_in_threadpool
 
-        # ─── صرافی‌هایی که عمق بازار دارن ───
         OB_SOURCES = frozenset({"nobitex", "bitpin", "wallex", "tabdeal"})
 
         while not conn.closed:
@@ -229,9 +193,8 @@ class WSManager:
                 if conn.sub.source not in OB_SOURCES:
                     continue
 
-                from core.orderbook import get_orderbook
+                from core.orderbook import get_orderbook, execution_cost_pct
                 from core.contracts import get_fee_rate
-                from core.orderbook import execution_cost_pct
 
                 ob = await run_in_threadpool(
                     get_orderbook, conn.sub.ticker, conn.sub.source, 20
@@ -266,11 +229,8 @@ class WSManager:
 
     async def _signal_loop(self, conn: Connection):
         """
-        حلقه‌ی سیگنال — هر ۳۰ ثانیه.
-
-        ⚠️ فقط اگه fingerprint تغییر کرد، ارسال می‌شه.
-           این dedup باعث می‌شه کلاینت فقط وقتی signal دریافت کنه
-           که واقعاً چیز جدیدی هست.
+        سیگنال — هر ۳۰ ثانیه.
+        فقط اگه fingerprint (با version) تغییر کرده باشه، push می‌شه.
         """
         from fastapi.concurrency import run_in_threadpool
 
@@ -296,7 +256,7 @@ class WSManager:
 
                 fp = data.get("fingerprint", "")
                 if fp and fp == conn.sub.last_signal_fingerprint:
-                    continue  # ─── تغییری نیست ───
+                    continue
 
                 conn.sub.last_signal_fingerprint = fp
                 await conn.send_json({"type": "signal", "data": data})
@@ -306,20 +266,14 @@ class WSManager:
                 logger.debug(f"[WS] signal loop ({conn.id}): {e!r}")
 
     # ═══════════════════════════════════════════════════════
-    # Handler اصلی — مدیریت پیام‌های ورودی کلاینت
+    # 🔴 این متد در نسخه‌ی قبلی جا افتاده بود — بازگردانده شد
     # ═══════════════════════════════════════════════════════
-
     async def handle_message(self, conn: Connection, raw: str):
         """پردازش پیام ورودی از کلاینت"""
         try:
             msg = json.loads(raw)
         except json.JSONDecodeError:
-            await conn.send_json(
-                {
-                    "type": "error",
-                    "message": "پیام نامعتبر (JSON)",
-                }
-            )
+            await conn.send_json({"type": "error", "message": "پیام نامعتبر (JSON)"})
             return
 
         mtype = msg.get("type")
@@ -339,16 +293,10 @@ class WSManager:
                 ticker_name=msg.get("ticker_name", ""),
             )
             logger.info(
-                f"[WS] {conn.id} subscribe → " f"{conn.sub.ticker} @ {conn.sub.source}"
+                f"[WS] {conn.id} subscribe → {conn.sub.ticker} @ {conn.sub.source}"
             )
-            # ─── راه‌اندازی producerها ───
             await self.start_producers(conn)
-            await conn.send_json(
-                {
-                    "type": "subscribed",
-                    "data": conn.sub.to_dict(),
-                }
-            )
+            await conn.send_json({"type": "subscribed", "data": conn.sub.to_dict()})
             return
 
         if mtype == "unsubscribe":
@@ -358,10 +306,7 @@ class WSManager:
             return
 
         await conn.send_json(
-            {
-                "type": "error",
-                "message": f"نوع پیام ناشناخته: {mtype}",
-            }
+            {"type": "error", "message": f"نوع پیام ناشناخته: {mtype}"}
         )
 
 

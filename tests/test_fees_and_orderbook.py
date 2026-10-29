@@ -295,24 +295,43 @@ class TestExecutionCost:
     def test_components_sum(self):
         from core.orderbook import execution_cost_pct
 
-        c = execution_cost_pct(0.1, 0.004)
-        assert c["total_pct"] == pytest.approx(
-            c["fee_pct"] + c["spread_cost_pct"] + c["slippage_pct"], abs=0.01
-        )
+        c = execution_cost_pct(0.1, 0.002)
+        assert c["fee_pct"] == 0.2
+        # limit: spread/2
+        assert c["spread_cost_pct"] == 0.05
+        # limit: slippage یک‌طرفه
+        assert c["slippage_pct"] == 0.05
+        assert abs(c["total_pct"] - 0.3) < 0.01
 
     def test_realistic_magnitude(self):
-        """هزینه‌ی واقعی معامله در صرافی ایرانی ۰.۵-۰.۸٪"""
+        """هزینه‌ی واقعی معامله — limit order (پیش‌فرض)
+
+        🔴 فاز ۱۲.۵: منطق LIMIT → MARKET:
+          - کارمزد: fee_rate (۰.۲۳٪ نوبیتکس)
+          - نصف spread (ورود در mid، خروج در bid/ask)
+          - slippage یک‌طرفه (فقط خروج با market)
+
+        مجموع برای نوبیتکس: ۰.۲۳ + ۰.۰۵ + ۰.۰۵ = ۰.۳۳٪
+        """
         from core.orderbook import execution_cost_pct
 
         c = execution_cost_pct(0.1, get_fee_rate("nobitex"))
-        assert 0.4 < c["total_pct"] < 1.0, c
+        assert 0.25 < c["total_pct"] < 0.5, c
+
+    def test_market_order_costs_more(self):
+        """market order: fee + full spread + 2x slippage"""
+        from core.orderbook import execution_cost_pct
+
+        c = execution_cost_pct(0.1, get_fee_rate("nobitex"), market_order=True)
+        # 0.23 + 0.1 + 0.1 = 0.43
+        assert 0.4 < c["total_pct"] < 0.6, c
 
     def test_wider_spread_costs_more(self):
         from core.orderbook import execution_cost_pct
 
-        narrow = execution_cost_pct(0.05, 0.004)
-        wide = execution_cost_pct(1.0, 0.004)
-        assert wide["total_pct"] > narrow["total_pct"]
+        c1 = execution_cost_pct(0.05, 0.001)
+        c2 = execution_cost_pct(0.5, 0.001)
+        assert c2["total_pct"] > c1["total_pct"]
 
 
 # ═══════════════════════════════════════════════════════════

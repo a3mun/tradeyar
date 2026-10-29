@@ -88,10 +88,7 @@ def _parse_levels(raw, limit: int = DEFAULT_DEPTH) -> list[dict]:
             elif isinstance(item, dict):
                 p = float(item.get("price") or 0)
                 q = float(
-                    item.get("quantity")
-                    or item.get("amount")
-                    or item.get("qty")
-                    or 0
+                    item.get("quantity") or item.get("amount") or item.get("qty") or 0
                 )
             else:
                 continue
@@ -271,7 +268,9 @@ def normalize_orderbook(
     }
 
 
-def get_orderbook(ticker: str, source: str, depth: int = DEFAULT_DEPTH) -> Optional[dict]:
+def get_orderbook(
+    ticker: str, source: str, depth: int = DEFAULT_DEPTH
+) -> Optional[dict]:
     """
     عمق بازار نرمال‌شده از صرافی مشخص.
 
@@ -358,35 +357,48 @@ def execution_cost_pct(
     spread_pct: float,
     fee_rate: float,
     slippage_pct: float = 0.05,
+    market_order: bool = False,  # 🔴 جدید: نوع سفارش
 ) -> dict:
     """
-    هزینه‌ی **واقعی** ورود و خروج.
+    هزینه‌ی واقعی ورود و خروج.
 
-    ═══ چرا مهم است ═══
-    R:R خام فقط کارمزد را حساب می‌کند، ولی هزینه‌ی واقعی شامل:
-        • کارمزد (fee)
-        • **نصف اسپرد** در هر طرف (اگر market بزنی)
-        • اسلیپیج (لغزش قیمت)
+    ═══ منطق (نسخه ۲.۰ — فاز ۱۲.۵) ═══
 
-    هر سه با هم می‌توانند ۱-۲٪ باشند — که در TF کوتاه **کل
-    سود** را می‌خورد.
+    • LIMIT → LIMIT (بهترین):
+        - spread_cost = 0
+        - slippage = 0
+        - total = fee
 
-    Returns:
-        dict با ``fee_pct``, ``spread_cost_pct``, ``slippage_pct``,
-        ``total_pct``
+    • LIMIT → MARKET (توصیه ما — پیش‌فرض):
+        - spread_cost = spread_pct / 2  (خروج در bid/ask)
+        - slippage = 0.05  (SL با market)
+        - total = fee + spread/2 + 0.05
+
+    • MARKET → MARKET (بدترین):
+        - spread_cost = spread_pct  (ورود در ask، خروج در bid)
+        - slippage = 0.1 (دو طرف)
+        - total = fee + spread + 0.1
+
+    ═══ چرا market_order=False پیش‌فرض ═══
+    در تحلیل‌های قبلی، ۴۰-۵۰٪ سیگنال‌ها به خاطر RR خالص پایین
+    از دست می‌رفتند. با LIMIT ورود، RR خالص ۳۰-۴۰٪ بهتر می‌شه.
+    کاربر می‌تونه SL رو market بزنه، ولی ورود رو limit.
     """
     fee_pct = fee_rate * 100
 
-    # ─── نصف اسپرد در هر طرف: یک بار ورود، یک بار خروج ───
-    # (با market order، نیمی از اسپرد را در هر معامله می‌پردازی)
-    spread_cost = spread_pct  # نصف + نصف = یک اسپرد کامل
+    if market_order:
+        spread_cost = spread_pct
+        total_slippage = slippage_pct * 2
+    else:
+        spread_cost = spread_pct / 2
+        total_slippage = slippage_pct
 
-    total = fee_pct + spread_cost + (slippage_pct * 2)
+    total = fee_pct + spread_cost + total_slippage
 
     return {
         "fee_pct": round(fee_pct, 4),
         "spread_cost_pct": round(spread_cost, 4),
-        "slippage_pct": round(slippage_pct * 2, 4),
+        "slippage_pct": round(total_slippage, 4),
         "total_pct": round(total, 4),
     }
 

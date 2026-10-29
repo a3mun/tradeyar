@@ -1,16 +1,14 @@
 "use client";
 
 /**
- * AIAnalysis — تحلیل هوش مصنوعی (DeepSeek + OpenRouter)
+ * AIAnalysis — تحلیل هوش مصنوعی (نسخه ۴.۰ · فاز ۱۲.۷)
  * ============================================================
- * نسخه ۳.۰ · فاز ۱۰.۲
- *
- * ═══ تغییرات نسخه ۳.۰ ═══
- *   • پشتیبانی از OpenRouter (مدل‌های رایگان)
- *   • انتخاب provider (DeepSeek / OpenRouter)
- *   • انتخاب مدل OpenRouter
- *   • نمایش کلید فعال (مخفف) + دکمه پاک کردن
- *   • راهنمای گام‌به‌گام برای گرفتن کلید
+ * 🔴 تغییرات نسخه ۴.۰:
+ *   • حذف کامل DeepSeek (پولی بود و کاربر رو اذیت می‌کرد)
+ *   • فقط OpenRouter با مدل openrouter/free (روتر خودکار)
+ *   • UI ساده: دکمه طلایی + لینک گرفتن کلید
+ *   • مدیریت خطای ۴۰۲ و ۴۲۹ با پیام دوستانه
+ *   • هم‌رنگ تم سایت (طلایی)
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -20,10 +18,8 @@ import {
   Settings,
   Key,
   Trash2,
-  RefreshCw,
   AlertCircle,
   ExternalLink,
-  Zap,
   Globe,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,43 +29,12 @@ import { useSignalData } from "@/hooks/useSignalData";
 // ═══════════════════════════════════════════════════════════
 // ثابت‌ها
 // ═══════════════════════════════════════════════════════════
-const LS_DEEPSEEK = "deepseek_api_key";
 const LS_OPENROUTER = "openrouter_api_key";
-const LS_PROVIDER = "ai_provider";
-const LS_MODEL = "openrouter_model";
+const OPENROUTER_MODEL = "openrouter/free"; // روتر خودکار
 
-type Provider = "deepseek" | "openrouter";
-
-interface OpenRouterModel {
-  id: string;
-  label: string;
-  desc: string;
-}
-
-// مدل‌های رایگان OpenRouter
-const OPENROUTER_MODELS: OpenRouterModel[] = [
-  {
-    id: "deepseek/deepseek-r1:free",
-    label: "DeepSeek R1 (رایگان)",
-    desc: "استدلال قوی · کیفیت عالی",
-  },
-  {
-    id: "deepseek/deepseek-chat-v3.1:free",
-    label: "DeepSeek V3.1 (رایگان)",
-    desc: "سریع · کیفیت خوب",
-  },
-  {
-    id: "google/gemini-flash-1.5-8b",
-    label: "Gemini 1.5 Flash (رایگان)",
-    desc: "سریع‌ترین · عالی برای موبایل",
-  },
-  {
-    id: "meta-llama/llama-3.3-70b-instruct:free",
-    label: "Llama 3.3 70B (رایگان)",
-    desc: "قدرتمند · پایداری خوب",
-  },
-];
-
+// ═══════════════════════════════════════════════════════════
+// پرامپت سیستم — لحن مشاور صادق
+// ═══════════════════════════════════════════════════════════
 const SYSTEM_PROMPT = `تو یه دوست معامله‌گر باتجربه هستی که به رفیقت مشاوره می‌دی.
 
 قواعد:
@@ -99,51 +64,14 @@ export function AIAnalysis() {
   const [aiError, setAiError] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
 
-  // ─── provider + model ───
-  const [provider, setProvider] = useState<Provider>("openrouter");
-  const [model, setModel] = useState<string>(OPENROUTER_MODELS[0].id);
-
-  // ─── کلیدها ───
   const [apiKey, setApiKey] = useState("");
   const [savedKey, setSavedKey] = useState("");
 
   // ═══ بارگذاری از localStorage ═══
   useEffect(() => {
-    const savedProvider =
-      (localStorage.getItem(LS_PROVIDER) as Provider) || "openrouter";
-    const savedModel =
-      localStorage.getItem(LS_MODEL) || OPENROUTER_MODELS[0].id;
-
-    setProvider(savedProvider);
-    setModel(savedModel);
-
-    const key =
-      savedProvider === "deepseek"
-        ? localStorage.getItem(LS_DEEPSEEK) || ""
-        : localStorage.getItem(LS_OPENROUTER) || "";
+    const key = localStorage.getItem(LS_OPENROUTER) || "";
     setApiKey(key);
     setSavedKey(key);
-  }, []);
-
-  // ═══ تغییر provider ═══
-  const handleProviderChange = useCallback((newProvider: Provider) => {
-    setProvider(newProvider);
-    localStorage.setItem(LS_PROVIDER, newProvider);
-
-    const key =
-      newProvider === "deepseek"
-        ? localStorage.getItem(LS_DEEPSEEK) || ""
-        : localStorage.getItem(LS_OPENROUTER) || "";
-    setApiKey(key);
-    setSavedKey(key);
-    setAiError("");
-    setAiResult("");
-  }, []);
-
-  // ═══ تغییر model ═══
-  const handleModelChange = useCallback((newModel: string) => {
-    setModel(newModel);
-    localStorage.setItem(LS_MODEL, newModel);
   }, []);
 
   // ═══ ذخیره کلید ═══
@@ -151,36 +79,28 @@ export function AIAnalysis() {
     const key = apiKey.trim();
     if (!key) return;
 
-    if (provider === "deepseek") {
-      localStorage.setItem(LS_DEEPSEEK, key);
-    } else {
-      localStorage.setItem(LS_OPENROUTER, key);
-    }
+    localStorage.setItem(LS_OPENROUTER, key);
     setSavedKey(key);
     setShowKeyInput(false);
     setAiError("");
-  }, [apiKey, provider]);
+  }, [apiKey]);
 
   // ═══ پاک کردن کلید ═══
   const handleClearKey = useCallback(() => {
-    if (provider === "deepseek") {
-      localStorage.removeItem(LS_DEEPSEEK);
-    } else {
-      localStorage.removeItem(LS_OPENROUTER);
-    }
+    localStorage.removeItem(LS_OPENROUTER);
     setApiKey("");
     setSavedKey("");
     setShowKeyInput(true);
     setAiError("");
     setAiResult("");
-  }, [provider]);
+  }, []);
 
   // ═══ ارسال به AI ═══
   const handleAiAnalyze = async () => {
     const key = savedKey || apiKey.trim();
     if (!key) {
       setShowKeyInput(true);
-      setAiError("اول کلید API رو وارد کن");
+      setAiError("اول کلید رایگان OpenRouter رو وارد کن");
       return;
     }
     if (!aiExport) {
@@ -193,16 +113,8 @@ export function AIAnalysis() {
     setAiResult("");
 
     try {
-      const endpoint =
-        provider === "deepseek"
-          ? "https://api.deepseek.com/chat/completions"
-          : "https://openrouter.ai/api/v1/chat/completions";
-
-      const modelId =
-        provider === "deepseek" ? "deepseek-chat" : model;
-
       const body = {
-        model: modelId,
+        model: OPENROUTER_MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: aiExport },
@@ -211,39 +123,37 @@ export function AIAnalysis() {
         max_tokens: 500,
       };
 
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      };
-
-      // ─── OpenRouter specific ───
-      if (provider === "openrouter") {
-        headers["HTTP-Referer"] = "https://trademun.ir";
-        headers["X-Title"] = "Trademun";
-      }
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+            "HTTP-Referer": "https://trademun.ir",
+            "X-Title": "Trademun",
+          },
+          body: JSON.stringify(body),
+        }
+      );
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const errMsg = err.error?.message || `HTTP ${res.status}`;
 
-        if (errMsg.includes("Insufficient Balance")) {
+        // 🔴 مدیریت خطاهای خاص OpenRouter
+        if (res.status === 402 || errMsg.includes("Payment Required")) {
           throw new Error(
-            "موجودی حساب DeepSeek صفر یا ناکافیه. برای ادامه: کلید فعلی رو حذف کن و از platform.deepseek.com یه کلید جدید با اعتبار بساز. یا از OpenRouter (رایگان) استفاده کن."
+            "موجودی حساب OpenRouter منفیه. برای استفاده از مدل‌های رایگان، موجودی رو مثبت کن (حتی ۱ دلار کافیه) یا یه کلید جدید بساز."
+          );
+        }
+        if (res.status === 429 || errMsg.includes("rate limit")) {
+          throw new Error(
+            "سهمیه روزانه تموم شد. مدل‌های رایگان OpenRouter روزی ۵۰ درخواست دارن (یا ۱۰۰۰ اگه یه بار ۱۰ دلار شارژ کنی). فردا دوباره امتحان کن."
           );
         }
         if (errMsg.includes("Invalid") || errMsg.includes("authentication")) {
-          throw new Error("کلید API نامعتبره. کلید رو حذف کن و دوباره وارد کن.");
-        }
-        if (errMsg.includes("rate limit") || errMsg.includes("429")) {
-          throw new Error(
-            "تعداد درخواست‌ها زیاده. چند دقیقه صبر کن و دوباره تلاش کن."
-          );
+          throw new Error("کلید API نامعتبره. کلید رو پاک کن و دوباره وارد کن.");
         }
         throw new Error(errMsg);
       }
@@ -260,15 +170,13 @@ export function AIAnalysis() {
     }
   };
 
-  const currentModel = OPENROUTER_MODELS.find((m) => m.id === model);
-
   return (
-    <Card className="border-purple-500/30">
+    <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm text-purple-400">
-          <Sparkles className="h-4 w-4" />
-          تحلیل هوش مصنوعی
-        </CardTitle>
+      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+        <Sparkles className="h-4 w-4 text-primary" />
+        تحلیل هوش مصنوعی
+      </CardTitle>
         <button
           onClick={() => setShowKeyInput(!showKeyInput)}
           className="text-muted-foreground transition-colors hover:text-foreground"
@@ -280,66 +188,6 @@ export function AIAnalysis() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* ═══ انتخاب provider ═══ */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground">
-            سرویس AI
-          </label>
-          <div className="grid grid-cols-2 gap-1.5">
-            <Button
-              size="sm"
-              variant={provider === "openrouter" ? "default" : "outline"}
-              onClick={() => handleProviderChange("openrouter")}
-              className={`h-7 text-[10px] ${
-                provider === "openrouter"
-                  ? "bg-purple-600 hover:bg-purple-700"
-                  : ""
-              }`}
-            >
-              <Globe className="h-3 w-3 mr-1" />
-              OpenRouter (رایگان)
-            </Button>
-            <Button
-              size="sm"
-              variant={provider === "deepseek" ? "default" : "outline"}
-              onClick={() => handleProviderChange("deepseek")}
-              className={`h-7 text-[10px] ${
-                provider === "deepseek"
-                  ? "bg-purple-600 hover:bg-purple-700"
-                  : ""
-              }`}
-            >
-              <Zap className="h-3 w-3 mr-1" />
-              DeepSeek
-            </Button>
-          </div>
-        </div>
-
-        {/* ═══ انتخاب مدل (فقط OpenRouter) ═══ */}
-        {provider === "openrouter" && (
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
-              مدل
-            </label>
-            <select
-              value={model}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-[10px]"
-            >
-              {OPENROUTER_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            {currentModel && (
-              <p className="text-[9px] text-muted-foreground/70">
-                {currentModel.desc}
-              </p>
-            )}
-          </div>
-        )}
-
         {/* ═══ نمایش کلید فعال ═══ */}
         {savedKey && !showKeyInput && (
           <div className="flex items-center justify-between rounded-md bg-muted/20 px-2 py-1.5 text-[10px]">
@@ -363,44 +211,26 @@ export function AIAnalysis() {
 
         {/* ═══ فرم ورود کلید ═══ */}
         {showKeyInput && (
-          <div className="space-y-2 rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+          <div className="rounded-lg border border-border bg-muted/10 p-3">
             <p className="text-[10px] leading-relaxed text-muted-foreground">
-              {provider === "deepseek" ? (
-                <>
-                  کلید DeepSeek از{" "}
-                  <a
-                    href="https://platform.deepseek.com/api_keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-purple-400 underline"
-                  >
-                    platform.deepseek.com
-                    <ExternalLink className="mr-0.5 inline h-2.5 w-2.5" />
-                  </a>{" "}
-                  — نیاز به اعتبار داره
-                </>
-              ) : (
-                <>
-                  کلید رایگان OpenRouter از{" "}
-                  <a
-                    href="https://openrouter.ai/keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-purple-400 underline"
-                  >
-                    openrouter.ai/keys
-                    <ExternalLink className="mr-0.5 inline h-2.5 w-2.5" />
-                  </a>{" "}
-                  — رایگان با ثبت‌نام
-                </>
-              )}
+              کلید رایگان OpenRouter از{" "}
+              <a
+                href="https://openrouter.ai/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-yellow-500 underline"
+              >
+                openrouter.ai/keys
+                <ExternalLink className="mr-0.5 inline h-2.5 w-2.5" />
+              </a>{" "}
+              — با ثبت‌نام رایگان (روزی ۵۰ درخواست)
             </p>
             <div className="flex gap-2">
               <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={provider === "deepseek" ? "sk-..." : "sk-or-..."}
+                placeholder="sk-or-..."
                 className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
                 dir="ltr"
               />
@@ -408,6 +238,8 @@ export function AIAnalysis() {
                 size="sm"
                 onClick={handleSaveKey}
                 disabled={!apiKey.trim()}
+                variant="default"
+                className="font-bold"
               >
                 ذخیره
               </Button>
@@ -422,7 +254,8 @@ export function AIAnalysis() {
         <Button
           onClick={handleAiAnalyze}
           disabled={aiLoading || !aiExport}
-          className="w-full bg-purple-600 hover:bg-purple-700"
+          className="w-full font-bold"
+          variant="default"
           size="sm"
         >
           {aiLoading ? (
@@ -433,7 +266,7 @@ export function AIAnalysis() {
           ) : (
             <>
               <Sparkles className="h-3.5 w-3.5" />
-              تحلیل با {provider === "deepseek" ? "DeepSeek" : "OpenRouter"}
+              تحلیل با هوش مصنوعی
             </>
           )}
         </Button>
@@ -453,7 +286,7 @@ export function AIAnalysis() {
                   onClick={() => setShowKeyInput(true)}
                   className="flex items-center gap-0.5 text-[9px] text-red-400 underline hover:text-red-300"
                 >
-                  <RefreshCw className="h-2.5 w-2.5" />
+                  <Globe className="h-2.5 w-2.5" />
                   تغییر کلید
                 </button>
               )}
@@ -463,7 +296,7 @@ export function AIAnalysis() {
 
         {/* ═══ نتیجه ═══ */}
         {aiResult && (
-          <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+          <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3">
             <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">
               {aiResult}
             </pre>

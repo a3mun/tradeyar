@@ -1,20 +1,30 @@
 """
 core/analyzer.py
-موتور تحلیل تکنیکال — نسخه ۱۰.۱۰
+موتور تحلیل تکنیکال — نسخه ۱۲.۱ (فاز ۱۲.۶ — ai_export خام)
 ============================================================
-🔴 بازنویسی کامل با تمرکز بر:
-  ۱. Trend Override آهنین (بلاک کامل در صورت مخالفت با ترند قوی)
-  ۲. ثبت trend_predicted_at_entry در لحظه ورود (برای آمار دقیق)
-  ۳. فیلتر سخت‌گیرانه‌تر برای is_worthwhile پایین
+🔴 تغییرات نسخه ۱۲.۱:
+  ۱. MIN_CONF_TO_SHOW = 25 (نمایش «ضعیف» از ۲۵٪)
+  ۲. TF_CONFIDENCE_OFFSET — آستانه دینامیک per TF
+  ۳. TF_RR_PROFILES — R:R خام per TF (۱.۸۳ تا ۲.۳۳)
+  ۴. TF_MIN_SL_PCT — حداقل فاصله SL per TF (بالاتر)
+  ۵. _determine_signal — منطق «جهت + قدرت» جدا
+  ۶. _is_boring_market — خنثی فقط وقتی بازار خوابه
+  ۷. رفع باگ cmf (UnboundLocalError)
+  ۸. ai_export واقعاً خام (OHLCV کامل + بدون جهت‌گیری)
 """
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
 
 logger = logging.getLogger(__name__)
+
+# 🔴 نسخه analyzer
+ANALYZER_VERSION = "12.1.0"
 
 from .contracts import (
     Signal as SigEnum,
@@ -25,13 +35,60 @@ from .contracts import (
     get_tf_atr_mult,
     get_tf_spec,
 )
-
 from .pre_breakout import detect_pre_breakout
-
 from .utils import safe_num
 
 # ═══════════════════════════════════════════════════════════
-# پروفایل‌های ریسک — نسخه ۱۰.۰
+# ثابت‌های جدید (فاز ۱۲.۱)
+# ═══════════════════════════════════════════════════════════
+MIN_CONF_TO_SHOW = 25
+
+TF_CONFIDENCE_OFFSET = {
+    "۱ دقیقه": -10,
+    "۵ دقیقه": -5,
+    "۱۵ دقیقه": 0,
+    "۳۰ دقیقه": 0,
+    "۱ ساعت": +5,
+    "روزانه": +10,
+}
+
+# 🔴 پروفایل R:R per TF
+TF_RR_PROFILES = {
+    "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 2.2},
+    "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 2.8},
+    "۱۵ دقیقه": {"sl_mult": 1.4, "tp_mult": 3.2},
+    "۳۰ دقیقه": {"sl_mult": 1.5, "tp_mult": 3.3},
+    "۱ ساعت": {"sl_mult": 1.6, "tp_mult": 3.8},
+    "روزانه": {"sl_mult": 1.8, "tp_mult": 4.2},
+}
+
+
+def _get_tf_rr_profile(tf_name: str, profile_key: str) -> tuple[float, float]:
+    tf_specs = TF_RR_PROFILES.get(tf_name)
+    if tf_specs:
+        return (tf_specs["sl_mult"], tf_specs["tp_mult"])
+    return (1.3, 2.5)
+
+
+CONFIDENCE_LEVELS = {
+    "golden": (85, 100, "طلایی 💎", "golden"),
+    "strong": (70, 84, "قوی", "strong"),
+    "normal": (50, 69, "معمولی", "normal"),
+    "weak": (25, 49, "ضعیف", "weak"),
+    "neutral": (0, 24, "خنثی", "neutral"),
+}
+
+BORING_MARKET_ADX = 15
+BORING_MARKET_VOL_RATIO = 0.7
+BORING_MARKET_SCORE = 0.10
+BORING_MARKET_NEUTRAL_VOTES = 4
+
+RR_LOW_PENALTY = 0.7
+RR_VERY_LOW_PENALTY = 0.5
+
+
+# ═══════════════════════════════════════════════════════════
+# پروفایل‌های ریسک
 # ═══════════════════════════════════════════════════════════
 RISK_PROFILES = {
     "aggressive_spot": {
@@ -92,12 +149,12 @@ RISK_PROFILES = {
     },
 }
 
-
 CONFIDENCE_TIERS = {
-    "strong": (70, 100, "قوی"),
+    "golden": (85, 100, "طلایی"),
+    "strong": (70, 84, "قوی"),
     "normal": (50, 69, "معمولی"),
-    "weak": (30, 49, "ضعیف"),
-    "neutral": (0, 29, "خنثی"),
+    "weak": (25, 49, "ضعیف"),
+    "neutral": (0, 24, "خنثی"),
 }
 
 
@@ -118,7 +175,7 @@ def _regime_weights(regime: str) -> dict:
             "volume": 1.3,
             "structure": 1.2,
         }
-    else:  # range
+    else:
         return {
             "momentum": 1.4,
             "trend": 0.9,
@@ -129,7 +186,8 @@ def _regime_weights(regime: str) -> dict:
 
 
 def _confidence_tier(conf: int) -> str:
-    for key, (lo, hi, _) in CONFIDENCE_TIERS.items():
+    for key in ["golden", "strong", "normal", "weak", "neutral"]:
+        lo, hi, _ = CONFIDENCE_TIERS[key]
         if lo <= conf <= hi:
             return key
     return "neutral"
@@ -142,45 +200,43 @@ def _is_iranian_ticker(ticker: str) -> bool:
     return "IRT" in upper or "RLS" in upper or upper == "USDT-IRT"
 
 
-# ═══════════════════════════════════════════════════════════
-# رژیم بازار
-# ═══════════════════════════════════════════════════════════
 def classify_regime(
-    adx: float,
-    channel_width_pct: float = None,
-    bb_width_pct: float = None,
-    volume_ratio: float = None,
-    ema_slope: float = None,
-    di_diff: float = None,
+    adx,
+    channel_width_pct=None,
+    bb_width_pct=None,
+    volume_ratio=None,
+    ema_slope=None,
+    di_diff=None,
 ) -> str:
     if adx is None or adx <= 0:
         return "range"
-
     if adx >= 30:
         base = "trend"
     elif adx >= 22:
         base = "transitional"
     else:
         base = "range"
-
     if ema_slope is not None:
         if base == "trend" and abs(ema_slope) < 0.05:
             base = "transitional"
         elif base == "range" and abs(ema_slope) > 0.1:
             base = "transitional"
-
-    if di_diff is not None:
-        if base == "trend" and abs(di_diff) < 5:
-            base = "transitional"
-
-    if bb_width_pct is not None and bb_width_pct > 0:
-        if bb_width_pct < 0.5 and base == "trend":
-            base = "transitional"
-
-    if volume_ratio is not None and volume_ratio > 2.0:
-        if base == "range" and adx >= 18:
-            base = "transitional"
-
+    if di_diff is not None and base == "trend" and abs(di_diff) < 5:
+        base = "transitional"
+    if (
+        bb_width_pct is not None
+        and bb_width_pct > 0
+        and bb_width_pct < 0.5
+        and base == "trend"
+    ):
+        base = "transitional"
+    if (
+        volume_ratio is not None
+        and volume_ratio > 2.0
+        and base == "range"
+        and adx >= 18
+    ):
+        base = "transitional"
     return base
 
 
@@ -196,125 +252,105 @@ def _group_strength(score: float) -> tuple:
         return ("flat", "بی‌جهت")
 
 
-# ═══════════════════════════════════════════════════════════
-# اندیکاتورها
-# ═══════════════════════════════════════════════════════════
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty or len(df) < 50:
+    if df is None or df.empty:
         return df
-
     df = df.copy(deep=True)
+    n = len(df)
 
     try:
-        df["rsi"] = ta.rsi(df["close"], length=14)
-        df["willr"] = ta.willr(df["high"], df["low"], df["close"], length=14)
-        df["cci"] = ta.cci(df["high"], df["low"], df["close"], length=20)
-        df["roc"] = ta.roc(df["close"], length=10)
-
-        stoch_df = ta.stoch(df["high"], df["low"], df["close"], k=5, d=3, smooth_k=3)
-        if stoch_df is not None and len(stoch_df.columns) >= 2:
-            df["stoch_k"] = stoch_df.iloc[:, 0]
-            df["stoch_d"] = stoch_df.iloc[:, 1]
+        if n >= 14:
+            df["rsi"] = ta.rsi(df["close"], length=14)
+            df["willr"] = ta.willr(df["high"], df["low"], df["close"], length=14)
+            adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
+            if adx_df is not None and len(adx_df.columns) >= 3:
+                df["adx"] = adx_df.iloc[:, 0]
+                df["dmp"] = adx_df.iloc[:, 1]
+                df["dmn"] = adx_df.iloc[:, 2]
+            else:
+                df["adx"] = df["dmp"] = df["dmn"] = 20.0
         else:
-            df["stoch_k"] = 50.0
-            df["stoch_d"] = 50.0
+            df["rsi"] = df["willr"] = 50.0
+            df["adx"] = df["dmp"] = df["dmn"] = 20.0
 
-        macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
-        if macd_df is not None and len(macd_df.columns) >= 3:
-            df["macd_hist"] = macd_df.iloc[:, 2]
-            df["macd_line"] = macd_df.iloc[:, 0]
-            df["macd_signal"] = macd_df.iloc[:, 1]
+        if n >= 20:
+            df["cci"] = ta.cci(df["high"], df["low"], df["close"], length=20)
+            stoch_df = ta.stoch(
+                df["high"], df["low"], df["close"], k=5, d=3, smooth_k=3
+            )
+            if stoch_df is not None and len(stoch_df.columns) >= 2:
+                df["stoch_k"] = stoch_df.iloc[:, 0]
+                df["stoch_d"] = stoch_df.iloc[:, 1]
+            else:
+                df["stoch_k"] = df["stoch_d"] = 50.0
+        else:
+            df["cci"] = 0.0
+            df["stoch_k"] = df["stoch_d"] = 50.0
+
+        if n >= 10:
+            df["roc"] = ta.roc(df["close"], length=10)
+        else:
+            df["roc"] = 0.0
+
+        if n >= 200:
+            df["ema200"] = ta.ema(df["close"], length=200)
+        else:
+            df["ema200"] = np.nan
+        if n >= 50:
+            df["ema50"] = ta.ema(df["close"], length=50)
+        else:
+            df["ema50"] = ta.ema(df["close"], length=min(n, 20))
+        if n >= 20:
+            df["ema20"] = ta.ema(df["close"], length=20)
+        else:
+            df["ema20"] = df["close"]
+
+        if n >= 26:
+            macd_df = ta.macd(df["close"], fast=12, slow=26, signal=9)
+            if macd_df is not None and len(macd_df.columns) >= 3:
+                df["macd_hist"] = macd_df.iloc[:, 2]
+            else:
+                df["macd_hist"] = 0.0
         else:
             df["macd_hist"] = 0.0
-            df["macd_line"] = 0.0
-            df["macd_signal"] = 0.0
 
-        df["ema200"] = ta.ema(df["close"], length=200)
-        df["ema50"] = ta.ema(df["close"], length=50)
-        df["ema20"] = ta.ema(df["close"], length=20)
-
-        adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
-        if adx_df is not None and len(adx_df.columns) >= 3:
-            df["adx"] = adx_df.iloc[:, 0]
-            df["dmp"] = adx_df.iloc[:, 1]
-            df["dmn"] = adx_df.iloc[:, 2]
+        if n >= 14:
+            df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
         else:
-            df["adx"] = 20.0
-            df["dmp"] = 20.0
-            df["dmn"] = 20.0
+            df["atr"] = (df["high"] - df["low"]).rolling(5).mean().fillna(0)
 
-        try:
-            st = ta.supertrend(
-                df["high"], df["low"], df["close"], length=10, multiplier=3.0
-            )
-            if st is not None and st.shape[1] > 1:
-                df["supertrend_dir"] = st.iloc[:, 1]
-                df["supertrend_val"] = st.iloc[:, 0]
+        if n >= 20:
+            bb_df = ta.bbands(df["close"], length=20, std=2)
+            if bb_df is not None and len(bb_df.columns) >= 3:
+                df["bb_lower"] = bb_df.iloc[:, 0]
+                df["bb_mid"] = bb_df.iloc[:, 1]
+                df["bb_upper"] = bb_df.iloc[:, 2]
             else:
-                df["supertrend_dir"] = 1
-                df["supertrend_val"] = df["close"]
-        except Exception:
-            df["supertrend_dir"] = 1
-            df["supertrend_val"] = df["close"]
-
-        try:
-            high_9 = df["high"].rolling(9).max()
-            low_9 = df["low"].rolling(9).min()
-            df["tenkan"] = (high_9 + low_9) / 2
-
-            high_26 = df["high"].rolling(26).max()
-            low_26 = df["low"].rolling(26).min()
-            df["kijun"] = (high_26 + low_26) / 2
-
-            high_52 = df["high"].rolling(52).max()
-            low_52 = df["low"].rolling(52).min()
-            df["senkou_a"] = ((df["tenkan"] + df["kijun"]) / 2).shift(26)
-            df["senkou_b"] = ((high_52 + low_52) / 2).shift(26)
-        except Exception:
-            pass
-
-        df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
-
-        bb_df = ta.bbands(df["close"], length=20, std=2)
-        if bb_df is not None and len(bb_df.columns) >= 3:
-            df["bb_lower"] = bb_df.iloc[:, 0]
-            df["bb_mid"] = bb_df.iloc[:, 1]
-            df["bb_upper"] = bb_df.iloc[:, 2]
+                df["bb_lower"] = df["bb_mid"] = df["bb_upper"] = df["close"]
             df["bb_width_pct"] = (
                 (df["bb_upper"] - df["bb_lower"])
                 / df["bb_mid"].replace(0, np.nan)
                 * 100
             )
         else:
-            df["bb_lower"] = df["close"]
-            df["bb_mid"] = df["close"]
-            df["bb_upper"] = df["close"]
-            df["bb_width_pct"] = 1.0
+            df["bb_lower"] = df["bb_mid"] = df["bb_upper"] = df["close"]
+            df["bb_width_pct"] = 0.0
 
-        try:
-            kc = ta.kc(df["high"], df["low"], df["close"], length=20, scalar=1.5)
-            if kc is not None and len(kc.columns) >= 3:
-                df["kc_lower"] = kc.iloc[:, 0]
-                df["kc_mid"] = kc.iloc[:, 1]
-                df["kc_upper"] = kc.iloc[:, 2]
-        except Exception:
-            pass
-
-        try:
-            dc = ta.donchian(df["high"], df["low"], lower_length=20, upper_length=20)
-            if dc is not None and len(dc.columns) >= 3:
-                df["dc_lower"] = dc.iloc[:, 0]
-                df["dc_mid"] = dc.iloc[:, 1]
-                df["dc_upper"] = dc.iloc[:, 2]
-        except Exception:
-            pass
-
-        df["stddev"] = df["close"].rolling(20).std()
-
-        if "volume" in df.columns and df["volume"].sum() > 0:
+        if "volume" in df.columns and df["volume"].sum() > 0 and n >= 20:
             df["obv"] = ta.obv(df["close"], df["volume"])
             df["vol_ma"] = df["volume"].rolling(20).mean()
-
+            try:
+                df["cmf"] = ta.cmf(
+                    df["high"], df["low"], df["close"], df["volume"], length=20
+                )
+            except:
+                df["cmf"] = 0.0
+            try:
+                df["mfi"] = ta.mfi(
+                    df["high"], df["low"], df["close"], df["volume"], length=14
+                )
+            except:
+                df["mfi"] = 50.0
             df["buy_vol"] = 0.0
             df["sell_vol"] = 0.0
             valid_range = (df["high"] - df["low"]) > 0
@@ -328,29 +364,13 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             )
             df["delta"] = df["buy_vol"] - df["sell_vol"]
             df["cvd"] = df["delta"].cumsum()
-
-            cvd_mean = df["cvd"].rolling(20).mean()
-            cvd_std = df["cvd"].rolling(20).std()
-            df["cvd_zscore"] = (df["cvd"] - cvd_mean) / cvd_std.replace(0, np.nan)
-
-            try:
-                df["cmf"] = ta.cmf(
-                    df["high"], df["low"], df["close"], df["volume"], length=20
-                )
-            except Exception:
-                df["cmf"] = 0.0
-
-            try:
-                df["mfi"] = ta.mfi(
-                    df["high"], df["low"], df["close"], df["volume"], length=14
-                )
-            except Exception:
-                df["mfi"] = 50.0
-
+            df["cvd_zscore"] = (df["cvd"] - df["cvd"].rolling(20).mean()) / df[
+                "cvd"
+            ].rolling(20).std().replace(0, np.nan)
             try:
                 tp = (df["high"] + df["low"] + df["close"]) / 3
                 df["vwap"] = (tp * df["volume"]).cumsum() / df["volume"].cumsum()
-            except Exception:
+            except:
                 pass
         else:
             df["obv"] = 0
@@ -361,34 +381,54 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             df["cvd"] = 0.0
             df["cvd_zscore"] = 0.0
 
+        if n >= 10:
+            try:
+                st = ta.supertrend(
+                    df["high"], df["low"], df["close"], length=10, multiplier=3.0
+                )
+                df["supertrend_dir"] = (
+                    st.iloc[:, 1] if st is not None and st.shape[1] > 1 else 1
+                )
+            except Exception:
+                df["supertrend_dir"] = 1
+        else:
+            df["supertrend_dir"] = 1
+
+        if n >= 52:
+            try:
+                df["tenkan"] = (
+                    df["high"].rolling(9).max() + df["low"].rolling(9).min()
+                ) / 2
+                df["kijun"] = (
+                    df["high"].rolling(26).max() + df["low"].rolling(26).min()
+                ) / 2
+                df["senkou_a"] = ((df["tenkan"] + df["kijun"]) / 2).shift(26)
+                df["senkou_b"] = (
+                    (df["high"].rolling(52).max() + df["low"].rolling(52).min()) / 2
+                ).shift(26)
+            except Exception:
+                pass
+
     except Exception as e:
         logger.warning(f"[Analyzer] compute_indicators: {e}")
-
     return df
 
 
-# ═══════════════════════════════════════════════════════════
-# Pivot / Swing / Fibonacci
-# ═══════════════════════════════════════════════════════════
 def compute_pivot_points(df: pd.DataFrame) -> dict:
     if df is None or df.empty or len(df) < 2:
         return {}
-
     prev = df.iloc[-2]
     high = safe_num(prev.get("high"))
     low = safe_num(prev.get("low"))
     close = safe_num(prev.get("close"))
-
     if abs(high - low) < 1e-8:
         recent = df.iloc[-7:-2] if len(df) >= 7 else df.iloc[:-2]
         if not recent.empty:
             high = safe_num(recent["high"].max())
             low = safe_num(recent["low"].min())
             close = safe_num(recent["close"].iloc[-1])
-
     if high <= 0 or low <= 0 or close <= 0 or high <= low:
         return {}
-
     pivot = (high + low + close) / 3
     return {
         "pivot": pivot,
@@ -410,34 +450,24 @@ def find_swing_points(df: pd.DataFrame, lookback: int = 50, window: int = 3) -> 
         "strongest_resistance": 0.0,
         "strongest_support": 0.0,
     }
-
     if df is None or df.empty or len(df) < lookback:
         return result
-
     data = df.tail(lookback).reset_index(drop=True)
     highs = data["high"].values
     lows = data["low"].values
     n = len(data)
     current_price = safe_num(data["close"].iloc[-1])
-
     swing_highs = []
     swing_lows = []
-
-    for i in range(window, n - window):
+    for i in range(window, n):
         h = highs[i]
         l = lows[i]
-        if all(h >= highs[i - j] for j in range(1, window + 1)) and all(
-            h >= highs[i + j] for j in range(1, window + 1)
-        ):
+        if all(h >= highs[i - j] for j in range(1, window + 1)):
             swing_highs.append((i, float(h)))
-        if all(l <= lows[i - j] for j in range(1, window + 1)) and all(
-            l <= lows[i + j] for j in range(1, window + 1)
-        ):
+        if all(l <= lows[i - j] for j in range(1, window + 1)):
             swing_lows.append((i, float(l)))
-
     result["swing_highs"] = swing_highs
     result["swing_lows"] = swing_lows
-
     res_above = [p for _, p in swing_highs if p > current_price]
     if res_above:
         result["nearest_resistance"] = min(res_above)
@@ -445,7 +475,6 @@ def find_swing_points(df: pd.DataFrame, lookback: int = 50, window: int = 3) -> 
     elif swing_highs:
         result["nearest_resistance"] = max(p for _, p in swing_highs)
         result["strongest_resistance"] = result["nearest_resistance"]
-
     sup_below = [p for _, p in swing_lows if p < current_price]
     if sup_below:
         result["nearest_support"] = max(sup_below)
@@ -453,21 +482,17 @@ def find_swing_points(df: pd.DataFrame, lookback: int = 50, window: int = 3) -> 
     elif swing_lows:
         result["nearest_support"] = min(p for _, p in swing_lows)
         result["strongest_support"] = result["nearest_support"]
-
     return result
 
 
 def compute_fibonacci(df: pd.DataFrame, lookback: int = 50) -> dict:
     if df is None or df.empty or len(df) < lookback:
         return {}
-
     data = df.tail(lookback)
     high = safe_num(data["high"].max())
     low = safe_num(data["low"].min())
-
     if high <= low:
         return {}
-
     diff = high - low
     return {
         "high": high,
@@ -484,15 +509,11 @@ def compute_fibonacci(df: pd.DataFrame, lookback: int = 50) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# گروه ۱: Momentum
-# ═══════════════════════════════════════════════════════════
 def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     reasons, signals = [], []
     last = df.iloc[-1]
     adx = safe_num(last.get("adx"), 20)
     is_trending = adx >= 25
-
     rsi = safe_num(last.get("rsi"), 50)
     if is_trending:
         if rsi >= 70:
@@ -524,10 +545,8 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             reasons.append(f"RSI={rsi:.0f} متمایل به خرید")
         else:
             signals.append((0.0, 0.5))
-
     stoch_k = safe_num(last.get("stoch_k"), 50)
     stoch_d = safe_num(last.get("stoch_d"), 50)
-
     if is_trending:
         if stoch_k > stoch_d and stoch_k > 50:
             signals.append((+0.7, 1.0))
@@ -554,7 +573,6 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             signals.append((-0.3, 0.7))
         else:
             signals.append((0.0, 0.5))
-
     willr = safe_num(last.get("willr"), -50)
     if is_trending:
         if willr > -20:
@@ -574,7 +592,6 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             reasons.append(f"Williams %R={willr:.0f} اشباع خرید")
         else:
             signals.append((0.0, 0.5))
-
     cci = safe_num(last.get("cci"), 0)
     if is_trending:
         if cci > 100:
@@ -594,7 +611,6 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             reasons.append(f"CCI={cci:.0f} اشباع خرید")
         else:
             signals.append((0.0, 0.5))
-
     roc = safe_num(last.get("roc"), 0)
     if roc > 2:
         signals.append((+0.6, 0.7))
@@ -608,13 +624,10 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         signals.append((-0.3, 0.5))
     else:
         signals.append((0.0, 0.5))
-
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-
     mom_thr = _thresholds[0] if _thresholds else 0.25
     vote = +1 if score > mom_thr else (-1 if score < -mom_thr else 0)
-
     return {
         "vote": vote,
         "score": round(score, 3),
@@ -633,28 +646,37 @@ def _analyze_momentum(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# گروه ۲: Trend
-# ═══════════════════════════════════════════════════════════
 def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     reasons, signals = [], []
     last = df.iloc[-1]
     prev = df.iloc[-2] if len(df) > 1 else last
     price = safe_num(last["close"])
-
     ema200 = safe_num(last.get("ema200"))
     ema50 = safe_num(last.get("ema50"))
     ema20 = safe_num(last.get("ema20"))
 
-    if ema200 > 0:
-        if price > ema200:
+    if not np.isnan(ema200) and ema200 > 0:
+        prev_ema200 = safe_num(df["ema200"].iloc[-2]) if len(df) > 1 else ema200
+        if price > ema200 and ema200 > prev_ema200:
             signals.append((+1.0, 1.2))
-            reasons.append("قیمت بالای EMA200 — روند بلندمدت صعودی")
-        else:
+            reasons.append("قیمت بالای EMA200 با شیب صعودی")
+        elif price < ema200 and ema200 < prev_ema200:
             signals.append((-1.0, 1.2))
-            reasons.append("قیمت زیر EMA200 — روند بلندمدت نزولی")
+            reasons.append("قیمت زیر EMA200 با شیب نزولی")
+        else:
+            signals.append((0.0, 0.5))
+    elif ema50 > 0:
+        prev_ema50 = safe_num(df["ema50"].iloc[-2]) if len(df) > 1 else ema50
+        if price > ema50 and ema50 > prev_ema50:
+            signals.append((+0.8, 1.2))
+            reasons.append("قیمت بالای EMA50 (جایگزین)")
+        elif price < ema50 and ema50 < prev_ema50:
+            signals.append((-0.8, 1.2))
+            reasons.append("قیمت زیر EMA50 (جایگزین)")
+        else:
+            signals.append((0.0, 0.5))
 
-    if ema20 > 0 and ema50 > 0 and ema200 > 0:
+    if ema20 > 0 and ema50 > 0 and not np.isnan(ema200) and ema200 > 0:
         if ema20 > ema50 > ema200:
             signals.append((+0.8, 1.0))
             reasons.append("ترتیب صعودی EMA20>50>200")
@@ -665,10 +687,10 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     macd_h = safe_num(last.get("macd_hist"))
     prev_macd_h = safe_num(prev.get("macd_hist"))
     if prev_macd_h <= 0 < macd_h:
-        signals.append((+1.5, 1.3))
+        signals.append((+1.0, 1.3))
         reasons.append("MACD کراس صعودی")
     elif prev_macd_h >= 0 > macd_h:
-        signals.append((-1.5, 1.3))
+        signals.append((-1.0, 1.3))
         reasons.append("MACD کراس نزولی")
     elif macd_h > 0:
         signals.append((+0.5, 0.9))
@@ -682,7 +704,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     adx = safe_num(last.get("adx"), 20)
     dmp = safe_num(last.get("dmp"), 20)
     dmn = safe_num(last.get("dmn"), 20)
-
     if adx > 40:
         reasons.append(f"ADX={adx:.0f} روند قوی")
     elif adx > 25:
@@ -691,7 +712,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         reasons.append(f"ADX={adx:.0f} روند ضعیف")
     else:
         reasons.append(f"ADX={adx:.0f} بدون روند")
-
     if dmp > dmn and adx > 20:
         signals.append((+0.9, 1.1))
         reasons.append(f"DI+={dmp:.0f} > DI-={dmn:.0f} صعودی")
@@ -712,7 +732,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         k_val = safe_num(last.get("kijun"))
         sa_val = safe_num(last.get("senkou_a"))
         sb_val = safe_num(last.get("senkou_b"))
-
         if t_val > 0 and k_val > 0:
             if t_val > k_val and price > k_val:
                 signals.append((+0.8, 0.9))
@@ -720,7 +739,6 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             elif t_val < k_val and price < k_val:
                 signals.append((-0.8, 0.9))
                 reasons.append("Ichimoku: Tenkan < Kijun نزولی")
-
         if sa_val > 0 and sb_val > 0:
             cloud_top = max(sa_val, sb_val)
             cloud_bottom = min(sa_val, sb_val)
@@ -737,16 +755,13 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         swings = find_swing_points(df, lookback=50, window=3)
         swing_highs = swings.get("swing_highs", [])
         swing_lows = swings.get("swing_lows", [])
-
         if len(swing_highs) >= 2 and len(swing_lows) >= 2:
             recent_highs = [p for _, p in swing_highs[-2:]]
             recent_lows = [p for _, p in swing_lows[-2:]]
-
             hh = recent_highs[-1] > recent_highs[-2]
             hl = recent_lows[-1] > recent_lows[-2]
             lh = recent_highs[-1] < recent_highs[-2]
             ll = recent_lows[-1] < recent_lows[-2]
-
             if hh and hl:
                 signals.append((+1.0, 1.2))
                 reasons.append("ساختار HH/HL صعودی")
@@ -758,10 +773,8 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
 
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-
     t_thr = _thresholds[1] if _thresholds else 0.30
     vote = +1 if score > t_thr else (-1 if score < -t_thr else 0)
-
     return {
         "vote": vote,
         "score": round(score, 3),
@@ -780,14 +793,10 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# گروه ۳: Volatility
-# ═══════════════════════════════════════════════════════════
 def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     reasons, signals = [], []
     last = df.iloc[-1]
     price = safe_num(last["close"])
-
     bb_upper = safe_num(last.get("bb_upper"))
     bb_lower = safe_num(last.get("bb_lower"))
     bb_mid = safe_num(last.get("bb_mid"))
@@ -802,12 +811,10 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             signals.append((+0.2, 0.6))
         else:
             signals.append((-0.2, 0.6))
-
     atr = safe_num(last.get("atr"))
     if atr > 0 and price > 0:
         atr_pct = (atr / price) * 100
         reasons.append(f"ATR={atr_pct:.2f}% نوسان")
-
     kc_upper = safe_num(last.get("kc_upper"))
     kc_lower = safe_num(last.get("kc_lower"))
     if kc_upper > 0 and kc_lower > 0:
@@ -817,7 +824,6 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         elif price >= kc_upper * 0.995:
             signals.append((-0.7, 0.9))
             reasons.append("نزدیک کانال بالای Keltner")
-
     dc_upper = safe_num(last.get("dc_upper"))
     dc_lower = safe_num(last.get("dc_lower"))
     if dc_upper > 0 and dc_lower > 0:
@@ -827,7 +833,6 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         elif price <= dc_lower * 1.002:
             signals.append((+0.6, 0.8))
             reasons.append("نزدیک کف Donchian")
-
     stddev = safe_num(last.get("stddev"))
     if stddev > 0 and price > 0:
         cv = (stddev / price) * 100
@@ -835,13 +840,10 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             reasons.append(f"نوسان بالا (StdDev={cv:.2f}%)")
         elif cv < 1:
             reasons.append(f"نوسان کم (StdDev={cv:.2f}%)")
-
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-
     o_thr = _thresholds[2] if _thresholds else 0.30
     vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
-
     return {
         "vote": vote,
         "score": round(score, 3),
@@ -860,9 +862,6 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# گروه ۴: Volume
-# ═══════════════════════════════════════════════════════════
 def _analyze_volume(
     df: pd.DataFrame,
     market_type: str = "spot",
@@ -874,7 +873,6 @@ def _analyze_volume(
     last = df.iloc[-1]
     prev = df.iloc[-2] if len(df) > 1 else last
     price = safe_num(last["close"])
-
     ob_details = {}
     if orderbook and orderbook.get("imbalance") is not None:
         from .orderbook import imbalance_vote
@@ -882,7 +880,6 @@ def _analyze_volume(
         imb = float(orderbook["imbalance"])
         ob_vote, ob_score = imbalance_vote(imb)
         pressure = orderbook.get("pressure_fa", "")
-
         ob_details = {
             "imbalance": imb,
             "spread_pct": orderbook.get("spread_pct"),
@@ -891,24 +888,19 @@ def _analyze_volume(
             "best_ask": orderbook.get("best_ask"),
             "wall": orderbook.get("wall"),
         }
-
         if ob_vote != 0:
             signals.append((ob_score * 0.8, 0.4))
             reasons.append(f"عمق بازار: {pressure} (imbalance={imb:.2f})")
-
         wall = orderbook.get("wall")
         if wall:
             side_fa = "خرید" if wall["side"] == "bid" else "فروش"
             reasons.append(
                 f"🧱 دیوار سفارش {side_fa} در {wall['price']:,.2f} ({wall['ratio']:.1f}x)"
             )
-
         sp = orderbook.get("spread_pct") or 0
         if sp > 0.5:
             reasons.append(f"⚠️ اسپرد {sp:.2f}٪ — نقدینگی ضعیف")
-
     has_volume = "volume" in df.columns and df["volume"].sum() > 0
-
     if not has_volume:
         total_w = sum(w for _, w in signals)
         score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
@@ -921,7 +913,6 @@ def _analyze_volume(
             "details": {**ob_details, "has_volume": False},
             "weight": 1.0,
         }
-
     obv_last = safe_num(last.get("obv"))
     obv_prev = safe_num(prev.get("obv"))
     if obv_last > obv_prev:
@@ -930,11 +921,9 @@ def _analyze_volume(
     elif obv_last < obv_prev:
         signals.append((-0.5, 0.9))
         reasons.append("OBV نزولی")
-
     vol = safe_num(last.get("volume"))
     vol_ma = safe_num(last.get("vol_ma"))
     vol_ratio = vol / vol_ma if vol_ma > 0 else 1.0
-
     if vol_ma > 0:
         if vol_ratio > 1.5:
             reasons.append(f"حجم بالا ({vol_ratio:.1f}x)")
@@ -946,24 +935,21 @@ def _analyze_volume(
                 signals.append((-0.6, 0.8))
         elif vol_ratio < 0.5:
             reasons.append(f"حجم کم ({vol_ratio:.1f}x)")
-
+    cmf = safe_num(last.get("cmf"), 0)
     if "cvd" in df.columns:
         cvd_last = safe_num(last.get("cvd"))
         cvd_prev = safe_num(prev.get("cvd"))
         delta_last = safe_num(last.get("delta"))
-
         if cvd_last > cvd_prev:
             signals.append((+0.5, 0.9))
             reasons.append("CVD صعودی")
         elif cvd_last < cvd_prev:
             signals.append((-0.5, 0.9))
             reasons.append("CVD نزولی")
-
         if delta_last > 0:
             signals.append((+0.4, 0.8))
         elif delta_last < 0:
             signals.append((-0.4, 0.8))
-
         cvd_z = safe_num(last.get("cvd_zscore"), 0)
         if regime == "trend":
             if cvd_z > 2.5:
@@ -977,16 +963,12 @@ def _analyze_volume(
                 signals.append((-0.3, 0.5))
             elif cvd_z < -3.0:
                 signals.append((+0.3, 0.5))
-
-        cmf = safe_num(last.get("cmf"), 0)
-
     if cmf > 0.1:
         signals.append((+0.7, 1.0))
         reasons.append(f"CMF={cmf:.2f} ورودی")
     elif cmf < -0.1:
         signals.append((-0.7, 1.0))
         reasons.append(f"CMF={cmf:.2f} خروجی")
-
     mfi = safe_num(last.get("mfi"), 50)
     if mfi < 20:
         signals.append((+0.8, 1.0))
@@ -994,7 +976,6 @@ def _analyze_volume(
     elif mfi > 80:
         signals.append((-0.8, 1.0))
         reasons.append(f"MFI={mfi:.0f} اشباع خرید")
-
     if "vwap" in df.columns:
         vwap = safe_num(last.get("vwap"))
         if vwap > 0:
@@ -1004,7 +985,6 @@ def _analyze_volume(
             elif price < vwap * 0.98:
                 signals.append((+0.4, 0.7))
                 reasons.append("قیمت زیر VWAP")
-
     if "volume" in df.columns and vol_ma > 0:
         candle_range = safe_num(last["high"]) - safe_num(last["low"])
         if candle_range > 0:
@@ -1015,20 +995,16 @@ def _analyze_volume(
                 safe_num(last["close"]), safe_num(last["open"])
             ) - safe_num(last["low"])
             vol_spike = vol > vol_ma * 1.5
-
             if vol_spike and lower_wick / candle_range > 0.66:
                 signals.append((+0.9, 1.3))
                 reasons.append("Absorption صعودی")
             elif vol_spike and upper_wick / candle_range > 0.66:
                 signals.append((-0.9, 1.3))
                 reasons.append("Absorption نزولی")
-
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-
     o_thr = _thresholds[2] if _thresholds else 0.25
     vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
-
     return {
         "vote": vote,
         "score": round(score, 3),
@@ -1046,18 +1022,13 @@ def _analyze_volume(
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# گروه ۵: Structure
-# ═══════════════════════════════════════════════════════════
 def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     reasons, signals = [], []
     last = df.iloc[-1]
     price = safe_num(last["close"])
-
     pivots = compute_pivot_points(df)
     swings = find_swing_points(df, lookback=50, window=3)
     fib = compute_fibonacci(df, lookback=50)
-
     if pivots:
         r1 = pivots.get("r1", 0)
         s1 = pivots.get("s1", 0)
@@ -1067,7 +1038,6 @@ def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         elif s1 > 0 and price <= s1 * 1.005:
             signals.append((+0.6, 1.0))
             reasons.append("نزدیک S1")
-
     nearest_r = swings.get("nearest_resistance", 0)
     nearest_s = swings.get("nearest_support", 0)
     if nearest_r > 0 and price > 0:
@@ -1080,7 +1050,6 @@ def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
         if dist_s < 0.5:
             signals.append((+0.8, 1.2))
             reasons.append("نزدیک حمایت Swing")
-
     if fib and fib.get("levels"):
         levels = fib["levels"]
         for ratio in ["0.618", "0.500", "0.382"]:
@@ -1089,13 +1058,10 @@ def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
                 signals.append((+0.4, 0.8))
                 reasons.append(f"نزدیک Fibonacci {ratio}")
                 break
-
     total_w = sum(w for _, w in signals)
     score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-
     o_thr = _thresholds[2] if _thresholds else 0.30
     vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
-
     return {
         "vote": vote,
         "score": round(score, 3),
@@ -1111,21 +1077,16 @@ def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# واگرایی
-# ═══════════════════════════════════════════════════════════
 def _detect_divergence(momentum: dict, volume: dict) -> dict:
     m_vote, v_vote = momentum.get("vote", 0), volume.get("vote", 0)
     m_score, v_score = momentum.get("score", 0.0), volume.get("score", 0.0)
-
     result = {"has_divergence": False, "type": None, "penalty": 0, "reason": ""}
-
     if m_vote > 0 and v_vote < 0 and abs(v_score) > 0.3:
         result.update(
             {
                 "has_divergence": True,
                 "type": "bull_trap",
-                "penalty": 15,
+                "penalty": 5,
                 "reason": f"⚠️ واگرایی: مومنتوم صعودی ({m_score:+.2f}) ولی حجم خروجی ({v_score:+.2f})",
             }
         )
@@ -1134,17 +1095,13 @@ def _detect_divergence(momentum: dict, volume: dict) -> dict:
             {
                 "has_divergence": True,
                 "type": "bear_trap",
-                "penalty": 15,
+                "penalty": 5,
                 "reason": f"⚠️ واگرایی: مومنتوم نزولی ({m_score:+.2f}) ولی حجم ورودی ({v_score:+.2f})",
             }
         )
-
     return result
 
 
-# ═══════════════════════════════════════════════════════════
-# تشخیص تله‌ها
-# ═══════════════════════════════════════════════════════════
 def _detect_traps(groups: dict, price: float, atr: float) -> dict:
     traps = {
         "bull_trap": {"active": False, "reason": "", "severity": 0},
@@ -1152,28 +1109,24 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
         "fake_breakout": {"active": False, "reason": "", "severity": 0},
         "exhaustion": {"active": False, "reason": "", "severity": 0},
     }
-
     if not groups:
         return traps
-
-    m = groups.get("momentum", {}) or {}
-    t = groups.get("trend", {}) or {}
-    v = groups.get("volume", {}) or {}
-    s = groups.get("structure", {}) or {}
-    vol = groups.get("volatility", {}) or {}
-
-    m_score = m.get("score", 0.0)
-    v_score = v.get("score", 0.0)
-    s_score = s.get("score", 0.0)
-    vol_score = vol.get("score", 0.0)
-
-    t_details = t.get("details", {})
-    v_details = v.get("details", {})
-
-    adx = t_details.get("adx", 20)
-    vol_ratio = v_details.get("vol_ratio", 1.0)
-
-    if m_score > 0.35 and v_score < -0.25 and s_score < -0.15:
+    m, t, v, s, vol = (
+        groups.get("momentum", {}),
+        groups.get("trend", {}),
+        groups.get("volume", {}),
+        groups.get("structure", {}),
+        groups.get("volatility", {}),
+    )
+    m_score, v_score, s_score, vol_score = (
+        m.get("score", 0.0),
+        v.get("score", 0.0),
+        s.get("score", 0.0),
+        vol.get("score", 0.0),
+    )
+    t_details, v_details = t.get("details", {}), v.get("details", {})
+    adx, vol_ratio = t_details.get("adx", 20), v_details.get("vol_ratio", 1.0)
+    if m_score > 0.45 and v_score < -0.35 and s_score < -0.25:
         traps["bull_trap"].update(
             {
                 "active": True,
@@ -1181,8 +1134,7 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
                 "severity": 8,
             }
         )
-
-    if m_score < -0.35 and v_score > 0.25 and s_score > 0.15:
+    if m_score < -0.45 and v_score > 0.35 and s_score > 0.25:
         traps["bear_trap"].update(
             {
                 "active": True,
@@ -1190,7 +1142,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
                 "severity": 8,
             }
         )
-
     if adx > 30 and vol_ratio < 0.6:
         if s_score < -0.30:
             traps["fake_breakout"].update(
@@ -1208,7 +1159,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
                     "severity": 7,
                 }
             )
-
     if adx > 45 and abs(m_score) < 0.25 and abs(vol_score) > 0.3:
         traps["exhaustion"].update(
             {
@@ -1217,7 +1167,6 @@ def _detect_traps(groups: dict, price: float, atr: float) -> dict:
                 "severity": 6,
             }
         )
-
     return traps
 
 
@@ -1233,9 +1182,6 @@ def _traps_summary(traps: dict) -> dict:
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# سناریوساز
-# ═══════════════════════════════════════════════════════════
 def build_scenarios(
     price,
     atr,
@@ -1250,28 +1196,17 @@ def build_scenarios(
     scenarios = []
     if not groups:
         return scenarios
-
     is_iranian = _is_iranian_ticker(ticker)
     is_tsetmc = bool(ticker) and not ticker[0].isascii()
-
-    if is_tsetmc:
-        unit = "ریال"
-    elif is_iranian:
-        unit = "تومان"
-    else:
-        unit = "$"
-
-    m = groups.get("momentum", {}) or {}
-    t = groups.get("trend", {}) or {}
-    v = groups.get("volume", {}) or {}
-
-    m_score = m.get("score", 0.0)
-    v_score = v.get("score", 0.0)
-    m_details = m.get("details", {})
-    t_details = t.get("details", {})
-
-    rsi = m_details.get("rsi", 50)
-    adx = t_details.get("adx", 20)
+    unit = "ریال" if is_tsetmc else ("تومان" if is_iranian else "$")
+    m, t, v = (
+        groups.get("momentum", {}),
+        groups.get("trend", {}),
+        groups.get("volume", {}),
+    )
+    m_score, v_score = m.get("score", 0.0), v.get("score", 0.0)
+    m_details, t_details = m.get("details", {}), t.get("details", {})
+    rsi, adx = m_details.get("rsi", 50), t_details.get("adx", 20)
 
     def _fmt(val):
         return f"{val:,.0f} {unit}" if is_iranian else f"${val:,.2f}"
@@ -1301,7 +1236,6 @@ def build_scenarios(
                     "icon": "🟢",
                 }
             )
-
     if resistance > 0 and price > 0:
         dist_r = (resistance - price) / price * 100
         if dist_r < 1.5:
@@ -1326,7 +1260,6 @@ def build_scenarios(
                     "icon": "🚀",
                 }
             )
-
     if support > 0 and price > 0:
         dist_s = (price - support) / price * 100
         if dist_s < 1.5:
@@ -1340,7 +1273,6 @@ def build_scenarios(
                     "icon": "💚",
                 }
             )
-
     if traps and traps.get("fake_breakout", {}).get("active"):
         scenarios.append(
             {
@@ -1352,7 +1284,6 @@ def build_scenarios(
                 "icon": "⚠️",
             }
         )
-
     if traps and traps.get("bull_trap", {}).get("active"):
         scenarios.append(
             {
@@ -1364,7 +1295,6 @@ def build_scenarios(
                 "icon": "🚨",
             }
         )
-
     if traps and traps.get("bear_trap", {}).get("active"):
         scenarios.append(
             {
@@ -1376,7 +1306,6 @@ def build_scenarios(
                 "icon": "🚨",
             }
         )
-
     if len(scenarios) < 2:
         scenarios.append(
             {
@@ -1388,60 +1317,42 @@ def build_scenarios(
                 "icon": "⏸",
             }
         )
-
     scenarios.sort(key=lambda x: -x["probability"])
     return scenarios[:3]
 
 
-# ═══════════════════════════════════════════════════════════
-# 🎯 Trend Override
-# ═══════════════════════════════════════════════════════════
 def _apply_trend_override(
     direction: str, aggregate: dict, groups: dict, regime: str
 ) -> tuple[str, int, str]:
     trend = groups.get("trend", {}) or {}
-    momentum = groups.get("momentum", {}) or {}
-
+    trend_details = trend.get("details", {})
     trend_score = trend.get("score", 0.0)
-    momentum_score = momentum.get("score", 0.0)
-
+    adx = trend_details.get("adx", 0)
+    dmp = trend_details.get("dmp", 0)
+    dmn = trend_details.get("dmn", 0)
     STRONG_TREND = 0.65
     MEDIUM_TREND = 0.45
-
-    override_reason = ""
-    penalty = 0
-
-    trend_bull = trend_score >= STRONG_TREND
-    trend_bear = trend_score <= -STRONG_TREND
-
-    if not (trend_bull or trend_bear):
-        if trend_score >= MEDIUM_TREND and direction == "short":
-            return direction, 25, "⚠️ روند صعودی متوسط ولی SHORT"
-        if trend_score <= -MEDIUM_TREND and direction == "long":
-            return direction, 25, "⚠️ روند نزولی متوسط ولی LONG"
-        return direction, 0, ""
-
+    trend_bull = trend_score >= STRONG_TREND and adx > 20 and dmp > dmn
+    trend_bear = trend_score <= -STRONG_TREND and adx > 20 and dmn > dmp
     if trend_bull and direction == "short":
-        # 🔴 قانون آهنین: اگر روند قوی است، شورت ممنوع است (حتی اگر مومنتوم تایید نکند)
         return (
             "neutral",
             0,
-            f"🚫 SHORT بلاک شد — روند قوی صعودی (trend={trend_score:+.2f})",
+            f"🚫 SHORT بلاک شد — روند قوی صعودی (ADX={adx:.0f}, DI+ > DI-)",
         )
-
     if trend_bear and direction == "long":
         return (
             "neutral",
             0,
-            f"🚫 LONG بلاک شد — روند قوی نزولی (trend={trend_score:+.2f})",
+            f"🚫 LONG بلاک شد — روند قوی نزولی (ADX={adx:.0f}, DI- > DI+)",
         )
-
+    if trend_score >= MEDIUM_TREND and direction == "short":
+        return direction, 25, "⚠️ روند صعودی متوسط ولی SHORT"
+    if trend_score <= -MEDIUM_TREND and direction == "long":
+        return direction, 25, "⚠️ روند نزولی متوسط ولی LONG"
     return direction, 0, ""
 
 
-# ═══════════════════════════════════════════════════════════
-# رأی‌گیری
-# ═══════════════════════════════════════════════════════════
 def _aggregate_votes(
     groups: dict,
     regime: str,
@@ -1451,28 +1362,23 @@ def _aggregate_votes(
     tf_hint: str = "۵ دقیقه",
 ) -> dict:
     weights = _regime_weights(regime)
-
     weighted_sum, total_weight = 0.0, 0.0
     votes_long, votes_short, votes_neutral = 0, 0, 0
     groups_summary = {}
-
     for group_name, result in groups.items():
         if result is None:
             continue
         w = weights.get(group_name, 1.0)
         vote = result.get("vote", 0)
         score = result.get("score", 0.0)
-
         weighted_sum += score * w
         total_weight += w
-
         if vote > 0:
             votes_long += 1
         elif vote < 0:
             votes_short += 1
         else:
             votes_neutral += 1
-
         strength_key, strength_fa = _group_strength(score)
         groups_summary[group_name] = {
             "vote": vote,
@@ -1482,33 +1388,26 @@ def _aggregate_votes(
             "strength_fa": strength_fa,
             "reasons": result.get("reasons", []),
         }
-
     final_score = weighted_sum / total_weight if total_weight > 0 else 0.0
-
     if regime == "trend":
         final_score *= 1.2
     elif regime == "range":
         final_score *= 0.85
-
     profile_key = f"{profile}_{market_type}"
     profile_cfg = RISK_PROFILES.get(
         profile_key,
         RISK_PROFILES.get(f"{profile}_spot", RISK_PROFILES["aggressive_spot"]),
     )
-
     if tf_hint in ("۱ دقیقه", "۵ دقیقه"):
         _tf_threshold = 1
     elif tf_hint in ("۱۵ دقیقه", "۳۰ دقیقه"):
         _tf_threshold = 2
     else:
         _tf_threshold = 2
-
     min_votes = profile_cfg.get("min_votes_required", _tf_threshold)
     required_votes = max(min_votes, _tf_threshold)
-
     min_adx = profile_cfg.get("min_adx", 0)
     adx_ok = adx >= min_adx
-
     if profile == "aggressive":
         if votes_long >= required_votes and votes_long > votes_short:
             direction, consensus = "long", (
@@ -1537,14 +1436,11 @@ def _aggregate_votes(
             )
         else:
             direction, consensus = "neutral", "neutral"
-
     if market_type == "spot" and direction == "short":
         direction, consensus = "neutral", "neutral"
-
     direction, penalty, override_reason = _apply_trend_override(
         direction, {"final_score": final_score}, groups, regime
     )
-
     return {
         "final_score": round(final_score, 3),
         "votes_long": votes_long,
@@ -1560,9 +1456,6 @@ def _aggregate_votes(
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# Confidence
-# ═══════════════════════════════════════════════════════════
 def _compute_confidence(
     aggregate: dict, adx: float, divergence: dict, groups: dict = None
 ) -> int:
@@ -1572,16 +1465,12 @@ def _compute_confidence(
         "votes_short", 0
     )
     final_score = aggregate.get("final_score", 0.0)
-
     if direction == "neutral" or consensus == "neutral":
         return 0
-
     base_map = {"strong": 45, "normal": 32, "weak": 18}
     base = base_map.get(consensus, 0)
-
     quality = 0
     quality += min(15, abs(final_score) * 20)
-
     if adx > 40:
         quality += 8
     elif adx > 30:
@@ -1590,12 +1479,10 @@ def _compute_confidence(
         quality += 2
     elif adx < 18:
         quality -= 5
-
     if groups:
         t_score = groups.get("trend", {}).get("score", 0.0)
         m_score = groups.get("momentum", {}).get("score", 0.0)
         v_score = groups.get("volume", {}).get("score", 0.0)
-
         if direction == "long":
             if t_score > 0.3 and m_score > 0.3 and v_score > 0.2:
                 quality += 12
@@ -1610,9 +1497,7 @@ def _compute_confidence(
                 quality += 8
             elif t_score < -0.3 or m_score < -0.3:
                 quality += 4
-
     quality = max(0, min(35, quality))
-
     majority = votes_long if direction == "long" else votes_short
     agreement = 0
     if majority >= 4:
@@ -1621,22 +1506,15 @@ def _compute_confidence(
         agreement = 10
     elif majority == 2:
         agreement = 5
-
     confidence = base + quality + agreement
-
     if divergence.get("has_divergence"):
         confidence -= divergence.get("penalty", 0)
-
     override_penalty = aggregate.get("override_penalty_pct", 0)
     if override_penalty > 0:
         confidence = int(confidence * (1 - override_penalty / 100))
-
     return max(0, min(100, int(confidence)))
 
 
-# ═══════════════════════════════════════════════════════════
-# توضیح خنثی
-# ═══════════════════════════════════════════════════════════
 def _explain_neutral(
     aggregate,
     regime,
@@ -1652,7 +1530,6 @@ def _explain_neutral(
         aggregate.get("votes_neutral", 0),
     )
     override_reason = aggregate.get("override_reason", "")
-
     short_msg = (
         "🚫 روند قوی — سیگنال مخالف بلاک شد"
         if override_reason
@@ -1666,7 +1543,6 @@ def _explain_neutral(
             )
         )
     )
-
     reasons = []
     if override_reason:
         reasons.append(override_reason)
@@ -1676,7 +1552,6 @@ def _explain_neutral(
         reasons.append("بازار در حالت «گذار» هست")
     elif regime == "trend":
         reasons.append("بازار روند داره ولی گروه‌ها هم‌جهت نیستن")
-
     if votes_neutral >= 3:
         reasons.append(f"{votes_neutral} از ۵ گروه خنثی موندن")
     if votes_long == votes_short and votes_long > 0:
@@ -1689,7 +1564,6 @@ def _explain_neutral(
         reasons.append("در اسپات فقط خرید مجاز است")
     if not reasons:
         reasons.append("شرایط بازار نامشخصه")
-
     hint = None
     if tfs_data and current_tf:
         higher_tfs = [
@@ -1701,7 +1575,6 @@ def _explain_neutral(
         ]
         if higher_tfs:
             hint = "💡 TF بالاتر سیگنال داره: " + " | ".join(higher_tfs)
-
     if traps:
         active_traps = [
             traps[t].get("reason", "") for t in traps if traps[t].get("active")
@@ -1712,7 +1585,6 @@ def _explain_neutral(
                 if hint
                 else ("🚨 هشدار: " + " | ".join(active_traps))
             )
-
     return {
         "short": short_msg,
         "long": " • ".join(reasons),
@@ -1721,9 +1593,92 @@ def _explain_neutral(
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# تابع اصلی تحلیل
-# ═══════════════════════════════════════════════════════════
+def _is_boring_market(
+    aggregate: dict, adx: float, vol_ratio: float, final_score: float
+) -> bool:
+    votes_neutral = aggregate.get("votes_neutral", 0)
+    return (
+        votes_neutral >= BORING_MARKET_NEUTRAL_VOTES
+        and adx < BORING_MARKET_ADX
+        and vol_ratio < BORING_MARKET_VOL_RATIO
+        and abs(final_score) < BORING_MARKET_SCORE
+    )
+
+
+def _determine_signal(
+    direction: str,
+    confidence: int,
+    tier: str,
+    min_conf: int,
+    tf_name: str,
+    is_boring: bool,
+    allow_short: bool,
+    market_type: str,
+) -> tuple[str, str, str]:
+    if direction == "neutral" or is_boring:
+        return (
+            "خنثی",
+            (
+                f"بدون سیگنال معتبر ({confidence}٪)"
+                if confidence > 0
+                else "بدون سیگنال معتبر — بازار خوابه"
+            ),
+            "⚪ صبر کن",
+        )
+    if market_type == "spot" and direction == "short":
+        return "خنثی", f"🔴 در اسپات نمی‌تونی بفروشی ({confidence}٪)", "⚪ صبر کن"
+    if confidence < MIN_CONF_TO_SHOW:
+        return ("خنثی", f"اطمینان {confidence}٪ خیلی پایینه", "⚪ صبر کن")
+    is_golden = confidence >= 85
+    is_strong = 70 <= confidence < 85
+    is_normal = 50 <= confidence < 70
+    is_weak = 25 <= confidence < 50
+    if direction == "long":
+        if is_golden:
+            return (
+                "LONG",
+                "💎 سیگنال طلایی خرید — فرصت نایاب",
+                "🟢 LONG بزن — قوی‌ترین سیگنال",
+            )
+        elif is_strong:
+            return (
+                "LONG",
+                "🟢 سیگنال خرید قوی — با حد ضرر",
+                "🟢 بخر — بعداً بفروش" if market_type == "spot" else "🟢 LONG بزن",
+            )
+        elif is_normal:
+            return (
+                "LONG",
+                "🟡 سیگنال خرید معمولی",
+                "🟢 بخر — بعداً بفروش" if market_type == "spot" else "🟢 LONG بزن",
+            )
+        else:
+            return (
+                "LONG ضعیف",
+                f"🟠 سیگنال خرید ضعیف ({confidence}٪) — با احتیاط",
+                "🟡 بخر با احتیاط" if market_type == "spot" else "🟡 LONG ضعیف",
+            )
+    else:
+        if not allow_short:
+            return "خنثی", f"🔴 SHORT مجاز نیست ({confidence}٪)", "⚪ صبر کن"
+        if is_golden:
+            return (
+                "SHORT",
+                "💎 سیگنال طلایی فروش — فرصت نایاب",
+                "🔴 SHORT بزن — قوی‌ترین سیگنال",
+            )
+        elif is_strong:
+            return "SHORT", "🔴 سیگنال فروش قوی", "🔴 SHORT بزن"
+        elif is_normal:
+            return "SHORT", "🔴 سیگنال فروش معمولی", "🔴 SHORT بزن"
+        else:
+            return (
+                "SHORT ضعیف",
+                f"🟠 سیگنال فروش ضعیف ({confidence}٪) — با احتیاط",
+                "🟠 SHORT ضعیف",
+            )
+
+
 def analyze_symbol(
     df: pd.DataFrame,
     risk_profile: str = "aggressive",
@@ -1734,34 +1689,32 @@ def analyze_symbol(
     source: str = "nobitex",
     orderbook: dict = None,
 ) -> dict | None:
-    if df is None or df.empty or len(df) < 50:
+    if df is None or df.empty:
         return None
-
     try:
         df = compute_indicators(df)
         if df is None or df.empty:
             return None
-
         last = df.iloc[-1]
         price = safe_num(last["close"])
         atr = safe_num(last.get("atr"))
         adx = safe_num(last.get("adx"), 20)
         bb_width_pct = safe_num(last.get("bb_width_pct"), None)
-
         vol, vol_ma = safe_num(last.get("volume")), safe_num(last.get("vol_ma"))
         vol_ratio = vol / vol_ma if vol_ma > 0 else 1.0
-
         ema200_val = safe_num(last.get("ema200"))
         prev_ema200 = (
             safe_num(df["ema200"].iloc[-2])
             if "ema200" in df.columns and len(df) > 1
             else ema200_val
         )
-        ema_slope = (ema200_val - prev_ema200) / prev_ema200 if prev_ema200 > 0 else 0
-
+        ema_slope = (
+            ((ema200_val - prev_ema200) / prev_ema200)
+            if (not np.isnan(ema200_val) and prev_ema200 > 0)
+            else 0
+        )
         dmp_val, dmn_val = safe_num(last.get("dmp")), safe_num(last.get("dmn"))
         di_diff = dmp_val - dmn_val
-
         regime = classify_regime(
             adx,
             bb_width_pct=bb_width_pct,
@@ -1770,7 +1723,6 @@ def analyze_symbol(
             di_diff=di_diff,
         )
         thresholds = get_adaptive_thresholds(regime, adx)
-
         groups = {
             "momentum": _analyze_momentum(df, _thresholds=thresholds),
             "trend": _analyze_trend(df, _thresholds=thresholds),
@@ -1784,14 +1736,12 @@ def analyze_symbol(
             ),
             "structure": _analyze_structure(df, _thresholds=thresholds),
         }
-
         structure_details = groups["structure"].get("details", {})
         df_with_levels = df.copy()
         df_with_levels["nearest_resistance"] = structure_details.get(
             "nearest_resistance", 0
         )
         df_with_levels["nearest_support"] = structure_details.get("nearest_support", 0)
-
         try:
             pre_breakout = detect_pre_breakout(df_with_levels)
         except Exception:
@@ -1802,25 +1752,21 @@ def analyze_symbol(
                 "reasons": [],
                 "details": {},
             }
-
         aggregate = _aggregate_votes(
             groups, regime, risk_profile, adx, market_type, tf_name
         )
         divergence = _detect_divergence(groups["momentum"], groups["volume"])
         traps = _detect_traps(groups, price, atr)
         traps_summary = _traps_summary(traps)
-
         trap_penalty = (
-            10
+            15
             if traps_summary["has_high_risk"]
             else (5 if traps_summary["has_warning"] else 0)
         )
-
         confidence = _compute_confidence(aggregate, adx, divergence, groups)
         if trap_penalty > 0:
             confidence = max(0, confidence - trap_penalty)
         tier = _confidence_tier(confidence)
-
         multi_tf_ok, multi_tf_info = True, "بدون بررسی"
         if tfs_data and aggregate["direction"] != "neutral":
             higher_signals = []
@@ -1834,7 +1780,6 @@ def analyze_symbol(
                             if SigEnum.is_long(sig)
                             else (-1 if SigEnum.is_short(sig) else 0)
                         )
-
             if higher_signals:
                 confirms = sum(
                     1
@@ -1852,7 +1797,6 @@ def analyze_symbol(
                     )
                 else:
                     multi_tf_info, multi_tf_ok = "❌ عدم تأیید TF های بالاتر", False
-
         if tfs_data and aggregate["direction"] != "neutral":
             higher_confirms, higher_total = 0, 0
             for tf_check in ["۱ ساعت", "روزانه"]:
@@ -1867,7 +1811,6 @@ def analyze_symbol(
                         aggregate["direction"] == "short" and SigEnum.is_short(sig)
                     ):
                         higher_confirms += 1
-
             if higher_total > 0:
                 if higher_confirms == higher_total:
                     confidence = min(100, int(confidence * 1.15))
@@ -1876,11 +1819,9 @@ def analyze_symbol(
                 elif higher_confirms == 0:
                     confidence = int(confidence * 0.75)
                 tier = _confidence_tier(confidence)
-
         if not multi_tf_ok and aggregate["direction"] != "neutral":
             confidence = int(confidence * 0.9)
             tier = _confidence_tier(confidence)
-
         if (
             aggregate["direction"] != "neutral"
             and orderbook
@@ -1897,17 +1838,14 @@ def analyze_symbol(
                 ob_boost -= 15
             elif dir_agg == "short" and imb > 0.6:
                 ob_boost -= 15
-
             try:
                 if vol_ma > 0 and vol > vol_ma * 1.5:
                     ob_boost += 5
-            except Exception:
+            except:
                 pass
-
             if ob_boost != 0:
                 confidence = max(0, min(100, confidence + ob_boost))
                 tier = _confidence_tier(confidence)
-
         direction = aggregate["direction"]
         profile_key = f"{risk_profile}_{market_type}"
         profile = RISK_PROFILES.get(
@@ -1917,7 +1855,6 @@ def analyze_symbol(
         min_conf = profile["min_confidence"]
         consensus = aggregate.get("consensus", "neutral")
         allow_short = profile.get("allow_short", True)
-
         neutral_explain_dict = {}
         if direction == "neutral" or confidence < min_conf:
             neutral_explain_dict = _explain_neutral(
@@ -1929,62 +1866,28 @@ def analyze_symbol(
                 current_tf=tf_name,
                 traps=traps,
             )
-
-        if direction == "neutral":
-            signal, explanation = "خنثی", neutral_explain_dict.get(
-                "short", "بدون سیگنال معتبر"
-            )
-        elif confidence < min_conf:
-            signal, explanation = "خنثی", neutral_explain_dict.get(
-                "short", f"اطمینان کافی نیست ({confidence}% < {min_conf}%)"
-            )
-        elif direction == "long":
-            if tier == "strong":
-                signal, explanation = "LONG", "سیگنال خرید قوی — با حد ضرر"
-            elif tier == "normal":
-                signal, explanation = "LONG", "سیگنال خرید معمولی"
-            else:
-                signal, explanation = "LONG ضعیف", "سیگنال خرید ضعیف — با احتیاط"
-        elif direction == "short":
-            if not allow_short:
-                signal, explanation = "خنثی", "🔴 در اسپات نمی‌تونی بفروشی"
-            elif tier == "strong":
-                signal, explanation = "SHORT", "سیگنال فروش قوی"
-            elif tier == "normal":
-                signal, explanation = "SHORT", "سیگنال فروش معمولی"
-            else:
-                signal, explanation = "SHORT ضعیف", "سیگنال فروش ضعیف — با احتیاط"
-        else:
-            signal, explanation = "خنثی", "بدون سیگنال"
-
-        action_fa = "⚪ صبر کن"
-        if market_type == "spot":
-            action_fa = (
-                "🟢 بخر — بعداً بفروش"
-                if SigEnum.is_long(signal)
-                else (
-                    "🔴 فروش در اسپات معنی نداره"
-                    if SigEnum.is_short(signal)
-                    else "⚪ صبر کن"
-                )
-            )
-        else:
-            action_fa = (
-                "🟢 LONG بزن"
-                if SigEnum.is_long(signal)
-                else ("🔴 SHORT بزن" if SigEnum.is_short(signal) else "⚪ صبر کن")
-            )
-
+        final_score_raw = aggregate.get("final_score", 0.0)
+        is_boring = _is_boring_market(aggregate, adx, vol_ratio, final_score_raw)
+        signal, explanation, action_fa = _determine_signal(
+            direction=direction,
+            confidence=confidence,
+            tier=tier,
+            min_conf=min_conf,
+            tf_name=tf_name,
+            is_boring=is_boring,
+            allow_short=allow_short,
+            market_type=market_type,
+        )
         sl_tp, rr, fee_warning, _soft_rr_net = None, None, None, None
         is_directional = SigEnum.is_directional(signal)
         if market_type == "spot" and SigEnum.is_short(signal):
             is_directional = False
-
         if atr > 0 and is_directional:
             tf_mult = get_tf_atr_mult(tf_name)
-            effective_sl_mult = profile["sl_mult"] * tf_mult
-            effective_tp_mult = profile["tp_mult"] * tf_mult
-
+            tf_sl_mult, tf_tp_mult = _get_tf_rr_profile(tf_name, profile_key)
+            profile_scale = profile["sl_mult"] / 1.3
+            effective_sl_mult = tf_sl_mult * profile_scale
+            effective_tp_mult = tf_tp_mult * profile_scale
             if SigEnum.is_long(signal):
                 sl, tp = (
                     price - atr * effective_sl_mult,
@@ -2011,7 +1914,6 @@ def analyze_symbol(
                     "effective_sl_mult": effective_sl_mult,
                     "effective_tp_mult": effective_tp_mult,
                 }
-
             if sl_tp:
                 base_fee = get_fee_rate(
                     source or "nobitex", market_type=market_type, ticker=ticker
@@ -2023,7 +1925,6 @@ def analyze_symbol(
                     fee_rate, execution_cost = cost["total_pct"] / 100, cost
                 else:
                     fee_rate, execution_cost = base_fee, None
-
                 MIN_COST_RATIO = 8.0
                 min_total_pct = (
                     execution_cost["total_pct"] * MIN_COST_RATIO
@@ -2033,7 +1934,6 @@ def analyze_symbol(
                 actual_total_pct = (
                     (abs(price - sl_tp["sl"]) + abs(sl_tp["tp"] - price)) / price * 100
                 )
-
                 scaled = False
                 if min_total_pct > 0 and actual_total_pct < min_total_pct:
                     scale = min(min_total_pct / actual_total_pct, 10.0)
@@ -2047,7 +1947,6 @@ def analyze_symbol(
                             price + abs(sl_tp["sl"] - price) * scale,
                             price - abs(price - sl_tp["tp"]) * scale,
                         )
-
                     sl_tp.update(
                         {
                             "sl_tp_scaled": True,
@@ -2058,14 +1957,13 @@ def analyze_symbol(
                         }
                     )
                     scaled = True
-
                 TF_MIN_SL_PCT = {
-                    "۱ دقیقه": 0.4,
-                    "۵ دقیقه": 0.6,
-                    "۱۵ دقیقه": 0.9,
-                    "۳۰ دقیقه": 1.2,
-                    "۱ ساعت": 1.6,
-                    "روزانه": 2.5,
+                    "۱ دقیقه": 0.8,
+                    "۵ دقیقه": 1.0,
+                    "۱۵ دقیقه": 1.5,
+                    "۳۰ دقیقه": 1.8,
+                    "۱ ساعت": 2.2,
+                    "روزانه": 3.0,
                 }
                 tf_min_sl_pct = TF_MIN_SL_PCT.get(tf_name, 1.0)
                 sl_dist_pct = abs(price - sl_tp["sl"]) / price * 100
@@ -2081,7 +1979,6 @@ def analyze_symbol(
                             price + abs(sl_tp["sl"] - price) * scale_tf,
                             price - abs(price - sl_tp["tp"]) * scale_tf,
                         )
-
                     sl_tp["sl_tp_scaled"], sl_tp["scale_factor"] = True, round(
                         sl_tp.get("scale_factor", 1.0) * scale_tf, 2
                     )
@@ -2091,68 +1988,67 @@ def analyze_symbol(
                         f"حداقل فاصله SL برای «{tf_name}» برآورده نشده بود"
                     )
                     scaled = True
-
+                nearest_support = groups["structure"]["details"].get(
+                    "nearest_support", 0
+                )
+                nearest_resistance = groups["structure"]["details"].get(
+                    "nearest_resistance", 0
+                )
+                if SigEnum.is_long(signal) and nearest_support > 0:
+                    structural_sl = nearest_support * 0.998
+                    if structural_sl < sl_tp["sl"] and structural_sl < price:
+                        sl_tp["sl"] = structural_sl
+                elif SigEnum.is_short(signal) and nearest_resistance > 0:
+                    structural_sl = nearest_resistance * 1.002
+                    if structural_sl > sl_tp["sl"] and structural_sl > price:
+                        sl_tp["sl"] = structural_sl
                 fee_stats = compute_net_rr(price, sl_tp["sl"], sl_tp["tp"], fee_rate)
                 rr = fee_stats.get("rr_gross")
                 sl_tp.update(fee_stats)
                 sl_tp.update({"fee_rate": fee_rate, "fee_rate_base": base_fee})
                 if execution_cost:
                     sl_tp["execution_cost"] = execution_cost
-
                 if not fee_stats.get("is_worthwhile", True):
                     extra = " (شامل کارمزد+اسپرد+اسلیپیج)" if execution_cost else ""
                     fee_warning = f"⚠️ R:R خالص {fee_stats['rr_net']:.2f} (خام {fee_stats['rr_gross']:.2f}) — هزینه {fee_stats['fee_pct']:.2f}٪{extra} ({fee_stats['rr_decay_pct']:.0f}٪ از R:R را می‌خورد)"
                 elif scaled:
                     fee_warning = f"ℹ️ حد ضرر/هدف بزرگ‌تر شد تا با هزینه {fee_stats['fee_pct']:.2f}٪ معامله معنادار بماند"
-
                 _soft_rr_net = fee_stats.get("rr_net")
-
         all_reasons = [fee_warning] if fee_warning else []
         for g_res in groups.values():
             if g_res:
                 all_reasons.extend(g_res.get("reasons", []))
-
         if divergence.get("has_divergence"):
             all_reasons.insert(0, divergence["reason"])
         if aggregate.get("override_reason"):
             all_reasons.insert(0, aggregate["override_reason"])
-
         if _soft_rr_net is not None and is_directional:
-            if _soft_rr_net < 0.8:
-                signal, direction, action_fa = "خنثی", "neutral", "⚪ صبر کن"
-                explanation = f"R:R خالص {_soft_rr_net:.2f} — معامله ضررده است"
+            min_rr = profile.get("min_rr_net", 1.2)
+            if _soft_rr_net < min_rr * 0.5:
+                confidence = int(confidence * RR_VERY_LOW_PENALTY)
+                tier = _confidence_tier(confidence)
                 all_reasons.insert(
-                    0, f"🚫 R:R خالص {_soft_rr_net:.2f} — معامله صرف نمی‌کند"
+                    0, f"⚠️ R:R خالص {_soft_rr_net:.2f} خیلی پایین — اطمینان کاهش یافت"
                 )
-                confidence, tier = 0, "neutral"
-            elif _soft_rr_net < 1.0:
-                confidence, tier = int(confidence * 0.7), _confidence_tier(
-                    int(confidence * 0.7)
+            elif _soft_rr_net < min_rr:
+                confidence = int(confidence * RR_LOW_PENALTY)
+                tier = _confidence_tier(confidence)
+                all_reasons.insert(
+                    0, f"⚠️ R:R خالص {_soft_rr_net:.2f} — هزینه بالا، اطمینان کاهش یافت"
                 )
-                all_reasons.insert(0, f"⚠️ R:R خالص {_soft_rr_net:.2f} پایین — احتیاط")
-            elif _soft_rr_net < 1.3:
-                confidence, tier = int(confidence * 0.9), _confidence_tier(
-                    int(confidence * 0.9)
-                )
-
-            if _soft_rr_net < 0.8:
-                confidence, tier = int(confidence * 0.5), _confidence_tier(
-                    int(confidence * 0.5)
-                )
-            elif _soft_rr_net < 1.2:
-                confidence, tier = int(confidence * 0.8), _confidence_tier(
-                    int(confidence * 0.8)
-                )
-
-            if confidence < min_conf and signal != "خنثی":
-                signal, direction, action_fa = "خنثی", "neutral", "⚪ صبر کن"
-                explanation = (
-                    f"R:R خالص {_soft_rr_net:.2f} — زیر حداقل {min_conf}٪ اطمینان"
-                )
-
+            signal, explanation, action_fa = _determine_signal(
+                direction=direction,
+                confidence=confidence,
+                tier=tier,
+                min_conf=min_conf,
+                tf_name=tf_name,
+                is_boring=is_boring,
+                allow_short=allow_short,
+                market_type=market_type,
+            )
         support = groups["structure"]["details"].get("nearest_support", 0)
         resistance = groups["structure"]["details"].get("nearest_resistance", 0)
-
+        is_golden = confidence >= 85 and SigEnum.is_directional(signal)
         return {
             "price": price,
             "rsi": safe_num(last.get("rsi"), 50),
@@ -2179,6 +2075,7 @@ def analyze_symbol(
             "action_fa": action_fa,
             "confidence": confidence,
             "confidence_tier": tier,
+            "is_golden": is_golden,
             "reasons": all_reasons,
             "groups": aggregate["groups_summary"],
             "votes_long": aggregate["votes_long"],
@@ -2222,22 +2119,19 @@ def analyze_symbol(
             "pre_breakout": pre_breakout,
             "pre_breakout_score": pre_breakout.get("score", 0),
             "is_pre_breakout": pre_breakout.get("is_pre_breakout", False),
-            # 🔴 فیلد جدید حیاتی: ثبت پیش‌بینی روند در لحظه ورود
             "trend_predicted_at_entry": (
                 "bull"
                 if groups["trend"].get("score", 0) >= 0.30
                 else "bear" if groups["trend"].get("score", 0) <= -0.30 else "flat"
             ),
+            "is_boring_market": is_boring,
+            "analyzer_version": ANALYZER_VERSION,
         }
-
     except Exception as e:
         logger.exception(f"[Analyzer] خطا در تحلیل: {e}")
         return None
 
 
-# ═══════════════════════════════════════════════════════════
-# Fear & Greed
-# ═══════════════════════════════════════════════════════════
 def compute_fear_greed(df: pd.DataFrame) -> float:
     try:
         if df is None or df.empty or len(df) < 20:
@@ -2245,7 +2139,6 @@ def compute_fear_greed(df: pd.DataFrame) -> float:
         df = compute_indicators(df)
         if df is None or df.empty:
             return 50.0
-
         rsi = safe_num(df["rsi"].iloc[-1], 50)
         price = safe_num(df["close"].iloc[-1])
         atr = safe_num(df["atr"].iloc[-1]) if "atr" in df.columns else 0
@@ -2256,13 +2149,11 @@ def compute_fear_greed(df: pd.DataFrame) -> float:
             if ema50_series is not None and len(ema50_series) > 0
             else price
         )
-
         rsi_score = max(0, min(100, rsi))
         stretch = (
             max(0, min(100, ((price - ema50) / atr) * 10 + 50)) if atr > 0 else 50.0
         )
         macd_score = max(0, min(100, 50 + (macd_h * 10)))
-
         return max(
             0.0,
             min(100.0, float(rsi_score * 0.45 + stretch * 0.30 + macd_score * 0.25)),
@@ -2271,9 +2162,6 @@ def compute_fear_greed(df: pd.DataFrame) -> float:
         return 50.0
 
 
-# ═══════════════════════════════════════════════════════════
-# چک‌لیست
-# ═══════════════════════════════════════════════════════════
 GROUP_LABELS = {
     "momentum": ("⚡", "مومنتوم", "RSI, Stochastic, Williams, CCI, ROC"),
     "trend": ("📈", "روند", "EMA200, MACD, ADX, Supertrend, Ichimoku"),
@@ -2287,12 +2175,10 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
     r_main = tfs.get(main_tf) or tfs.get("۵ دقیقه")
     if not r_main:
         return [], 0, "داده کافی نیست", "red"
-
     items, regime = [], r_main.get("regime", "range")
     weights = _regime_weights(regime)
     groups = r_main.get("groups", {})
     total_w, earned_w = 0, 0
-
     multi_tf_ok, multi_tf_info = r_main.get("multi_tf_ok", True), r_main.get(
         "multi_tf_info", ""
     )
@@ -2309,9 +2195,7 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
             }
         )
         total_w += 20
-        if multi_tf_ok:
-            earned_w += 20
-
+        earned_w += 20 if multi_tf_ok else 0
     divergence = r_main.get("divergence", {})
     if divergence.get("has_divergence"):
         items.append(
@@ -2326,7 +2210,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
             }
         )
         total_w += 15
-
     traps = r_main.get("traps", {})
     if traps:
         trap_names = {
@@ -2349,7 +2232,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
                     }
                 )
                 total_w += trap_info.get("severity", 5)
-
     for g_key, (icon, g_name, g_desc) in GROUP_LABELS.items():
         if g_key not in groups:
             continue
@@ -2361,13 +2243,11 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         )
         g_weight_pct = int(weights.get(g_key, 1.0) * 100 / 6 * 1.5)
         g_color = "green" if g_vote > 0 else ("red" if g_vote < 0 else "yellow")
-
         detail_with_strength = (
             f"قدرت: {g_strength_fa} · {g_desc}"
             if g_strength_fa and g_strength_fa != "بی‌جهت"
             else g_desc
         )
-
         items.append(
             {
                 "group": g_key,
@@ -2383,7 +2263,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         )
         total_w += g_weight_pct
         earned_w += g_weight_pct * 0.5 if g_vote == 0 else g_weight_pct
-
     sl_tp, rr = r_main.get("sl_tp"), safe_num(r_main.get("rr"))
     if sl_tp:
         items.append(
@@ -2412,7 +2291,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
             }
         )
         total_w += 15
-
     percentage = int(earned_w / total_w * 100) if total_w > 0 else 0
     signal, confidence = r_main.get("signal", "خنثی"), r_main.get("confidence", 0)
     regime_fa = {
@@ -2420,15 +2298,16 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         "transitional": "در حال‌تغییر",
         "range": "بی‌جهت",
     }.get(regime, "")
-
     if SigEnum.is_long(signal):
+        golden_mark = " 💎" if confidence >= 85 else ""
         final, final_color = (
-            f"🟢 سیگنال خرید {'قوی' if confidence >= 70 else ''} — {confidence}% ({regime_fa})",
+            f"🟢 سیگنال خرید {'قوی' if confidence >= 70 else ''}{golden_mark} — {confidence}% ({regime_fa})",
             "green",
         )
     elif SigEnum.is_short(signal):
+        golden_mark = " 💎" if confidence >= 85 else ""
         final, final_color = (
-            f"🔴 سیگنال فروش {'قوی' if confidence >= 70 else ''} — {confidence}% ({regime_fa})",
+            f"🔴 سیگنال فروش {'قوی' if confidence >= 70 else ''}{golden_mark} — {confidence}% ({regime_fa})",
             "red",
         )
     else:
@@ -2436,7 +2315,6 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         final, final_color = (
             ne.get("short") if ne and ne.get("short") else f"⚪ خنثی — {regime_fa}"
         ), "yellow"
-
     return items, percentage, final, final_color
 
 
@@ -2454,13 +2332,11 @@ def _build_fundamental_context(
         )
         if price <= 0:
             return out
-
         fmt = (
             (lambda v: f"{v:,.2f}$")
             if not is_iranian
             else (lambda v: f"{v:,.0f} {unit}")
         )
-
         if atr > 0:
             atr_pct = atr / price * 100
             if atr_pct < 0.3:
@@ -2474,7 +2350,6 @@ def _build_fundamental_context(
             else:
                 vol_fa = "بسیار بالا — ریسک شدید، اهرم خطرناک"
             out.append(f"📊 **نوسان:** {atr_pct:.2f}٪ — {vol_fa}")
-
             if fee_pct and fee_pct > 0:
                 ratio = atr_pct / fee_pct
                 if ratio < 1:
@@ -2489,7 +2364,6 @@ def _build_fundamental_context(
                     out.append(
                         f"🟢 **نوسان کافی است** (نسبت {ratio:.1f}× هزینه) — معامله می‌تواند هزینه‌ها را پوشش دهد"
                     )
-
         lookback = min(90, len(df))
         window = df.tail(lookback)
         hi, lo = safe_num(window["high"].max()), safe_num(window["low"].min())
@@ -2509,7 +2383,6 @@ def _build_fundamental_context(
             out.append(
                 f"   سقف {fmt(hi)} · کف {fmt(lo)} · فاصله از سقف {(hi - price) / price * 100:.1f}٪"
             )
-
         adx, ema200, ema50 = (
             safe_num(last.get("adx"), 0),
             safe_num(last.get("ema200")),
@@ -2520,7 +2393,7 @@ def _build_fundamental_context(
             bits.append(
                 f"ADX={adx:.0f} ({'روند قوی' if adx >= 40 else 'روند نرمال' if adx >= 25 else 'بدون روند'})"
             )
-        if ema200 > 0 and ema50 > 0:
+        if not np.isnan(ema200) and ema200 > 0 and ema50 > 0:
             if price > ema200 and ema50 > ema200:
                 bits.append("صعودی (قیمت > EMA50 > EMA200)")
             elif price < ema200 and ema50 < ema200:
@@ -2529,7 +2402,6 @@ def _build_fundamental_context(
                 bits.append("مختلط (EMAها هم‌جهت نیستند)")
         if bits:
             out.append("📈 **ساختار روند:** " + " · ".join(bits))
-
         vol, vol_ma = safe_num(last.get("volume")), safe_num(last.get("vol_ma"))
         if vol_ma > 0:
             vr = vol / vol_ma
@@ -2539,7 +2411,6 @@ def _build_fundamental_context(
                 v_txt = f"کم ({vr:.1f}× میانگین)"
             else:
                 v_txt = f"نرمال ({vr:.1f}× میانگین)"
-
             if len(df) > 2:
                 prev_close, up = safe_num(df["close"].iloc[-2]), price > safe_num(
                     df["close"].iloc[-2]
@@ -2549,7 +2420,6 @@ def _build_fundamental_context(
                 elif vr <= 0.5:
                     v_txt += " · حجم تأییدکننده نیست ⚠️"
             out.append(f"💧 **حجم:** {v_txt}")
-
         r_lvl, s_lvl = safe_num(r_main.get("resistance")), safe_num(
             r_main.get("support")
         )
@@ -2573,7 +2443,6 @@ def build_analysis_paragraph(
     r_main = tfs.get(tf_name) or tfs.get("۵ دقیقه")
     if not r_main:
         return "داده کافی نیست."
-
     regime = r_main.get("regime", "range")
     regime_fa = {
         "trend": "جهت‌دار",
@@ -2583,13 +2452,11 @@ def build_analysis_paragraph(
     is_iranian = _is_iranian_ticker(ticker)
     is_tsetmc = bool(ticker) and not ticker[0].isascii()
     unit = "ریال" if is_tsetmc else ("تومان" if is_iranian else "$")
-
     market_type = r_main.get("market_type", "spot")
     market_fa = "اسپات" if market_type == "spot" else "فیوچرز"
     profile_fa = {"aggressive": "جسورانه", "conservative": "محتاطانه"}.get(
         risk_profile, "جسورانه"
     )
-
     signal, confidence, price = (
         r_main.get("signal", "خنثی"),
         r_main.get("confidence", 0),
@@ -2617,16 +2484,19 @@ def build_analysis_paragraph(
         return f"▎**{text}**"
 
     lines.extend([f"_{tf_name} · {profile_fa} · {market_fa}_", ""])
-
     if SigEnum.is_long(signal):
-        if confidence >= 70:
+        if confidence >= 85:
+            main_line = f"💎 **سیگنال طلایی خرید** · اطمینان {confidence}٪"
+        elif confidence >= 70:
             main_line = f"✅ **خرید قوی** · اطمینان {confidence}٪"
         elif confidence >= 50:
             main_line = f"🟢 **خرید** · اطمینان {confidence}٪"
         else:
             main_line = f"🟡 **خرید ضعیف** · اطمینان {confidence}٪"
     elif SigEnum.is_short(signal):
-        if confidence >= 70:
+        if confidence >= 85:
+            main_line = f"💎 **سیگنال طلایی فروش** · اطمینان {confidence}٪"
+        elif confidence >= 70:
             main_line = f"🔴 **فروش قوی** · اطمینان {confidence}٪"
         elif confidence >= 50:
             main_line = f"🔴 **فروش** · اطمینان {confidence}٪"
@@ -2636,11 +2506,9 @@ def build_analysis_paragraph(
         main_line = (
             "🚫 **بلاک شده** — روند مخالف قویه"
             if override_reason
-            else "⚪ **صبر کن** — سیگنال واضحی نیست"
+            else f"⚪ **صبر کن** — سیگنال واضحی نیست ({confidence}٪)"
         )
-
     lines.extend([main_line, ""])
-
     if sl_tp:
         sl, tp = safe_num(sl_tp.get("sl")), safe_num(sl_tp.get("tp"))
         rr_net, fee_pct = sl_tp.get("rr_net"), sl_tp.get("fee_pct")
@@ -2661,7 +2529,6 @@ def build_analysis_paragraph(
             fee_line = f" · هزینه {fee_pct:.2f}٪" if fee_pct is not None else ""
             lines.append(f"R:R خالص {rr_net:.2f} ({rr_verdict}){fee_line}")
         lines.append("")
-
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
     if active_traps:
         trap_names = {
@@ -2676,7 +2543,6 @@ def build_analysis_paragraph(
                 "",
             ]
         )
-
     lines.extend([H("۱. بازار چطوره؟"), ""])
     if adx >= 40:
         adx_fa, adx_note = "روند قویه", "بالای ۴۰ یعنی روند محکم و قابل اعتماد"
@@ -2686,7 +2552,6 @@ def build_analysis_paragraph(
         adx_fa, adx_note = "روند ضعیفه", "بین ۱۸ تا ۲۵ یعنی روند شکننده‌ست"
     else:
         adx_fa, adx_note = "بدون رونده", "زیر ۱۸ یعنی بازار بی‌جهته"
-
     if SigEnum.is_long(signal) or SigEnum.is_short(signal):
         direction_fa = "صعودی" if SigEnum.is_long(signal) else "نزولی"
         lines.extend(
@@ -2702,11 +2567,9 @@ def build_analysis_paragraph(
                     f"{adx_note}.",
                 ]
             )
-
     if override_reason:
         lines.extend(["", f"⚠️ {override_reason}"])
     lines.append("")
-
     if SigEnum.is_long(signal) or SigEnum.is_short(signal):
         lines.extend([H("۲. چرا این سیگنال؟"), ""])
         GROUP_META = {
@@ -2736,7 +2599,6 @@ def build_analysis_paragraph(
                 for reason in g_reasons[:2]:
                     lines.append(f"  {reason.strip()}")
                 lines.append("")
-
     lines.extend([H("۳. نظر گروه‌ها"), ""])
     if votes_long > votes_short:
         summary = (
@@ -2751,7 +2613,6 @@ def build_analysis_paragraph(
     else:
         summary = f"{votes_neutral} گروه خنثی — بازار خوابه"
     lines.extend([summary, ""])
-
     if groups:
         GROUP_META = {
             "momentum": "مومنتوم",
@@ -2779,12 +2640,10 @@ def build_analysis_paragraph(
             )
             lines.append(f"| {g_name} | {verdict} | {strength_txt} |")
         lines.append("")
-
     if divergence.get("has_divergence"):
         lines.extend([f"⚠️ واگرایی: {divergence.get('reason', '')}", ""])
     if multi_tf_info and multi_tf_info != "بدون بررسی":
         lines.extend([f"🎯 {multi_tf_info}", ""])
-
     ob = r_main.get("orderbook")
     if ob and ob.get("imbalance") is not None:
         lines.extend([H("۴. عمق بازار"), ""])
@@ -2796,7 +2655,6 @@ def build_analysis_paragraph(
         else:
             imb_fa = f"تعادل خریدار/فروشنده — {imb*100:.0f}٪ خرید در برابر {(1-imb)*100:.0f}٪ فروش"
         lines.append(f"• {imb_fa}")
-
         if spread_pct > 0.5:
             spread_fa = f"اسپرد بالا ({spread_pct:.2f}٪) — نقدینگی ضعیف، مراقب باش"
         elif spread_pct > 0.1:
@@ -2804,14 +2662,12 @@ def build_analysis_paragraph(
         else:
             spread_fa = f"اسپرد کم ({spread_pct:.3f}٪) — بازار نقدشونده"
         lines.append(f"• {spread_fa}")
-
         wall = ob.get("wall")
         if wall:
             lines.append(
                 f"• دیوار سفارش {'خرید' if wall['side'] == 'bid' else 'فروش'} در {wall['price']:,.2f} ({wall['ratio']:.1f}× حجم معمولی)"
             )
         lines.append("")
-
     r, s = safe_num(r_main.get("resistance")), safe_num(r_main.get("support"))
     if (r > 0 or s > 0) and price > 0:
         lines.extend([H("۵. سطوح کلیدی"), ""])
@@ -2852,7 +2708,6 @@ def build_analysis_paragraph(
                     f"🟢 **حمایت:** {s:,.2f}$ ({dist_s:+.2f}٪ — {proximity_s})"
                 )
         lines.append("")
-
     if scenarios:
         lines.extend([H("۶. سناریوهای پیش‌رو"), ""])
         for sc in scenarios[:3]:
@@ -2863,9 +2718,12 @@ def build_analysis_paragraph(
                     "",
                 ]
             )
-
     lines.extend([H("جمع‌بندی"), ""])
-    if SigEnum.is_long(signal) and confidence >= 70 and not active_traps:
+    if SigEnum.is_long(signal) and confidence >= 85 and not active_traps:
+        lines.append(
+            "💎 **سیگنال طلایی!** — این فرصت نایابه. می‌تونی با اطمینان بالا وارد شی."
+        )
+    elif SigEnum.is_long(signal) and confidence >= 70 and not active_traps:
         lines.append("✅ **می‌تونی وارد شی** — اطمینان بالا، تله‌ای نیست.")
         if r > 0 and (r - price) / price * 100 < 1.5:
             lines.append(f"⚠️ ولی مقاومت {r:,.0f} نزدیکه — TP رو کمی پایین‌تر بذار.")
@@ -2875,6 +2733,8 @@ def build_analysis_paragraph(
         lines.append("⚠️ **با احتیاط وارد شو** — فقط با ۰.۵-۱٪ سرمایه.")
     elif SigEnum.is_long(signal):
         lines.append("🟡 **صبر کن** — سیگنال ضعیفه، احتمال خطا بالاست.")
+    elif SigEnum.is_short(signal) and confidence >= 85 and not active_traps:
+        lines.append("💎 **سیگنال طلایی فروش!** — این فرصت نایابه.")
     elif SigEnum.is_short(signal) and confidence >= 70:
         lines.append("🔴 **SHORT منطقیه** — ولی SL تنگ بذار، نوسان بالاست.")
     elif SigEnum.is_short(signal) and confidence >= 50:
@@ -2888,13 +2748,181 @@ def build_analysis_paragraph(
             lines.append(
                 "⏸ **بهترین معامله، معامله‌ای هست که انجام نشه.** صبر کن تا سیگنال واضح بیاد."
             )
+    return "\n".join(lines)
 
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 ai_export — واقعاً خام (فاز ۱۲.۶)
+# ═══════════════════════════════════════════════════════════
+def _now_shamsi_str() -> str:
+    try:
+        now = datetime.now(ZoneInfo("Asia/Tehran"))
+        try:
+            import jdatetime
+
+            j = jdatetime.datetime.fromgregorian(datetime=now)
+            date_str = f"{j.year:04d}/{j.month:02d}/{j.day:02d}"
+        except ImportError:
+            date_str = now.strftime("%Y/%m/%d")
+        return f"{date_str} {now.strftime('%H:%M:%S')}"
+    except Exception:
+        return "—"
+
+
+def _build_ai_export(
+    ticker: str,
+    name: str,
+    tf_name: str,
+    analysis: dict,
+    tfs_data: dict | None = None,
+    df=None,
+) -> str:
+    if not analysis:
+        return ""
+    lines: list[str] = []
+    L = lines.append
+    L(f"# دیتای خام: {name} ({ticker}) — {tf_name}")
+    L("")
+    L("## شناسنامه")
+    L(f"- نماد: {ticker}")
+    L(f"- نام: {name}")
+    L(f"- تایم‌فریم: {tf_name}")
+    L(f"- منبع درخواست: {analysis.get('source', '—')}")
+    L(f"- منبع واقعی: {analysis.get('source_used', '—')}")
+    L(
+        f"- نوع بازار: {'فیوچرز' if analysis.get('market_type') == 'futures' else 'اسپات'}"
+    )
+    L(f"- پروفایل ریسک: {analysis.get('risk_profile', '—')}")
+    L(f"- زمان تحلیل: {_now_shamsi_str()}")
+    L("")
+    if df is not None and not df.empty:
+        try:
+            tail = df.tail(30)
+            has_vol = "volume" in tail.columns
+            L("## OHLCV (۳۰ کندل آخر)")
+            if has_vol:
+                L("timestamp,open,high,low,close,volume")
+            else:
+                L("timestamp,open,high,low,close")
+            for ts, row in tail.iterrows():
+                ts_str = str(ts) if hasattr(ts, "strftime") else str(ts)
+                o = row.get("open", 0)
+                h = row.get("high", 0)
+                l = row.get("low", 0)
+                c = row.get("close", 0)
+                if has_vol:
+                    v = row.get("volume", 0)
+                    L(f"{ts_str},{o},{h},{l},{c},{v}")
+                else:
+                    L(f"{ts_str},{o},{h},{l},{c}")
+            L("")
+        except Exception as e:
+            logger.warning(f"[Analyzer] ai_export OHLCV: {e!r}")
+    L("## اندیکاتورهای تکنیکال (خام)")
+    for key, label in [
+        ("rsi", "rsi_14"),
+        ("stoch_k", "stoch_k_5_3_3"),
+        ("stoch_d", "stoch_d_5_3_3"),
+        ("willr", "williams_r_14"),
+        ("cci", "cci_20"),
+        ("roc", "roc_10"),
+    ]:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+    L("### روند")
+    for key, label in [
+        ("ema200", "ema_200"),
+        ("ema50", "ema_50"),
+        ("ema20", "ema_20"),
+        ("macd_hist", "macd_hist_12_26_9"),
+        ("adx", "adx_14"),
+        ("dmp", "di_plus_14"),
+        ("dmn", "di_minus_14"),
+    ]:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+    L("### نوسان")
+    for key, label in [
+        ("atr", "atr_14"),
+        ("bb_upper", "bb_upper_20_2"),
+        ("bb_lower", "bb_lower_20_2"),
+    ]:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+    L("### حجم")
+    for key, label in [
+        ("vol_ratio", "volume_ratio_vs_ma20"),
+        ("cvd", "cvd_cumulative"),
+        ("delta", "delta_buy_minus_sell"),
+    ]:
+        v = analysis.get(key)
+        if v is not None:
+            L(f"- {label}: {v}")
+    L("")
+    L("## سطوح کلیدی (محاسبه ریاضی)")
+    price = analysis.get("price")
+    if price:
+        L(f"- قیمت فعلی: {price}")
+    pivots = analysis.get("pivots") or {}
+    if pivots:
+        L("- Pivot Points (روزانه):")
+        for k, v in pivots.items():
+            L(f"  - {k}: {v}")
+    support = analysis.get("support")
+    resistance = analysis.get("resistance")
+    if support:
+        L(f"- حمایت نزدیک (Swing): {support}")
+    if resistance:
+        L(f"- مقاومت نزدیک (Swing): {resistance}")
+    fib = analysis.get("fibonacci") or {}
+    if fib and fib.get("levels"):
+        L("- Fibonacci retracement:")
+        for ratio, level in fib["levels"].items():
+            L(f"  - {ratio}: {level}")
+    L("")
+    ob = analysis.get("orderbook")
+    if ob and ob.get("imbalance") is not None:
+        L("## عمق بازار (اسنپ‌شات)")
+        L(f"- best_bid: {ob.get('best_bid')}")
+        L(f"- best_ask: {ob.get('best_ask')}")
+        L(f"- mid: {ob.get('mid')}")
+        L(f"- spread: {ob.get('spread')}")
+        L(f"- spread_pct: {ob.get('spread_pct')}%")
+        L(f"- imbalance (bid/(bid+ask)): {ob.get('imbalance')}")
+        L(f"- bid_volume: {ob.get('bid_volume')}")
+        L(f"- ask_volume: {ob.get('ask_volume')}")
+        L(f"- depth_value: {ob.get('depth_value')}")
+        L("")
+    close_series = analysis.get("close_series") or []
+    if close_series:
+        L("## سری close (۳۰ کندل آخر — برای نمودار)")
+        L(",".join(str(round(c, 4)) for c in close_series))
+        L("")
+    L("---")
+    L("")
+    L("⚠️ **این دیتای خام است — بدون تحلیل یا جهت‌گیری.**")
+    L("سیستم تحلیل ما هم ممکنه اشتباه کرده باشه.")
+    L("تو به عنوان یک تحلیل‌گر مستقل، از این اعداد استفاده کن و خودت تحلیل کن.")
+    L("")
+    L("⏰ زمان تولید: " + _now_shamsi_str())
+    L(f"🏷️ نسخه analyzer: {ANALYZER_VERSION}")
     return "\n".join(lines)
 
 
 __all__ = [
     "RISK_PROFILES",
     "CONFIDENCE_TIERS",
+    "CONFIDENCE_LEVELS",
+    "MIN_CONF_TO_SHOW",
+    "TF_CONFIDENCE_OFFSET",
+    "TF_RR_PROFILES",
+    "ANALYZER_VERSION",
     "classify_regime",
     "compute_indicators",
     "compute_pivot_points",
@@ -2909,11 +2937,3 @@ __all__ = [
     "_traps_summary",
     "build_scenarios",
 ]
-
-if __name__ == "__main__":
-    print("=" * 70)
-    print("تست core/analyzer.py — نسخه ۱۰.۱۰")
-    print("=" * 70)
-    print(f"RISK_PROFILES keys: {list(RISK_PROFILES.keys())}")
-    print(f"CONFIDENCE_TIERS: {list(CONFIDENCE_TIERS.keys())}")
-    print("[OK] تست کامل شد.")

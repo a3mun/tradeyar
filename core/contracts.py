@@ -767,17 +767,20 @@ def compute_net_rr(
     fee_ratio = (reward_pct / fee_pct) if fee_pct > 0 else 0.0
     breakeven_pct = fee_rate * 100
 
-    # 🔴 فاز ۱۰.۵ — is_worthwhile ترکیبی (توصیه آمریکایی)
-    # سه شرط: rr_net > 1.5 AND fee_ratio > 5 AND timeframe_viable
+    # 🔴 فاز ۱۲.۴ — آستانه‌های واقع‌بینانه‌تر
     #
     # ═══ چرا این تغییر ═══
-    # قبلاً: rr_net ≥ 1.0 AND fee_ratio ≥ 3.0
-    #   → خیلی آسان‌گیر بود، سیگنال‌های ضعیف هم is_worthwhile=True می‌گرفتن
+    # R:R خالص برای TFهای پایین (که ATR کوچیکه و کارمزد/اسپرد
+    # نسبت بزرگی از R:R رو می‌خوره) خیلی افت می‌کنه. آستانه‌های
+    # سخت‌گیرانه (1.5 / 5.0 / 1.3) باعث می‌شد سیگنال‌های ۶۰-۹۰٪
+    # که در واقع R:R خالص‌شون ۱.۲-۱.۴ هست، کلاً رد بشن.
     #
-    # الان: هر سه شرط لازم
-    #   → فقط سیگنال‌های واقعاً ارزشمند قبول می‌شن
-    timeframe_viable = rr_net >= 1.3
-    is_worthwhile = rr_net > 1.5 and fee_ratio > 5.0 and timeframe_viable
+    # ═══ آستانه‌های جدید (محافظه‌کارانه) ═══
+    # rr_net ≥ 1.0  →  viable (حداقل قابل قبول)
+    # rr_net > 1.2  →  worthwhile (ارزش معامله)
+    # fee_ratio > 3 →  هزینه نسبت به ریوارد قابل قبول
+    timeframe_viable = rr_net >= 1.0
+    is_worthwhile = rr_net > 1.2 and fee_ratio > 3.0 and timeframe_viable
 
     return {
         "rr_gross": round(rr_gross, 3),
