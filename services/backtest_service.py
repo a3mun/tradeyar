@@ -1,12 +1,12 @@
 """
 services/backtest_service.py
-راستی‌آزمایی — موتور اصلی (نسخه ۷.۲ — فاز ۱۱.۶)
+راستی‌آزمایی — موتور اصلی (نسخه ۸.۱ — فاز ۱۳.۱)
 ============================================================
-🔴 تغییرات نسخه ۷.۲:
-  ۱. حذف تعریف تکراری backtest_all (فقط یک نسخه باقی ماند).
-  ۲. اصلاح trend_accuracy — حالا صفر نمی‌شود وقتی روند flat بوده.
-  ۳. اصلاح _get_r_value — پشتیبانی از expired_pnl_pct برای timeout.
-  ۴. حفظ باگ‌فیکس‌های قبلی: ۲ کندل، ترتیب زمانی TP/SL.
+🔴 تغییرات نسخه ۸.۱ (نسبت به ۸.۰):
+  ۱. محدود کردن df_after به بازه [entry_ts, timeout_end]
+  ۲. قیمت Timeout = آخرین کندل معتبر (نه آخرین قیمت موجود)
+  ۳. نبود داده = برگرداندن None (دوباره بررسی شود)، نه Timeout صفر
+  ۴. compute_stats_by_profile با Timeoutها (هم‌تعریف با compute_stats)
 """
 
 from __future__ import annotations
@@ -20,29 +20,14 @@ from sqlmodel import Session, select, or_
 
 from api.database import engine
 from api.models import SignalLog
+from core.contracts import get_signal_timeout
 from core.data_fetcher import fetch_history_by_source
 
 logger = logging.getLogger(__name__)
 
-# ═══════════════════════════════════════════════════════════
-# تنظیمات
-# ═══════════════════════════════════════════════════════════
-_TF_MINUTES: dict[str, int] = {
-    "۱ دقیقه": 1,
-    "۵ دقیقه": 5,
-    "۱۵ دقیقه": 15,
-    "۳۰ دقیقه": 30,
-    "۱ ساعت": 60,
-    "روزانه": 1440,
-}
-
-BACKTEST_TF_WHITELIST = ["۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"]
 BACKTEST_MAX_SIGNALS = 200
 
 
-# ═══════════════════════════════════════════════════════════
-# ابزارهای زمانی
-# ═══════════════════════════════════════════════════════════
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -51,21 +36,6 @@ def _ensure_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def _compute_timeout_min(tf_name: str, market_type: str) -> int:
-    tf_min = _TF_MINUTES.get(tf_name, 5)
-    if tf_min <= 5:
-        candles = 12
-    elif tf_min <= 15:
-        candles = 10
-    elif tf_min <= 30:
-        candles = 10
-    elif tf_min <= 60:
-        candles = 8
-    else:
-        candles = 7
-    return tf_min * candles
 
 
 def _to_utc_dt(ts) -> datetime:
@@ -113,9 +83,6 @@ def fetch_ohlcv(
         return None
 
 
-# ═══════════════════════════════════════════════════════════
-# بررسی یک سیگنال
-# ═══════════════════════════════════════════════════════════
 def _check_one(log: SignalLog) -> Optional[str]:
     if log.result is not None or log.expired:
         return None
@@ -123,25 +90,32 @@ def _check_one(log: SignalLog) -> Optional[str]:
         return None
 
     entry_ts = _ensure_utc(log.timestamp)
-    timeout_min = _compute_timeout_min(log.tf, log.market_type)
+    timeout_td = get_signal_timeout(log.tf, log.market_type)
+    timeout_end = entry_ts + timeout_td
+    timeout_min = int(timeout_td.total_seconds() / 60)
     elapsed_min = (_utcnow() - entry_ts).total_seconds() / 60
 
-    # ─── محاسبه هوشمند تعداد کندل مورد نیاز ───
-    tf_min = _TF_MINUTES.get(log.tf, 5)
+    tf_min_map = {
+        "۱ دقیقه": 1,
+        "۵ دقیقه": 5,
+        "۱۵ دقیقه": 15,
+        "۳۰ دقیقه": 30,
+        "۱ ساعت": 60,
+        "روزانه": 1440,
+    }
+    tf_min = tf_min_map.get(log.tf, 5)
     bars_needed = max(int(elapsed_min / tf_min) + 10, 50)
 
-    if elapsed_min >= timeout_min:
-        current_price = log.price
-        try:
-            df_exp = fetch_ohlcv(log.ticker, log.source, log.tf, limit=1)
-            if df_exp is not None and len(df_exp) > 0:
-                current_price = float(df_exp["close"].iloc[-1])
-        except Exception:
-            pass
-        return _mark_expired(log, current_price)
-
     df = fetch_ohlcv(log.ticker, log.source, log.tf, limit=bars_needed)
+
+    # 🔴 اصلاح ۳: نبود داده — اگه timeout شده، expired ثبت کن
     if df is None or len(df) == 0 or not isinstance(df.index, pd.DatetimeIndex):
+        if elapsed_min >= timeout_min:
+            # timeout گذشته و داده نداریم — با قیمت ورودی expired ثبت کن
+            logger.info(
+                f"[Backtest] {log.ticker}/{log.tf} timeout بدون داده — expired با price"
+            )
+            return _mark_expired(log, log.price)
         return None
 
     df_idx_utc = (
@@ -149,13 +123,17 @@ def _check_one(log: SignalLog) -> Optional[str]:
         if df.index.tz is None
         else df.index.tz_convert("UTC")
     )
-    df_after = df[df_idx_utc >= entry_ts]
+
+    # 🔴 اصلاح ۱: محدود کردن به بازه اعتبار
+    df_after = df[(df_idx_utc >= entry_ts) & (df_idx_utc <= timeout_end)]
+
     if df_after.empty:
+        if elapsed_min >= timeout_min:
+            return _mark_expired(log, log.price)
         return None
 
     is_long = log.direction == "long"
 
-    # ─── بررسی ترتیب زمانی TP و SL ───
     if is_long:
         win_mask = df_after["high"] >= log.tp
         loss_mask = df_after["low"] <= log.sl
@@ -166,6 +144,7 @@ def _check_one(log: SignalLog) -> Optional[str]:
     tp_time = df_after[win_mask].index[0] if win_mask.any() else None
     sl_time = df_after[loss_mask].index[0] if loss_mask.any() else None
 
+    # SL-first: اگر هم‌زمان یا SL زودتر، loss (بدبینانه)
     if tp_time and sl_time:
         if tp_time < sl_time:
             log.result = "win"
@@ -192,6 +171,11 @@ def _check_one(log: SignalLog) -> Optional[str]:
         log.result_time = _to_utc_dt(sl_time)
         return "loss"
 
+    if elapsed_min >= timeout_min:
+        # 🔴 اصلاح ۲: قیمت خروج = آخرین کندل معتبر
+        current_price = float(df_after["close"].iloc[-1])
+        return _mark_expired(log, current_price)
+
     return None
 
 
@@ -207,13 +191,10 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
 
     log.expired_pnl_pct = round(pnl_pct, 3)
 
-    base_fee = log.fee_pct or 0.23
-    fee_threshold = max(0.3, base_fee * 2.0)
-
-    if pnl_pct > fee_threshold:
+    if pnl_pct > 0:
         log.expired_bias = "win"
         log.result = "win"
-    elif pnl_pct < -fee_threshold:
+    elif pnl_pct < 0:
         log.expired_bias = "loss"
         log.result = "loss"
     else:
@@ -224,11 +205,7 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
     return "expired"
 
 
-# ═══════════════════════════════════════════════════════════
-# بررسی همه‌ی سیگنال‌های pending — 🔴 فقط یک نسخه (تکراری حذف شد)
-# ═══════════════════════════════════════════════════════════
 def backtest_all(max_checks: int = BACKTEST_MAX_SIGNALS) -> dict:
-    """بررسی همه‌ی سیگنال‌های pending."""
     checked, updated, errors = 0, 0, 0
     stats = {"win": 0, "loss": 0, "expired": 0}
 
@@ -299,31 +276,23 @@ def _fetch_closed_rows(
     return session.exec(stmt).all()
 
 
-# ═══════════════════════════════════════════════════════════
-# محاسبه R واقعی
-# ═══════════════════════════════════════════════════════════
 def _get_r_value(log: SignalLog) -> float:
-    """محاسبه R واقعی بر اساس ریسک اولیه"""
     risk_pct = (
         abs(log.price - log.sl) / log.price * 100 if log.price and log.sl else 1.0
     )
-
     if log.result == "win":
         if log.exit_reason == "tp_hit":
             return log.rr or 1.0
         elif log.exit_reason == "timeout" and log.expired_pnl_pct is not None:
-            return abs(log.expired_pnl_pct) / risk_pct if risk_pct > 0 else 0.0
+            return log.expired_pnl_pct / risk_pct if risk_pct > 0 else 0.0
     elif log.result == "loss":
         if log.exit_reason == "sl_hit":
             return -1.0
         elif log.exit_reason == "timeout" and log.expired_pnl_pct is not None:
-            return -abs(log.expired_pnl_pct) / risk_pct if risk_pct > 0 else 0.0
+            return log.expired_pnl_pct / risk_pct if risk_pct > 0 else 0.0
     return 0.0
 
 
-# ═══════════════════════════════════════════════════════════
-# آمار کلی — 🔴 trend_accuracy اصلاح‌شده
-# ═══════════════════════════════════════════════════════════
 def compute_stats(
     tf: str = "",
     source: str = "",
@@ -335,19 +304,18 @@ def compute_stats(
     with Session(engine) as session:
         rows = _fetch_closed_rows(session, tf, source, time_filter, risk_profile, limit)
 
-    win_rows = [r for r in rows if r.tf in BACKTEST_TF_WHITELIST]
     total, expired = len(rows), sum(1 for r in rows if r.expired)
 
-    tp_hits = sum(1 for r in win_rows if r.exit_reason == "tp_hit")
-    sl_hits = sum(1 for r in win_rows if r.exit_reason == "sl_hit")
+    tp_hits = sum(1 for r in rows if r.exit_reason == "tp_hit")
+    sl_hits = sum(1 for r in rows if r.exit_reason == "sl_hit")
     timeout_wins = sum(
-        1 for r in win_rows if r.exit_reason == "timeout" and r.expired_bias == "win"
+        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "win"
     )
     timeout_losses = sum(
-        1 for r in win_rows if r.exit_reason == "timeout" and r.expired_bias == "loss"
+        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "loss"
     )
     timeout_flats = sum(
-        1 for r in win_rows if r.exit_reason == "timeout" and r.expired_bias == "flat"
+        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "flat"
     )
 
     closed_real = tp_hits + sl_hits + timeout_wins + timeout_losses
@@ -356,9 +324,6 @@ def compute_stats(
         ((tp_hits + timeout_wins) / closed_real * 100) if closed_real > 0 else 0.0
     )
 
-    # 🔴 اصلاح trend_accuracy — حالا فقط سیگنال‌های directional با پیش‌بینی مشخص
-    # در نظر گرفته می‌شوند. اگر روند flat بوده و سیگنال جهت‌دار داشته،
-    # به‌عنوان "نه درست نه غلط" رد می‌شود (نه اینکه به wrong اضافه شود).
     trend_correct, trend_wrong = 0, 0
     for r in rows:
         if r.result not in ("win", "loss"):
@@ -366,17 +331,13 @@ def compute_stats(
         pred = r.trend_predicted_at_entry
         if not pred or pred == "flat":
             continue
-
-        # پیش‌بینی bull: فقط long می‌تواند درست باشد
         if pred == "bull":
             if r.direction == "long" and r.result == "win":
                 trend_correct += 1
             elif r.direction == "long" and r.result == "loss":
                 trend_wrong += 1
             elif r.direction == "short":
-                # پیش‌بینی bull ولی short گرفته → پیش‌بینی غلط
                 trend_wrong += 1
-        # پیش‌بینی bear: فقط short می‌تواند درست باشد
         elif pred == "bear":
             if r.direction == "short" and r.result == "win":
                 trend_correct += 1
@@ -384,12 +345,10 @@ def compute_stats(
                 trend_wrong += 1
             elif r.direction == "long":
                 trend_wrong += 1
-
     trend_total = trend_correct + trend_wrong
     trend_acc = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
 
-    # ─── محاسبه Profit Factor و Expectancy بر اساس R واقعی ───
-    r_values = [_get_r_value(r) for r in win_rows]
+    r_values = [_get_r_value(r) for r in rows]
     r_values = [r for r in r_values if r != 0]
     gross_profit = sum(r for r in r_values if r > 0)
     gross_loss = abs(sum(r for r in r_values if r < 0))
@@ -405,7 +364,7 @@ def compute_stats(
     p_win = win_rate / 100
     p_loss = 1 - p_win
     expectancy = (
-        (p_win * avg_win) - (p_loss * avg_loss)
+        ((p_win * avg_win) - (p_loss * avg_loss))
         if (avg_win > 0 or avg_loss > 0)
         else 0.0
     )
@@ -430,52 +389,6 @@ def compute_stats(
     }
 
 
-# ═══════════════════════════════════════════════════════════
-# آمار به تفکیک رژیم بازار
-# ═══════════════════════════════════════════════════════════
-def compute_stats_by_regime(
-    time_filter: str = "all", risk_profile: str = ""
-) -> dict[str, dict]:
-    result: dict[str, dict] = {}
-    with Session(engine) as session:
-        rows = _fetch_closed_rows(
-            session, "", "", time_filter, risk_profile, BACKTEST_MAX_SIGNALS
-        )
-
-    by_regime: dict[str, list[SignalLog]] = {}
-    for r in rows:
-        regime_val = r.regime or "unknown"
-        by_regime.setdefault(regime_val, []).append(r)
-
-    for regime, items in by_regime.items():
-        total = len(items)
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        tw = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
-        )
-        tl = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
-        )
-        closed = tp_hits + sl_hits + tw + tl
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
-        result[regime] = {
-            "total": total,
-            "tp_hits": tp_hits,
-            "sl_hits": sl_hits,
-            "timeout_wins": tw,
-            "timeout_losses": tl,
-            "win_rate": round(wr, 2),
-            "direction_accuracy": round(da, 2),
-        }
-
-    return result
-
-
-# ═══════════════════════════════════════════════════════════
-# آمار به تفکیک TF
-# ═══════════════════════════════════════════════════════════
 def compute_stats_by_tf(
     time_filter: str = "all", risk_profile: str = "", limit: int = BACKTEST_MAX_SIGNALS
 ) -> dict[str, dict]:
@@ -483,7 +396,6 @@ def compute_stats_by_tf(
     result: dict[str, dict] = {}
     with Session(engine) as session:
         rows = _fetch_closed_rows(session, "", "", time_filter, risk_profile, limit)
-
     by_tf: dict[str, list[SignalLog]] = {}
     for r in rows:
         by_tf.setdefault(r.tf, []).append(r)
@@ -501,7 +413,6 @@ def compute_stats_by_tf(
         wr = (tp_hits / closed * 100) if closed > 0 else 0.0
         da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
 
-        # trend accuracy per TF
         tc, tw_wrong = 0, 0
         for r in items:
             if r.result not in ("win", "loss"):
@@ -534,13 +445,85 @@ def compute_stats_by_tf(
             "direction_accuracy": round(da, 2),
             "trend_accuracy": round(t_acc, 2),
         }
-
     return result
 
 
-# ═══════════════════════════════════════════════════════════
-# آمار به تفکیک کیفیت
-# ═══════════════════════════════════════════════════════════
+# 🔴 اصلاح ۴: compute_stats_by_profile با Timeoutها
+def compute_stats_by_profile(time_filter: str = "all") -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    with Session(engine) as session:
+        stmt = select(SignalLog)
+        if time_filter != "all":
+            now = _utcnow()
+            days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
+            if days:
+                stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
+        rows = session.exec(stmt).all()
+
+    by_profile: dict[str, list[SignalLog]] = {}
+    for r in rows:
+        by_profile.setdefault(r.risk_profile, []).append(r)
+
+    for profile, items in by_profile.items():
+        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
+        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
+        tw = sum(
+            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
+        )
+        tl = sum(
+            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
+        )
+        closed = tp_hits + sl_hits + tw + tl
+        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
+        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
+        result[profile] = {
+            "total": len(items),
+            "wins": tp_hits,
+            "losses": sl_hits,
+            "timeout_wins": tw,
+            "timeout_losses": tl,
+            "win_rate": round(wr, 2),
+            "direction_accuracy": round(da, 2),
+        }
+    return result
+
+
+def compute_stats_by_regime(
+    time_filter: str = "all", risk_profile: str = ""
+) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    with Session(engine) as session:
+        rows = _fetch_closed_rows(
+            session, "", "", time_filter, risk_profile, BACKTEST_MAX_SIGNALS
+        )
+    by_regime: dict[str, list[SignalLog]] = {}
+    for r in rows:
+        by_regime.setdefault(r.regime or "unknown", []).append(r)
+
+    for regime, items in by_regime.items():
+        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
+        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
+        tw = sum(
+            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
+        )
+        tl = sum(
+            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
+        )
+        closed = tp_hits + sl_hits + tw + tl
+        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
+        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
+        result[regime] = {
+            "total": len(items),
+            "tp_hits": tp_hits,
+            "sl_hits": sl_hits,
+            "timeout_wins": tw,
+            "timeout_losses": tl,
+            "win_rate": round(wr, 2),
+            "direction_accuracy": round(da, 2),
+        }
+    return result
+
+
 def compute_stats_by_quality(
     tf: str = "",
     source: str = "",
@@ -574,40 +557,7 @@ def compute_stats_by_quality(
 
     return {
         "all": _stats(rows),
-        "strong": _stats([r for r in rows if r.confidence >= 70]),
-        "normal": _stats([r for r in rows if 50 <= r.confidence < 70]),
-        "weak": _stats([r for r in rows if r.confidence < 50]),
+        "strong": _stats([r for r in rows if r.confidence >= 75]),
+        "normal": _stats([r for r in rows if 60 <= r.confidence < 75]),
+        "weak": _stats([r for r in rows if 45 <= r.confidence < 60]),
     }
-
-
-# ═══════════════════════════════════════════════════════════
-# آمار به تفکیک پروفایل
-# ═══════════════════════════════════════════════════════════
-def compute_stats_by_profile(time_filter: str = "all") -> dict[str, dict]:
-    result: dict[str, dict] = {}
-    with Session(engine) as session:
-        stmt = select(SignalLog)
-        if time_filter != "all":
-            now = _utcnow()
-            days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
-            if days:
-                stmt = stmt.where(SignalLog.timestamp >= now - timedelta(days=days))
-        rows = session.exec(stmt).all()
-
-    by_profile: dict[str, list[SignalLog]] = {}
-    for r in rows:
-        by_profile.setdefault(r.risk_profile, []).append(r)
-
-    for profile, items in by_profile.items():
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        closed = tp_hits + sl_hits
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        result[profile] = {
-            "total": len(items),
-            "wins": tp_hits,
-            "losses": sl_hits,
-            "win_rate": round(wr, 2),
-        }
-
-    return result

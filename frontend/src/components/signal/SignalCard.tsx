@@ -333,6 +333,20 @@ const TF_TO_SHORT: Record<string, string> = {
   "روزانه": "1d",
 };
 
+  // ═══ محاسبه وضعیت بازار برای فوتر ═══
+  const getSessionStatus = () => {
+    const d = new Date();
+    const utcHour = d.getUTCHours();
+    const utcDay = d.getUTCDay();
+    if (utcDay === 0 || utcDay === 6) return { label: "📅 آخر هفته", color: "text-orange-400" };
+    if (utcHour >= 0 && utcHour < 6) return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
+    if (utcHour >= 12 && utcHour < 16) return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
+    return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
+  };
+  const session = getSessionStatus();
+  
+
+
 function tfShort(tf: string): string {
   return TF_TO_SHORT[tf] || tf;
 }
@@ -923,18 +937,6 @@ export function SignalCard() {
               <Badge className={`border py-0 text-[8px] ${profileLabel.cls}`}>
                 {profileLabel.fa}
               </Badge>
-              {confidenceLevel !== "weak" && (
-                <Badge
-                  className="border py-0 text-[8px]"
-                  style={{
-                    background: levelStyle.bg,
-                    borderColor: levelStyle.border,
-                    color: levelStyle.text,
-                  }}
-                >
-                  {levelStyle.icon} {levelStyle.label}
-                </Badge>
-              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {isFallback ? (
@@ -1312,13 +1314,19 @@ export function SignalCard() {
 
         <div className="flex items-center justify-between border-t border-border/20 px-3 py-0 text-[9px]">
           <span
-            className="text-muted-foreground/50"
+            className="shrink-0 text-muted-foreground/50"
             style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}
           >
             trademun.ir
           </span>
+          
+          {/* 🔴 بج وضعیت بازار در فوتر کارت */}
+          <span className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}>
+            {session.label}
+          </span>
+
           <span
-            className="num flex items-center gap-1 text-muted-foreground/60"
+            className="num flex shrink-0 items-center gap-1 text-muted-foreground/60"
             style={{ fontFamily: "monospace" }}
           >
             <span>

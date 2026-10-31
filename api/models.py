@@ -6,6 +6,8 @@ api/models.py
 🔴 تغییرات:
   • + exit_reason: "tp_hit" | "sl_hit" | "timeout" | None
   • + trend_predicted_at_entry: "bull" | "bear" | "flat" | None
+      winning_group: Optional[str] = Field(default=None, index=True)
+    # "trend" | "momentum" | "volume" | "structure" | "sentiment" | None
   • این دو ستون، تعریف win/loss و trend_accuracy را شفاف می‌کنند
 """
 

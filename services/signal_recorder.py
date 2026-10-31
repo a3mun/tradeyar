@@ -111,6 +111,20 @@ def _has_recent_same_tf_signal(
     ).first()
     return existing is not None
 
+    """گروهی که بیشترین سهم را در جهت سیگنال داشت"""
+    if not groups or direction not in ("long", "short"):
+        return None
+    best_group, best_abs = None, 0.0
+    for g_name, g_data in groups.items():
+        g_score = g_data.get("score", 0.0)
+        if direction == "long" and g_score > best_abs:
+            best_abs = g_score
+            best_group = g_name
+        elif direction == "short" and g_score < -best_abs:
+            best_abs = abs(g_score)
+            best_group = g_name
+    return best_group
+
 
 def record_signal(
     ticker: str,
@@ -148,6 +162,16 @@ def record_signal(
         f"conf={confidence}% direction={direction} "
         f"is_worthwhile={is_worthwhile}"
     )
+
+    # ═══ چک‌های اولیه ═══
+    # 🔴 منبع واحد حقیقت: سیگنال‌های زیر ۴۰٪ اصلاً ثبت نمی‌شوند
+    if confidence < 40:
+        logger.debug(
+            f"[Recorder] ⏭ {ticker} {tf_name}: conf={confidence}% < 40% (غیرسیگنال)"
+        )
+        return False
+
+    # (بقیه چک‌های قبلی مثل tf_name in _TF_SKIP_FOR_IRT و ... بدون تغییر ادامه پیدا می‌کنند)
 
     # ═══ چک‌های اولیه ═══
     if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:

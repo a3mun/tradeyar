@@ -54,9 +54,9 @@ TF_CONFIDENCE_OFFSET = {
 
 # 🔴 پروفایل R:R per TF
 TF_RR_PROFILES = {
-    "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 2.2},
-    "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 2.8},
-    "۱۵ دقیقه": {"sl_mult": 1.4, "tp_mult": 3.2},
+    "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 1.5},
+    "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 1.8},
+    "۱۵ دقیقه": {"sl_mult": 1.4, "tp_mult": 2.5},
     "۳۰ دقیقه": {"sl_mult": 1.5, "tp_mult": 3.3},
     "۱ ساعت": {"sl_mult": 1.6, "tp_mult": 3.8},
     "روزانه": {"sl_mult": 1.8, "tp_mult": 4.2},
@@ -794,7 +794,7 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
 
 
 def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
-    reasons, signals = [], []
+    reasons = []
     last = df.iloc[-1]
     price = safe_num(last["close"])
     bb_upper = safe_num(last.get("bb_upper"))
@@ -802,15 +802,9 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     bb_mid = safe_num(last.get("bb_mid"))
     if bb_upper > 0 and bb_lower > 0:
         if price <= bb_lower * 1.005:
-            signals.append((+0.8, 1.1))
             reasons.append("نزدیک باند پایین Bollinger")
         elif price >= bb_upper * 0.995:
-            signals.append((-0.8, 1.1))
             reasons.append("نزدیک باند بالا Bollinger")
-        elif price < bb_mid:
-            signals.append((+0.2, 0.6))
-        else:
-            signals.append((-0.2, 0.6))
     atr = safe_num(last.get("atr"))
     if atr > 0 and price > 0:
         atr_pct = (atr / price) * 100
@@ -819,19 +813,15 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     kc_lower = safe_num(last.get("kc_lower"))
     if kc_upper > 0 and kc_lower > 0:
         if price <= kc_lower * 1.005:
-            signals.append((+0.7, 0.9))
             reasons.append("نزدیک کانال پایین Keltner")
         elif price >= kc_upper * 0.995:
-            signals.append((-0.7, 0.9))
             reasons.append("نزدیک کانال بالای Keltner")
     dc_upper = safe_num(last.get("dc_upper"))
     dc_lower = safe_num(last.get("dc_lower"))
     if dc_upper > 0 and dc_lower > 0:
         if price >= dc_upper * 0.998:
-            signals.append((-0.6, 0.8))
             reasons.append("نزدیک سقف Donchian")
         elif price <= dc_lower * 1.002:
-            signals.append((+0.6, 0.8))
             reasons.append("نزدیک کف Donchian")
     stddev = safe_num(last.get("stddev"))
     if stddev > 0 and price > 0:
@@ -840,13 +830,9 @@ def _analyze_volatility(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
             reasons.append(f"نوسان بالا (StdDev={cv:.2f}%)")
         elif cv < 1:
             reasons.append(f"نوسان کم (StdDev={cv:.2f}%)")
-    total_w = sum(w for _, w in signals)
-    score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-    o_thr = _thresholds[2] if _thresholds else 0.30
-    vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
     return {
-        "vote": vote,
-        "score": round(score, 3),
+        "vote": 0,
+        "score": 0.0,
         "reasons": reasons,
         "details": {
             "bb_upper": bb_upper,
@@ -1398,6 +1384,16 @@ def _aggregate_votes(
         profile_key,
         RISK_PROFILES.get(f"{profile}_spot", RISK_PROFILES["aggressive_spot"]),
     )
+
+    # 🔴 جهت بر اساس weighted_sum (وزن‌ها واقعاً اثر می‌گذارند)
+    WEIGHTED_DIR_THRESHOLD = 0.15
+    if final_score > WEIGHTED_DIR_THRESHOLD:
+        weighted_direction = "long"
+    elif final_score < -WEIGHTED_DIR_THRESHOLD:
+        weighted_direction = "short"
+    else:
+        weighted_direction = "neutral"
+
     if tf_hint in ("۱ دقیقه", "۵ دقیقه"):
         _tf_threshold = 1
     elif tf_hint in ("۱۵ دقیقه", "۳۰ دقیقه"):
@@ -1409,14 +1405,16 @@ def _aggregate_votes(
     min_adx = profile_cfg.get("min_adx", 0)
     adx_ok = adx >= min_adx
     if profile == "aggressive":
-        if votes_long >= required_votes and votes_long > votes_short:
-            direction, consensus = "long", (
+        if weighted_direction == "long" and votes_long >= required_votes:
+            direction = "long"
+            consensus = (
                 "weak"
                 if votes_long <= required_votes
                 else ("normal" if votes_long <= required_votes + 1 else "strong")
             )
-        elif votes_short >= required_votes and votes_short > votes_long:
-            direction, consensus = "short", (
+        elif weighted_direction == "short" and votes_short >= required_votes:
+            direction = "short"
+            consensus = (
                 "weak"
                 if votes_short <= required_votes
                 else ("normal" if votes_short <= required_votes + 1 else "strong")
@@ -1426,14 +1424,12 @@ def _aggregate_votes(
     else:
         if not adx_ok:
             direction, consensus = "neutral", "neutral"
-        elif votes_long >= required_votes and votes_long > votes_short:
-            direction, consensus = "long", (
-                "normal" if votes_long == required_votes else "strong"
-            )
-        elif votes_short >= required_votes and votes_short > votes_long:
-            direction, consensus = "short", (
-                "normal" if votes_short == required_votes else "strong"
-            )
+        elif weighted_direction == "long" and votes_long >= required_votes:
+            direction = "long"
+            consensus = "normal" if votes_long == required_votes else "strong"
+        elif weighted_direction == "short" and votes_short >= required_votes:
+            direction = "short"
+            consensus = "normal" if votes_short == required_votes else "strong"
         else:
             direction, consensus = "neutral", "neutral"
     if market_type == "spot" and direction == "short":
@@ -1441,6 +1437,7 @@ def _aggregate_votes(
     direction, penalty, override_reason = _apply_trend_override(
         direction, {"final_score": final_score}, groups, regime
     )
+
     return {
         "final_score": round(final_score, 3),
         "votes_long": votes_long,
@@ -1615,68 +1612,83 @@ def _determine_signal(
     allow_short: bool,
     market_type: str,
 ) -> tuple[str, str, str]:
-    if direction == "neutral" or is_boring:
-        return (
-            "خنثی",
-            (
-                f"بدون سیگنال معتبر ({confidence}٪)"
-                if confidence > 0
-                else "بدون سیگنال معتبر — بازار خوابه"
-            ),
-            "⚪ صبر کن",
-        )
-    if market_type == "spot" and direction == "short":
-        return "خنثی", f"🔴 در اسپات نمی‌تونی بفروشی ({confidence}٪)", "⚪ صبر کن"
-    if confidence < MIN_CONF_TO_SHOW:
-        return ("خنثی", f"اطمینان {confidence}٪ خیلی پایینه", "⚪ صبر کن")
+
+    # 🔴 ۱. از ۰ تا ۱۵: خنثی
+    if confidence < 15:
+        return ("خنثی", f"بدون سیگنال ({confidence}٪)", "⚪ صبر کن")
+
+    # 🔴 ۲. از ۱۵ تا ۳۰: دور
+    if confidence < 30:
+        return ("دور", f"دور از نقطه ورود ({confidence}٪)", "⚪ صبر کن")
+
+    # 🔴 ۳. از ۳۰ تا ۴۰: در حال تشکیل
+    if confidence < 40:
+        return ("در حال تشکیل", f"در حال شکل‌گیری ({confidence}٪)", "⚪ صبر کن")
+
+    # 🔴 از اینجا به بعد سیگنال‌های واقعی هستند (۴۰٪ به بالا):
     is_golden = confidence >= 85
     is_strong = 70 <= confidence < 85
-    is_normal = 50 <= confidence < 70
-    is_weak = 25 <= confidence < 50
+    is_normal = 55 <= confidence < 70
+    is_weak = 40 <= confidence < 55
+
+    if direction == "neutral" or is_boring:
+        return ("خنثی", f"بدون جهت مشخص ({confidence}٪)", "⚪ صبر کن")
+
+    if market_type == "spot" and direction == "short":
+        return "خنثی", f"🔴 در اسپات نمی‌تونی بفروشی ({confidence}٪)", "⚪ صبر کن"
+
     if direction == "long":
         if is_golden:
-            return (
-                "LONG",
-                "💎 سیگنال طلایی خرید — فرصت نایاب",
-                "🟢 LONG بزن — قوی‌ترین سیگنال",
-            )
+            return "LONG", "💎 سیگنال طلایی خرید", "🟢 LONG بزن"
         elif is_strong:
-            return (
-                "LONG",
-                "🟢 سیگنال خرید قوی — با حد ضرر",
-                "🟢 بخر — بعداً بفروش" if market_type == "spot" else "🟢 LONG بزن",
-            )
+            return "LONG", "🟢 سیگنال خرید قوی", "🟢 بخر"
         elif is_normal:
-            return (
-                "LONG",
-                "🟡 سیگنال خرید معمولی",
-                "🟢 بخر — بعداً بفروش" if market_type == "spot" else "🟢 LONG بزن",
-            )
+            return "LONG", "🟡 سیگنال خرید معمولی", "🟢 بخر"
         else:
-            return (
-                "LONG ضعیف",
-                f"🟠 سیگنال خرید ضعیف ({confidence}٪) — با احتیاط",
-                "🟡 بخر با احتیاط" if market_type == "spot" else "🟡 LONG ضعیف",
-            )
+            return "LONG ضعیف", f"🟠 خرید ضعیف ({confidence}٪)", "🟡 بخر با احتیاط"
     else:
-        if not allow_short:
-            return "خنثی", f"🔴 SHORT مجاز نیست ({confidence}٪)", "⚪ صبر کن"
         if is_golden:
-            return (
-                "SHORT",
-                "💎 سیگنال طلایی فروش — فرصت نایاب",
-                "🔴 SHORT بزن — قوی‌ترین سیگنال",
-            )
+            return "SHORT", "💎 سیگنال طلایی فروش", "🔴 SHORT بزن"
         elif is_strong:
             return "SHORT", "🔴 سیگنال فروش قوی", "🔴 SHORT بزن"
         elif is_normal:
             return "SHORT", "🔴 سیگنال فروش معمولی", "🔴 SHORT بزن"
         else:
-            return (
-                "SHORT ضعیف",
-                f"🟠 سیگنال فروش ضعیف ({confidence}٪) — با احتیاط",
-                "🟠 SHORT ضعیف",
-            )
+            return "SHORT ضعیف", f"🟠 فروش ضعیف ({confidence}٪)", "🟠 SHORT ضعیف"
+
+
+def _get_session_multiplier() -> tuple[float, str]:
+    """
+    ضریب تعدیل بر اساس سشن‌های جهانی و روز هفته.
+    Returns: (multiplier, label_fa)
+    """
+    now_utc = datetime.now(ZoneInfo("UTC"))
+    hour = now_utc.hour
+    weekday = now_utc.weekday()  # 0=Monday, 5=Saturday, 6=Sunday
+
+    # همپوشانی لندن-نیویورک (پیک نقدینگی): ۱۲:۰۰–۱۶:۰۰ UTC
+    if 12 <= hour < 16:
+        base_mult = 1.10
+        label = "🔥 همپوشانی لندن-نیویورک"
+    # همپوشانی توکیو-لندن: ۰۷:۰۰–۰۹:۰۰ UTC
+    elif 7 <= hour < 9:
+        base_mult = 1.0
+        label = "⚖️ همپوشانی توکیو-لندن"
+    # فقط بازار آسیا (غرب خواب): ۰۰:۰۰–۰۶:۰۰ UTC
+    elif 0 <= hour < 6:
+        base_mult = 0.75  # 🔴 نرم‌تر شد (قبلاً 0.65 بود)
+        label = "🌙 فقط بازار آسیا"
+    # بقیه ساعات
+    else:
+        base_mult = 1.0
+        label = "⚖️ بازار عادی"
+
+    # 🔴 آخر هفته: کاهش ملایم‌تر (۵٪ به جای ۱۰٪)
+    if weekday >= 5:
+        base_mult *= 0.95
+        label += " (📅 آخر هفته)"
+
+    return base_mult, label
 
 
 def analyze_symbol(
@@ -1768,6 +1780,25 @@ def analyze_symbol(
             confidence = max(0, confidence - trap_penalty)
         tier = _confidence_tier(confidence)
         multi_tf_ok, multi_tf_info = True, "بدون بررسی"
+        # 🔴 فیلتر ساعت و روز هفته
+        session_mult, session_label = _get_session_multiplier()
+        confidence = max(0, min(100, int(confidence * session_mult)))
+        tier = _confidence_tier(confidence)
+
+        # 🔴 فیلتر ATR (فشردگی نوسان) — نرم‌تر شده
+        atr_val = safe_num(last.get("atr"))
+        atr_ma = (
+            safe_num(df["atr"].rolling(20).mean().iloc[-1])
+            if len(df) >= 20
+            else atr_val
+        )
+        if atr_ma > 0 and atr_val > 0:
+            atr_ratio = atr_val / atr_ma
+            if atr_ratio < 0.60:  # 🔴 از 0.70 به 0.60 کاهش یافت
+                # بازار کاملاً مرده — سیگنال خنثی
+                confidence = 0
+                tier = "neutral"
+
         if tfs_data and aggregate["direction"] != "neutral":
             higher_signals = []
             for tf_check in ["۱ ساعت", "روزانه"]:
@@ -1885,9 +1916,16 @@ def analyze_symbol(
         if atr > 0 and is_directional:
             tf_mult = get_tf_atr_mult(tf_name)
             tf_sl_mult, tf_tp_mult = _get_tf_rr_profile(tf_name, profile_key)
-            profile_scale = profile["sl_mult"] / 1.3
-            effective_sl_mult = tf_sl_mult * profile_scale
-            effective_tp_mult = tf_tp_mult * profile_scale
+
+            # 🔴 SL بر اساس TF (نه پروفایل) — نوسان واقعی بازار
+            effective_sl_mult = tf_sl_mult
+
+            # 🔴 TP: محتاطانه نزدیک‌تر (WR بالاتر)، جسورانه استاندارد (RR بالاتر)
+            if risk_profile == "conservative":
+                effective_tp_mult = tf_tp_mult * 0.85
+            else:
+                effective_tp_mult = tf_tp_mult
+
             if SigEnum.is_long(signal):
                 sl, tp = (
                     price - atr * effective_sl_mult,
@@ -2086,6 +2124,7 @@ def analyze_symbol(
             "multi_tf_info": multi_tf_info,
             "multi_tf_ok": multi_tf_ok,
             "regime": regime,
+            "session_label": session_label,
             "risk_profile": risk_profile,
             "market_type": market_type,
             "leverage": profile.get("leverage"),

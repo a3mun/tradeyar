@@ -65,6 +65,7 @@ def _add_missing_columns_sqlite(inspector, conn):
         ("is_weak", "INTEGER DEFAULT 0"),
         ("exit_reason", "TEXT"),
         ("trend_predicted_at_entry", "TEXT"),
+        ("winning_group", "TEXT"),
     ]
 
     for col_name, col_type in new_columns:
@@ -106,6 +107,7 @@ def _add_missing_columns_postgres(inspector, conn):
             ("is_weak", "BOOLEAN DEFAULT FALSE"),
             ("exit_reason", "VARCHAR"),
             ("trend_predicted_at_entry", "VARCHAR"),
+            ("winning_group", "VARCHAR"),
         ]
         for col_name, col_type in signallog_cols:
             if col_name not in cols:

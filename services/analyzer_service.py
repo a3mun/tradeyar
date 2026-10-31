@@ -2,10 +2,9 @@
 services/analyzer_service.py
 لایه تحلیل — با کش + fingerprint + analyzer_version
 ============================================================
-نسخه ۴.۱:
-  • cache key با ANALYZER_VERSION
-  • fingerprint با version ترکیب می‌شه
-  • استفاده از _build_ai_export تمیز از core
+نسخه ۴.۳:
+  • اضافه کردن trend_predicted_at_entry به output
+  • حفظ ساختار قبلی
 """
 
 import logging
@@ -15,7 +14,8 @@ from typing import Optional
 
 from core.analyzer import (
     ANALYZER_VERSION,
-    _build_ai_export,  # 🔴 ایمپورت تابع تمیز
+    _build_ai_export,
+    _build_fundamental_context,
     analyze_symbol,
     build_analysis_paragraph,
     build_checklist_weighted,
@@ -30,9 +30,6 @@ from core.data_fetcher import get_data_source
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════
-# عمق بازار — فعال/غیرفعال
-# ═══════════════════════════════════════════════════════════
 _ORDERBOOK_ENABLED = True
 
 
@@ -58,7 +55,6 @@ def _resolve_live_price(ticker: str, source: str, fallback: float) -> float:
     is_iranian_stock = bool(ticker) and not ticker[0].isascii()
     if not (source == "tsetmc" or is_iranian_stock):
         return float(fallback or 0.0)
-
     try:
         from core.tsetmc_fetcher import fetch_tsetmc_live_quote
 
@@ -67,13 +63,9 @@ def _resolve_live_price(ticker: str, source: str, fallback: float) -> float:
             return float(live["price"])
     except Exception:
         pass
-
     return float(fallback or 0.0)
 
 
-# ═══════════════════════════════════════════════════════════
-# کلید کش — با analyzer_version
-# ═══════════════════════════════════════════════════════════
 def _make_cache_key(
     ticker: str, source: str, tf_name: str, market_type: str, risk_profile: str
 ) -> str:
@@ -119,7 +111,6 @@ def _refresh_live_fields(cached: dict, df) -> dict:
         logger.warning(f"[Analyzer] _refresh: {e!r}")
 
     try:
-        from core.analyzer import _build_fundamental_context
         from core.contracts import get_fee_rate as _gfr
 
         _fee = cached.get("fee_pct")
@@ -133,7 +124,6 @@ def _refresh_live_fields(cached: dict, df) -> dict:
                 )
                 * 100
             )
-
         out["fundamental_lines"] = _build_fundamental_context(
             df=df,
             r_main=cached,
@@ -152,7 +142,7 @@ def _refresh_live_fields(cached: dict, df) -> dict:
             tf_name=cached.get("timeframe", "۵ دقیقه"),
             analysis=out,
             tfs_data=None,
-            df=df,  # 🔴 پاس دادن df
+            df=df,
         )
     except Exception as e:
         logger.warning(f"[Analyzer] _refresh ai_export: {e!r}")
@@ -321,7 +311,6 @@ def analyze(
 
     if include_extras:
         try:
-            from core.analyzer import _build_fundamental_context
             from core.contracts import get_fee_rate as _gfr
 
             effective_fee_pct = sl_tp.get("fee_pct")
@@ -362,6 +351,7 @@ def analyze(
         "is_golden": result.get("is_golden", False),
         "consensus": result.get("consensus", "neutral"),
         "regime": result.get("regime", "range"),
+        "session_label": result.get("session_label", ""),  # 🔴 این خط را اضافه کن
         "action_fa": result.get("action_fa", ""),
         "explanation": result.get("explanation", ""),
         "sl": sl_tp.get("sl"),
@@ -413,6 +403,8 @@ def analyze(
         "pre_breakout": result.get("pre_breakout", {}),
         "pre_breakout_score": result.get("pre_breakout_score", 0),
         "is_pre_breakout": result.get("is_pre_breakout", False),
+        # 🔴 فاز ۱۳.۰ — رفع باگ trend_accuracy
+        "trend_predicted_at_entry": result.get("trend_predicted_at_entry", "flat"),
     }
 
     if include_extras:
@@ -450,7 +442,7 @@ def analyze(
                 tf_name=tf_name,
                 analysis={**result, **output},
                 tfs_data={tf_name: result},
-                df=df,  # 🔴 پاس دادن df
+                df=df,
             )
         except Exception as e:
             logger.warning(f"[Analyzer] ai_export: {e}")

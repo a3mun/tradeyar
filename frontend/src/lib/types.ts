@@ -63,6 +63,7 @@ export interface AnalyzeResponse {
   confidence_tier: string;
   consensus: string;
   regime: string;
+  session_label?: string;
   action_fa: string;
   explanation: string;
 

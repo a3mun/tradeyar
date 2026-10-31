@@ -446,9 +446,9 @@ export function BacktestStats({
           
           <div className="space-y-1">
             {[
-              { key: "strong" as const, label: "قوی (بالای ۷۰٪)" },
-              { key: "normal" as const, label: "متوسط (۵۰ تا ۶۹٪)" },
-              { key: "weak" as const, label: "ضعیف (زیر ۵۰٪)" },
+              { key: "strong" as const, label: "قوی (بالای ۷۵٪)" },
+              { key: "normal" as const, label: "معمولی (۶۰ تا ۷۴٪)" },
+              { key: "weak" as const, label: "ضعیف (۴۵ تا ۵۹٪)" },
             ].map(({ key, label }) => {
               const q = quality[key];
               if (q.total === 0) return null;

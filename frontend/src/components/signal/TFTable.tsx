@@ -1,13 +1,8 @@
 "use client";
 
 /**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۲.۳ · فاز ۱۲.۱)
+ * TFTable — تحلیل بر اساس تایم‌فریم (نسخه نهایی ۱۷.۰ · آستانه‌های جدید)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۲.۳:
- *   • ارتفاع ردیف‌ها کاملاً یکسان (چه خنثی چه سیگنال)
- *   • حذف ستون «وضعیت» (تناقض با سیگنال)
- *   • نمودار بزرگ‌تر + responsive موبایل
- *   • تمام ردیف‌ها ارتفاع دقیقاً یکسان دارن (۳۴px)
  */
 
 import { useEffect, useState } from "react";
@@ -35,37 +30,37 @@ const TIMEFRAMES: Timeframe[] = [
   "روزانه",
 ];
 
-function sparkColorFromSignal(
-  signal: string
-): "green" | "red" | "neutral" {
+// 🔴 تبدیل کلمات انگلیسی به فارسی
+function translateSignal(signal: string) {
+  let s = signal;
+  s = s.replace(/LONG/g, "خرید");
+  s = s.replace(/SHORT/g, "فروش");
+  return s;
+}
+
+function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
   if (!signal) return "neutral";
   const s = signal.toUpperCase();
-  if (
-    s.includes("LONG") ||
-    signal.includes("صعودی") ||
-    signal.includes("خرید")
-  )
+  if (s.includes("LONG") || signal.includes("صعودی") || signal.includes("خرید"))
     return "green";
-  if (
-    s.includes("SHORT") ||
-    signal.includes("نزولی") ||
-    signal.includes("فروش")
-  )
+  if (s.includes("SHORT") || signal.includes("نزولی") || signal.includes("فروش"))
     return "red";
   return "neutral";
 }
 
 type ConfidenceLevel = "golden" | "strong" | "normal" | "weak" | "neutral";
 
-function getConfidenceLevel(
-  confidence: number,
-  isDirectional: boolean
-): ConfidenceLevel {
-  if (!isDirectional) return "neutral";
+// 🔴 آستانه‌های جدید (شروع از ۴۰٪)
+function getConfidenceLevel(confidence: number, isActiveSignal: boolean): ConfidenceLevel {
+  if (!isActiveSignal) {
+    if (confidence >= 30) return "normal"; // در حال تشکیل
+    if (confidence >= 15) return "weak"; // دور
+    return "neutral"; // خنثی
+  }
   if (confidence >= 85) return "golden";
   if (confidence >= 70) return "strong";
-  if (confidence >= 50) return "normal";
-  if (confidence >= 25) return "weak";
+  if (confidence >= 55) return "normal"; // معمولی
+  if (confidence >= 40) return "weak"; // ضعیف
   return "neutral";
 }
 
@@ -80,152 +75,42 @@ interface SignalStyle {
   opacity: number;
 }
 
-const SIGNAL_STYLE_MAP: Record<
-  Direction,
-  Record<ConfidenceLevel, SignalStyle>
-> = {
+// 🔴 رنگ‌بندی استاندارد
+const SIGNAL_STYLE_MAP: Record<Direction, Record<ConfidenceLevel, SignalStyle>> = {
   long: {
-    golden: {
-      bg: "rgba(34,197,94,0.35)",
-      border: "#22c55e",
-      color: "#4ade80",
-      boxShadow:
-        "0 0 20px rgba(250,204,21,0.8), 0 0 12px rgba(34,197,94,0.9), inset 0 0 8px rgba(34,197,94,0.4)",
-      textShadow: "0 0 10px rgba(34,197,94,1)",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(34,197,94,0.25)",
-      border: "#22c55e",
-      color: "#4ade80",
-      boxShadow: "0 0 12px rgba(34,197,94,0.7)",
-      textShadow: "0 0 6px rgba(34,197,94,0.8)",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(34,197,94,0.14)",
-      border: "rgba(34,197,94,0.7)",
-      color: "#4ade80",
-      boxShadow: "0 0 6px rgba(34,197,94,0.35)",
-      textShadow: "none",
-      opacity: 0.92,
-    },
-    weak: {
-      bg: "rgba(34,197,94,0.08)",
-      border: "rgba(34,197,94,0.45)",
-      color: "rgba(74,222,128,0.75)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.75,
-    },
-    neutral: {
-      bg: "rgba(34,197,94,0.04)",
-      border: "rgba(34,197,94,0.25)",
-      color: "rgba(74,222,128,0.5)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.55,
-    },
+    golden: { bg: "rgba(250,204,21,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
+    strong: { bg: "rgba(34,197,94,0.20)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.4)", textShadow: "none", opacity: 1 },
+    normal: { bg: "rgba(34,197,94,0.10)", border: "rgba(34,197,94,0.5)", color: "#4ade80", boxShadow: "none", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(34,197,94,0.05)", border: "rgba(34,197,94,0.3)", color: "rgba(74,222,128,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 }, 
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   short: {
-    golden: {
-      bg: "rgba(239,68,68,0.35)",
-      border: "#ef4444",
-      color: "#f87171",
-      boxShadow:
-        "0 0 20px rgba(250,204,21,0.8), 0 0 12px rgba(239,68,68,0.9), inset 0 0 8px rgba(239,68,68,0.4)",
-      textShadow: "0 0 10px rgba(239,68,68,1)",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(239,68,68,0.25)",
-      border: "#ef4444",
-      color: "#f87171",
-      boxShadow: "0 0 12px rgba(239,68,68,0.7)",
-      textShadow: "0 0 6px rgba(239,68,68,0.8)",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(239,68,68,0.14)",
-      border: "rgba(239,68,68,0.7)",
-      color: "#f87171",
-      boxShadow: "0 0 6px rgba(239,68,68,0.35)",
-      textShadow: "none",
-      opacity: 0.92,
-    },
-    weak: {
-      bg: "rgba(239,68,68,0.08)",
-      border: "rgba(239,68,68,0.45)",
-      color: "rgba(248,113,113,0.75)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.75,
-    },
-    neutral: {
-      bg: "rgba(239,68,68,0.04)",
-      border: "rgba(239,68,68,0.25)",
-      color: "rgba(248,113,113,0.5)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.55,
-    },
+    golden: { bg: "rgba(239,68,68,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
+    strong: { bg: "rgba(239,68,68,0.20)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 10px rgba(239,68,68,0.4)", textShadow: "none", opacity: 1 },
+    normal: { bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.5)", color: "#f87171", boxShadow: "none", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(239,68,68,0.05)", border: "rgba(239,68,68,0.3)", color: "rgba(248,113,113,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 }, 
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   neutral: {
-    golden: {
-      bg: "rgba(100,116,139,0.12)",
-      border: "rgba(100,116,139,0.5)",
-      color: "#94a3b8",
-      boxShadow: "0 0 6px rgba(100,116,139,0.25)",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    strong: {
-      bg: "rgba(100,116,139,0.1)",
-      border: "rgba(100,116,139,0.4)",
-      color: "#94a3b8",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.85,
-    },
-    normal: {
-      bg: "rgba(100,116,139,0.08)",
-      border: "rgba(100,116,139,0.3)",
-      color: "#94a3b8",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.75,
-    },
-    weak: {
-      bg: "rgba(100,116,139,0.06)",
-      border: "rgba(100,116,139,0.25)",
-      color: "rgba(148,163,184,0.7)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.65,
-    },
-    neutral: {
-      bg: "rgba(100,116,139,0.04)",
-      border: "rgba(100,116,139,0.18)",
-      color: "rgba(148,163,184,0.6)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.55,
-    },
+    // 🔴 حالت‌های غیرفعال (خنثی، دور، در حال تشکیل) بدون قاب و پس‌زمینه
+    golden: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    strong: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    normal: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.7 }, // در حال تشکیل
+    weak: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.6)", boxShadow: "none", textShadow: "none", opacity: 0.5 }, // دور
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.3)", boxShadow: "none", textShadow: "none", opacity: 0.3 }, // خنثی
   },
 };
 
+// 🔴 رنگ درصد اطمینان: آبی
 const CONF_COLORS: Record<ConfidenceLevel, { text: string; bar: string }> = {
-  golden: { text: "#facc15", bar: "#facc15" },
-  strong: { text: "#4ade80", bar: "#22c55e" },
-  normal: { text: "#4ade80", bar: "#22c55e" },
-  weak: { text: "#f97316", bar: "#f97316" },
-  neutral: { text: "#94a3b8", bar: "#64748b" },
+  golden: { text: "#60a5fa", bar: "#3b82f6" }, 
+  strong: { text: "#93c5fd", bar: "#60a5fa" },
+  normal: { text: "#bfdbfe", bar: "#93c5fd" },
+  weak: { text: "#dbeafe", bar: "#bfdbfe" }, 
+  neutral: { text: "#e2e8f0", bar: "#cbd5e1" }, 
 };
 
-// ═══════════════════════════════════════════════════════════
-// 🔴 ارتفاع ثابت ردیف — همه یکسان
-// ═══════════════════════════════════════════════════════════
-const ROW_HEIGHT = "h-[40px]";
+const ROW_HEIGHT = "h-[42px]";
 
 export function TFTable() {
   const {
@@ -236,9 +121,20 @@ export function TFTable() {
     marketType,
     riskProfile,
     setTimeframe,
+    wsSignal,
   } = useAppStore();
 
   const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
+
+  useEffect(() => {
+    if (wsSignal && wsSignal.ticker === ticker && wsSignal.data) {
+      const newSignal = wsSignal.data as unknown as AnalyzeResponse;
+      const tf = newSignal.timeframe;
+      if (tf) {
+        setData((prev) => ({ ...prev, [tf]: newSignal }));
+      }
+    }
+  }, [wsSignal, ticker]);
 
   const fetchMultiData = async () => {
     if (!ticker || !sourceSupportsPair(source, ticker)) {
@@ -345,61 +241,66 @@ export function TFTable() {
 
               if (!row) {
                 return (
-                  <TableRow
-                    key={tf}
-                    className={`opacity-50 ${ROW_HEIGHT}`}
-                  >
+                  <TableRow key={tf} className={`opacity-50 ${ROW_HEIGHT}`}>
                     <TableCell className="text-right text-[10px] font-medium py-0">
                       {tf}
                     </TableCell>
-                    <TableCell
-                      colSpan={3}
-                      className="text-center text-[10px] text-muted-foreground py-0"
-                    >
+                    <TableCell colSpan={3} className="text-center text-[10px] text-muted-foreground py-0">
                       دیتا نیست
                     </TableCell>
                   </TableRow>
                 );
               }
 
-              const direction: Direction =
-                row.direction === "long"
-                  ? "long"
-                  : row.direction === "short"
-                    ? "short"
-                    : "neutral";
-              const isDir = direction !== "neutral";
-              const confLevel = getConfidenceLevel(
-                row.confidence || 0,
-                isDir
-              );
-              const sigStyle = SIGNAL_STYLE_MAP[direction][confLevel];
-              const confStyle = CONF_COLORS[confLevel];
               const conf = row.confidence || 0;
+              
+              // 🔴 سیگنال فقط وقتی فعال است که درصد >= ۴۰ باشد
+              const isActiveSignal = conf >= 40;
+              
+              const dirFromBackend: Direction = row.direction === "long" ? "long" : row.direction === "short" ? "short" : "neutral";
+              const styleDirection = isActiveSignal ? dirFromBackend : "neutral";
+              
+              const confLevel = getConfidenceLevel(conf, isActiveSignal);
+              const sigStyle = SIGNAL_STYLE_MAP[styleDirection][confLevel];
+              const confStyle = CONF_COLORS[isActiveSignal ? confLevel : "neutral"];
 
               const rowClass = isActive
                 ? confLevel === "golden"
                   ? `cursor-pointer transition-colors hover:bg-muted/50 bg-yellow-500/5 border-r-2 border-yellow-500/50 ${ROW_HEIGHT}`
-                  : direction === "long"
+                  : dirFromBackend === "long"
                     ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-green-500/50 ${ROW_HEIGHT}`
-                    : direction === "short"
+                    : dirFromBackend === "short"
                       ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-red-500/50 ${ROW_HEIGHT}`
                       : `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/10 ${ROW_HEIGHT}`
                 : `cursor-pointer transition-colors hover:bg-muted/50 ${ROW_HEIGHT}`;
 
               const goldenMark = confLevel === "golden" ? "💎 " : "";
+              
+              // 🔴 تعیین متن نمایشی (۴۰٪ به بالا سیگنال)
+              let displaySignal = "خنثی";
+              if (conf >= 40) {
+                displaySignal = translateSignal(row.signal || "خنثی");
+              } else if (conf >= 30) {
+                displaySignal = "در حال تشکیل";
+              } else if (conf >= 15) {
+                displaySignal = "دور";
+              }
+
+              // 🔴 تغییر رنگ متن برای دور و در حال تشکیل بر اساس جهت
+              let textColor = sigStyle.color;
+              if (!isActiveSignal && conf >= 15) {
+                if (dirFromBackend === "short") {
+                  textColor = conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)"; 
+                } else if (dirFromBackend === "long") {
+                  textColor = conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)"; 
+                }
+              }
 
               return (
-                <TableRow
-                  key={tf}
-                  onClick={() => handleRowClick(tf)}
-                  className={rowClass}
-                >
+                <TableRow key={tf} onClick={() => handleRowClick(tf)} className={rowClass}>
                   <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0">
                     {tf}
-                    {isActive && (
-                      <span className="mr-1 text-[8px] text-primary">●</span>
-                    )}
+                    {isActive && <span className="mr-1 text-[8px] text-primary">●</span>}
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <span
@@ -407,16 +308,16 @@ export function TFTable() {
                       style={{
                         background: sigStyle.bg,
                         borderColor: sigStyle.border,
-                        color: sigStyle.color,
+                        color: textColor,
                         boxShadow: sigStyle.boxShadow,
                         textShadow: sigStyle.textShadow,
                         opacity: sigStyle.opacity,
-                        borderWidth:
-                          confLevel === "golden" ? "2px" : "1px",
+                        // 🔴 حذف کامل قاب برای حالت‌های غیرفعال
+                        borderWidth: !isActiveSignal ? 0 : (confLevel === "golden" ? "2px" : "1px"),
                       }}
                     >
                       {goldenMark}
-                      {row.signal || "خنثی"}
+                      {displaySignal}
                     </span>
                   </TableCell>
                   <TableCell className="text-center py-0">
@@ -425,7 +326,7 @@ export function TFTable() {
                         className="num text-[10px] sm:text-[11px] font-bold mb-0.5"
                         style={{ color: confStyle.text }}
                       >
-                        {conf > 0 ? `${conf}%` : "—"}
+                        {`${conf}%`}
                       </div>
                       <div className="mx-auto h-0.5 w-8 sm:w-10 overflow-hidden rounded-full bg-muted-foreground/15">
                         <div
