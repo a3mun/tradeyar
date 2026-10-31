@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Heart, AlertTriangle, Shield, Globe, Send } from "lucide-react";
+import { AlertTriangle, Shield, Globe, Send } from "lucide-react";
 
 export function Footer() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -22,6 +22,26 @@ export function Footer() {
 
   return (
     <>
+      {/* 🔴 استایل انیمیشن نئون */}
+      <style jsx global>{`
+        @keyframes neon-pulse {
+          0%, 100% {
+            /* نور کم: پخش 6 پیکسل، شفافیت 0.3 */
+            filter: drop-shadow(0 0 6px rgba(214, 173, 96, 0.3));
+            opacity: 0.95;
+          }
+          50% {
+            /* نور زیاد: پخش 12 پیکسل، شفافیت 0.6 */
+            filter: drop-shadow(0 0 12px rgba(214, 173, 96, 0.6));
+            opacity: 1;
+          }
+        }
+        .logo-neon-pulse {
+          /* سرعت: از 3s به 6s تغییر کرد (کندتر) */
+          animation: neon-pulse 6s ease-in-out infinite;
+        }
+      `}</style>
+
       {showDisclaimer && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07111f]/80 backdrop-blur-sm p-4" onClick={acceptDisclaimer}>
           <div className="max-w-md rounded-2xl border border-[#d6ad60]/30 bg-[#0d1b2d] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -47,8 +67,15 @@ export function Footer() {
           
           {/* موبایل */}
           <div className="flex flex-col items-center gap-4 text-center md:hidden">
-            {/* ⬅️ لوگوی مستطیلی بزرگ‌تر */}
-            <img src="/icon-512.png" alt="Trademun" className="h-16 w-auto rounded-xl object-contain" />
+            {/* 🔴 لوگوی موبایل (سایز 42) + لینک به سایت اصلی + افکت نئون */}
+            <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="block">
+              <img 
+                src="/icon-512.png" 
+                alt="Trademun" 
+                className="h-38 w-auto object-contain logo-neon-pulse" 
+              />
+            </a>
+            
             <div className="flex items-center gap-3 text-[11px]">
               <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-gray-400 transition-colors hover:text-[#d6ad60]"><Globe className="h-3 w-3" /><span dir="ltr">trademun.ir</span></a>
               <span className="text-gray-600" aria-hidden="true">·</span>
@@ -56,10 +83,13 @@ export function Footer() {
               <span className="text-gray-600" aria-hidden="true">·</span>
               <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-1 text-gray-400 transition-colors hover:text-[#d6ad60]"><Send className="h-3 w-3" /><span dir="ltr">ble.ir/trademun</span></a>
             </div>
+            
             <a referrerPolicy="origin" target="_blank" href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" rel="noopener noreferrer" className="mt-2 block">
               <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="نماد اعتماد الکترونیکی" className="h-24 w-auto mx-auto object-contain cursor-pointer" />
             </a>
+            
             <p className="text-[10px] text-yellow-500/80 mt-2">⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارن</p>
+            
             <div className="flex flex-col gap-1 mt-2">
               <p className="text-[10px] text-gray-500">طراحی و توسعه: <span className="text-gray-300 font-medium">آسمون</span> | © {year} تریدمون</p>
               <p className="text-[9px] text-gray-600 dir-ltr">Designed by Asemun · © {year} Trademun</p>
@@ -69,9 +99,16 @@ export function Footer() {
           {/* دسکتاپ */}
           <div className="hidden md:block">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6 text-right">
-              {/* ⬅️ لوگو بزرگ‌تر و بدون متن اضافی */}
+              
+              {/* 🔴 لوگوی دسکتاپ (بزرگ‌تر) + لینک به سایت اصلی + افکت نئون */}
               <div className="flex flex-row items-center justify-start gap-4">
-                <img src="/icon-512.png" alt="Trademun" className="h-24 w-auto rounded-xl object-contain shrink-0" />
+                <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="block">
+                  <img 
+                    src="/icon-512.png" 
+                    alt="Trademun" 
+                    className="h-32 w-auto object-contain logo-neon-pulse" 
+                  />
+                </a>
               </div>
 
               <div className="space-y-2">
@@ -98,7 +135,6 @@ export function Footer() {
               </div>
             </div>
 
-            {/* ⬅️ متن پایین فوتر — رسمی‌تر و با خط انگلیسی */}
             <div className="border-t border-[#d6ad60]/10 pt-4">
               <div className="flex flex-row items-center justify-between gap-2 text-[11px]">
                 <div className="flex flex-col gap-0.5">

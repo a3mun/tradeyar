@@ -11,11 +11,14 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PORT=7860
 
-# ─── وابستگی‌های سیستمی ───
+
+    # ─── وابستگی‌های سیستمی ───
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
 
 # ─── کاربر non-root ───
 RUN useradd -m -u 1000 user

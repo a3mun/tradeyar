@@ -54,12 +54,12 @@ TF_CONFIDENCE_OFFSET = {
 
 # 🔴 پروفایل R:R per TF
 TF_RR_PROFILES = {
-    "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 1.5},
-    "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 1.8},
-    "۱۵ دقیقه": {"sl_mult": 1.4, "tp_mult": 2.5},
-    "۳۰ دقیقه": {"sl_mult": 1.5, "tp_mult": 3.3},
-    "۱ ساعت": {"sl_mult": 1.6, "tp_mult": 3.8},
-    "روزانه": {"sl_mult": 1.8, "tp_mult": 4.2},
+    "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 1.2},
+    "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 1.5},
+    "۱۵ دقیقه": {"sl_mult": 1.4, "tp_mult": 2.0},
+    "۳۰ دقیقه": {"sl_mult": 1.5, "tp_mult": 2.5},
+    "۱ ساعت": {"sl_mult": 1.6, "tp_mult": 3.0},
+    "روزانه": {"sl_mult": 1.8, "tp_mult": 4.0},
 }
 
 
@@ -2310,13 +2310,13 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
                 "label": "🛑 حد ضرر و هدف",
                 "icon": "🛑",
                 "detail": f"R:R = {rr:.1f}" if rr else "تعریف‌شده",
-                "score": 1.0 if rr and rr >= 1.5 else 0.5,
+                "score": 1.0 if rr and rr >= 1.3 else 0.5,
                 "weight": 15,
-                "color": "green" if rr and rr >= 1.5 else "yellow",
+                "color": "green" if rr and rr >= 1.3 else "yellow",
             }
         )
         total_w += 15
-        earned_w += 15 if (rr and rr >= 1.5) else 7
+        earned_w += 15 if (rr and rr >= 1.3) else 7
     else:
         items.append(
             {
@@ -2339,14 +2339,20 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
     }.get(regime, "")
     if SigEnum.is_long(signal):
         golden_mark = " 💎" if confidence >= 85 else ""
+        strength_label = (
+            "قوی" if confidence >= 70 else ("معمولی" if confidence >= 55 else "ضعیف")
+        )
         final, final_color = (
-            f"🟢 سیگنال خرید {'قوی' if confidence >= 70 else ''}{golden_mark} — {confidence}% ({regime_fa})",
+            f"🟢 سیگنال خرید {strength_label}{golden_mark} — {confidence}% ({regime_fa})",
             "green",
         )
     elif SigEnum.is_short(signal):
         golden_mark = " 💎" if confidence >= 85 else ""
+        strength_label = (
+            "قوی" if confidence >= 70 else ("معمولی" if confidence >= 55 else "ضعیف")
+        )
         final, final_color = (
-            f"🔴 سیگنال فروش {'قوی' if confidence >= 70 else ''}{golden_mark} — {confidence}% ({regime_fa})",
+            f"🔴 سیگنال فروش {strength_label}{golden_mark} — {confidence}% ({regime_fa})",
             "red",
         )
     else:
@@ -2777,7 +2783,9 @@ def build_analysis_paragraph(
     elif SigEnum.is_short(signal) and confidence >= 70:
         lines.append("🔴 **SHORT منطقیه** — ولی SL تنگ بذار، نوسان بالاست.")
     elif SigEnum.is_short(signal) and confidence >= 50:
-        lines.append("🔴 **SHORT با احتیاط** — سریع خارج شو.")
+        lines.append(
+            "🔴 **فروش (SHORT)** — جهت نزولی است، اما حد ضرر را نزدیک بگذار و مراقب برگشت‌های ناگهانی بازار باش."
+        )
     elif SigEnum.is_short(signal):
         lines.append("🟠 **صبر کن** — ریسک SHORT ضعیف بالاست.")
     else:

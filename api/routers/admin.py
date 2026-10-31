@@ -2,17 +2,15 @@
 api/routers/admin.py
 """
 
-import logging, shutil, csv, io
+import logging, shutil, csv, io, subprocess, tempfile, os
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import Session, select
 
-import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
-from fastapi.responses import StreamingResponse
 
 from api.database import get_session
 from api.auth import require_admin
@@ -23,13 +21,10 @@ from services.sms import send_subscription_activated_sms
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
+MAIN_ADMIN_PHONE = "09129630901"
+
 
 def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, bool]:
-    """
-    محاسبه‌ی وضعیت اشتراک از روی end_date (نه status دیتابیس).
-    خروجی: (status_text, is_active)
-    status_text ∈ {active, expired, free, admin}
-    """
     if is_admin:
         return "admin", True
     if not sub:
@@ -41,26 +36,69 @@ def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, boo
         end = end.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     if end > now:
-        # اگه پلن free بود ولی هنوز وقت داره
         if sub.plan == "free":
             return "free_active", True
         return "active", True
-    # منقضی شده
     return "expired", False
 
 
+# ۱. بک‌آپ (Postgres)
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
-    from api.config import BASE_DIR
+    from api.config import settings
 
-    db_path = BASE_DIR / "data" / "trademun.db"
-    if not db_path.exists():
-        raise HTTPException(status_code=404, detail="فایل دیتابیس یافت نشد")
-    backup_name = f"trademun_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-    backup_path = BASE_DIR / "data" / backup_name
-    shutil.copy2(db_path, backup_path)
+    if not settings.DATABASE_URL.startswith("postgres"):
+        raise HTTPException(status_code=400, detail="این روش فقط برای Postgres است")
+
+    db_url = settings.DATABASE_URL.replace("postgresql://", "").replace(
+        "postgres://", ""
+    )
+    auth, host_db = db_url.split("@")
+    user_pass = auth.split(":")
+    host_port, dbname = host_db.split("/")
+    host, port = host_port.split(":")
+    username = user_pass[0]
+    password = user_pass[1] if len(user_pass) > 1 else ""
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    temp_dir = tempfile.gettempdir()
+    backup_path = os.path.join(temp_dir, f"trademun_backup_{timestamp}.sql")
+
+    cmd = [
+        "pg_dump",
+        "-h",
+        host,
+        "-p",
+        port,
+        "-U",
+        username,
+        "-d",
+        dbname,
+        "-f",
+        backup_path,
+        "--no-password",
+        "--format=plain",
+    ]
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"pg_dump failed: {result.stderr}")
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail="pg_dump در سرور نصب نیست. لطفاً در Dockerfile اضافه کنید.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در pg_dump: {str(e)}")
+
     return FileResponse(
-        path=backup_path, filename=backup_name, media_type="application/x-sqlite3"
+        path=backup_path,
+        filename=f"trademun_backup_{timestamp}.sql",
+        media_type="application/sql",
     )
 
 
@@ -68,29 +106,115 @@ async def backup_database(admin: User = Depends(require_admin)):
 async def restore_backup(
     admin: User = Depends(require_admin), file: UploadFile = File(...)
 ):
-    from api.config import BASE_DIR
+    from api.config import settings
 
-    db_path = BASE_DIR / "data" / "trademun.db"
-    shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
-    with open(db_path, "wb") as f:
+    if not settings.DATABASE_URL.startswith("postgres"):
+        raise HTTPException(status_code=400, detail="این روش فقط برای Postgres است")
+
+    db_url = settings.DATABASE_URL.replace("postgresql://", "").replace(
+        "postgres://", ""
+    )
+    auth, host_db = db_url.split("@")
+    user_pass = auth.split(":")
+    host_port, dbname = host_db.split("/")
+    host, port = host_port.split(":")
+    username = user_pass[0]
+    password = user_pass[1] if len(user_pass) > 1 else ""
+
+    temp_dir = tempfile.gettempdir()
+    restore_path = os.path.join(
+        temp_dir, f"restore_{int(datetime.now().timestamp())}.sql"
+    )
+
+    with open(restore_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
+    cmd = [
+        "psql",
+        "-h",
+        host,
+        "-p",
+        port,
+        "-U",
+        username,
+        "-d",
+        dbname,
+        "-f",
+        restore_path,
+        "--no-password",
+    ]
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"psql failed: {result.stderr}")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="psql در سرور نصب نیست.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در بازگردانی: {str(e)}")
+
     return {"ok": True, "message": "دیتابیس بازگردانی شد"}
 
 
-# ═══════════════════════════════════════════════════════════
-# ۲. خروجی اکسل
-# ═══════════════════════════════════════════════════════════
+# ۲. افزودن دستی کاربر
+@router.post("/users/add")
+async def add_user_manually(
+    phone: str,
+    full_name: str,
+    plan: str = "free",
+    days: int = 0,
+    send_sms: bool = True,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    existing = session.exec(select(User).where(User.phone == phone)).first()
+    if existing:
+        raise HTTPException(
+            status_code=400, detail="کاربری با این شماره قبلاً ثبت‌نام کرده است."
+        )
+
+    now = datetime.now(timezone.utc)
+    new_user = User(phone=phone, full_name=full_name, created_at=now, is_active=True)
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+
+    if plan != "free" and days > 0:
+        plan_info = PLANS.get(plan)
+        if not plan_info:
+            raise HTTPException(status_code=400, detail="پلن نامعتبر است")
+        end_date = now + timedelta(days=days)
+        sub = Subscription(
+            user_id=new_user.id,
+            plan=plan,
+            start_date=now,
+            end_date=end_date,
+            status="active",
+        )
+        session.add(sub)
+        session.commit()
+        if send_sms:
+            try:
+                send_subscription_activated_sms(phone, plan_info["title"], end_date)
+            except Exception:
+                pass
+
+    return {"ok": True, "message": f"کاربر {phone} با موفقیت اضافه شد."}
+
+
+# ۳. خروجی اکسل
 @router.get("/users/excel")
 async def export_users_excel(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
 ):
     users = session.exec(select(User)).all()
-
     wb = Workbook()
     ws = wb.active
     ws.title = "کاربران تریدمون"
     ws.sheet_view.rightToLeft = True
-
     headers = [
         "شماره موبایل",
         "نام",
@@ -107,12 +231,10 @@ async def export_users_excel(
         "تاریخچه پرداخت‌ها",
     ]
     ws.append(headers)
-
     for cell in ws[1]:
         cell.font = Font(name="Arial", bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="14213D")
         cell.alignment = Alignment(horizontal="center", vertical="center")
-
     for u in users:
         sub = session.exec(
             select(Subscription)
@@ -129,7 +251,6 @@ async def export_users_excel(
             .where(PaymentRequest.user_id == u.id)
             .order_by(PaymentRequest.created_at.asc())
         ).all()
-
         status_text, _ = _calc_sub_status(sub, u.is_admin)
         status_fa = {
             "active": "فعال",
@@ -138,7 +259,6 @@ async def export_users_excel(
             "free": "بدون اشتراک",
             "admin": "مدیر",
         }.get(status_text, "نامشخص")
-
         subs_history = " | ".join(
             [
                 f"{s.plan} ({s.start_date.strftime('%Y-%m-%d')} تا {s.end_date.strftime('%Y-%m-%d') if s.end_date else 'نامحدود'})"
@@ -151,7 +271,6 @@ async def export_users_excel(
                 for p in payments
             ]
         )
-
         ws.append(
             [
                 u.phone,
@@ -177,19 +296,15 @@ async def export_users_excel(
                 pay_history or "ندارد",
             ]
         )
-
     for column in ws.columns:
         max_length = max(len(str(cell.value or "")) for cell in column)
         ws.column_dimensions[get_column_letter(column[0].column)].width = min(
             max(max_length + 4, 14), 35
         )
-
     ws.row_dimensions[1].height = 28
-
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-
     timestamp = datetime.now().strftime("%Y-%m-%d")
     return StreamingResponse(
         output,
@@ -200,6 +315,7 @@ async def export_users_excel(
     )
 
 
+# ۴. لیست کاربران
 @router.get("/users")
 async def list_users(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -212,10 +328,7 @@ async def list_users(
             .where(Subscription.user_id == u.id)
             .order_by(Subscription.created_at.desc())
         ).first()
-
-        # ⬅️ وضعیت محاسبه‌شده از end_date
         status_text, is_active = _calc_sub_status(sub, u.is_admin)
-
         result.append(
             {
                 "id": u.id,
@@ -236,14 +349,14 @@ async def list_users(
                     if u.is_admin
                     else (sub.end_date.isoformat() if sub and sub.end_date else None)
                 ),
-                # ⬅️ فیلدهای جدید
-                "sub_status": status_text,  # active | expired | free | free_active | admin
-                "is_active_sub": is_active,  # boolean
+                "sub_status": status_text,
+                "is_active_sub": is_active,
             }
         )
     return {"ok": True, "items": result}
 
 
+# ۵. جزئیات کاربر
 @router.get("/users/{user_id}/details")
 async def get_user_details(
     user_id: int,
@@ -300,10 +413,12 @@ async def get_user_details(
     }
 
 
+# ۶. تغییر پلن دستی
 @router.post("/users/{user_id}/change-plan")
 async def change_user_plan(
     user_id: int,
     plan: str,
+    send_sms: bool = True,
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
@@ -337,49 +452,22 @@ async def change_user_plan(
         )
         session.add(sub)
     session.commit()
+    if send_sms:
+        try:
+            send_subscription_activated_sms(
+                user.phone, plan_info["title"], sub.end_date
+            )
+        except Exception:
+            pass
     return {"ok": True, "message": f"پلن کاربر به {plan_info['title']} تغییر یافت"}
 
 
-@router.post("/users/{user_id}/make-admin")
-async def make_user_admin(
-    user_id: int,
-    admin: User = Depends(require_admin),
-    session: Session = Depends(get_session),
-):
-    if admin.phone != "09129630901":
-        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
-    user.is_admin = True
-    session.add(user)
-    session.commit()
-    return {"ok": True, "message": f"کاربر {user.phone} به مدیر ارتقا یافت"}
-
-
-@router.post("/users/{user_id}/remove-admin")
-async def remove_user_admin(
-    user_id: int,
-    admin: User = Depends(require_admin),
-    session: Session = Depends(get_session),
-):
-    if admin.phone != "09129630901":
-        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
-    if user.phone == "09129630901":
-        raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
-    user.is_admin = False
-    session.add(user)
-    session.commit()
-    return {"ok": True, "message": f"دسترسی ادمین {user.phone} گرفته شد"}
-
-
+# ۷. تنظیم دستی روزها
 @router.post("/users/{user_id}/adjust-days")
 async def adjust_user_days(
     user_id: int,
     days: int,
+    send_sms: bool = True,
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
@@ -407,9 +495,92 @@ async def adjust_user_days(
         )
         session.add(sub)
     session.commit()
+    if send_sms:
+        try:
+            custom_name = f"تغییر اعتبار ({days} روز)"
+            send_subscription_activated_sms(user.phone, custom_name, sub.end_date)
+        except Exception:
+            pass
     return {"ok": True, "message": f"{days} روز به اشتراک کاربر اضافه شد"}
 
 
+# ۸. مدیریت دسترسی‌ها
+@router.post("/users/{user_id}/make-admin")
+async def make_user_admin(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if admin.phone != MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    user.is_admin = True
+    session.add(user)
+    session.commit()
+    return {"ok": True, "message": f"کاربر {user.phone} به مدیر ارتقا یافت"}
+
+
+@router.post("/users/{user_id}/remove-admin")
+async def remove_user_admin(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if admin.phone != MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    if user.phone == MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
+    user.is_admin = False
+    session.add(user)
+    session.commit()
+    return {"ok": True, "message": f"دسترسی ادمین {user.phone} گرفته شد"}
+
+
+# ۹. حذف کاربر
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    hard_delete: bool = False,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if admin.phone != MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    if user.phone == MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
+    if hard_delete:
+        # حذف کامل رکوردهای وابسته
+        session.exec(select(Subscription).where(Subscription.user_id == user_id)).all()
+        for sub in session.exec(
+            select(Subscription).where(Subscription.user_id == user_id)
+        ).all():
+            session.delete(sub)
+        for pay in session.exec(
+            select(PaymentRequest).where(PaymentRequest.user_id == user_id)
+        ).all():
+            session.delete(pay)
+        session.delete(user)
+        session.commit()
+        return {
+            "ok": True,
+            "message": "کاربر و تمام داده‌های مرتبط حذف شدند (غیرقابل بازگشت).",
+        }
+    else:
+        user.is_active = False
+        session.add(user)
+        session.commit()
+        return {"ok": True, "message": "کاربر غیرفعال شد (قابل بازگشت)."}
+
+
+# ۱۰. لیست پرداخت‌ها (فقط در انتظار)
 @router.get("/payments")
 async def list_payments(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -444,6 +615,35 @@ async def list_payments(
     return {"ok": True, "items": result}
 
 
+# ۱۱. همه تراکنش‌ها (برای تب جدید)
+@router.get("/transactions")
+async def list_all_transactions(
+    admin: User = Depends(require_admin), session: Session = Depends(get_session)
+):
+    payments = session.exec(
+        select(PaymentRequest).order_by(PaymentRequest.created_at.desc())
+    ).all()
+    result = []
+    for p in payments:
+        user = session.get(User, p.user_id)
+        result.append(
+            {
+                "id": p.id,
+                "user_phone": user.phone if user else "ناشناس",
+                "plan": p.plan,
+                "amount": p.amount,
+                "status": p.status,
+                "created_at": p.created_at.isoformat(),
+                "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
+                "reviewed_by": p.reviewed_by,
+                "receipt_note": p.receipt_note,
+                "payment_time": p.payment_time,
+            }
+        )
+    return {"ok": True, "items": result}
+
+
+# ۱۲. تایید و رد پرداخت‌ها
 @router.post("/payments/{payment_id}/approve")
 async def approve_payment(
     payment_id: int,

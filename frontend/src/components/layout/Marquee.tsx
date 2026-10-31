@@ -27,23 +27,42 @@ function useIranTime() {
   return now;
 }
 
-// تبدیل ساعت محلی بازار به وقت تهران
+// 🔴 تبدیل دقیق ساعت محلی بازار به وقت تهران با استفاده از Intl
 function convertToTehran(localHour: number, tz: string) {
   const now = new Date();
-  const utcHour = now.getUTCHours();
-  const localNow = new Date(now.toLocaleString("en-US", { timeZone: tz }));
-  const localOffset = localNow.getHours() - utcHour;
   
-  const tehranHour = Math.floor(localHour) - localOffset + 3.5;
-  const tehranMin = (localHour % 1) * 60 + (tehranHour % 1) * 60;
+  // استخراج دقیق ساعت و دقیقه فعلی بازار
+  const localParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(now);
   
-  let h = Math.floor(tehranHour) % 24;
-  if (h < 0) h += 24;
-  const m = Math.round(tehranMin);
-  const finalH = h + Math.floor(m / 60);
-  const finalM = m % 60;
+  const currentLocalH = parseInt(localParts.find(p => p.type === "hour")?.value || "0", 10);
+  const currentLocalM = parseInt(localParts.find(p => p.type === "minute")?.value || "0", 10);
+
+  // محاسبه اختلاف بازار با ساعت هدف (open یا close)
+  const targetH = Math.floor(localHour);
+  const targetM = Math.round((localHour % 1) * 60);
   
-  return `${String(finalH % 24).padStart(2, "0")}:${String(finalM).padStart(2, "0")}`;
+  let diffMinutes = (targetH * 60 + targetM) - (currentLocalH * 60 + currentLocalM);
+  
+  // ساخت یک تاریخ جدید که به اندازه اختلاف دقیقه جابجا شده است
+  const targetDate = new Date(now.getTime() + diffMinutes * 60 * 1000);
+  
+  // حالا زمان این تاریخ جدید را در منطقه زمانی تهران بخوان
+  const tehranParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tehran",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(targetDate);
+  
+  const tehranH = parseInt(tehranParts.find(p => p.type === "hour")?.value || "0", 10);
+  const tehranM = parseInt(tehranParts.find(p => p.type === "minute")?.value || "0", 10);
+
+  return `${String(tehranH).padStart(2, "0")}:${String(tehranM).padStart(2, "0")}`;
 }
 
 export function Marquee() {

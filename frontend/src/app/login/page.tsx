@@ -1,27 +1,94 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { setToken, setUser, getToken, getUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send } from "lucide-react";
+import { motion, useInView } from "framer-motion";
+import { 
+  ArrowLeft, 
+  ShieldCheck, 
+  Zap, 
+  Brain, 
+  Globe, 
+  Send, 
+  Activity, 
+  CheckCircle2, 
+  Cpu, 
+  TrendingUp, 
+  Key
+} from "lucide-react";
 
-type Signal = { id: number; x: number; y: number; duration: number; delay: number; size: number };
-type Candle = { id: number; start: number; peak: number; color: string; };
+// ═══════════════════════════════════════════════════════════
+// 🔴 کامپوننت شمارنده پویا (Count-up)
+// ═══════════════════════════════════════════════════════════
+function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
+  const [count, setCount] = useState(0);
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, margin: "-50px" });
 
+  useEffect(() => {
+    if (!isInView) return;
+    
+    let start = 0;
+    const duration = 1500; // مدت زمان انیمیشن (میلی‌ثانیه)
+    const steps = 50;
+    const stepTime = duration / steps;
+    const increment = value / steps;
+
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= value) {
+        setCount(value);
+        clearInterval(timer);
+      } else {
+        setCount(Math.floor(start));
+      }
+    }, stepTime);
+
+    return () => clearInterval(timer);
+  }, [value, isInView]);
+
+  return <span ref={ref} className="num">{count}{suffix}</span>;
+}
+
+// 🔴 آمار (با مقادیر عددی برای انیمیشن)
+const STATS = [
+  { label: "اندیکاتور تکنیکال", value: 32, suffix: "+" }, // ← عدد هدف را اینجا تغییر بده
+  { label: "صرافی متصل", value: 5, suffix: "" }, // ← عدد هدف را اینجا تغییر بده
+  { label: "دقت پیش‌بینی جهت", value: 78, suffix: "٪" }, // ← عدد هدف را اینجا تغییر بده
+  { label: "دقت رسیدن به هدف", value: 62, suffix: "٪" }, // ← عدد هدف را اینجا تغییر بده
+];
+
+// 🔴 قابلیت‌ها
 const FEATURES = [
-  { icon: Zap, text: "تحلیل ۵ گروهی با ۲۰+ اندیکاتور" },
-  { icon: ShieldCheck, text: "سیستم مدیریت ریسک و هشدار تله‌ها" },
-  { icon: Brain, text: "تحلیل عمیق و هوش مصنوعی" },
+  { icon: Zap, title: "تحلیل جامع بازار", desc: "موتور تحلیل با ۳۲ اندیکاتور تکنیکال حرفه‌ای" },
+  { icon: Cpu, title: "هوش مصنوعی", desc: "تحلیل عمیق داده‌ها با هوش مصنوعی" },
+  { icon: Key, title: "API شخصی", desc: "اتصال کلید هوش مصنوعی شخصی خودت" },
+  { icon: ShieldCheck, title: "مدیریت ریسک", desc: "حد ضرر و هدف هوشمند بر اساس نوسان بازار" },
+  { icon: Activity, title: "هشدار تله‌ها", desc: "تشخیص تله‌های صعودی، نزولی و شکست‌های جعلی" },
+  { icon: TrendingUp, title: "مقایسه صرافی‌ها", desc: "اولین سایت مقایسه لحظه‌ای صرافی‌های ایرانی" },
+];
+
+// 🔴 لیست لوگوها (فعال و غیرفعال)
+const EXCHANGES = [
+  { name: "نوبیتکس", logo: "/logos/nobitex.png", active: true },
+  { name: "بیت‌پین", logo: "/logos/bitpin.png", active: true },
+  { name: "والکس", logo: "/logos/wallex.png", active: true },
+  { name: "تبدیل", logo: "/logos/tabdeal.png", active: true },
+  { name: "بورس تهران", logo: "/logos/tsetmc.png", active: true },
+  { name: "رمزینکس", logo: "/logos/ramzinex.png", active: false },
+  { name: "توبیت", logo: "/logos/toobit.png", active: false },
+  { name: "بینگ‌ایکس", logo: "/logos/bingx.png", active: false },
+  { name: "بیت۲۴", logo: "/logos/bit24.png", active: false },
+  { name: "آبان‌تتر", logo: "/logos/abantether.png", active: false },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
   
-  // ⬅️ اگه کاربر لاگین‌کرده، نفرستش /login — بفرستش صفحه اصلی
   useEffect(() => {
     const token = getToken();
     const user = getUser();
@@ -32,15 +99,15 @@ export default function LoginPage() {
 
   const [step, setStep] = useState<1 | 2>(1);
   const [phone, setPhone] = useState("");
-  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [timer, setTimer] = useState(0);
   
-  const [activeFeature, setActiveFeature] = useState(0);
-
-  const [floatingSignals, setFloatingSignals] = useState<Signal[]>([]);
-  const [candleHeights, setCandleHeights] = useState<Candle[]>([]);
+  const [floatingSignals, setFloatingSignals] = useState<any[]>([]);
+  const [candleHeights, setCandleHeights] = useState<any[]>([]);
+  
+  const codeInputs = useRef<(HTMLInputElement | null)[]>([]);
+  const [codeDigits, setCodeDigits] = useState(["", "", "", "", ""]);
 
   useEffect(() => {
     setCandleHeights(
@@ -62,12 +129,6 @@ export default function LoginPage() {
         size: 2 + Math.random() * 1.5,
       }))
     );
-
-    const featureInterval = setInterval(() => {
-      setActiveFeature((prev) => (prev + 1) % FEATURES.length);
-    }, 4000);
-
-    return () => clearInterval(featureInterval);
   }, []);
 
   useEffect(() => {
@@ -78,7 +139,7 @@ export default function LoginPage() {
   }, [timer]);
 
   const handleSendOtp = async () => {
-    if (!phone || phone.length < 11) return setError("شماره موبایل نامعتبر است");
+    if (!phone || phone.length < 11) return setError("لطفاً شماره موبایل خود را به درستی وارد کنید.");
     setLoading(true);
     setError("");
     try {
@@ -91,11 +152,12 @@ export default function LoginPage() {
       
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.detail || "خطا در ارسال کد");
+        throw new Error(data.detail || "خطا در ارسال کد تایید.");
       }
       
       setStep(2);
       setTimer(120);
+      setTimeout(() => codeInputs.current[0]?.focus(), 100);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -105,7 +167,8 @@ export default function LoginPage() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code || code.length < 5) return setError("کد ۵ رقمی را وارد کنید");
+    const fullCode = codeDigits.join("");
+    if (fullCode.length < 5) return setError("لطفاً کد ۵ رقمی ارسال شده را کامل وارد کنید.");
     
     setLoading(true);
     setError("");
@@ -114,17 +177,20 @@ export default function LoginPage() {
       const res = await fetch(`${apiUrl}/auth/verify-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone, code: fullCode }),
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "کد نامعتبر است");
+      if (!res.ok) throw new Error(data.detail || "کد وارد شده نامعتبر است.");
 
       setToken(data.access_token);
       setUser(data.user);
       
-      // ⬅️ همه به صفحه اصلی برن (ادمین هم می‌تونه از منو بره پنل)
-      router.push("/");
+      if (data.user?.is_new) {
+        router.push("/dashboard?welcome=true");
+      } else {
+        router.push("/");
+      }
       
     } catch (err: any) {
       setError(err.message);
@@ -139,9 +205,39 @@ export default function LoginPage() {
     }
   };
 
+  const handleCodeChange = (index: number, value: string) => {
+    if (isNaN(Number(value))) return;
+    const newDigits = [...codeDigits];
+    newDigits[index] = value.substring(value.length - 1);
+    setCodeDigits(newDigits);
+
+    if (value && index < 4) {
+      codeInputs.current[index + 1]?.focus();
+    }
+    
+    if (newDigits.every(d => d !== "") && index === 4) {
+      setTimeout(() => {
+        const form = document.querySelector("form");
+        if (form) form.requestSubmit();
+      }, 100);
+    }
+  };
+
+  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !codeDigits[index] && index > 0) {
+      codeInputs.current[index - 1]?.focus();
+    }
+  };
+
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#07111f] text-white">
       
+      {/* 🔴 سئو: تگ H1 پنهان */}
+      <div className="hidden">
+        <h1>تحلیل تکنیکال، سیگنال هوش مصنوعی و مقایسه صرافی‌های ایرانی | تریدمون</h1>
+        <p>اولین سایت تحلیل رباتیک کریپتو و بورس ایران با هوش مصنوعی و مقایسه لحظه‌ای قیمت صرافی‌ها</p>
+      </div>
+
       {/* ═══ پس‌زمینه سینمایی ═══ */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         <svg className="absolute inset-0 h-full w-full opacity-70" viewBox="0 0 1200 800" preserveAspectRatio="none">
@@ -185,125 +281,162 @@ export default function LoginPage() {
           />
         ))}
 
-        <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/60 via-[#07111f]/40 to-[#07111f]/80" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/80 via-[#07111f]/60 to-[#07111f]/95" />
       </div>
 
-      {/* هدر — ⬅️ فقط لوگو، بدون متن اضافی */}
+      {/* هدر — 🔴 نئون لوگو حذف شد */}
       <header className="relative z-10 flex items-center justify-between p-4 sm:p-6">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-          <img src="/icon-512.png" alt="Trademun" className="h-12 w-auto rounded-xl object-contain" />
+          <img src="/icon-512.png" alt="Trademun" className="h-14 w-auto sm:h-16 rounded-xl object-contain" />
         </Link>
-        <div className="flex items-center gap-2 text-xs text-gray-400">
+        <div className="flex items-center gap-2 text-xs text-gray-400 bg-white/5 py-1 px-3 rounded-full border border-white/10">
           <div className="h-2 w-2 animate-pulse rounded-full bg-[#10b981]" />
           دستیار هوشمند بازار
         </div>
       </header>
 
-      <div className="relative z-10 mx-auto grid w-full max-w-5xl flex-1 items-center gap-8 p-4 sm:p-6 lg:grid-cols-2">
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-8 p-4 py-8 sm:p-6 lg:flex-row lg:items-center lg:justify-between lg:pt-16">
         
-        {/* ═══ دسکتاپ: متن معرفی ═══ */}
-        <div className="hidden lg:block">
-          <span className="text-xs tracking-widest text-[#d6ad60]">SMARTER MARKET INSIGHTS</span>
-          <h1 className="mt-6 text-5xl font-bold leading-tight">
+        {/* ═══ بخش تبلیغاتی (سمت چپ) ═══ */}
+        <div className="flex w-full flex-col items-center lg:items-start lg:w-1/2 text-center lg:text-right">
+          
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-1.5 text-xs font-medium text-yellow-500">
+            <ShieldCheck className="h-4 w-4" />
+            شفافیت کامل در آمار و مدیریت ریسک
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold leading-tight mt-2">
             تحلیل بازارهای مالی<br />
             <span className="text-[#d6ad60]">با تریدمون</span>
           </h1>
-          <p className="mt-6 text-sm leading-relaxed text-gray-400">
-            با تریدمون، تحلیل تکنیکال دقیق و سیگنال‌های لحظه‌ای رو از صرافی‌های معتبر و بازار سرمایه ایران (بورس) دریافت کن. تصمیم بهتر، با دید بهتر.
+          
+          <p className="mt-4 max-w-lg text-sm leading-relaxed text-gray-400">
+            تریدمون به شما کمک می‌کند تا با تحلیل‌های رباتیک و هوش مصنوعی، بهترین تصمیم را در بازار کریپتو و بورس ایران بگیرید. همچنین می‌توانید قیمت‌ها را بین صرافی‌های مختلف مقایسه کنید.
           </p>
-          <div className="mt-8 space-y-3 text-sm">
-            {FEATURES.map((f, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <f.icon className="h-4 w-4 text-[#d6ad60]" />
-                <span>{f.text}</span>
+
+          {/* 🔴 آمار زنده با انیمیشن شمارنده */}
+          <div className="mt-6 grid w-full max-w-lg grid-cols-2 gap-3 sm:grid-cols-4">
+            {STATS.map((stat, i) => (
+              <div key={i} className="flex flex-col items-center justify-center rounded-xl border border-white/10 bg-white/5 py-2 backdrop-blur-md">
+                <span className="text-lg font-bold text-[#d6ad60]">
+                  <AnimatedNumber value={stat.value} suffix={stat.suffix} />
+                </span>
+                <span className="text-[9px] text-gray-400 mt-1 text-center">{stat.label}</span>
               </div>
             ))}
           </div>
+
+          {/* 🔴 کارت‌های قابلیت */}
+          <div className="mt-8 grid w-full max-w-lg grid-cols-1 gap-3 sm:grid-cols-2">
+            {FEATURES.map((f, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur-md transition-colors hover:bg-white/10">
+                <div className="rounded-lg bg-[#d6ad60]/15 p-2">
+                  <f.icon className="h-4 w-4 text-[#d6ad60]" />
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-white">{f.title}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">{f.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 🔴 لوگوی صرافی‌ها — فقط در دسکتاپ */}
+          <div className="mt-8 w-full max-w-lg hidden lg:block">
+            <p className="text-[10px] text-gray-400 mb-3 text-right">پشتیبانی از صرافی‌های معتبر و در آینده نزدیک</p>
+            <div className="flex flex-wrap items-center justify-start gap-2">
+              {EXCHANGES.map((ex, i) => (
+                <div key={i} className={`flex flex-col items-center gap-1 ${!ex.active ? "opacity-40" : ""}`}>
+                  <div className={`h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 ${!ex.active ? "grayscale" : ""}`}>
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      const parent = (e.target as HTMLImageElement).parentElement;
+                      if (parent && !parent.querySelector('.fallback-text')) {
+                        const span = document.createElement('span');
+                        span.className = 'fallback-text text-[7px] text-gray-300 font-bold';
+                        span.innerText = ex.name.substring(0, 2);
+                        parent.appendChild(span);
+                      }
+                    }} />
+                  </div>
+                  <span className="text-[7px] text-gray-400">{ex.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* ═══ فرم ورود ═══ */}
-        <div className="relative w-full">
+        {/* ═══ فرم ورود (سمت راست) ═══ */}
+        <div className="relative w-full max-w-sm lg:w-[400px] lg:sticky lg:top-24">
           
-          {/* موبایل: متن معرفی */}
-          <div className="mb-6 text-center lg:hidden">
-            <h1 className="text-2xl font-bold leading-tight">
-              تحلیل بازارهای مالی
-            </h1>
-          </div>
-
-          {/* نوتیف (بالای فرم) */}
-          <div className="mb-4 flex justify-center lg:hidden">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeFeature}
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                transition={{ duration: 0.5 }}
-                className="flex items-center gap-2 rounded-full border border-[#d6ad6040] bg-[#0d1b2de0] px-4 py-2 text-xs text-[#d6ad60] shadow-lg backdrop-blur-md"
-              >
-                {(() => {
-                  const Icon = FEATURES[activeFeature].icon;
-                  return <Icon className="h-4 w-4" />;
-                })()}
-                <span>{FEATURES[activeFeature].text}</span>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-
-          <form onSubmit={handleVerify} className="relative w-full rounded-2xl border border-white/10 bg-[#0d1b2dd0] p-5 sm:p-6 shadow-2xl backdrop-blur-xl">
+          <form onSubmit={handleVerify} className="relative w-full rounded-3xl border border-white/10 bg-[#0d1b2dd0] p-6 shadow-[0_0_40px_rgba(214,173,96,0.1)] backdrop-blur-2xl">
             
-            <h2 className="text-xl font-bold mb-1">ورود به تریدمون</h2>
-            <p className="mb-6 text-xs text-gray-400">
-              {step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`}
-            </p>
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold mb-1 text-white">ورود به تریدمون</h2>
+              <p className="text-xs text-gray-400">
+                {step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`}
+              </p>
+            </div>
 
             {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500">{error}</div>}
 
             {step === 1 ? (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
-                  <label className="mb-2 block text-xs text-gray-400">شماره موبایل</label>
-                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/30 px-3 transition-colors focus-within:border-[#d6ad60]">
-                    <span className="text-sm text-[#d6ad60] pl-3 border-r border-white/10" dir="ltr">+98</span>
+                  <label className="mb-2 block text-xs font-medium text-gray-400">شماره موبایل</label>
+                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/40 px-3 transition-colors focus-within:border-[#d6ad60] focus-within:shadow-[0_0_10px_rgba(214,173,96,0.2)]">
                     <Input
                       type="tel"
                       placeholder="0912 000 0000"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      className="border-0 bg-transparent text-right text-base text-white shadow-none focus-visible:ring-0 h-11"
+                      className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12"
                       maxLength={11}
                       dir="ltr"
                     />
                   </div>
                 </div>
                 
-                <Button onClick={handleSendOtp} disabled={loading} className="h-11 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90">
+                <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)] transition-all">
                   {loading ? "در حال ارسال..." : "دریافت کد ورود"}
                 </Button>
+                
+                <div className="text-center mt-2">
+                  <p className="text-[10px] text-[#d6ad60] bg-[#d6ad60]/10 rounded-md py-1.5 inline-block px-3 border border-[#d6ad60]/20">
+                    🎁 با اولین ورود، ۳ روز اشتراک رایگان هدیه بگیر!
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <div className="mb-2 flex items-center justify-between">
-                    <label className="text-xs text-gray-400">کد تایید</label>
+                    <label className="text-xs font-medium text-gray-400">کد تایید</label>
                     <button type="button" onClick={() => setStep(1)} className="flex items-center gap-1 text-xs text-[#d6ad60] hover:underline">
                       ویرایش شماره <ArrowLeft className="h-3 w-3" />
                     </button>
                   </div>
-                  <Input
-                    type="text"
-                    placeholder="- - - - -"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className="h-12 border-white/10 bg-black/30 text-center text-xl tracking-[0.5em] text-white focus-visible:ring-[#d6ad60]"
-                    maxLength={5}
-                    dir="ltr"
-                  />
+                  
+                  <div className="flex justify-between gap-2" dir="ltr">
+                    {codeDigits.map((digit, index) => (
+                      <Input
+                        key={index}
+                        ref={(el) => { codeInputs.current[index] = el; }}
+                        type="text"
+                        inputMode="numeric"
+                        value={digit}
+                        onChange={(e) => handleCodeChange(index, e.target.value)}
+                        onKeyDown={(e) => handleCodeKeyDown(index, e)}
+                        className="h-14 w-12 rounded-xl text-center text-xl font-bold bg-black/40 border-white/10 text-white focus-visible:ring-[#d6ad60] transition-all"
+                        maxLength={1}
+                        autoComplete="one-time-code"
+                      />
+                    ))}
+                  </div>
                 </div>
                 
-                <Button type="submit" disabled={loading} className="h-11 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90">
+                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)] transition-all">
                   {loading ? "در حال بررسی..." : "ورود به حساب"}
                 </Button>
                 
@@ -318,34 +451,56 @@ export default function LoginPage() {
             )}
           </form>
 
-          {/* ⬅️ LONG/SHORT زیر کارت (دسکتاپ و موبایل) */}
-          <div className="mt-6 flex items-center justify-center gap-8 opacity-80">
+          <div className="mt-5 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 text-center">
+            <p className="text-[10px] text-yellow-500/80 leading-relaxed">
+              ⚠️ تحلیل‌های تریدمون صرفاً جنبه آموزشی دارند. تصمیم نهایی و مسئولیت سود یا ضرر با خودتونه.
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-center gap-6 opacity-80">
             <motion.div
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 2, repeat: Infinity }}
-              className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-2 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]"
+              className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-1.5 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]"
             >
               LONG
             </motion.div>
             <motion.div
               animate={{ opacity: [1, 0.4, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
-              className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-2 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]"
+              className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-1.5 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]"
             >
               SHORT
             </motion.div>
           </div>
 
-          {/* ⬅️ موبایل: متن جذاب زیر فرم */}
-          <div className="mt-6 text-center lg:hidden">
-            <p className="text-xs text-gray-400 leading-relaxed">
-              با تریدمون، تحلیل تکنیکال دقیق و سیگنال‌های لحظه‌ای رو از صرافی‌های معتبر و بازار سرمایه ایران (بورس) دریافت کن. تصمیم بهتر، با دید بهتر.
-            </p>
-          </div>
         </div>
       </div>
 
-      {/* فوتر */}
+      {/* 🔴 لوگوی صرافی‌ها — فقط در موبایل (زیر LONG/SHORT) */}
+      <div className="relative z-10 w-full px-4 pb-8 lg:hidden">
+        <p className="text-[10px] text-gray-400 mb-3 text-center">پشتیبانی از صرافی‌های معتبر</p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {EXCHANGES.map((ex, i) => (
+            <div key={i} className={`flex flex-col items-center gap-1 ${!ex.active ? "opacity-40" : ""}`}>
+              <div className={`h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 ${!ex.active ? "grayscale" : ""}`}>
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  const parent = (e.target as HTMLImageElement).parentElement;
+                  if (parent && !parent.querySelector('.fallback-text')) {
+                    const span = document.createElement('span');
+                    span.className = 'fallback-text text-[7px] text-gray-300 font-bold';
+                    span.innerText = ex.name.substring(0, 2);
+                    parent.appendChild(span);
+                  }
+                }} />
+              </div>
+              <span className="text-[7px] text-gray-400">{ex.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <footer className="relative z-10 border-t border-white/5 bg-[#07111f]/50 px-4 py-3 text-center text-[10px] text-gray-500 backdrop-blur-sm sm:px-6">
         <div className="flex flex-wrap items-center justify-center gap-4">
           <span>© 2026 تریدمون</span>
@@ -362,9 +517,6 @@ export default function LoginPage() {
             <Send className="h-3 w-3" /> ble.ir/trademun
           </a>
         </div>
-        <p className="mt-1 text-[9px] opacity-70">
-          ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارند.
-        </p>
       </footer>
     </main>
   );

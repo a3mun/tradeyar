@@ -252,6 +252,27 @@ def analyze(
     if df is None or df.empty:
         return None
 
+        # 🔴 برای بورس ایران: جایگزینی آخرین کندل با قیمت زنده
+    if source == "tsetmc" or is_iranian_stock:
+        try:
+            from core.tsetmc_fetcher import fetch_tsetmc_live_quote
+
+            live = fetch_tsetmc_live_quote(ticker)
+            if live and live.get("price"):
+                live_price = float(live["price"])
+                # به‌روزرسانی قیمت بسته شدن آخرین کندل
+                if not df.empty:
+                    df.iloc[-1, df.columns.get_loc("close")] = live_price
+                    # همچنین high و low را با قیمت زنده مقایسه و به‌روزرسانی کن
+                    df.iloc[-1, df.columns.get_loc("high")] = max(
+                        float(df.iloc[-1]["high"]), live_price
+                    )
+                    df.iloc[-1, df.columns.get_loc("low")] = min(
+                        float(df.iloc[-1]["low"]), live_price
+                    )
+        except Exception as e:
+            logger.warning(f"[Analyzer] live price update failed: {e!r}")
+
     data_source = get_data_source(df, source)
     fingerprint = _make_versioned_fingerprint(df, tf_name) if use_cache else ""
     cache_key = _make_cache_key(ticker, source, tf_name, market_type, risk_profile)

@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * DeepAnalysis — تحلیل عمیق (نسخه ۱۰.۲ · فاز ۱۲.۶)
- * ============================================================
- * 🔴 تغییرات نسخه ۱۰.۲:
- *   • دکمه کپی هم‌رنگ با دکمه‌های اصلی سایت (زرد/طلایی ملایم)
- *   • توضیحات سناریوها شیوا و دوستانه‌تر
- */
-
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -17,6 +9,7 @@ import {
   Target,
   Sparkles,
   Info,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,158 +39,120 @@ const TRAP_LABELS: Record<string, string> = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 ترجمه‌ی explanation به زبان دوستانه
+// توابع کمکی روان‌سازی متن
 // ═══════════════════════════════════════════════════════════
 function friendlyExplanation(explanation: string, signal: string): string {
   if (!explanation) return "";
-
-  let text = explanation.replace(/—/g, "،").trim();
+  let text = explanation
+    .replace(/SHORT/g, "فروش (SHORT)")
+    .replace(/LONG/g, "خرید (LONG)")
+    .replace(/—/g, "،")
+    .trim();
 
   const isLong = signal.includes("LONG");
   const isShort = signal.includes("SHORT");
   const isWeak = signal.includes("ضعیف");
 
   if (isLong && isWeak) {
-    text +=
-      "\n\n💡 سیگنال ضعیفه — با احتیاط. حد ضرر رو حتماً تنظیم کن، شاید بهتره صبر کنی.";
+    text += "\n\n💡 سیگنال خرید ضعیفه — با احتیاط. حد ضرر رو حتماً تنظیم کن.";
   } else if (isLong) {
-    text +=
-      "\n\n💡 می‌تونی وارد شی، ولی با مدیریت سرمایه. حتماً حد ضرر بذار.";
+    text += "\n\n💡 می‌تونی وارد شی، ولی با مدیریت سرمایه. حتماً حد ضرر بذار.";
   } else if (isShort && isWeak) {
-    text +=
-      "\n\n💡 SHORT ضعیف — پرریسکه. اگه وارد شی، سریع خارج شو.";
+    text += "\n\n💡 سیگنال فروش (SHORT) ضعیف — پرریسکه. حتماً حد ضرر نزدیک بذار.";
   } else if (isShort) {
-    text +=
-      "\n\n💡 SHORT منطقیه، ولی حد ضرر رو تنگ بذار. نوسان می‌تونه سریع برگرده.";
+    text += "\n\n💡 فروش (SHORT) منطقیه، ولی حد ضرر رو تنگ بذار. نوسان می‌تونه سریع برگرده.";
   } else {
     text += "\n\n💡 الان بازار سیگنال واضحی نداره. صبر کن.";
   }
-
   return text;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎯 روان‌سازی متن سناریوها (شیوا و مشاوره‌محور)
-// ═══════════════════════════════════════════════════════════
 function friendlyScenario(action: string, condition: string): string {
-  let text = action;
+  let text = action
+    .replace(/SL زیر حمایت/g, "حد ضرر رو کمی زیر این سطح بذار")
+    .replace(/SL تنگ بذار/g, "حد ضرر نزدیک بذار")
+    .replace(/ورود LONG — SL=/g, "ورود خرید (LONG) — حد ضرر=")
+    .replace(/LONG/g, "خرید (LONG)")
+    .replace(/SHORT/g, "فروش (SHORT)")
+    .replace(/SL=/g, "حد ضرر=")
+    .replace(/TP=/g, "حد سود=")
+    .replace(/R \(/g, "مقاومت (")
+    .replace(/حمایت \(/g, "حمایت (")
+    .replace(/مراقب باش/g, "حواسات باشه، شاید بازار برگرده");
 
-  // جایگزینی عبارات خشک با جملات روان‌تر
-  text = text.replace(/SL زیر حمایت/g, "حد ضرر رو کمی زیر این سطح بذار");
-  text = text.replace(/SL تنگ بذار/g, "حد ضرر نزدیک بذار");
-  text = text.replace(/ورود LONG — SL=/g, "ورود LONG — حد ضرر=");
-  text = text.replace(/SL=/g, "حد ضرر=");
-  text = text.replace(/TP=/g, "حد سود=");
-  text = text.replace(/R \(/g, "مقاومت (");
-  text = text.replace(/حمایت \(/g, "حمایت (");
-  text = text.replace(/مقاومت \(/g, "مقاومت (");
-  text = text.replace(/مراقب باش/g, "حواسات باشه، شاید بازار برگرده");
-
-  // برای سناریوهای برخورد به حمایت/مقاومت
   if (condition.includes("حمایت")) {
-    text = text.replace(
-      /فرصت خرید/g,
-      "فرصت خرید خوبه، ولی صبر کن ببینی خریدارها میان یا نه"
-    );
+    text = text.replace(/فرصت خرید/g, "فرصت خرید خوبه، ولی صبر کن ببینی خریدارها میان یا نه");
   }
   if (condition.includes("مقاومت")) {
-    text = text.replace(
-      /مراقب باش/g,
-      "این سطح مقاومته — اگه رد نشه، ممکنه برگرده پایین"
-    );
+    text = text.replace(/مراقب باش/g, "این سطح مقاومته — اگه رد نشه، ممکنه برگرده پایین");
   }
-
   return text;
 }
 
-// ═══════════════════════════════════════════════════════════
-// تجزیه‌کننده متن — فقط بخش‌های ارزشمند
-// ═══════════════════════════════════════════════════════════
 function extractValuableSections(raw: string): string {
   if (!raw) return "";
-
   const lines = raw.split("\n");
   const keep: string[] = [];
   let currentSection = "";
 
   for (const line of lines) {
     const trimmed = line.trim();
-
     if (
       trimmed.includes("نظر گروه‌ها") ||
       trimmed.includes("سطوح کلیدی") ||
       trimmed.includes("عمق بازار") ||
-      trimmed.includes("سناریوهای پیش‌رو")
+      trimmed.includes("سناریوهای پیش‌رو") ||
+      trimmed.includes("بازار چطوره")
     ) {
       currentSection = "skip";
       continue;
     }
-
-    if (
-      trimmed.includes("بازار چطوره") ||
-      trimmed.includes("چرا این سیگنال") ||
-      trimmed.includes("جمع‌بندی")
-    ) {
+    if (trimmed.includes("چرا این سیگنال") || trimmed.includes("جمع‌بندی")) {
       currentSection = "keep";
       continue;
     }
-
     if (trimmed.match(/^[─▎◈]{2,}/) || trimmed.match(/^[|]/)) {
       if (currentSection === "keep") keep.push("");
       continue;
     }
-
     if (currentSection === "keep" && trimmed) {
       const clean = trimmed
         .replace(/^[▎◈]\s*/, "")
         .replace(/\*\*/g, "")
-        .replace(/^[•·]\s*/, "• ");
+        .replace(/^[•·]\s*/, "• ")
+        .replace(/SHORT/g, "فروش (SHORT)")
+        .replace(/LONG/g, "خرید (LONG)");
       keep.push(clean);
     }
   }
-
   return keep.join("\n");
 }
 
 // ═══════════════════════════════════════════════════════════
-// ParagraphBlock — متن روان‌تر
+// کامپوننت‌های بصری
 // ═══════════════════════════════════════════════════════════
 function ParagraphBlock({ text }: { text: string }) {
   if (!text.trim()) return null;
-
-  const paragraphs = text
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 0);
 
   return (
     <div className="space-y-2">
       {paragraphs.map((p, i) => {
         const lines = p.split("\n").filter((l) => l.trim());
-
         if (lines.every((l) => l.startsWith("•"))) {
           return (
-            <ul
-              key={i}
-              className="space-y-1 rounded-md bg-muted/20 px-3 py-2"
-            >
+            <ul key={i} className="space-y-1 rounded-md bg-white/5 px-3 py-2 border border-white/10">
               {lines.map((l, j) => (
-                <li
-                  key={j}
-                  className="text-[11px] leading-relaxed text-foreground/80"
-                >
-                  {l}
+                <li key={j} className="text-[11px] leading-relaxed text-foreground/80 flex items-start gap-2">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-blue-400/50" />
+                  {l.replace(/^•\s*/, "")}
                 </li>
               ))}
             </ul>
           );
         }
-
         return (
-          <p
-            key={i}
-            className="rounded-md bg-muted/15 px-3 py-2 text-[11px] leading-[1.9] text-foreground/80"
-          >
+          <p key={i} className="rounded-md bg-white/5 border border-white/10 px-3 py-2 text-[11px] leading-[1.9] text-foreground/80">
             {lines.join(" ")}
           </p>
         );
@@ -206,49 +161,44 @@ function ParagraphBlock({ text }: { text: string }) {
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-// ScenarioCard
-// ═══════════════════════════════════════════════════════════
-function ScenarioCard({
-  scenario,
-}: {
-  scenario: {
-    icon?: string;
-    condition?: string;
-    action?: string;
-    probability?: number;
-    color?: string;
-  };
-}) {
+function ScenarioCard({ scenario, mainDirection }: { scenario: any; mainDirection: string }) {
   const colorMap: Record<string, string> = {
-    green: "border-green-500/30 bg-green-500/5",
-    red: "border-red-500/30 bg-red-500/5",
-    yellow: "border-yellow-500/30 bg-yellow-500/5",
+    green: "border-green-500/30 bg-green-500/5 text-green-400",
+    red: "border-red-500/30 bg-red-500/5 text-red-400",
+    yellow: "border-yellow-500/30 bg-yellow-500/5 text-yellow-400",
   };
   const color = scenario.color || "yellow";
   const probability = Math.round((scenario.probability || 0.5) * 100);
   const condition = scenario.condition || "";
   const action = scenario.action || "";
-  
   const friendlyAction = friendlyScenario(action, condition);
 
+  // 🔴 تشخیص تناقض جهت
+  const isLongScenario = action.includes("LONG") || action.includes("خرید");
+  const isShortScenario = action.includes("SHORT") || action.includes("فروش");
+  const isConflict =
+    (mainDirection === "short" && isLongScenario) ||
+    (mainDirection === "long" && isShortScenario);
+
   return (
-    <div
-      className={`rounded-md border px-2.5 py-2.5 ${colorMap[color] || colorMap.yellow}`}
-    >
-      <div className="flex items-start gap-2">
-        <span className="text-[14px] mt-0.5">{scenario.icon || "•"}</span>
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="text-[11px] font-medium leading-relaxed text-foreground/90">
-            {condition}
-          </p>
-          <p className="text-[10.5px] leading-relaxed text-foreground/75">
-            ↪ {friendlyAction}
-          </p>
+    <div className={`rounded-lg border p-2.5 ${colorMap[color] || colorMap.yellow} transition-all hover:bg-white/10 relative`}>
+      {isConflict && (
+        <div className="absolute -top-2 -left-2 rounded bg-orange-600 text-[8px] font-bold text-white px-1.5 py-0.5 shadow-sm">
+          ⚠️ سناریوی خلاف جهت
         </div>
-        <span className="num shrink-0 text-[9.5px] font-bold text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">
-          {probability}٪
-        </span>
+      )}
+      <div className="flex items-start gap-2">
+        <span className="text-[16px] mt-0.5">{scenario.icon || "•"}</span>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="text-[11px] font-medium leading-relaxed text-foreground/90">{condition}</p>
+          <p className="text-[10.5px] leading-relaxed text-foreground/75">↪ {friendlyAction}</p>
+          <div className="flex items-center gap-2 pt-1">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/30">
+              <div className="h-full rounded-full bg-current opacity-80" style={{ width: `${probability}%` }} />
+            </div>
+            <span className="num shrink-0 text-[9.5px] font-bold text-muted-foreground">{probability}٪ احتمال</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -264,8 +214,7 @@ export function DeepAnalysis() {
   const isMobile = useIsMobile();
 
   const aiExport = data?.ai_export || "";
-  const techText =
-    (data as { deep_analysis?: string } | null)?.deep_analysis || "";
+  const techText = (data as { deep_analysis?: string } | null)?.deep_analysis || "";
   const valuableText = extractValuableSections(techText);
 
   const handleCopy = async () => {
@@ -281,7 +230,7 @@ export function DeepAnalysis() {
 
   if (loading && !data) {
     return (
-      <div className="space-y-2 rounded-lg border border-border/40 bg-card/30 p-3">
+      <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-3/4" />
         <Skeleton className="h-4 w-5/6" />
@@ -290,29 +239,21 @@ export function DeepAnalysis() {
   }
 
   if (!data) {
-    return (
-      <p className="py-4 text-center text-xs text-muted-foreground">
-        ⏳ تحلیل برای {timeframe} در دسترس نیست
-      </p>
-    );
+    return <p className="py-4 text-center text-xs text-muted-foreground">⏳ تحلیل برای {timeframe} در دسترس نیست</p>;
   }
 
   const traps = data.traps || {};
-  const activeTraps = Object.entries(traps)
-    .filter(([, v]) => (v as { active?: boolean })?.active)
-    .map(([k]) => k);
+  const activeTraps = Object.entries(traps).filter(([, v]) => (v as { active?: boolean })?.active).map(([k]) => k);
   const scenarios = data.scenarios || [];
   const explanation = data.explanation || "";
-  const neutralExplain =
-    (data as { neutral_explain?: { long?: string; hint?: string } })
-      .neutral_explain || null;
-
-  // 🔴 دسکتاپ باز، موبایل بسته
+  const neutralExplain = (data as { neutral_explain?: { long?: string; hint?: string } }).neutral_explain || null;
   const defaultOpenDesktop = !isMobile;
+  const mainDirection = data.direction || "neutral";
 
   return (
     <div className="space-y-2.5">
-      {/* ═══ هشدارها ═══ */}
+      
+      {/* ۱. هشدارها */}
       {activeTraps.length > 0 && (
         <AccordionSection
           title="⚠️ هشدار — قبل از ورود بخون"
@@ -324,27 +265,14 @@ export function DeepAnalysis() {
         >
           <div className="space-y-2">
             {activeTraps.map((k) => {
-              const trap = traps[k] as {
-                active?: boolean;
-                reason?: string;
-                severity?: number;
-              };
+              const trap = traps[k] as { active?: boolean; reason?: string; severity?: number };
               return (
-                <div
-                  key={k}
-                  className="rounded-md border border-red-500/30 bg-red-500/5 px-2.5 py-2"
-                >
+                <div key={k} className="rounded-lg border border-red-500/30 bg-red-500/5 px-2.5 py-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-red-500">
-                      🚨 {TRAP_LABELS[k] || k}
-                    </span>
-                    <span className="num text-[9px] text-muted-foreground">
-                      شدت {trap.severity || 0}/10
-                    </span>
+                    <span className="text-[11px] font-bold text-red-500">🚨 {TRAP_LABELS[k] || k}</span>
+                    <span className="num text-[9px] text-muted-foreground">شدت {trap.severity || 0}/10</span>
                   </div>
-                  <p className="mt-1 text-[10px] leading-relaxed text-foreground/70">
-                    {trap.reason}
-                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-foreground/70">{trap.reason}</p>
                 </div>
               );
             })}
@@ -352,12 +280,12 @@ export function DeepAnalysis() {
         </AccordionSection>
       )}
 
-      {/* ═══ تحلیل عمیق ═══ */}
+      {/* ۲. تحلیل تکنیکال */}
       {valuableText && (
         <AccordionSection
-          title="تحلیل عمیق"
+          title="🔍 تحلیل تکنیکال پیشرفته"
           icon={<BarChart3 className="h-3.5 w-3.5" />}
-          preview="چرا این سیگنال — به زبان ساده"
+          preview="بررسی گروه‌های تحلیل و اندیکاتورها"
           tone="primary"
           pulse
           defaultOpen={defaultOpenDesktop}
@@ -366,10 +294,10 @@ export function DeepAnalysis() {
         </AccordionSection>
       )}
 
-      {/* ═══ سناریوها ═══ */}
+      {/* ۳. سناریوها */}
       {scenarios.length > 0 && (
         <AccordionSection
-          title="سناریوهای پیش‌رو"
+          title="🔀 سناریوهای پیش‌رو"
           icon={<GitBranch className="h-3.5 w-3.5" />}
           preview={`${scenarios.length} سناریو با احتمال`}
           tone="primary"
@@ -378,16 +306,18 @@ export function DeepAnalysis() {
         >
           <div className="space-y-2">
             {scenarios.map((sc, i) => (
-              <ScenarioCard key={i} scenario={sc} />
+              <ScenarioCard key={i} scenario={sc} mainDirection={mainDirection} />
             ))}
           </div>
         </AccordionSection>
       )}
 
-      {/* ═══ جمع‌بندی ═══ */}
+
+
+      {/* ۵. جمع‌بندی */}
       {(explanation || neutralExplain) && (
         <AccordionSection
-          title="جمع‌بندی — چیکار کنم؟"
+          title="🎯 توصیه نهایی و تصمیم‌گیری"
           icon={<Target className="h-3.5 w-3.5" />}
           preview={explanation || neutralExplain?.long || "توصیه نهایی"}
           tone="orange"
@@ -408,30 +338,27 @@ export function DeepAnalysis() {
               </div>
             )}
             {neutralExplain?.long && (
-              <div className="rounded-md bg-muted/20 px-2.5 py-2 text-[10px] leading-relaxed text-foreground/70">
+              <div className="rounded-lg bg-white/5 border border-white/10 px-2.5 py-2 text-[10px] leading-relaxed text-foreground/70">
                 {neutralExplain.long}
               </div>
             )}
             {neutralExplain?.hint && (
-              <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2.5 py-2 text-[10px] leading-relaxed text-blue-400">
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2 text-[10px] leading-relaxed text-blue-400">
                 💡 {neutralExplain.hint}
               </div>
             )}
-            <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-[9px] text-yellow-500/80">
-              ⚠️ این تحلیل بر اساس دیتای فعلی هست. بازار ممکنه متفاوت عمل کنه.
-              همیشه با حد ضرر و مدیریت سرمایه وارد شو.
+            <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-[9px] text-yellow-500/80">
+              ⚠️ این تحلیل بر اساس دیتای فعلی هست. بازار ممکنه متفاوت عمل کنه. همیشه با حد ضرر و مدیریت سرمایه وارد شو.
             </div>
           </div>
         </AccordionSection>
       )}
 
-      {/* ═══ دکمه کپی — استفاده از تم دکمه اصلی سایت ═══ */}
+      {/* ۶. دکمه کپی */}
       <Button
         onClick={handleCopy}
         variant="default"
-        className={`w-full ${
-          copied ? "bg-green-600 hover:bg-green-700 text-white" : ""
-        }`}
+        className={`w-full ${copied ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
         size="sm"
         disabled={!aiExport}
       >
