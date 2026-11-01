@@ -4,14 +4,14 @@ api/routers/admin.py
 
 import logging, shutil, csv, io, subprocess, tempfile, os
 import gzip
+import threading
+import time
 from pydantic import BaseModel
-import subprocess
 
 from pathlib import Path
-from api.database import engine
 from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import Session, select
 
@@ -19,7 +19,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-from api.database import get_session
+from api.database import get_session, engine
 from api.auth import require_admin
 from api.models import User, Subscription, PaymentRequest
 from api.plans import PLANS
@@ -49,15 +49,12 @@ def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, boo
     return "expired", False
 
 
-# ۱. بک‌آپ (Postgres)
+# ═══════════════════════════════════════════════════════════
+# ۱. بک‌آپ (Postgres / SQLite)
+# ═══════════════════════════════════════════════════════════
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
     from api.config import BASE_DIR
-    import gzip
-    import shutil
-    from datetime import datetime
-    import os
-    from api.database import engine
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     is_sqlite = engine.url.drivername.startswith("sqlite")
@@ -77,19 +74,17 @@ async def backup_database(admin: User = Depends(require_admin)):
             shutil.copy2(db_path, raw_backup_path)
             ext = "db"
         else:
-            # --- سرور (PostgreSQL) ---
             raw_backup_path = backup_dir / f"backup_raw_{timestamp}.sql"
             user = engine.url.username
             dbname = engine.url.database
             password = engine.url.password or ""
-            host = engine.url.host or "localhost"  # ⬅️ توی داکر مقدارش postgres هست
+            host = engine.url.host or "localhost"
             port = engine.url.port or 5432
 
             env = os.environ.copy()
             env["PGPASSWORD"] = password
             cmd = ["pg_dump", "-h", host, "-p", str(port), "-U", user, dbname]
 
-            # اجرای pg_dump با هاست و رمز درست
             with open(raw_backup_path, "wb") as f:
                 result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, env=env)
 
@@ -101,13 +96,11 @@ async def backup_database(admin: User = Depends(require_admin)):
                 raise HTTPException(status_code=500, detail="فایل بک‌آپ خالی است")
             ext = "sql"
 
-        # فشرده‌سازی
         compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
         with open(raw_backup_path, "rb") as f_in:
             with gzip.open(compressed_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-        # پاکسازی فایل خام
         if raw_backup_path.exists():
             os.remove(raw_backup_path)
 
@@ -124,72 +117,126 @@ async def backup_database(admin: User = Depends(require_admin)):
         raise HTTPException(status_code=500, detail=f"خطای بک‌آپ: {str(e)}")
 
 
+# ═══════════════════════════════════════════════════════════
+# ۲. بازیابی (Postgres / SQLite) با ری‌استارت خودکار
+# ═══════════════════════════════════════════════════════════
 @router.post("/backups/restore")
 async def restore_backup(
     file: UploadFile = File(...),
     admin: User = Depends(require_admin),
 ):
     from api.config import BASE_DIR
-    from api.database import engine, is_sqlite
+
+    is_sqlite = engine.url.drivername.startswith("sqlite")
 
     if not file.filename.endswith(".gz"):
         raise HTTPException(status_code=400, detail="فایل باید با پسوند .gz باشد")
 
-    # ذخیره موقت
-    backup_dir = (
-        BASE_DIR
-        / "data"
-        / f"temp_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.gz"
-    )
-    with open(backup_dir, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    # باز کردن gzip
-    raw_ext = "db" if is_sqlite else "sql"
-    backup_dir = (
-        BASE_DIR
-        / "data"
-        / f"temp_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{raw_ext}"
-    )
-
     try:
-        with gzip.open(backup_dir, "rb") as f_in:
-            with open(backup_dir, "wb") as f_out:
-                shutil.copyfileobj(f_in, f_out)
+        content = await file.read()
+        raw_data = gzip.decompress(content)
+
+        # چک امنیتی فرمت فایل
+        is_sql_file = file.filename.endswith(".sql.gz")
+        is_db_file = file.filename.endswith(".db.gz")
+
+        if is_sqlite and not is_db_file:
+            raise HTTPException(
+                status_code=400,
+                detail="شما در حال اجرای لوکال (SQLite) هستید. فقط فایل‌های .db.gz مجاز هستند.",
+            )
+        if not is_sqlite and not is_sql_file:
+            raise HTTPException(
+                status_code=400,
+                detail="شما در حال اجرای سرور (PostgreSQL) هستید. فقط فایل‌های .sql.gz مجاز هستند.",
+            )
 
         if is_sqlite:
-            # لوکال: جایگزینی فایل دیتابیس
             db_path = BASE_DIR / "data" / "trademun.db"
-            shutil.copy2(
-                db_path, BASE_DIR / "data" / "trademun_before_restore.db"
-            )  # بک‌آپ ایمنی
-            shutil.copy2(backup_dir, db_path)
+            if db_path.exists():
+                shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
+            with open(db_path, "wb") as f:
+                f.write(raw_data)
         else:
-            # سرور: اجرای psql
             user = engine.url.username
             dbname = engine.url.database
-            cmd = f"psql -U {user} -d {dbname} -f {backup_dir}"
-            result = os.system(cmd)
-            if result != 0:
+            password = engine.url.password or ""
+            host = engine.url.host or "localhost"
+            port = engine.url.port or 5432
+
+            env = os.environ.copy()
+            env["PGPASSWORD"] = password
+            cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
+            result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
+
+            if result.returncode != 0:
                 raise HTTPException(
-                    status_code=500, detail="خطا در بازیابی دیتابیس Postgres"
+                    status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
+
+        # ری‌استارت خودکار پس از ۲ ثانیه
+        def restart_app():
+            time.sleep(2)
+            os._exit(0)
+
+        threading.Thread(target=restart_app, daemon=True).start()
 
         return {
             "ok": True,
-            "message": "بازیابی با موفقیت انجام شد. لطفاً سرور را ری‌استارت کنید.",
+            "message": "بازیابی با موفقیت انجام شد. سیستم در حال ری‌استارت خودکار است...",
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"خطا در بازیابی: {str(e)}")
-    finally:
-        # پاکسازی فایل‌های موقت
-        if backup_dir.exists():
-            os.remove(backup_dir)
-        if backup_dir.exists():
-            os.remove(backup_dir)
 
 
-# ۲. افزودن دستی کاربر
+# ═══════════════════════════════════════════════════════════
+# ۳. لیست و حذف بک‌آپ‌ها
+# ═══════════════════════════════════════════════════════════
+@router.get("/backups")
+async def list_backups(admin: User = Depends(require_admin)):
+    from api.config import BASE_DIR
+
+    backup_dir = BASE_DIR / "data" / "backups"
+    files = []
+    if backup_dir.exists():
+        for f in backup_dir.glob("Trademun_Backup_*.gz"):
+            files.append(
+                {
+                    "name": f.name,
+                    "size": f.stat().st_size,
+                    "created_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                }
+            )
+    files.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"ok": True, "items": files}
+
+
+class DeleteBackupsRequest(BaseModel):
+    names: list[str]
+
+
+@router.post("/backups/delete")
+async def delete_backups(
+    req: DeleteBackupsRequest, admin: User = Depends(require_admin)
+):
+    from api.config import BASE_DIR
+
+    backup_dir = BASE_DIR / "data" / "backups"
+    deleted = []
+    for name in req.names:
+        if not name.startswith("Trademun_Backup_") or not name.endswith(".gz"):
+            continue
+        file_path = backup_dir / name
+        if file_path.exists():
+            file_path.unlink()
+            deleted.append(name)
+    return {"ok": True, "message": f"{len(deleted)} بک‌آپ حذف شد", "deleted": deleted}
+
+
+# ═══════════════════════════════════════════════════════════
+# ۴. افزودن دستی کاربر
+# ═══════════════════════════════════════════════════════════
 @router.post("/users/add")
 async def add_user_manually(
     phone: str,
@@ -235,7 +282,9 @@ async def add_user_manually(
     return {"ok": True, "message": f"کاربر {phone} با موفقیت اضافه شد."}
 
 
-# ۳. خروجی اکسل
+# ═══════════════════════════════════════════════════════════
+# ۵. خروجی اکسل
+# ═══════════════════════════════════════════════════════════
 @router.get("/users/excel")
 async def export_users_excel(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -345,7 +394,9 @@ async def export_users_excel(
     )
 
 
-# ۴. لیست کاربران
+# ═══════════════════════════════════════════════════════════
+# ۶. لیست کاربران
+# ═══════════════════════════════════════════════════════════
 @router.get("/users")
 async def list_users(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -386,7 +437,9 @@ async def list_users(
     return {"ok": True, "items": result}
 
 
-# ۵. جزئیات کاربر
+# ═══════════════════════════════════════════════════════════
+# ۷. جزئیات کاربر
+# ═══════════════════════════════════════════════════════════
 @router.get("/users/{user_id}/details")
 async def get_user_details(
     user_id: int,
@@ -443,7 +496,9 @@ async def get_user_details(
     }
 
 
-# ۶. تغییر پلن دستی
+# ═══════════════════════════════════════════════════════════
+# ۸. تغییر پلن دستی
+# ═══════════════════════════════════════════════════════════
 @router.post("/users/{user_id}/change-plan")
 async def change_user_plan(
     user_id: int,
@@ -492,7 +547,9 @@ async def change_user_plan(
     return {"ok": True, "message": f"پلن کاربر به {plan_info['title']} تغییر یافت"}
 
 
-# ۷. تنظیم دستی روزها
+# ═══════════════════════════════════════════════════════════
+# ۹. تنظیم دستی روزها
+# ═══════════════════════════════════════════════════════════
 @router.post("/users/{user_id}/adjust-days")
 async def adjust_user_days(
     user_id: int,
@@ -527,14 +584,17 @@ async def adjust_user_days(
     session.commit()
     if send_sms:
         try:
-            custom_name = f"تغییر اعتبار ({days} روز)"
-            send_subscription_activated_sms(user.phone, custom_name, sub.end_date)
+            send_subscription_activated_sms(
+                user.phone, f"تغییر اعتبار ({days} روز)", sub.end_date
+            )
         except Exception:
             pass
     return {"ok": True, "message": f"{days} روز به اشتراک کاربر اضافه شد"}
 
 
-# ۸. مدیریت دسترسی‌ها
+# ═══════════════════════════════════════════════════════════
+# ۱۰. مدیریت دسترسی‌ها
+# ═══════════════════════════════════════════════════════════
 @router.post("/users/{user_id}/make-admin")
 async def make_user_admin(
     user_id: int,
@@ -571,7 +631,9 @@ async def remove_user_admin(
     return {"ok": True, "message": f"دسترسی ادمین {user.phone} گرفته شد"}
 
 
-# ۹. حذف کاربر
+# ═══════════════════════════════════════════════════════════
+# ۱۱. حذف کاربر
+# ═══════════════════════════════════════════════════════════
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: int,
@@ -587,8 +649,6 @@ async def delete_user(
     if user.phone == MAIN_ADMIN_PHONE:
         raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
     if hard_delete:
-        # حذف کامل رکوردهای وابسته
-        session.exec(select(Subscription).where(Subscription.user_id == user_id)).all()
         for sub in session.exec(
             select(Subscription).where(Subscription.user_id == user_id)
         ).all():
@@ -610,7 +670,9 @@ async def delete_user(
         return {"ok": True, "message": "کاربر غیرفعال شد (قابل بازگشت)."}
 
 
-# ۱۰. لیست پرداخت‌ها (فقط در انتظار)
+# ═══════════════════════════════════════════════════════════
+# ۱۲. پرداخت‌ها
+# ═══════════════════════════════════════════════════════════
 @router.get("/payments")
 async def list_payments(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -645,7 +707,6 @@ async def list_payments(
     return {"ok": True, "items": result}
 
 
-# ۱۱. همه تراکنش‌ها (برای تب جدید)
 @router.get("/transactions")
 async def list_all_transactions(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
@@ -673,7 +734,6 @@ async def list_all_transactions(
     return {"ok": True, "items": result}
 
 
-# ۱۲. تایید و رد پرداخت‌ها
 @router.post("/payments/{payment_id}/approve")
 async def approve_payment(
     payment_id: int,
@@ -736,44 +796,3 @@ async def reject_payment(
     session.add(payment)
     session.commit()
     return {"ok": True, "message": "پرداخت رد شد"}
-
-
-@router.get("/backups")
-async def list_backups(admin: User = Depends(require_admin)):
-    from api.config import BASE_DIR
-
-    backup_dir = BASE_DIR / "data" / "backups"
-    files = []
-    if backup_dir.exists():
-        for f in backup_dir.glob("Trademun_Backup_*.gz"):
-            files.append(
-                {
-                    "name": f.name,
-                    "size": f.stat().st_size,
-                    "created_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
-                }
-            )
-    files.sort(key=lambda x: x["created_at"], reverse=True)
-    return {"ok": True, "items": files}
-
-
-class DeleteBackupsRequest(BaseModel):
-    names: list[str]
-
-
-@router.post("/backups/delete")
-async def delete_backups(
-    req: DeleteBackupsRequest, admin: User = Depends(require_admin)
-):
-    from api.config import BASE_DIR
-
-    backup_dir = BASE_DIR / "data" / "backups"
-    deleted = []
-    for name in req.names:
-        if not name.startswith("Trademun_Backup_") or not name.endswith(".gz"):
-            continue
-        file_path = backup_dir / name
-        if file_path.exists():
-            file_path.unlink()
-            deleted.append(name)
-    return {"ok": True, "message": f"{len(deleted)} بک‌آپ حذف شد", "deleted": deleted}
