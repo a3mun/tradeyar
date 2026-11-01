@@ -2,15 +2,22 @@
 api/routers/admin.py
 """
 
-import logging, shutil, csv, io, subprocess, tempfile, os
+import logging
+import shutil
+import csv
+import io
+import subprocess
+import tempfile
+import os
 import gzip
 import threading
 import time
+import sys
 from pydantic import BaseModel
-
 from pathlib import Path
-from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
+
+from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import Session, select
@@ -19,7 +26,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-from api.database import get_session, engine
+from api.config import BASE_DIR
+from api.database import get_session, engine, is_sqlite
 from api.auth import require_admin
 from api.models import User, Subscription, PaymentRequest
 from api.plans import PLANS
@@ -125,32 +133,21 @@ async def restore_backup(
     file: UploadFile = File(...),
     admin: User = Depends(require_admin),
 ):
-    from api.config import BASE_DIR
-    from api.database import engine, is_sqlite
-    import gzip
-    import subprocess
-    import os
-    import threading
-    import time
-    import shutil
-
     try:
         content = await file.read()
         raw_data = gzip.decompress(content)
 
-        # ⬅️ چک هوشمند بر اساس محتوای فایل (نه فقط اسم)
         is_sql_content = (
             b"PostgreSQL database dump" in raw_data[:100]
             or b"CREATE TABLE" in raw_data[:500]
         )
         is_sqlite_content = raw_data[:15] == b"SQLite format 3"
 
-        # ۲. انتخاب نوع بازیابی بر اساس دیتابیس
         if is_sqlite:
             if not is_sqlite_content:
                 raise HTTPException(
                     status_code=400,
-                    detail="فایل آپلود شده مربوط به PostgreSQL است. برای لوکال (SQLite) باید فایل دیتابیس باینری آپلود کنید.",
+                    detail="فایل آپلود شده مربوط به PostgreSQL است. برای لوکال باید فایل دیتابیس باینری آپلود کنید.",
                 )
 
             db_path = BASE_DIR / "data" / "trademun.db"
@@ -163,7 +160,7 @@ async def restore_backup(
             if not is_sql_content:
                 raise HTTPException(
                     status_code=400,
-                    detail="فایل آپلود شده مربوط به SQLite است. برای سرور (PostgreSQL) باید فایل SQL آپلود کنید.",
+                    detail="فایل آپلود شده مربوط به SQLite است. برای سرور باید فایل SQL آپلود کنید.",
                 )
 
             user = engine.url.username
@@ -174,9 +171,39 @@ async def restore_backup(
 
             env = os.environ.copy()
             env["PGPASSWORD"] = password
-            cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
 
-            # ارسال محتوای دیتابیس به stdin
+            # ⬅️ ۱. قطع کردن همه اتصالات دیگه به دیتابیس (api, scheduler, ...)
+            terminate_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                "postgres",
+                "-c",
+                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
+            ]
+            subprocess.run(terminate_cmd, env=env, capture_output=True)
+            time.sleep(1)  # ۱ ثانیه صبر تا اتصالات کامل قطع بشن
+
+            # ⬅️ ۲. بازیابی دیتابیس با psql
+            cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "--clean",
+                "--if-exists",
+                "--single-transaction",
+            ]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
             if result.returncode != 0:
@@ -184,10 +211,10 @@ async def restore_backup(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ۳. ری‌استارت خودکار بعد از ۲ ثانیه
+        # ⬅️ ۳. ری‌استارت خودکار (sys.exit(1) تا داکر کانتینر رو بالا بیاره)
         def restart_app():
             time.sleep(2)
-            os._exit(0)
+            sys.exit(1)
 
         threading.Thread(target=restart_app, daemon=True).start()
 

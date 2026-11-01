@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: trademun-api
-    restart: unless-stopped
+    restart: always
     ports:
       - "8000:7860"
     env_file:
