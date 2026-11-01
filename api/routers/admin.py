@@ -146,10 +146,8 @@ async def restore_backup(
         if is_sqlite:
             if not is_sqlite_content:
                 raise HTTPException(
-                    status_code=400,
-                    detail="فایل آپلود شده مربوط به PostgreSQL است. برای لوکال باید فایل دیتابیس باینری آپلود کنید.",
+                    status_code=400, detail="فایل آپلود شده مربوط به PostgreSQL است."
                 )
-
             db_path = BASE_DIR / "data" / "trademun.db"
             if db_path.exists():
                 shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
@@ -159,8 +157,7 @@ async def restore_backup(
         else:
             if not is_sql_content:
                 raise HTTPException(
-                    status_code=400,
-                    detail="فایل آپلود شده مربوط به SQLite است. برای سرور باید فایل SQL آپلود کنید.",
+                    status_code=400, detail="فایل آپلود شده مربوط به SQLite است."
                 )
 
             user = engine.url.username
@@ -172,7 +169,23 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ ۱. قطع کردن همه اتصالات دیگه به دیتابیس (api, scheduler, ...)
+            # ⬅️ ۱. قفل کردن دیتابیس (جلوگیری از اتصال مجدد api و scheduler)
+            lock_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                "postgres",
+                "-c",
+                f"ALTER DATABASE {dbname} WITH ALLOW_CONNECTIONS false;",
+            ]
+            subprocess.run(lock_cmd, env=env, capture_output=True)
+
+            # ⬅️ ۲. قطع اتصالات فعلی
             terminate_cmd = [
                 "psql",
                 "-h",
@@ -187,9 +200,9 @@ async def restore_backup(
                 f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
             ]
             subprocess.run(terminate_cmd, env=env, capture_output=True)
-            time.sleep(1)  # ۱ ثانیه صبر تا اتصالات کامل قطع بشن
+            time.sleep(2)
 
-            # ⬅️ ۲. بازیابی دیتابیس با psql
+            # ⬅️ ۳. بازیابی
             cmd = [
                 "psql",
                 "-h",
@@ -206,12 +219,27 @@ async def restore_backup(
             ]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
+            # ⬅️ ۴. باز کردن قفل دیتابیس (حتی اگه بازیابی fail شد)
+            unlock_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                "postgres",
+                "-c",
+                f"ALTER DATABASE {dbname} WITH ALLOW_CONNECTIONS true;",
+            ]
+            subprocess.run(unlock_cmd, env=env, capture_output=True)
+
             if result.returncode != 0:
                 raise HTTPException(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ⬅️ ۳. ری‌استارت خودکار (sys.exit(1) تا داکر کانتینر رو بالا بیاره)
         def restart_app():
             time.sleep(2)
             sys.exit(1)
@@ -220,7 +248,7 @@ async def restore_backup(
 
         return {
             "ok": True,
-            "message": "بازیابی با موفقیت انجام شد. سیستم در حال ری‌استارت خودکار است...",
+            "message": "بازیابی با موفقیت انجام شد. سیستم در حال ری‌استارت است...",
         }
 
     except HTTPException:
