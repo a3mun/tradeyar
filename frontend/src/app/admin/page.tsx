@@ -12,7 +12,7 @@ import {
   LogOut, CheckCircle2, XCircle, CreditCard, Users, 
   Clock, Globe, Monitor, UserCheck, Download, Upload, History, 
   ShieldAlert, ArrowUpDown, Home, Crown, TrendingUp, Bell, X,
-  UserPlus, Trash2, Wrench, AlertTriangle
+  UserPlus, Trash2, Wrench, AlertTriangle, MessageSquare, Database
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [payments, setPayments] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [ticketStats, setTicketStats] = useState<any>(null);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -75,16 +76,42 @@ export default function AdminPage() {
   const [newUserSendSms, setNewUserSendSms] = useState(true);
 
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'admin' | 'action', id?: number, endpoint?: string, message: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'admin' | 'action' | 'delete_backups', id?: number, endpoint?: string, message: string, backupNames?: string[] } | null>(null);
   const [deleteHard, setDeleteHard] = useState(false);
 
   const [notifications, setNotifications] = useState<any[]>([]);
+  
+  const [backups, setBackups] = useState<any[]>([]);
+  const [selectedBackups, setSelectedBackups] = useState<string[]>([]);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false);
+  
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
+
+  const fetchTicketStats = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/admin/tickets/stats`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setTicketStats(await res.json());
+    } catch {}
+  };
+
+  const fetchBackups = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/admin/backups`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setBackups(data.items || []);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/payments`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.json()).then(data => setPendingCount((data.items || []).length)).catch(() => {});
+    fetchTicketStats();
+    fetchBackups();
   }, [apiUrl, token]);
 
   useEffect(() => {
@@ -116,6 +143,7 @@ export default function AdminPage() {
   const { connected } = useAdminNotifications((n) => {
     setNotifications((prev) => [n, ...prev].slice(0, 5));
     fetchData();
+    if (n.type === "new_ticket" || n.type === "ticket_reply") fetchTicketStats();
   });
 
   const dismissNotification = (idx: number) => setNotifications((prev) => prev.filter((_, i) => i !== idx));
@@ -158,8 +186,8 @@ export default function AdminPage() {
     } catch (err) { console.error(err); }
   };
 
-  const requestConfirm = (type: 'delete' | 'admin' | 'action', message: string, id?: number, endpoint?: string) => {
-    setConfirmAction({ type, id, endpoint, message });
+  const requestConfirm = (type: 'delete' | 'admin' | 'action' | 'delete_backups', message: string, id?: number, endpoint?: string, backupNames?: string[]) => {
+    setConfirmAction({ type, id, endpoint, message, backupNames });
     setIsConfirmOpen(true);
   };
 
@@ -174,6 +202,17 @@ export default function AdminPage() {
         alert(data.message);
         setIsModalOpen(false);
         fetchData();
+      } else if (confirmAction.type === 'delete_backups' && confirmAction.backupNames) {
+        const res = await fetch(`${apiUrl}/admin/backups/delete`, { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ names: confirmAction.backupNames })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail);
+        alert(data.message);
+        setSelectedBackups([]);
+        fetchBackups();
       } else if (confirmAction.endpoint) {
         const res = await fetch(`${apiUrl}${confirmAction.endpoint}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` } });
         const data = await res.json();
@@ -214,13 +253,55 @@ export default function AdminPage() {
   };
 
   const handleBackup = async () => {
+    setBackupLoading(true);
     try {
       const res = await fetch(`${apiUrl}/admin/backup`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error("خطا در بک‌آپ");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "خطا در بک‌آپ");
+      }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `trademun_backup_${Date.now()}.sql`; a.click();
-    } catch (err) { alert("خطا در بک‌آپ"); }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Trademun_Backup_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.gz`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      fetchBackups();
+    } catch (err: any) {
+      console.error("Backup error:", err);
+      alert(err.message || "خطا در بک‌آپ");
+    } finally {
+      setBackupLoading(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!restoreFile) return alert("لطفاً یک فایل بک‌آپ انتخاب کنید");
+    if (!confirm("آیا مطمئنید؟ دیتابیس فعلی با این فایل جایگزین می‌شود.")) return;
+    
+    setRestoring(true);
+    const formData = new FormData();
+    formData.append("file", restoreFile);
+    
+    try {
+      const res = await fetch(`${apiUrl}/admin/backups/restore`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "خطا در بازیابی");
+      alert(data.message);
+      setRestoreFile(null);
+      fetchBackups();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const handleExcel = async () => {
@@ -233,24 +314,26 @@ export default function AdminPage() {
     } catch (err) { alert("خطا"); }
   };
 
-  const handleRestore = () => {
-    const input = document.createElement("input"); input.type = "file"; input.accept = ".sql";
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const formData = new FormData(); formData.append("file", file);
-      try {
-        const res = await fetch(`${apiUrl}/admin/backup/restore`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
-        if (res.ok) alert("بازگردانی شد"); else alert("خطا");
-      } catch (err) { alert("خطا"); }
-    };
-    input.click();
+  const toggleBackupSelection = (name: string) => {
+    setSelectedBackups(prev => 
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
+  };
+
+  const toggleAllBackups = () => {
+    if (selectedBackups.length === backups.length) {
+      setSelectedBackups([]);
+    } else {
+      setSelectedBackups(backups.map(b => b.name));
+    }
   };
 
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
   const activeUsersCount = usersList.filter(u => u.is_active_sub || u.is_admin).length;
-    return (
+  
+  return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+      {/* نوتیف‌ها و هدر (بدون تغییر) */}
       <div className="fixed top-20 left-4 right-4 z-[100] flex flex-col gap-2 sm:left-auto sm:right-4 sm:w-96 pointer-events-none">
         <AnimatePresence>
           {notifications.map((n, idx) => (
@@ -291,19 +374,42 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* کارت‌های آماری */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
             <div className="bg-[#d6ad60]/10 p-3 rounded-xl text-[#d6ad60]"><Users className="h-6 w-6" /></div>
             <div><p className="text-xs text-gray-400">کل کاربران</p><p className="text-2xl font-bold text-white">{usersList.length}</p></div>
           </motion.div>
+          
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
             <div className="bg-green-500/10 p-3 rounded-xl text-green-500"><TrendingUp className="h-6 w-6" /></div>
             <div><p className="text-xs text-gray-400">کاربران فعال</p><p className="text-2xl font-bold text-white">{activeUsersCount}</p></div>
           </motion.div>
+          
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 rounded-2xl border border-white/10 shadow-xl flex items-center gap-4">
             <div className="bg-yellow-500/10 p-3 rounded-xl text-yellow-500"><CreditCard className="h-6 w-6" /></div>
             <div><p className="text-xs text-gray-400">درخواست‌های در انتظار</p><p className="text-2xl font-bold text-white">{pendingCount}</p></div>
           </motion.div>
+
+          <Link href="/admin/tickets">
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="group bg-gradient-to-br from-[#0d1b2d] to-[#07111f] hover:from-[#1a2c45] hover:to-[#0d1b2d] transition-all p-5 rounded-2xl border border-white/10 hover:border-[#d6ad60]/40 shadow-xl flex items-center gap-4 cursor-pointer relative overflow-hidden">
+              {ticketStats?.unread_count > 0 && (
+                 <div className="absolute top-0 right-0 w-16 h-16 bg-[#d6ad60]/10 rounded-bl-full flex items-start justify-end p-2">
+                   <span className="animate-pulse w-2 h-2 rounded-full bg-[#d6ad60]"></span>
+                 </div>
+              )}
+              <div className="bg-blue-500/10 p-3 rounded-xl text-blue-400 group-hover:scale-110 transition-transform"><MessageSquare className="h-6 w-6" /></div>
+              <div className="flex-1">
+                <p className="text-xs text-gray-400">تیکت‌ها</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-2xl font-bold text-white">{ticketStats?.open_count || 0} <span className="text-sm font-normal text-gray-500">باز</span></p>
+                  {ticketStats?.unread_count > 0 && (
+                    <span className="bg-[#d6ad60] text-[#101827] text-[10px] font-bold px-2 py-0.5 rounded-full">{ticketStats.unread_count} جدید</span>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </Link>
         </div>
 
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-b border-white/10 pb-2">
@@ -311,17 +417,22 @@ export default function AdminPage() {
             <Button variant={activeTab === "users" ? "default" : "ghost"} onClick={() => setActiveTab("users")} className={`gap-2 shrink-0 ${activeTab === "users" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><Users className="h-4 w-4" /> کاربران</Button>
             <Button variant={activeTab === "payments" ? "default" : "ghost"} onClick={() => setActiveTab("payments")} className={`gap-2 shrink-0 ${activeTab === "payments" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><CreditCard className="h-4 w-4" /> در انتظار</Button>
             <Button variant={activeTab === "transactions" ? "default" : "ghost"} onClick={() => setActiveTab("transactions")} className={`gap-2 shrink-0 ${activeTab === "transactions" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><History className="h-4 w-4" /> تراکنش‌ها</Button>
+            
+            <Link href="/admin/tickets">
+              <Button variant="ghost" className="gap-2 shrink-0 text-gray-400 hover:text-white hover:bg-white/5"><MessageSquare className="h-4 w-4" /> تیکت‌ها</Button>
+            </Link>
+
             <Button variant={activeTab === "tools" ? "default" : "ghost"} onClick={() => setActiveTab("tools")} className={`gap-2 shrink-0 ${activeTab === "tools" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}><Wrench className="h-4 w-4" /> ابزارها</Button>
           </div>
           
           <div className="flex gap-2 w-full md:w-auto">
             <Button variant="outline" size="sm" onClick={() => setIsAddModalOpen(true)} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10 flex-1 md:flex-none"><UserPlus className="h-4 w-4" /> افزودن</Button>
-            <Button variant="outline" size="sm" onClick={handleBackup} className="gap-2 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10 flex-1 md:flex-none"><Download className="h-4 w-4" /> بک‌آپ</Button>
+            <Button variant="outline" size="sm" onClick={handleBackup} disabled={backupLoading} className="gap-2 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10 flex-1 md:flex-none">
+              {backupLoading ? "در حال بک‌آپ..." : <><Download className="h-4 w-4" /> بک‌آپ جدید</>}
+            </Button>
             <Button variant="outline" size="sm" onClick={handleExcel} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10 flex-1 md:flex-none"><Download className="h-4 w-4" /> اکسل</Button>
-            <Button variant="outline" size="sm" onClick={handleRestore} className="gap-2 border-orange-500/30 text-orange-500 hover:bg-orange-500/10 flex-1 md:flex-none"><Upload className="h-4 w-4" /> بازگردانی</Button>
           </div>
         </div>
-
         {activeTab === "users" && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row gap-2">
@@ -333,7 +444,7 @@ export default function AdminPage() {
               </select>
             </div>
             {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : (
-              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#0d1b2dd0] shadow-xl backdrop-blur-xl">
+              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl">
                 <table className="w-full text-sm text-right">
                   <thead className="bg-white/5 text-gray-400">
                     <tr>
@@ -366,11 +477,12 @@ export default function AdminPage() {
             )}
           </div>
         )}
-                {activeTab === "payments" && (
+
+        {activeTab === "payments" && (
           <div className="space-y-4">
-            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : payments.length === 0 ? <div className="text-center text-gray-400 py-10 bg-[#0d1b2dd0] rounded-2xl border border-white/10">هیچ درخواستی نیست.</div> : (
+            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : payments.length === 0 ? <div className="text-center text-gray-400 py-10 bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10">هیچ درخواستی نیست.</div> : (
               payments.map((p) => (
-                <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-2xl border border-white/10 bg-[#0d1b2dd0] shadow-lg backdrop-blur-xl hover:border-[#d6ad60]/30 transition-colors">
+                <motion.div key={p.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 p-5 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-lg hover:border-[#d6ad60]/30 transition-colors">
                   <div className="w-full space-y-3">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-mono dir-ltr text-base font-bold bg-white/10 px-2 py-1 rounded text-white">{p.user_phone}</span>
@@ -397,8 +509,8 @@ export default function AdminPage() {
 
         {activeTab === "transactions" && (
           <div className="space-y-4">
-            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : transactions.length === 0 ? <div className="text-center text-gray-400 py-10 bg-[#0d1b2dd0] rounded-2xl border border-white/10">هیچ تراکنشی نیست.</div> : (
-              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-[#0d1b2dd0] shadow-xl backdrop-blur-xl">
+            {loading ? <p className="text-center text-gray-400 py-4">در حال دریافت...</p> : transactions.length === 0 ? <div className="text-center text-gray-400 py-10 bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10">هیچ تراکنشی نیست.</div> : (
+              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl">
                 <table className="w-full text-sm text-right">
                   <thead className="bg-white/5 text-gray-400">
                     <tr>
@@ -433,8 +545,74 @@ export default function AdminPage() {
         )}
 
         {activeTab === "tools" && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-[#0d1b2dd0] p-6 shadow-xl backdrop-blur-xl">
+          <div className="space-y-6">
+            {/* بخش بک‌آپ‌ها */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-xl">
+              <h3 className="text-lg font-bold text-[#d6ad60] mb-4 flex items-center gap-2">
+                <Database className="h-5 w-5" /> مدیریت بک‌آپ‌ها
+              </h3>
+              
+              {/* دکمه ساخت بک‌آپ جدید و بازیابی */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <Button onClick={handleBackup} disabled={backupLoading} className="flex-1 gap-2 bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90 font-bold">
+                  {backupLoading ? "در حال ساخت..." : <><Download className="h-4 w-4" /> ساخت بک‌آپ جدید</>}
+                </Button>
+                <div className="flex-1 flex gap-2">
+                  <input 
+                    type="file" 
+                    accept=".gz" 
+                    onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} 
+                    className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer border border-white/10 rounded-lg" 
+                  />
+                  <Button onClick={handleRestore} disabled={!restoreFile || restoring} className="gap-2 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/30">
+                    {restoring ? "..." : <><Upload className="h-4 w-4" /> بازیابی</>}
+                  </Button>
+                </div>
+              </div>
+
+              {/* لیست بک‌آپ‌ها */}
+              {backups.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-4">هنوز بک‌آپی ساخته نشده.</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
+                      <input type="checkbox" checked={selectedBackups.length === backups.length && backups.length > 0} onChange={toggleAllBackups} className="accent-[#d6ad60]" />
+                      انتخاب همه
+                    </label>
+                    {selectedBackups.length > 0 && (
+                      <Button size="sm" variant="destructive" onClick={() => requestConfirm('delete_backups', `${selectedBackups.length} بک‌آپ انتخاب شده حذف شوند؟`, undefined, undefined, selectedBackups)} className="h-7 text-xs gap-1">
+                        <Trash2 className="h-3 w-3" /> حذف انتخاب شده‌ها
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="max-h-60 overflow-y-auto pr-2 space-y-2">
+                    {backups.map((b) => (
+                      <div key={b.name} className={`flex items-center justify-between gap-2 rounded-xl border ${selectedBackups.includes(b.name) ? "border-[#d6ad60]/50 bg-[#d6ad60]/10" : "border-white/10 bg-white/5"} p-3 transition-colors`}>
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <input type="checkbox" checked={selectedBackups.includes(b.name)} onChange={() => toggleBackupSelection(b.name)} className="accent-[#d6ad60] h-4 w-4 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm text-white truncate dir-ltr">{b.name}</p>
+                            <p className="text-[10px] text-gray-400">{(b.size / 1024 / 1024).toFixed(2)} MB · {new Date(b.created_at).toLocaleString('fa-IR')}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <a href={`${apiUrl}/data/backups/${b.name}`} target="_blank" rel="noreferrer">
+                            <Button size="sm" variant="outline" className="gap-1 border-white/10 text-xs h-8">
+                              <Download className="h-3 w-3" /> دانلود
+                            </Button>
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ابزارهای به‌زودی */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-xl">
               <h3 className="text-lg font-bold text-[#d6ad60] mb-4 flex items-center gap-2"><Wrench className="h-5 w-5" /> ابزارهای مدیریت (به‌زودی)</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
@@ -485,7 +663,7 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* مدال جزئیات */}
+      {/* مدال جزئیات کاربر */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-[#0d1b2d] border-white/10 text-white">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#d6ad60]"><UserCheck className="h-5 w-5" /> مدیریت کاربر: {selectedUser?.phone}</DialogTitle></DialogHeader>
@@ -587,7 +765,9 @@ export default function AdminPage() {
           <p className="text-sm text-gray-300 py-4">{confirmAction?.message}</p>
           <div className="flex gap-2 justify-end">
             <Button variant="outline" onClick={() => setIsConfirmOpen(false)} className="border-white/10 text-gray-300">لغو</Button>
-            <Button onClick={executeAction} className="bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90">تایید</Button>
+            <Button onClick={executeAction} className={confirmAction?.type === 'delete_backups' ? "bg-red-500 text-white hover:bg-red-600" : "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"}>
+              تایید
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -595,4 +775,4 @@ export default function AdminPage() {
       <Footer />
     </div>
   );
-}
+}        

@@ -8,7 +8,7 @@ services/notifier.py
   • بهبود نمایش R:R خالص در پیام
 """
 
-import logging
+import logging, os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,8 @@ import requests
 from api.config import settings
 
 logger = logging.getLogger(__name__)
+
+DISABLE_NOTIFY = os.getenv("DISABLE_NOTIFICATIONS", "false").lower() == "true"
 
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
@@ -259,6 +261,8 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
 
 
 def send_telegram(signal: dict) -> bool:
+    if DISABLE_NOTIFY:
+        return False
     if _should_skip(signal, "telegram"):
         return False
 
@@ -299,6 +303,8 @@ def send_telegram(signal: dict) -> bool:
 
 
 def send_bale(signal: dict) -> bool:
+    if DISABLE_NOTIFY:
+        return False
     if _should_skip(signal, "bale"):
         return False
 
@@ -332,6 +338,9 @@ def send_bale(signal: dict) -> bool:
 
 
 def notify_signal(signal: dict) -> None:
+    if DISABLE_NOTIFY:
+        logger.info(f"[Notify] ارسال غیرفعال است (DISABLE_NOTIFICATIONS=true)")
+        return
     """ارسال به هر دو کانال — با لاگ دقیق."""
     tg = send_telegram(signal)
     bale = send_bale(signal)

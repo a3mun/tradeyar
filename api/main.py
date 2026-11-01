@@ -21,6 +21,9 @@ from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import admin, subscription
 from api.routers import admin_ws
+from api.routers import tickets  # ⬅️ جدید
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════
 # Logging
@@ -63,6 +66,18 @@ app = FastAPI(
 )
 
 
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description="دستیار هوشمند تحلیل و مانیتورینگ بازار — Trademun",
+    lifespan=lifespan,
+)
+
+# ⬅️ سرو کردن فایل‌های تیکت (باید بعد از تعریف app باشه)
+_tickets_dir = Path("data/tickets")
+_tickets_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/data/tickets", StaticFiles(directory=str(_tickets_dir)), name="tickets")
+
 # ═══════════════════════════════════════════════════════════
 # CORS
 # ═══════════════════════════════════════════════════════════
@@ -95,7 +110,7 @@ app.include_router(auth_router.router)
 app.include_router(subscription.router)
 app.include_router(admin.router)
 app.include_router(admin_ws.router)
-
+app.include_router(tickets.router)
 
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket

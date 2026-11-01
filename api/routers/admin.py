@@ -3,6 +3,12 @@ api/routers/admin.py
 """
 
 import logging, shutil, csv, io, subprocess, tempfile, os
+import gzip
+from pydantic import BaseModel
+
+from pathlib import Path
+from api.database import engine
+from sqlalchemy import text
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
@@ -45,118 +51,128 @@ def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, boo
 # ۱. بک‌آپ (Postgres)
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
-    from api.config import settings
-
-    if not settings.DATABASE_URL.startswith("postgres"):
-        raise HTTPException(status_code=400, detail="این روش فقط برای Postgres است")
-
-    db_url = settings.DATABASE_URL.replace("postgresql://", "").replace(
-        "postgres://", ""
-    )
-    auth, host_db = db_url.split("@")
-    user_pass = auth.split(":")
-    host_port, dbname = host_db.split("/")
-    host, port = host_port.split(":")
-    username = user_pass[0]
-    password = user_pass[1] if len(user_pass) > 1 else ""
+    from api.config import BASE_DIR
+    import gzip
+    import shutil
+    from datetime import datetime
+    import os
+    from api.database import engine
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    temp_dir = tempfile.gettempdir()
-    backup_path = os.path.join(temp_dir, f"trademun_backup_{timestamp}.sql")
+    is_sqlite = engine.url.drivername.startswith("sqlite")
 
-    cmd = [
-        "pg_dump",
-        "-h",
-        host,
-        "-p",
-        port,
-        "-U",
-        username,
-        "-d",
-        dbname,
-        "-f",
-        backup_path,
-        "--no-password",
-        "--format=plain",
-    ]
-    env = os.environ.copy()
-    if password:
-        env["PGPASSWORD"] = password
+    backup_dir = BASE_DIR / "data" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_backup_path = None
+    compressed_path = None
 
     try:
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise Exception(f"pg_dump failed: {result.stderr}")
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=500,
-            detail="pg_dump در سرور نصب نیست. لطفاً در Dockerfile اضافه کنید.",
+        if is_sqlite:
+            db_path = BASE_DIR / "data" / "trademun.db"
+            if not db_path.exists():
+                raise HTTPException(status_code=404, detail="فایل دیتابیس یافت نشد")
+            raw_backup_path = backup_dir / f"backup_raw_{timestamp}.db"
+            shutil.copy2(db_path, raw_backup_path)
+            ext = "db"
+        else:
+            raw_backup_path = backup_dir / f"backup_raw_{timestamp}.sql"
+            user = engine.url.username
+            dbname = engine.url.database
+            cmd = f"pg_dump -U {user} {dbname} > {raw_backup_path}"
+            result = os.system(cmd)
+            if (
+                result != 0
+                or not raw_backup_path.exists()
+                or raw_backup_path.stat().st_size == 0
+            ):
+                raise HTTPException(status_code=500, detail="خطا در بک‌آپ دیتابیس")
+            ext = "sql"
+
+        compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
+        with open(raw_backup_path, "rb") as f_in:
+            with gzip.open(compressed_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
+        if raw_backup_path.exists():
+            os.remove(raw_backup_path)
+
+        return FileResponse(
+            path=compressed_path,
+            filename=compressed_path.name,
+            media_type="application/gzip",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطا در pg_dump: {str(e)}")
-
-    return FileResponse(
-        path=backup_path,
-        filename=f"trademun_backup_{timestamp}.sql",
-        media_type="application/sql",
-    )
+        if raw_backup_path and raw_backup_path.exists():
+            os.remove(raw_backup_path)
+        if compressed_path and compressed_path.exists():
+            os.remove(compressed_path)
+        raise HTTPException(status_code=500, detail=f"خطای بک‌آپ: {str(e)}")
 
 
-@router.post("/backup/restore")
+@router.post("/backups/restore")
 async def restore_backup(
-    admin: User = Depends(require_admin), file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    admin: User = Depends(require_admin),
 ):
-    from api.config import settings
+    from api.config import BASE_DIR
+    from api.database import engine, is_sqlite
 
-    if not settings.DATABASE_URL.startswith("postgres"):
-        raise HTTPException(status_code=400, detail="این روش فقط برای Postgres است")
+    if not file.filename.endswith(".gz"):
+        raise HTTPException(status_code=400, detail="فایل باید با پسوند .gz باشد")
 
-    db_url = settings.DATABASE_URL.replace("postgresql://", "").replace(
-        "postgres://", ""
+    # ذخیره موقت
+    backup_dir = (
+        BASE_DIR
+        / "data"
+        / f"temp_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.gz"
     )
-    auth, host_db = db_url.split("@")
-    user_pass = auth.split(":")
-    host_port, dbname = host_db.split("/")
-    host, port = host_port.split(":")
-    username = user_pass[0]
-    password = user_pass[1] if len(user_pass) > 1 else ""
-
-    temp_dir = tempfile.gettempdir()
-    restore_path = os.path.join(
-        temp_dir, f"restore_{int(datetime.now().timestamp())}.sql"
-    )
-
-    with open(restore_path, "wb") as f:
+    with open(backup_dir, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    cmd = [
-        "psql",
-        "-h",
-        host,
-        "-p",
-        port,
-        "-U",
-        username,
-        "-d",
-        dbname,
-        "-f",
-        restore_path,
-        "--no-password",
-    ]
-    env = os.environ.copy()
-    if password:
-        env["PGPASSWORD"] = password
+    # باز کردن gzip
+    raw_ext = "db" if is_sqlite else "sql"
+    backup_dir = (
+        BASE_DIR
+        / "data"
+        / f"temp_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{raw_ext}"
+    )
 
     try:
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise Exception(f"psql failed: {result.stderr}")
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="psql در سرور نصب نیست.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطا در بازگردانی: {str(e)}")
+        with gzip.open(backup_dir, "rb") as f_in:
+            with open(backup_dir, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
 
-    return {"ok": True, "message": "دیتابیس بازگردانی شد"}
+        if is_sqlite:
+            # لوکال: جایگزینی فایل دیتابیس
+            db_path = BASE_DIR / "data" / "trademun.db"
+            shutil.copy2(
+                db_path, BASE_DIR / "data" / "trademun_before_restore.db"
+            )  # بک‌آپ ایمنی
+            shutil.copy2(backup_dir, db_path)
+        else:
+            # سرور: اجرای psql
+            user = engine.url.username
+            dbname = engine.url.database
+            cmd = f"psql -U {user} -d {dbname} -f {backup_dir}"
+            result = os.system(cmd)
+            if result != 0:
+                raise HTTPException(
+                    status_code=500, detail="خطا در بازیابی دیتابیس Postgres"
+                )
+
+        return {
+            "ok": True,
+            "message": "بازیابی با موفقیت انجام شد. لطفاً سرور را ری‌استارت کنید.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطا در بازیابی: {str(e)}")
+    finally:
+        # پاکسازی فایل‌های موقت
+        if backup_dir.exists():
+            os.remove(backup_dir)
+        if backup_dir.exists():
+            os.remove(backup_dir)
 
 
 # ۲. افزودن دستی کاربر
@@ -706,3 +722,44 @@ async def reject_payment(
     session.add(payment)
     session.commit()
     return {"ok": True, "message": "پرداخت رد شد"}
+
+
+@router.get("/backups")
+async def list_backups(admin: User = Depends(require_admin)):
+    from api.config import BASE_DIR
+
+    backup_dir = BASE_DIR / "data" / "backups"
+    files = []
+    if backup_dir.exists():
+        for f in backup_dir.glob("Trademun_Backup_*.gz"):
+            files.append(
+                {
+                    "name": f.name,
+                    "size": f.stat().st_size,
+                    "created_at": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+                }
+            )
+    files.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"ok": True, "items": files}
+
+
+class DeleteBackupsRequest(BaseModel):
+    names: list[str]
+
+
+@router.post("/backups/delete")
+async def delete_backups(
+    req: DeleteBackupsRequest, admin: User = Depends(require_admin)
+):
+    from api.config import BASE_DIR
+
+    backup_dir = BASE_DIR / "data" / "backups"
+    deleted = []
+    for name in req.names:
+        if not name.startswith("Trademun_Backup_") or not name.endswith(".gz"):
+            continue
+        file_path = backup_dir / name
+        if file_path.exists():
+            file_path.unlink()
+            deleted.append(name)
+    return {"ok": True, "message": f"{len(deleted)} بک‌آپ حذف شد", "deleted": deleted}

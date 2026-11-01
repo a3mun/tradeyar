@@ -369,4 +369,55 @@ class AdminReviewPayment(BaseModel):
     admin_note: Optional[str] = None
 
 
+# ═══════════════════════════════════════════════════════════
+# 🎫 فاز ۱۳ — سیستم تیکتینگ
+# ═══════════════════════════════════════════════════════════
+class TicketCreate(BaseModel):
+    subject: str = Field(..., min_length=3, max_length=200)
+    message: str = Field(..., min_length=5, max_length=2000)
+
+
+class TicketMessageCreate(BaseModel):
+    message: str = Field(default="", max_length=2000)
+    attachment_path: Optional[str] = None
+    attachment_name: Optional[str] = None
+
+
+class TicketMessageRead(BaseModel):
+    id: int
+    sender_id: int
+    is_admin: bool
+    message: str
+    attachment_path: Optional[str] = None
+    attachment_name: Optional[str] = None
+    is_read: bool = False
+    created_at: datetime
+    sender_name: Optional[str] = None
+
+
+class TicketRead(BaseModel):
+    id: int
+    user_id: int
+    subject: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    messages_count: int = 0
+    unread_count: int = 0  # ⬅️ جدید
+    last_message: Optional[str] = None
+    last_message_at: Optional[datetime] = None
+    user_phone: Optional[str] = None
+
+
+class TicketDetail(TicketRead):
+    messages: list[TicketMessageRead] = Field(default_factory=list)
+
+
+class TicketStats(BaseModel):
+    open_count: int = 0
+    closed_count: int = 0
+    unread_count: int = 0
+    total_count: int = 0
+
+
 TokenResponse.model_rebuild()

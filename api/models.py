@@ -131,3 +131,31 @@ class PaymentRequest(SQLModel, table=True):
     payment_time: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     reviewed_at: Optional[datetime] = None
+
+
+# ═══════════════════════════════════════════════════════════
+# 🎫 فاز ۱۳ — سیستم تیکتینگ
+# ═══════════════════════════════════════════════════════════
+class Ticket(SQLModel, table=True):
+    __tablename__ = "tickets"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    subject: str = Field(max_length=200)
+    status: str = Field(default="open", index=True)  # open | closed
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    closed_at: Optional[datetime] = None
+    closed_by: Optional[str] = None  # phone ادمین
+
+
+class TicketMessage(SQLModel, table=True):
+    __tablename__ = "ticket_messages"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ticket_id: int = Field(foreign_key="tickets.id", index=True)
+    sender_id: int = Field(foreign_key="users.id", index=True)
+    is_admin: bool = Field(default=False)
+    message: str
+    attachment_path: Optional[str] = Field(default=None)  # ⬅️ جدید
+    attachment_name: Optional[str] = Field(default=None)  # ⬅️ جدید
+    is_read: bool = Field(default=False, index=True)  # ⬅️ جدید
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
