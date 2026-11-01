@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     BALE_BOT_TOKEN: str = ""
     BALE_CHAT_ID: str = ""
 
+    DISABLE_NOTIFICATIONS: str = "false"  # یا bool = False
+
     ADMIN_API_KEY: str = ""
 
     JWT_SECRET: str = "change-me-in-production"

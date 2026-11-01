@@ -16,8 +16,8 @@ import requests
 from api.config import settings
 
 logger = logging.getLogger(__name__)
+DISABLE_NOTIFY = getattr(settings, "DISABLE_NOTIFICATIONS", "false").lower() == "true"
 
-DISABLE_NOTIFY = os.getenv("DISABLE_NOTIFICATIONS", "false").lower() == "true"
 
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 

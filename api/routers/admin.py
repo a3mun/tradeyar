@@ -4,19 +4,17 @@ api/routers/admin.py
 
 import logging
 import shutil
-import csv
 import io
 import subprocess
-import tempfile
 import os
 import gzip
 import threading
 import time
 import sys
-from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
+from pydantic import BaseModel
 from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, StreamingResponse
@@ -29,7 +27,7 @@ from openpyxl.utils import get_column_letter
 from api.config import BASE_DIR
 from api.database import get_session, engine, is_sqlite
 from api.auth import require_admin
-from api.models import User, Subscription, PaymentRequest
+from api.models import User, Subscription, PaymentRequest, Ticket, TicketMessage
 from api.plans import PLANS
 from services.sms import send_subscription_activated_sms
 
@@ -37,6 +35,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 MAIN_ADMIN_PHONE = "09129630901"
+MAINTENANCE_FLAG = BASE_DIR / "data" / "maintenance.flag"
 
 
 def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, bool]:
@@ -58,15 +57,33 @@ def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, boo
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱. بک‌آپ (Postgres / SQLite)
+# حالت تعمیرات (Maintenance Mode)
+# ═══════════════════════════════════════════════════════════
+@router.get("/maintenance")
+async def get_maintenance_status(admin: User = Depends(require_admin)):
+    return {"is_maintenance": MAINTENANCE_FLAG.exists()}
+
+
+@router.post("/maintenance/enable")
+async def enable_maintenance(admin: User = Depends(require_admin)):
+    MAINTENANCE_FLAG.parent.mkdir(parents=True, exist_ok=True)
+    MAINTENANCE_FLAG.touch()
+    return {"ok": True, "message": "حالت تعمیرات فعال شد."}
+
+
+@router.post("/maintenance/disable")
+async def disable_maintenance(admin: User = Depends(require_admin)):
+    if MAINTENANCE_FLAG.exists():
+        MAINTENANCE_FLAG.unlink()
+    return {"ok": True, "message": "حالت تعمیرات غیرفعال شد."}
+
+
+# ═══════════════════════════════════════════════════════════
+# ۱. بک‌آپ
 # ═══════════════════════════════════════════════════════════
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
-    from api.config import BASE_DIR
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    is_sqlite = engine.url.drivername.startswith("sqlite")
-
     backup_dir = BASE_DIR / "data" / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -100,8 +117,6 @@ async def backup_database(admin: User = Depends(require_admin)):
                 raise HTTPException(
                     status_code=500, detail=f"خطای pg_dump: {result.stderr.decode()}"
                 )
-            if not raw_backup_path.exists() or raw_backup_path.stat().st_size == 0:
-                raise HTTPException(status_code=500, detail="فایل بک‌آپ خالی است")
             ext = "sql"
 
         compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
@@ -117,6 +132,7 @@ async def backup_database(admin: User = Depends(require_admin)):
             filename=compressed_path.name,
             media_type="application/gzip",
         )
+
     except Exception as e:
         if raw_backup_path and raw_backup_path.exists():
             os.remove(raw_backup_path)
@@ -126,12 +142,11 @@ async def backup_database(admin: User = Depends(require_admin)):
 
 
 # ═══════════════════════════════════════════════════════════
-# ۲. بازیابی (Postgres / SQLite) با ری‌استارت خودکار
+# ۲. بازیابی
 # ═══════════════════════════════════════════════════════════
 @router.post("/backups/restore")
 async def restore_backup(
-    file: UploadFile = File(...),
-    admin: User = Depends(require_admin),
+    file: UploadFile = File(...), admin: User = Depends(require_admin)
 ):
     try:
         content = await file.read()
@@ -169,23 +184,13 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ ۱. قفل کردن دیتابیس (جلوگیری از اتصال مجدد api و scheduler)
-            lock_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                "postgres",
-                "-c",
-                f"ALTER DATABASE {dbname} WITH ALLOW_CONNECTIONS false;",
-            ]
-            subprocess.run(lock_cmd, env=env, capture_output=True)
+            # متوقف کردن scheduler
+            subprocess.run(
+                ["docker", "stop", "trademun-scheduler"], capture_output=True
+            )
+            time.sleep(1)
 
-            # ⬅️ ۲. قطع اتصالات فعلی
+            # قطع اتصالات
             terminate_cmd = [
                 "psql",
                 "-h",
@@ -200,9 +205,9 @@ async def restore_backup(
                 f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
             ]
             subprocess.run(terminate_cmd, env=env, capture_output=True)
-            time.sleep(2)
+            time.sleep(1)
 
-            # ⬅️ ۳. بازیابی
+            # بازیابی
             cmd = [
                 "psql",
                 "-h",
@@ -219,27 +224,17 @@ async def restore_backup(
             ]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
-            # ⬅️ ۴. باز کردن قفل دیتابیس (حتی اگه بازیابی fail شد)
-            unlock_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                "postgres",
-                "-c",
-                f"ALTER DATABASE {dbname} WITH ALLOW_CONNECTIONS true;",
-            ]
-            subprocess.run(unlock_cmd, env=env, capture_output=True)
+            # روشن کردن scheduler
+            subprocess.run(
+                ["docker", "start", "trademun-scheduler"], capture_output=True
+            )
 
             if result.returncode != 0:
                 raise HTTPException(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
+        # ری‌استارت خودکار
         def restart_app():
             time.sleep(2)
             sys.exit(1)
@@ -262,8 +257,6 @@ async def restore_backup(
 # ═══════════════════════════════════════════════════════════
 @router.get("/backups")
 async def list_backups(admin: User = Depends(require_admin)):
-    from api.config import BASE_DIR
-
     backup_dir = BASE_DIR / "data" / "backups"
     files = []
     if backup_dir.exists():
@@ -287,8 +280,6 @@ class DeleteBackupsRequest(BaseModel):
 async def delete_backups(
     req: DeleteBackupsRequest, admin: User = Depends(require_admin)
 ):
-    from api.config import BASE_DIR
-
     backup_dir = BASE_DIR / "data" / "backups"
     deleted = []
     for name in req.names:
@@ -660,7 +651,7 @@ async def adjust_user_days(
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱۰. مدیریت دسترسی‌ها
+# ۱۰. مدیریت دسترسی‌ها و حذف کاربر (فیکس شده)
 # ═══════════════════════════════════════════════════════════
 @router.post("/users/{user_id}/make-admin")
 async def make_user_admin(
@@ -698,9 +689,6 @@ async def remove_user_admin(
     return {"ok": True, "message": f"دسترسی ادمین {user.phone} گرفته شد"}
 
 
-# ═══════════════════════════════════════════════════════════
-# ۱۱. حذف کاربر
-# ═══════════════════════════════════════════════════════════
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: int,
@@ -715,7 +703,22 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.phone == MAIN_ADMIN_PHONE:
         raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
+
     if hard_delete:
+        # ⬅️ فیکس: حذف تیکت‌ها و پیام‌های تیکت قبل از حذف کاربر
+        user_tickets = session.exec(
+            select(Ticket).where(Ticket.user_id == user_id)
+        ).all()
+        for t in user_tickets:
+            session.exec(
+                select(TicketMessage).where(TicketMessage.ticket_id == t.id)
+            ).all()
+            for msg in session.exec(
+                select(TicketMessage).where(TicketMessage.ticket_id == t.id)
+            ).all():
+                session.delete(msg)
+            session.delete(t)
+
         for sub in session.exec(
             select(Subscription).where(Subscription.user_id == user_id)
         ).all():
@@ -724,6 +727,7 @@ async def delete_user(
             select(PaymentRequest).where(PaymentRequest.user_id == user_id)
         ).all():
             session.delete(pay)
+
         session.delete(user)
         session.commit()
         return {
@@ -738,7 +742,7 @@ async def delete_user(
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱۲. پرداخت‌ها
+# ۱۱. پرداخت‌ها و تراکنش‌ها
 # ═══════════════════════════════════════════════════════════
 @router.get("/payments")
 async def list_payments(
@@ -863,3 +867,9 @@ async def reject_payment(
     session.add(payment)
     session.commit()
     return {"ok": True, "message": "پرداخت رد شد"}
+
+
+# ⬅️ endpoint عمومی برای چک کردن حالت تعمیرات (بدون لاگین)
+@router.get("/maintenance/public")
+async def get_public_maintenance_status():
+    return {"is_maintenance": MAINTENANCE_FLAG.exists()}

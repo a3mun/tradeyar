@@ -5,6 +5,7 @@ import { WebSocketProvider } from "@/lib/hooks/useWebSocket";
 import { SignalDataProvider } from "@/hooks/useSignalData";
 import "./globals.css";
 import { BottomNav } from "@/components/ui/bottom-nav";
+import { MaintenanceGuard } from "@/components/layout/MaintenanceGuard"; // ⬅️ اضافه شد
 
 const vazirmatn = Vazirmatn({
   subsets: ["arabic", "latin"],
@@ -43,14 +44,17 @@ export default function RootLayout({
   return (
     <html lang="fa" dir="rtl" className="dark">
       <body className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}>
-        <WebSocketProvider>
-          <SignalDataProvider>
-            <TooltipProvider>
-              {children}
-              <BottomNav />
-            </TooltipProvider>
-          </SignalDataProvider>
-        </WebSocketProvider>
+        {/* ⬅️ MaintenanceGuard بیرونی‌ترین لایه است */}
+        <MaintenanceGuard>
+          <WebSocketProvider>
+            <SignalDataProvider>
+              <TooltipProvider>
+                {children}
+                <BottomNav />
+              </TooltipProvider>
+            </SignalDataProvider>
+          </WebSocketProvider>
+        </MaintenanceGuard>
       </body>
     </html>
   );

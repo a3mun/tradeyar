@@ -74,7 +74,8 @@ export default function AdminPage() {
   const [newUserPlan, setNewUserPlan] = useState("1_month");
   const [newUserDays, setNewUserDays] = useState(30);
   const [newUserSendSms, setNewUserSendSms] = useState(true);
-
+  const [isMaintenance, setIsMaintenance] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'admin' | 'action' | 'delete_backups', id?: number, endpoint?: string, message: string, backupNames?: string[] } | null>(null);
   const [deleteHard, setDeleteHard] = useState(false);
@@ -97,6 +98,16 @@ export default function AdminPage() {
     } catch {}
   };
 
+const fetchMaintenanceStatus = async () => {
+  try {
+    const res = await fetch(`${apiUrl}/admin/maintenance`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const data = await res.json();
+      setIsMaintenance(data.is_maintenance);
+    }
+  } catch {}
+};
+
   const fetchBackups = async () => {
     try {
       const res = await fetch(`${apiUrl}/admin/backups`, { headers: { Authorization: `Bearer ${token}` } });
@@ -112,6 +123,8 @@ export default function AdminPage() {
       .then(res => res.json()).then(data => setPendingCount((data.items || []).length)).catch(() => {});
     fetchTicketStats();
     fetchBackups();
+    fetchMaintenanceStatus(); // ⬅️ جدید
+
   }, [apiUrl, token]);
 
   useEffect(() => {
@@ -251,6 +264,25 @@ export default function AdminPage() {
       fetchData();
     } catch (err: any) { alert(err.message); }
   };
+
+const toggleMaintenance = async (enable: boolean) => {
+  if (enable && !confirm("آیا مطمئنید؟ سایت برای همه کاربران غیرفعال می‌شود.")) return;
+  setMaintenanceLoading(true);
+  try {
+    const res = await fetch(`${apiUrl}/admin/maintenance/${enable ? "enable" : "disable"}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    setIsMaintenance(enable);
+    alert(data.message);
+  } catch (err: any) {
+    alert(err.message);
+  } finally {
+    setMaintenanceLoading(false);
+  }
+};
 
   const handleBackup = async () => {
     setBackupLoading(true);
@@ -544,97 +576,93 @@ export default function AdminPage() {
           </div>
         )}
 
-        {activeTab === "tools" && (
-          <div className="space-y-6">
-            {/* بخش بک‌آپ‌ها */}
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-xl">
-              <h3 className="text-lg font-bold text-[#d6ad60] mb-4 flex items-center gap-2">
-                <Database className="h-5 w-5" /> مدیریت بک‌آپ‌ها
-              </h3>
-              
-              {/* دکمه ساخت بک‌آپ جدید و بازیابی */}
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
-                <Button onClick={handleBackup} disabled={backupLoading} className="flex-1 gap-2 bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90 font-bold">
-                  {backupLoading ? "در حال ساخت..." : <><Download className="h-4 w-4" /> ساخت بک‌آپ جدید</>}
-                </Button>
-                <div className="flex-1 flex gap-2">
-                  <input 
-                    type="file" 
-                    accept=".gz" 
-                    onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} 
-                    className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer border border-white/10 rounded-lg" 
-                  />
-                  <Button onClick={handleRestore} disabled={!restoreFile || restoring} className="gap-2 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/30">
-                    {restoring ? "..." : <><Upload className="h-4 w-4" /> بازیابی</>}
-                  </Button>
-                </div>
-              </div>
 
-              {/* لیست بک‌آپ‌ها */}
-              {backups.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-4">هنوز بک‌آپی ساخته نشده.</p>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-2 px-2">
-                    <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-                      <input type="checkbox" checked={selectedBackups.length === backups.length && backups.length > 0} onChange={toggleAllBackups} className="accent-[#d6ad60]" />
-                      انتخاب همه
-                    </label>
-                    {selectedBackups.length > 0 && (
-                      <Button size="sm" variant="destructive" onClick={() => requestConfirm('delete_backups', `${selectedBackups.length} بک‌آپ انتخاب شده حذف شوند؟`, undefined, undefined, selectedBackups)} className="h-7 text-xs gap-1">
-                        <Trash2 className="h-3 w-3" /> حذف انتخاب شده‌ها
+            {activeTab === "tools" && (
+              <div className="space-y-4">
+                
+                {/* کارت بک‌آپ (فشرده) */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-xl">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+                    <h3 className="text-base font-bold text-[#d6ad60] flex items-center gap-2">
+                      <Database className="h-5 w-5" /> بک‌آپ
+                    </h3>
+                    <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                      <Button onClick={handleBackup} disabled={backupLoading} size="sm" className="gap-1 bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90 font-bold">
+                        {backupLoading ? "..." : <><Download className="h-3 w-3" /> بک‌آپ جدید</>}
                       </Button>
-                    )}
+                      <input 
+                        type="file" accept=".gz" 
+                        onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} 
+                        className="text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer" 
+                      />
+                      <Button onClick={handleRestore} disabled={!restoreFile || restoring} size="sm" className="gap-1 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/30">
+                        {restoring ? "..." : <><Upload className="h-3 w-3" /> بازیابی</>}
+                      </Button>
+                    </div>
                   </div>
-                  
-                  <div className="max-h-60 overflow-y-auto pr-2 space-y-2">
-                    {backups.map((b) => (
-                      <div key={b.name} className={`flex items-center justify-between gap-2 rounded-xl border ${selectedBackups.includes(b.name) ? "border-[#d6ad60]/50 bg-[#d6ad60]/10" : "border-white/10 bg-white/5"} p-3 transition-colors`}>
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <input type="checkbox" checked={selectedBackups.includes(b.name)} onChange={() => toggleBackupSelection(b.name)} className="accent-[#d6ad60] h-4 w-4 shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm text-white truncate dir-ltr">{b.name}</p>
-                            <p className="text-[10px] text-gray-400">{(b.size / 1024 / 1024).toFixed(2)} MB · {new Date(b.created_at).toLocaleString('fa-IR')}</p>
+
+                  {backups.length === 0 ? (
+                    <p className="text-gray-500 text-xs text-center py-2">هنوز بک‌آپی ساخته نشده.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      <label className="flex items-center gap-2 text-[10px] text-gray-500 cursor-pointer mb-1">
+                        <input type="checkbox" checked={selectedBackups.length === backups.length && backups.length > 0} onChange={toggleAllBackups} className="accent-[#d6ad60]" />
+                        انتخاب همه
+                      </label>
+                      {backups.map((b) => (
+                        <div key={b.name} className={`flex items-center justify-between gap-2 rounded-lg border ${selectedBackups.includes(b.name) ? "border-[#d6ad60]/50 bg-[#d6ad60]/10" : "border-white/5 bg-white/5"} px-3 py-2`}>
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <input type="checkbox" checked={selectedBackups.includes(b.name)} onChange={() => toggleBackupSelection(b.name)} className="accent-[#d6ad60] h-3 w-3" />
+                            <p className="text-[11px] text-gray-300 truncate dir-ltr">{b.name}</p>
                           </div>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
                           <a href={`${apiUrl}/data/backups/${b.name}`} target="_blank" rel="noreferrer">
-                            <Button size="sm" variant="outline" className="gap-1 border-white/10 text-xs h-8">
-                              <Download className="h-3 w-3" /> دانلود
-                            </Button>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-[#d6ad60]"><Download className="h-3 w-3" /></Button>
                           </a>
                         </div>
+                      ))}
+                      {selectedBackups.length > 0 && (
+                        <Button size="sm" variant="destructive" onClick={() => requestConfirm('delete_backups', `${selectedBackups.length} بک‌آپ انتخاب شده حذف شوند؟`, undefined, undefined, selectedBackups)} className="w-full h-7 text-[10px] gap-1 mt-2">
+                          <Trash2 className="h-3 w-3" /> حذف انتخاب شده‌ها
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* کارت تعمیرات (فشرده) */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <ShieldAlert className={`h-5 w-5 ${isMaintenance ? "text-red-400" : "text-green-400"}`} />
+                      <div>
+                        <h3 className="text-sm font-bold text-white">حالت تعمیرات</h3>
+                        <p className={`text-[10px] ${isMaintenance ? "text-red-400" : "text-green-400"}`}>{isMaintenance ? "سایت در حال تعمیرات است" : "سایت فعال است"}</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => toggleMaintenance(!isMaintenance)}
+                      disabled={maintenanceLoading}
+                      size="sm"
+                      className={`gap-1 font-bold ${isMaintenance ? "bg-green-500 text-white hover:bg-green-600" : "bg-red-500 text-white hover:bg-red-600"}`}
+                    >
+                      {maintenanceLoading ? "..." : (isMaintenance ? "خروج از تعمیرات" : "فعال‌سازی")}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* ابزارهای به‌زودی */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-xl">
+                  <h3 className="text-sm font-bold text-[#d6ad60] mb-3 flex items-center gap-2"><Wrench className="h-4 w-4" /> ابزارهای مدیریت (به‌زودی)</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {["پاکسازی کش", "بازسازی آمار", "ارسال پیام", "واچ‌لیست", "گزارش مالی", "لاگ ادمین"].map((t, idx) => (
+                      <div key={idx} className="rounded-lg border border-white/5 bg-white/5 p-2 opacity-40 text-center">
+                        <p className="text-[10px] text-gray-400">{t}</p>
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* ابزارهای به‌زودی */}
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-xl">
-              <h3 className="text-lg font-bold text-[#d6ad60] mb-4 flex items-center gap-2"><Wrench className="h-5 w-5" /> ابزارهای مدیریت (به‌زودی)</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  { title: "پاکسازی کش تحلیل", desc: "پاک کردن حافظه موقت تحلیل‌ها" },
-                  { title: "بازسازی آمار بک‌تست", desc: "اجرای مجدد محاسبات بک‌تست" },
-                  { title: "ارسال پیام همگانی", desc: "ارسال پیامک به تمام کاربران" },
-                  { title: "مدیریت واچ‌لیست", desc: "مشاهده و ویرایش واچ‌لیست کاربران" },
-                  { title: "گزارش درآمد ماهانه", desc: "دریافت گزارش مالی ماهانه" },
-                  { title: "لاگ فعالیت ادمین", desc: "مشاهده تاریخچه تغییرات" },
-                ].map((tool, idx) => (
-                  <div key={idx} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3 opacity-50 cursor-not-allowed">
-                    <div className="bg-[#d6ad60]/10 p-2 rounded-lg text-[#d6ad60]"><Wrench className="h-4 w-4" /></div>
-                    <div>
-                      <p className="text-xs font-bold text-white">{tool.title}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{tool.desc}</p>
-                    </div>
-                  </div>
-                ))}
               </div>
-            </div>
-          </div>
-        )}
+            )}    
       </main>
 
       {/* مدال افزودن کاربر */}
