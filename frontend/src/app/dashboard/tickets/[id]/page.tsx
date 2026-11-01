@@ -81,6 +81,18 @@ export default function TicketDetailPage() {
 
   const handleSend = async () => {
     if (!reply.trim() && !selectedFile) return;
+
+    // ⬅️ چک تعداد پیام‌های متوالی
+    const userMessages = ticket.messages.filter((m: any) => !m.is_admin);
+    const lastAdminIndex = ticket.messages.map((m: any) => m.is_admin).lastIndexOf(true);
+    const consecutive = ticket.messages.length - (lastAdminIndex + 1);
+    
+    if (consecutive >= 5) {
+      alert("شما ۵ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.");
+      return;
+    }
+
+
     setSending(true);
     try {
       // ۱. آپلود فایل (اگه هست)

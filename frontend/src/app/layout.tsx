@@ -55,6 +55,7 @@ export default function RootLayout({
             </SignalDataProvider>
           </WebSocketProvider>
         </MaintenanceGuard>
+
       </body>
     </html>
   );

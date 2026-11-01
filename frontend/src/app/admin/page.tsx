@@ -249,9 +249,23 @@ const fetchMaintenanceStatus = async () => {
     requestConfirm('action', `تعداد ${adjustDays} روز به اشتراک کاربر اضافه/کم شود؟`, selectedUser.id, `/admin/users/${selectedUser.id}/adjust-days?days=${adjustDays}&send_sms=${sendSmsDays}`);
   };
 
-  const handleDeleteUser = () => {
+const handleDeleteUser = async () => {
+  try {
+    // چک کن کاربر تیکت داره یا نه
+    const res = await fetch(`${apiUrl}/admin/users/${selectedUser.id}/ticket-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    
+    if (data.count > 0) {
+      if (!confirm(`⚠️ این کاربر ${data.count} تیکت دارد. با حذف کاربر، تمام تیکت‌ها و پیام‌های آن‌ها هم پاک می‌شوند. مطمئنی؟`)) return;
+    }
+    
     requestConfirm('delete', deleteHard ? "کاربر و تمام داده‌های مرتبط برای همیشه حذف شوند؟" : "کاربر غیرفعال شود؟ (قابل بازگشت)", selectedUser.id);
-  };
+  } catch {
+    requestConfirm('delete', deleteHard ? "کاربر و تمام داده‌های مرتبط برای همیشه حذف شوند؟" : "کاربر غیرفعال شود؟ (قابل بازگشت)", selectedUser.id);
+  }
+};
 
   const handleAddUser = async () => {
     if (!newUserPhone || newUserPhone.length < 11) return alert("شماره موبایل نامعتبر است");

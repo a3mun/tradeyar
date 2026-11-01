@@ -407,6 +407,7 @@ class TicketRead(BaseModel):
     last_message: Optional[str] = None
     last_message_at: Optional[datetime] = None
     user_phone: Optional[str] = None
+    user_name: Optional[str] = None  # ⬅️ جدید
 
 
 class TicketDetail(TicketRead):

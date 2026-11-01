@@ -81,6 +81,9 @@ def _build_ticket_read(
     if user and is_admin_phone(user.phone):
         owner = session.get(User, ticket.user_id)
         data["user_phone"] = owner.phone if owner else None
+        data["user_name"] = (
+            owner.full_name if owner and owner.full_name else None
+        )  # ⬅️ این خط رو اضافه کن
     return data
 
 
@@ -287,11 +290,30 @@ async def reply_to_my_ticket(
 
     if last_msg:
         time_diff = _utcnow() - last_msg.created_at
-        if time_diff < timedelta(seconds=10):
+        if time_diff < timedelta(seconds=3):
             raise HTTPException(
                 status_code=429,
                 detail="لطفاً کمی صبر کنید. ارسال پیام متوالی مجاز نیست.",
             )
+    # ⬅️ چک تعداد پیام‌های متوالی (حداکثر ۵ پیام بدون پاسخ ادمین)
+    recent_messages = session.exec(
+        select(TicketMessage)
+        .where(TicketMessage.ticket_id == ticket.id)
+        .order_by(TicketMessage.created_at.desc())
+        .limit(6)  # ۵ پیام کاربر + ۱ پیام ادمین
+    ).all()
+
+    consecutive_user_messages = 0
+    for msg in recent_messages:
+        if msg.is_admin:
+            break  # اگه به پیام ادمین رسیدیم، متوقف شو
+        consecutive_user_messages += 1
+
+    if consecutive_user_messages >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="شما ۵ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.",
+        )
 
     msg = TicketMessage(
         ticket_id=ticket.id,
@@ -532,7 +554,7 @@ async def admin_delete_ticket(
     if not ticket:
         raise HTTPException(status_code=404, detail="تیکت یافت نشد")
 
-    # ۱. پاک کردن فایل‌های پیوست
+    # ⬅️ ۱. پاک کردن فایل‌های پیوست
     messages = session.exec(
         select(TicketMessage).where(TicketMessage.ticket_id == ticket.id)
     ).all()
@@ -545,9 +567,12 @@ async def admin_delete_ticket(
                 except:
                     pass
 
-    # ۲. پاک کردن پیام‌ها و خود تیکت
+    # ⬅️ ۲. اول پیام‌ها رو پاک کن و کامیت کن
     for m in messages:
         session.delete(m)
+    session.commit()
+
+    # ⬅️ ۳. بعد خود تیکت رو پاک کن
     session.delete(ticket)
     session.commit()
 
