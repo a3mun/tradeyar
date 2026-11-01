@@ -5,6 +5,7 @@ api/routers/admin.py
 import logging, shutil, csv, io, subprocess, tempfile, os
 import gzip
 from pydantic import BaseModel
+import subprocess
 
 from pathlib import Path
 from api.database import engine
@@ -76,24 +77,37 @@ async def backup_database(admin: User = Depends(require_admin)):
             shutil.copy2(db_path, raw_backup_path)
             ext = "db"
         else:
+            # --- سرور (PostgreSQL) ---
             raw_backup_path = backup_dir / f"backup_raw_{timestamp}.sql"
             user = engine.url.username
             dbname = engine.url.database
-            cmd = f"pg_dump -U {user} {dbname} > {raw_backup_path}"
-            result = os.system(cmd)
-            if (
-                result != 0
-                or not raw_backup_path.exists()
-                or raw_backup_path.stat().st_size == 0
-            ):
-                raise HTTPException(status_code=500, detail="خطا در بک‌آپ دیتابیس")
+            password = engine.url.password or ""
+            host = engine.url.host or "localhost"  # ⬅️ توی داکر مقدارش postgres هست
+            port = engine.url.port or 5432
+
+            env = os.environ.copy()
+            env["PGPASSWORD"] = password
+            cmd = ["pg_dump", "-h", host, "-p", str(port), "-U", user, dbname]
+
+            # اجرای pg_dump با هاست و رمز درست
+            with open(raw_backup_path, "wb") as f:
+                result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, env=env)
+
+            if result.returncode != 0:
+                raise HTTPException(
+                    status_code=500, detail=f"خطای pg_dump: {result.stderr.decode()}"
+                )
+            if not raw_backup_path.exists() or raw_backup_path.stat().st_size == 0:
+                raise HTTPException(status_code=500, detail="فایل بک‌آپ خالی است")
             ext = "sql"
 
+        # فشرده‌سازی
         compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
         with open(raw_backup_path, "rb") as f_in:
             with gzip.open(compressed_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
+        # پاکسازی فایل خام
         if raw_backup_path.exists():
             os.remove(raw_backup_path)
 
