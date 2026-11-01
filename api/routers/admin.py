@@ -126,38 +126,46 @@ async def restore_backup(
     admin: User = Depends(require_admin),
 ):
     from api.config import BASE_DIR
-
-    is_sqlite = engine.url.drivername.startswith("sqlite")
-
-    if not file.filename.endswith(".gz"):
-        raise HTTPException(status_code=400, detail="فایل باید با پسوند .gz باشد")
+    from api.database import engine, is_sqlite
+    import gzip
+    import subprocess
+    import os
+    import threading
+    import time
+    import shutil
 
     try:
         content = await file.read()
         raw_data = gzip.decompress(content)
 
-        # چک امنیتی فرمت فایل
-        is_sql_file = file.filename.endswith(".sql.gz")
-        is_db_file = file.filename.endswith(".db.gz")
+        # ⬅️ چک هوشمند بر اساس محتوای فایل (نه فقط اسم)
+        is_sql_content = (
+            b"PostgreSQL database dump" in raw_data[:100]
+            or b"CREATE TABLE" in raw_data[:500]
+        )
+        is_sqlite_content = raw_data[:15] == b"SQLite format 3"
 
-        if is_sqlite and not is_db_file:
-            raise HTTPException(
-                status_code=400,
-                detail="شما در حال اجرای لوکال (SQLite) هستید. فقط فایل‌های .db.gz مجاز هستند.",
-            )
-        if not is_sqlite and not is_sql_file:
-            raise HTTPException(
-                status_code=400,
-                detail="شما در حال اجرای سرور (PostgreSQL) هستید. فقط فایل‌های .sql.gz مجاز هستند.",
-            )
-
+        # ۲. انتخاب نوع بازیابی بر اساس دیتابیس
         if is_sqlite:
+            if not is_sqlite_content:
+                raise HTTPException(
+                    status_code=400,
+                    detail="فایل آپلود شده مربوط به PostgreSQL است. برای لوکال (SQLite) باید فایل دیتابیس باینری آپلود کنید.",
+                )
+
             db_path = BASE_DIR / "data" / "trademun.db"
             if db_path.exists():
                 shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
             with open(db_path, "wb") as f:
                 f.write(raw_data)
+
         else:
+            if not is_sql_content:
+                raise HTTPException(
+                    status_code=400,
+                    detail="فایل آپلود شده مربوط به SQLite است. برای سرور (PostgreSQL) باید فایل SQL آپلود کنید.",
+                )
+
             user = engine.url.username
             dbname = engine.url.database
             password = engine.url.password or ""
@@ -167,6 +175,8 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
             cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
+
+            # ارسال محتوای دیتابیس به stdin
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
             if result.returncode != 0:
@@ -174,7 +184,7 @@ async def restore_backup(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ری‌استارت خودکار پس از ۲ ثانیه
+        # ۳. ری‌استارت خودکار بعد از ۲ ثانیه
         def restart_app():
             time.sleep(2)
             os._exit(0)
@@ -186,6 +196,8 @@ async def restore_backup(
             "message": "بازیابی با موفقیت انجام شد. سیستم در حال ری‌استارت خودکار است...",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"خطا در بازیابی: {str(e)}")
 
