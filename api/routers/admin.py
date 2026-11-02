@@ -201,9 +201,25 @@ async def restore_backup(
                 f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
             ]
             subprocess.run(terminate_cmd, env=env, capture_output=True)
-            time.sleep(2)  # ۲ ثانیه صبر
+            time.sleep(2)
 
-            # ⬅️ ۲. بازیابی (با --clean و --single-transaction)
+            # ⬅️ ۲. غیرفعال کردن ForeignKey برای جلوگیری از خطا
+            disable_fk_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-c",
+                "SET session_replication_role = 'replica';",
+            ]
+            subprocess.run(disable_fk_cmd, env=env, capture_output=True)
+
+            # ⬅️ ۳. بازیابی (بدون --single-transaction)
             cmd = [
                 "psql",
                 "-h",
@@ -216,16 +232,31 @@ async def restore_backup(
                 dbname,
                 "--clean",
                 "--if-exists",
-                "--single-transaction",
             ]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
+
+            # ⬅️ ۴. فعال کردن مجدد ForeignKey
+            enable_fk_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-c",
+                "SET session_replication_role = 'origin';",
+            ]
+            subprocess.run(enable_fk_cmd, env=env, capture_output=True)
 
             if result.returncode != 0:
                 raise HTTPException(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ⬅️ ۳. ری‌استارت api (خودش)
+        # ⬅️ ۵. ری‌استارت api (خودش)
         def restart_app():
             time.sleep(2)
             sys.exit(1)
