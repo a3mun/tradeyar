@@ -190,7 +190,23 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ فقط psql ساده (بدون --clean و --if-exists)
+            # ⬅️ ۱. پاک کردن schema قبل از بازیابی
+            drop_cmd = [
+                "psql",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-c",
+                "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;",
+            ]
+            subprocess.run(drop_cmd, env=env, capture_output=True)
+
+            # ⬅️ ۲. بازیابی
             cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
@@ -201,7 +217,7 @@ async def restore_backup(
                     status_code=500, detail=f"خطای psql: {error_msg[:500]}"
                 )
 
-        # ⬅️ ری‌استارت api (خودش)
+        # ⬅️ ۳. ری‌استارت api (خودش)
         def restart_app():
             time.sleep(2)
             sys.exit(1)
