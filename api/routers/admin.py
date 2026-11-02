@@ -171,7 +171,6 @@ async def restore_backup(
                 shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
             with open(db_path, "wb") as f:
                 f.write(raw_data)
-
         else:
             if not is_sql_content:
                 raise HTTPException(
@@ -187,7 +186,7 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ قطع اتصالات (بدون docker)
+            # ⬅️ ۱. قطع اتصالات فعلی (بدون docker stop)
             terminate_cmd = [
                 "psql",
                 "-h",
@@ -202,9 +201,9 @@ async def restore_backup(
                 f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
             ]
             subprocess.run(terminate_cmd, env=env, capture_output=True)
-            time.sleep(1)
+            time.sleep(2)  # ۲ ثانیه صبر
 
-            # ⬅️ بازیابی
+            # ⬅️ ۲. بازیابی (با --clean و --single-transaction)
             cmd = [
                 "psql",
                 "-h",
@@ -226,7 +225,7 @@ async def restore_backup(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ری‌استارت خودکار
+        # ⬅️ ۳. ری‌استارت api (خودش)
         def restart_app():
             time.sleep(2)
             sys.exit(1)

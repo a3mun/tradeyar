@@ -72,7 +72,7 @@ export function Footer() {
               <img 
                 src="/icon-512.png" 
                 alt="Trademun" 
-                className="h-38 w-auto object-contain logo-neon-pulse" 
+                className="h-28 w-auto object-contain logo-neon-pulse" 
               />
             </a>
             
@@ -106,7 +106,7 @@ export function Footer() {
                   <img 
                     src="/icon-512.png" 
                     alt="Trademun" 
-                    className="h-32 w-auto object-contain logo-neon-pulse" 
+                    className="h-28 w-auto object-contain logo-neon-pulse" 
                   />
                 </a>
               </div>
