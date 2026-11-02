@@ -190,27 +190,7 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ ۱. قطع اتصالات فعلی (بدون docker stop)
-            terminate_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                "postgres",
-                "-c",
-                f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{dbname}' AND pid <> pg_backend_pid();",
-            ]
-            subprocess.run(terminate_cmd, env=env, capture_output=True)
-            time.sleep(2)
-
-            # ⬅️ ۲. بازیابی با غیرفعال کردن FK در همون session
-            # دستور SET رو به ابتدای محتوای SQL اضافه می‌کنیم
-            sql_with_fk_off = b"SET session_replication_role = 'replica';\n" + raw_data
-
+            # ⬅️ فقط psql با --clean (بدون pg_terminate_backend)
             cmd = [
                 "psql",
                 "-h",
@@ -224,16 +204,16 @@ async def restore_backup(
                 "--clean",
                 "--if-exists",
             ]
-            result = subprocess.run(
-                cmd, input=sql_with_fk_off, env=env, capture_output=True
-            )
+            result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
             if result.returncode != 0:
+                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
+                logger.error(f"[Restore] psql failed: {error_msg}")
                 raise HTTPException(
-                    status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
+                    status_code=500, detail=f"خطای psql: {error_msg[:500]}"
                 )
 
-        # ⬅️ ۳. ری‌استارت api (خودش)
+        # ⬅️ ری‌استارت api (خودش)
         def restart_app():
             time.sleep(2)
             sys.exit(1)
