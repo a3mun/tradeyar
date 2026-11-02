@@ -190,20 +190,8 @@ async def restore_backup(
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ فقط psql با --clean (بدون pg_terminate_backend)
-            cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "--clean",
-                "--if-exists",
-            ]
+            # ⬅️ فقط psql ساده (بدون --clean و --if-exists)
+            cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
             result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
 
             if result.returncode != 0:
