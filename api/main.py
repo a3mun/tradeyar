@@ -7,6 +7,10 @@ FastAPI app — نقطه ورود
 
 import logging
 
+from fastapi.responses import JSONResponse
+from fastapi import Request
+
+
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import auth as auth_router
 from api.routers import ws as ws_router
@@ -77,6 +81,21 @@ app = FastAPI(
 _tickets_dir = Path("data/tickets")
 _tickets_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/data/tickets", StaticFiles(directory=str(_tickets_dir)), name="tickets")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"[Global Exception] {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"خطای داخلی سرور: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
 
 # ═══════════════════════════════════════════════════════════
 # CORS

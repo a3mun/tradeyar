@@ -117,9 +117,13 @@ async def backup_database(admin: User = Depends(require_admin)):
                 result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, env=env)
 
             if result.returncode != 0:
+                # ⬅️ لاگ کردن خطای دقیق psql
+                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
+                logger.error(f"[Restore] psql failed: {error_msg}")
                 raise HTTPException(
-                    status_code=500, detail=f"خطای pg_dump: {result.stderr.decode()}"
+                    status_code=500, detail=f"خطای psql: {error_msg[:500]}"
                 )
+
             ext = "sql"
 
         compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
