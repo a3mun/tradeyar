@@ -203,23 +203,10 @@ async def restore_backup(
             subprocess.run(terminate_cmd, env=env, capture_output=True)
             time.sleep(2)
 
-            # ⬅️ ۲. غیرفعال کردن ForeignKey برای جلوگیری از خطا
-            disable_fk_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "-c",
-                "SET session_replication_role = 'replica';",
-            ]
-            subprocess.run(disable_fk_cmd, env=env, capture_output=True)
+            # ⬅️ ۲. بازیابی با غیرفعال کردن FK در همون session
+            # دستور SET رو به ابتدای محتوای SQL اضافه می‌کنیم
+            sql_with_fk_off = b"SET session_replication_role = 'replica';\n" + raw_data
 
-            # ⬅️ ۳. بازیابی (بدون --single-transaction)
             cmd = [
                 "psql",
                 "-h",
@@ -233,30 +220,16 @@ async def restore_backup(
                 "--clean",
                 "--if-exists",
             ]
-            result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
-
-            # ⬅️ ۴. فعال کردن مجدد ForeignKey
-            enable_fk_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "-c",
-                "SET session_replication_role = 'origin';",
-            ]
-            subprocess.run(enable_fk_cmd, env=env, capture_output=True)
+            result = subprocess.run(
+                cmd, input=sql_with_fk_off, env=env, capture_output=True
+            )
 
             if result.returncode != 0:
                 raise HTTPException(
                     status_code=500, detail=f"خطای psql: {result.stderr.decode()}"
                 )
 
-        # ⬅️ ۵. ری‌استارت api (خودش)
+        # ⬅️ ۳. ری‌استارت api (خودش)
         def restart_app():
             time.sleep(2)
             sys.exit(1)
