@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════
-# Trademun — API Dockerfile (Root)
+# Trademun — API Dockerfile
 # ═══════════════════════════════════════════════════════════
 
 FROM python:3.11-slim
@@ -11,14 +11,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PORT=7860
 
-
-    # ─── وابستگی‌های سیستمی ───
+# ─── وابستگی‌های سیستمی ───
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
-
 
 # ─── کاربر non-root ───
 RUN useradd -m -u 1000 user
@@ -28,7 +26,7 @@ ENV HOME=/home/user \
 
 WORKDIR $HOME/app
 
-# ─── نصب پکیج‌های پایتون (با mirror پارس‌پک) ───
+# ─── نصب پکیج‌های پایتون ───
 COPY --chown=user requirements.txt ./
 RUN pip config set global.index-url https://mirror.abrha.net/repository/pypi/simple/ \
  && pip config set global.trusted-host mirror.abrha.net \
@@ -45,5 +43,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:7860/health || exit 1
 
 # ─── اجرا ───
-
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "2", "--lifespan", "on", "--limit-max-requests", "5000", "--limit-max-requests-jitter", "1000"]

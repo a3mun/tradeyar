@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { 
   Copy, CheckCircle2, Terminal, AlertTriangle, Settings, BookOpen, 
-  RotateCcw, X, ShieldAlert, Download, Database, FileText, Server
+  RotateCcw, X, ShieldAlert, Download, Database, FileText, Server, FolderOpen,
+  PowerOff, Power
 } from "lucide-react";
 
 const SERVER_IP = "185.128.139.24";
 const PROJECT_DIR = "/opt/trademun";
+const BACKUP_DIR = `${PROJECT_DIR}/data/backups`;
 
 // ─── دکمه کپی ───
 function CopyButton({ text }: { text: string }) {
@@ -45,27 +47,29 @@ function CodeBox({ children, title }: { children: string; title?: string }) {
   );
 }
 
-// ─── تب ۱: راهنمای بازیابی ───
+// ─── تب ۱: راهنمای بازیابی (فقط SSH) ───
 function RestoreTab({ backups }: { backups: any[] }) {
   const [selectedBackup, setSelectedBackup] = useState("");
-  const [isOnServer, setIsOnServer] = useState(false);
 
-  const scpCommand = `scp "C:\\Users\\YourName\\Downloads\\${selectedBackup || "YOUR_BACKUP.sql.gz"}" root@${SERVER_IP}:${PROJECT_DIR}/data/backups/`;
   const sshCommand = `ssh root@${SERVER_IP}`;
-  const restoreCommand = `cd ${PROJECT_DIR} && gunzip -c data/backups/${selectedBackup || "YOUR_BACKUP.sql.gz"} | docker compose exec -T postgres psql -U trademun -d trademun`;
-  const restartCommand = `cd ${PROJECT_DIR} && docker compose restart api`;
+  const stopCommand = `cd ${PROJECT_DIR} && docker compose stop api scheduler`;
+  const serverFilePath = `${BACKUP_DIR}/${selectedBackup || "YOUR_BACKUP.sql.gz"}`;
+  const restoreCommand = `gunzip -c ${serverFilePath} | docker compose exec -T postgres psql -U trademun -d trademun`;
+  const startCommand = `docker compose start api scheduler`;
+  const healthCommand = `curl -s http://127.0.0.1:8000/health`;
 
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-400 leading-relaxed">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
         <span>
-          بازیابی دیتابیس سرور فقط از طریق SSH امکان‌پذیر است. این کار برای امنیت و جلوگیری از خطاهای Connection Pool انجام می‌شود.
+          بازیابی دیتابیس فقط از طریق SSH انجام می‌شود. این کار برای امنیت و جلوگیری از خطاهای Connection Pool ضروری است.
+          <strong> حتماً قبل از شروع، حالت تعمیرات را فعال کنید.</strong>
         </span>
       </div>
 
       <div>
-        <label className="text-xs font-bold text-gray-400 mb-1.5 block">۱. انتخاب فایل بک‌آپ (برای ساخت دستورات):</label>
+        <label className="text-xs font-bold text-gray-400 mb-1.5 block">۱. انتخاب فایل بک‌آپ:</label>
         <select
           value={selectedBackup}
           onChange={(e) => setSelectedBackup(e.target.value)}
@@ -77,64 +81,77 @@ function RestoreTab({ backups }: { backups: any[] }) {
           ))}
         </select>
         {selectedBackup && (
-          <p className="text-[10px] text-green-400 mt-1.5">✅ فایل انتخاب شده: {selectedBackup}</p>
+          <div className="mt-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-2 text-[10px] text-blue-400 flex items-start gap-1.5">
+            <FolderOpen className="h-3 w-3 shrink-0 mt-0.5" />
+            <span>
+              مسیر فایل روی سرور: <code className="bg-black/40 px-1 rounded dir-ltr" dir="ltr">{serverFilePath}</code>
+            </span>
+          </div>
         )}
-      </div>
-
-      {/* ⬅️ چک‌باکس: فایل از قبل روی سرور هست؟ */}
-      <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
-        <input 
-          type="checkbox" 
-          id="is-on-server" 
-          checked={isOnServer} 
-          onChange={(e) => setIsOnServer(e.target.checked)}
-          className="accent-[#d6ad60] h-4 w-4" 
-        />
-        <label htmlFor="is-on-server" className="text-xs text-gray-300 cursor-pointer select-none">
-          فایل از قبل روی سرور است (نیازی به آپلود مجدد نیست)
-        </label>
       </div>
 
       <div className="space-y-4">
-        {/* مرحله scp فقط اگه فایل روی سرور نیست نشون داده بشه */}
-        {!isOnServer && (
-          <div>
-            <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۲</span> 
-              آپلود فایل به سرور (PowerShell لوکال)
-            </div>
-            <CodeBox>{scpCommand}</CodeBox>
-          </div>
-        )}
-
         <div>
           <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">{isOnServer ? "۲" : "۳"}</span> 
-            اتصال به سرور (SSH)
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۲</span> 
+            <Terminal className="h-4 w-4" /> اتصال به سرور (SSH)
           </div>
+          <p className="text-[10px] text-gray-400 mb-2">
+            در <strong>PowerShell ویندوز</strong> (نه SSH سرور) این دستور را بزنید:
+          </p>
           <CodeBox>{sshCommand}</CodeBox>
         </div>
 
         <div>
           <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">{isOnServer ? "۳" : "۴"}</span> 
-            بازیابی دیتابیس
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۳</span> 
+            <PowerOff className="h-4 w-4" /> توقف سرویس‌ها (در SSH)
           </div>
-          <CodeBox>{restoreCommand}</CodeBox>
+          <p className="text-[10px] text-gray-400 mb-2">
+            داخل SSH سرور، این دستور را بزنید تا API و Scheduler متوقف شوند (برای جلوگیری از قفل دیتابیس):
+          </p>
+          <CodeBox>{stopCommand}</CodeBox>
         </div>
 
         <div>
           <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">{isOnServer ? "۴" : "۵"}</span> 
-            ری‌استارت API
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۴</span> 
+            <Database className="h-4 w-4" /> بازیابی دیتابیس (در SSH)
           </div>
-          <CodeBox>{restartCommand}</CodeBox>
+          <p className="text-[10px] text-gray-400 mb-2">
+            داخل SSH سرور، این دستور را بزنید:
+          </p>
+          <CodeBox>{restoreCommand}</CodeBox>
+          <p className="text-[10px] text-gray-500 mt-1.5">
+            ⏱️ این مرحله ممکن است چند دقیقه طول بکشد. صبر کنید تا تمام شود.
+          </p>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۵</span> 
+            <Power className="h-4 w-4" /> روشن کردن مجدد سرویس‌ها (در SSH)
+          </div>
+          <p className="text-[10px] text-gray-400 mb-2">
+            داخل SSH سرور، این دستور را بزنید:
+          </p>
+          <CodeBox>{startCommand}</CodeBox>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-2">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#d6ad60]/20 text-[10px]">۶</span> 
+            <CheckCircle2 className="h-4 w-4" /> بررسی سلامت
+          </div>
+          <CodeBox>{healthCommand}</CodeBox>
+          <p className="text-[10px] text-gray-500 mt-1.5">
+            اگر پاسخ <code className="bg-black/40 px-1 rounded">{"{\"ok\":true}"}</code> بود، بازیابی موفق بوده است.
+          </p>
         </div>
       </div>
     </div>
   );
 }
-
 
 // ─── تب ۲: تست SSH ───
 function SSHTestsTab() {
@@ -149,6 +166,7 @@ function SSHTestsTab() {
       <CodeBox title="لاگ Scheduler">{`cd ${PROJECT_DIR} && docker compose logs scheduler --tail 30`}</CodeBox>
       <CodeBox title="تعداد کاربران">{`cd ${PROJECT_DIR} && docker compose exec -T postgres psql -U trademun -d trademun -c "SELECT COUNT(*) FROM users;"`}</CodeBox>
       <CodeBox title="تعداد سیگنال‌ها">{`cd ${PROJECT_DIR} && docker compose exec -T postgres psql -U trademun -d trademun -c "SELECT COUNT(*) FROM signals_log;"`}</CodeBox>
+      <CodeBox title="تعداد تیکت‌ها">{`cd ${PROJECT_DIR} && docker compose exec -T postgres psql -U trademun -d trademun -c "SELECT COUNT(*) FROM tickets;"`}</CodeBox>
     </div>
   );
 }
@@ -162,7 +180,7 @@ function EmergencyTab() {
         <span>قبل از هر کار اضطراری، از دیتابیس بک‌آپ بگیرید!</span>
       </div>
 
-      <CodeBox title="بک‌آپ فوری از دیتابیس">{`cd ${PROJECT_DIR} && docker compose exec -T postgres pg_dump -U trademun trademun > data/backups/emergency_$(date +%Y%m%d_%H%M%S).sql`}</CodeBox>
+      <CodeBox title="بک‌آپ فوری از دیتابیس">{`cd ${PROJECT_DIR} && docker compose exec -T postgres pg_dump -U trademun --clean --if-exists trademun > data/backups/emergency_$(date +%Y%m%d_%H%M%S).sql`}</CodeBox>
       <CodeBox title="ری‌استارت کامل سرویس‌ها">{`cd ${PROJECT_DIR} && docker compose restart`}</CodeBox>
       <CodeBox title="ری‌استارت داکر">{`systemctl restart docker`}</CodeBox>
       <CodeBox title="چک فضای دیسک">{`df -h && docker system df`}</CodeBox>
@@ -241,7 +259,8 @@ function AdminGuideTab() {
         <h4 className="font-bold text-[#d6ad60] mb-1.5 flex items-center gap-1.5">
           <Database className="h-4 w-4" /> بک‌آپ و بازیابی
         </h4>
-        <p>در تب «ابزارها»: دکمه «بک‌آپ جدید» فایل فشرده دیتابیس را دانلود می‌کند. برای بازیابی، از تب «راهنمای بازیابی» استفاده کنید.</p>
+        <p>در تب «ابزارها»: دکمه «بک‌آپ جدید» فایل فشرده دیتابیس را روی سرور می‌سازد. برای دانلود، دکمه دانلود کنار هر بک‌آپ را بزنید.</p>
+        <p className="mt-1">برای بازیابی، از تب «راهنمای بازیابی» استفاده کنید (فقط از طریق SSH).</p>
       </section>
 
       <section>
@@ -283,7 +302,6 @@ export function RestoreGuide({ backups }: { backups: any[] }) {
       
       <DialogContent className="max-w-2xl max-h-[90vh] p-0 bg-[#0d1b2d] border-white/10 text-white gap-0 [&>button]:hidden">
         
-        {/* هدر با دکمه بستن اختصاصی */}
         <DialogHeader className="flex flex-row items-center justify-between p-4 sm:p-5 border-b border-white/10 space-y-0">
           <DialogTitle className="text-[#d6ad60] flex items-center gap-2 text-base sm:text-lg">
             <BookOpen className="h-5 w-5" /> راهنمای جامع مدیر
@@ -296,7 +314,6 @@ export function RestoreGuide({ backups }: { backups: any[] }) {
           </button>
         </DialogHeader>
 
-        {/* تب‌ها */}
         <div className="flex flex-wrap gap-1 border-b border-white/10 p-3">
           {tabs.map((tab) => (
             <button
@@ -314,7 +331,6 @@ export function RestoreGuide({ backups }: { backups: any[] }) {
           ))}
         </div>
 
-        {/* محتوای تب */}
         <div className="p-4 sm:p-5 overflow-y-auto max-h-[60vh]">
           {activeTab === "restore" && <RestoreTab backups={backups} />}
           {activeTab === "ssh" && <SSHTestsTab />}

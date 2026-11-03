@@ -111,19 +111,28 @@ async def backup_database(admin: User = Depends(require_admin)):
 
             env = os.environ.copy()
             env["PGPASSWORD"] = password
-            cmd = ["pg_dump", "-h", host, "-p", str(port), "-U", user, dbname]
+
+            # ⬅️ --clean: حذف جداول قبل از ساخت مجدد، --if-exists: جلوگیری از خطا
+            cmd = [
+                "pg_dump",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "--clean",
+                "--if-exists",
+                dbname,
+            ]
 
             with open(raw_backup_path, "wb") as f:
                 result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE, env=env)
 
             if result.returncode != 0:
-                # ⬅️ لاگ کردن خطای دقیق psql
-                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
-                logger.error(f"[Restore] psql failed: {error_msg}")
                 raise HTTPException(
-                    status_code=500, detail=f"خطای psql: {error_msg[:500]}"
+                    status_code=500, detail=f"خطای pg_dump: {result.stderr.decode()}"
                 )
-
             ext = "sql"
 
         compressed_path = backup_dir / f"Trademun_Backup_{timestamp}.{ext}.gz"
@@ -134,11 +143,14 @@ async def backup_database(admin: User = Depends(require_admin)):
         if raw_backup_path.exists():
             os.remove(raw_backup_path)
 
-        return FileResponse(
-            path=compressed_path,
-            filename=compressed_path.name,
-            media_type="application/gzip",
-        )
+        # ⬅️ فقط مسیر فایل رو برمی‌گردونیم (بدون دانلود خودکار)
+        return {
+            "ok": True,
+            "message": "بک‌آپ با موفقیت ساخته شد",
+            "name": compressed_path.name,
+            "size": compressed_path.stat().st_size,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     except Exception as e:
         if raw_backup_path and raw_backup_path.exists():

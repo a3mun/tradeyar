@@ -300,32 +300,25 @@ const toggleMaintenance = async (enable: boolean) => {
   }
 };
 
-  const handleBackup = async () => {
-    setBackupLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/admin/backup`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || "خطا در بک‌آپ");
-      }
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Trademun_Backup_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.gz`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-      fetchBackups();
-    } catch (err: any) {
-      console.error("Backup error:", err);
-      alert(err.message || "خطا در بک‌آپ");
-    } finally {
-      setBackupLoading(false);
+const handleBackup = async () => {
+  setBackupLoading(true);
+  try {
+    const res = await fetch(`${apiUrl}/admin/backup`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = await res.json();
+    
+    if (!res.ok) {
+      throw new Error(data.detail || "خطا در بک‌آپ");
     }
-  };
-
+    
+    alert(`✅ بک‌آپ "${data.name}" با موفقیت ساخته شد.\n\nحجم: ${(data.size / 1024).toFixed(1)} KB`);
+    fetchBackups(); // آپدیت لیست
+  } catch (err: any) {
+    console.error("Backup error:", err);
+    alert(err.message || "خطا در بک‌آپ");
+  } finally {
+    setBackupLoading(false);
+  }
+};
 
   
   const handleExcel = async () => {
