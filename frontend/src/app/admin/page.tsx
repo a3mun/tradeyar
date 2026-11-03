@@ -17,6 +17,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 import Link from "next/link";
+import { RestoreGuide } from "@/components/admin/RestoreGuide";
+
 
 const getPlanNameFa = (plan: string) => {
   const map: Record<string, string> = {
@@ -84,8 +86,8 @@ export default function AdminPage() {
   
   const [backups, setBackups] = useState<any[]>([]);
   const [selectedBackups, setSelectedBackups] = useState<string[]>([]);
-  const [restoreFile, setRestoreFile] = useState<File | null>(null);
-  const [restoring, setRestoring] = useState(false);
+
+
   const [backupLoading, setBackupLoading] = useState(false);
   
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -324,32 +326,8 @@ const toggleMaintenance = async (enable: boolean) => {
     }
   };
 
-  const handleRestore = async () => {
-    if (!restoreFile) return alert("لطفاً یک فایل بک‌آپ انتخاب کنید");
-    if (!confirm("آیا مطمئنید؟ دیتابیس فعلی با این فایل جایگزین می‌شود.")) return;
-    
-    setRestoring(true);
-    const formData = new FormData();
-    formData.append("file", restoreFile);
-    
-    try {
-      const res = await fetch(`${apiUrl}/admin/backups/restore`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "خطا در بازیابی");
-      alert(data.message);
-      setRestoreFile(null);
-      fetchBackups();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setRestoring(false);
-    }
-  };
 
+  
   const handleExcel = async () => {
     try {
       const res = await fetch(`${apiUrl}/admin/users/excel`, { headers: { Authorization: `Bearer ${token}` } });
@@ -473,9 +451,6 @@ const toggleMaintenance = async (enable: boolean) => {
           
           <div className="flex gap-2 w-full md:w-auto">
             <Button variant="outline" size="sm" onClick={() => setIsAddModalOpen(true)} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10 flex-1 md:flex-none"><UserPlus className="h-4 w-4" /> افزودن</Button>
-            <Button variant="outline" size="sm" onClick={handleBackup} disabled={backupLoading} className="gap-2 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10 flex-1 md:flex-none">
-              {backupLoading ? "در حال بک‌آپ..." : <><Download className="h-4 w-4" /> بک‌آپ جدید</>}
-            </Button>
             <Button variant="outline" size="sm" onClick={handleExcel} className="gap-2 border-green-500/30 text-green-500 hover:bg-green-500/10 flex-1 md:flex-none"><Download className="h-4 w-4" /> اکسل</Button>
           </div>
         </div>
@@ -604,14 +579,9 @@ const toggleMaintenance = async (enable: boolean) => {
                       <Button onClick={handleBackup} disabled={backupLoading} size="sm" className="gap-1 bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90 font-bold">
                         {backupLoading ? "..." : <><Download className="h-3 w-3" /> بک‌آپ جدید</>}
                       </Button>
-                      <input 
-                        type="file" accept=".gz" 
-                        onChange={(e) => setRestoreFile(e.target.files?.[0] || null)} 
-                        className="text-xs text-gray-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-orange-500/20 file:text-orange-400 hover:file:bg-orange-500/30 cursor-pointer" 
-                      />
-                      <Button onClick={handleRestore} disabled={!restoreFile || restoring} size="sm" className="gap-1 bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/30">
-                        {restoring ? "..." : <><Upload className="h-3 w-3" /> بازیابی</>}
-                      </Button>
+                      
+                      {/* ⬅️ فقط دکمه راهنمای مدیر (بدون آپلود فایل و بدون دکمه بازیابی) */}
+                      <RestoreGuide backups={backups} />
                     </div>
                   </div>
 

@@ -155,84 +155,31 @@ async def backup_database(admin: User = Depends(require_admin)):
 async def restore_backup(
     file: UploadFile = File(...), admin: User = Depends(require_admin)
 ):
-    try:
-        content = await file.read()
-        raw_data = gzip.decompress(content)
+    from api.database import is_sqlite
+    import gzip, shutil, os, threading, time, sys
 
-        is_sql_content = (
-            b"PostgreSQL database dump" in raw_data[:100]
-            or b"CREATE TABLE" in raw_data[:500]
+    if not is_sqlite:
+        raise HTTPException(
+            status_code=400,
+            detail="بازیابی روی سرور (PostgreSQL) از پنل ادمین غیرفعال است. لطفاً از راهنمای SSH استفاده کنید.",
         )
-        is_sqlite_content = raw_data[:15] == b"SQLite format 3"
 
-        if is_sqlite:
-            if not is_sqlite_content:
-                raise HTTPException(
-                    status_code=400, detail="فایل آپلود شده مربوط به PostgreSQL است."
-                )
-            db_path = BASE_DIR / "data" / "trademun.db"
-            if db_path.exists():
-                shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
-            with open(db_path, "wb") as f:
-                f.write(raw_data)
-        else:
-            if not is_sql_content:
-                raise HTTPException(
-                    status_code=400, detail="فایل آپلود شده مربوط به SQLite است."
-                )
+    content = await file.read()
+    raw_data = gzip.decompress(content)
+    db_path = BASE_DIR / "data" / "trademun.db"
 
-            user = engine.url.username
-            dbname = engine.url.database
-            password = engine.url.password or ""
-            host = engine.url.host or "localhost"
-            port = engine.url.port or 5432
+    if db_path.exists():
+        shutil.copy2(db_path, BASE_DIR / "data" / "trademun_before_restore.db")
+    with open(db_path, "wb") as f:
+        f.write(raw_data)
 
-            env = os.environ.copy()
-            env["PGPASSWORD"] = password
+    def restart():
+        time.sleep(2)
+        sys.exit(1)
 
-            # ⬅️ ۱. پاک کردن schema قبل از بازیابی
-            drop_cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                str(port),
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "-c",
-                "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;",
-            ]
-            subprocess.run(drop_cmd, env=env, capture_output=True)
+    threading.Thread(target=restart, daemon=True).start()
 
-            # ⬅️ ۲. بازیابی
-            cmd = ["psql", "-h", host, "-p", str(port), "-U", user, "-d", dbname]
-            result = subprocess.run(cmd, input=raw_data, env=env, capture_output=True)
-
-            if result.returncode != 0:
-                error_msg = result.stderr.decode() if result.stderr else "Unknown error"
-                logger.error(f"[Restore] psql failed: {error_msg}")
-                raise HTTPException(
-                    status_code=500, detail=f"خطای psql: {error_msg[:500]}"
-                )
-
-        # ⬅️ ۳. ری‌استارت api (خودش)
-        def restart_app():
-            time.sleep(2)
-            sys.exit(1)
-
-        threading.Thread(target=restart_app, daemon=True).start()
-
-        return {
-            "ok": True,
-            "message": "بازیابی با موفقیت انجام شد. سیستم در حال ری‌استارت است...",
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطا در بازیابی: {str(e)}")
+    return {"ok": True, "message": "بازیابی SQLite انجام شد."}
 
 
 # ═══════════════════════════════════════════════════════════
