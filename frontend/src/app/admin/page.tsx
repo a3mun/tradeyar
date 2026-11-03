@@ -592,9 +592,30 @@ const handleBackup = async () => {
                             <input type="checkbox" checked={selectedBackups.includes(b.name)} onChange={() => toggleBackupSelection(b.name)} className="accent-[#d6ad60] h-3 w-3" />
                             <p className="text-[11px] text-gray-300 truncate dir-ltr">{b.name}</p>
                           </div>
-                          <a href={`${apiUrl}/data/backups/${b.name}`} target="_blank" rel="noreferrer">
-                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-[#d6ad60]"><Download className="h-3 w-3" /></Button>
-                          </a>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-gray-400 hover:text-[#d6ad60]"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`${apiUrl}/admin/backups/${b.name}/download`, {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                if (!res.ok) throw new Error("دانلود ناموفق");
+                                const blob = await res.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = b.name;
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                              } catch (err: any) {
+                                alert(err.message || "خطا در دانلود");
+                              }
+                            }}
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
                         </div>
                       ))}
                       {selectedBackups.length > 0 && (

@@ -16,6 +16,8 @@ from api.plans import PLANS, calculate_new_end_date
 from sqlalchemy import func
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+import jdatetime
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -86,7 +88,11 @@ async def disable_maintenance(admin: User = Depends(require_admin)):
 # ═══════════════════════════════════════════════════════════
 @router.get("/backup")
 async def backup_database(admin: User = Depends(require_admin)):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # ⬅️ تاریخ شمسی به وقت تهران
+    now_tehran = datetime.now(ZoneInfo("Asia/Tehran"))
+    jalali = jdatetime.datetime.fromgregorian(datetime=now_tehran)
+    timestamp = jalali.strftime("%Y%m%d_%H%M%S")
+
     backup_dir = BASE_DIR / "data" / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -112,7 +118,6 @@ async def backup_database(admin: User = Depends(require_admin)):
             env = os.environ.copy()
             env["PGPASSWORD"] = password
 
-            # ⬅️ --clean: حذف جداول قبل از ساخت مجدد، --if-exists: جلوگیری از خطا
             cmd = [
                 "pg_dump",
                 "-h",
@@ -143,7 +148,6 @@ async def backup_database(admin: User = Depends(require_admin)):
         if raw_backup_path.exists():
             os.remove(raw_backup_path)
 
-        # ⬅️ فقط مسیر فایل رو برمی‌گردونیم (بدون دانلود خودکار)
         return {
             "ok": True,
             "message": "بک‌آپ با موفقیت ساخته شد",
@@ -214,6 +218,22 @@ async def list_backups(admin: User = Depends(require_admin)):
     return {"ok": True, "items": files}
 
 
+# ⬅️ endpoint امن دانلود بک‌آپ (فقط ادمین)
+@router.get("/backups/{name}/download")
+async def download_backup(name: str, admin: User = Depends(require_admin)):
+    # جلوگیری از path traversal
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="نام فایل نامعتبر")
+    file_path = BASE_DIR / "data" / "backups" / name
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="فایل یافت نشد")
+    return FileResponse(
+        path=file_path,
+        filename=name,
+        media_type="application/gzip",
+    )
+
+
 class DeleteBackupsRequest(BaseModel):
     names: list[str]
 
@@ -225,7 +245,6 @@ async def delete_backups(
     backup_dir = BASE_DIR / "data" / "backups"
     deleted = []
     for name in req.names:
-        # ⬅️ فقط چک کن فایل توی پوشه backups باشه، فرمت خاصی رو چک نکن
         file_path = backup_dir / name
         if file_path.exists() and file_path.is_file():
             file_path.unlink()
@@ -506,19 +525,16 @@ async def change_user_plan(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    # ۱. پیدا کردن کاربر
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.is_admin:
         raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
 
-    # ۲. چک کردن پلن
     plan_info = PLANS.get(plan)
     if not plan_info:
         raise HTTPException(status_code=400, detail="پلن نامعتبر است")
 
-    # ۳. پیدا کردن آخرین اشتراک
     sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
@@ -526,12 +542,9 @@ async def change_user_plan(
     ).first()
 
     now = datetime.now(timezone.utc)
-
-    # ⬅️ محاسبه تاریخ جدید با تابع کمکی
     current_end = sub.end_date if sub else None
     new_end = calculate_new_end_date(current_end, plan_info["days"])
 
-    # ۴. ذخیره
     if sub:
         sub.plan = plan
         sub.start_date = now
@@ -550,7 +563,6 @@ async def change_user_plan(
 
     session.commit()
 
-    # ۵. ارسال پیامک (اختیاری)
     if send_sms:
         try:
             send_subscription_activated_sms(
@@ -573,14 +585,12 @@ async def adjust_user_days(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    # ۱. پیدا کردن کاربر
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.is_admin:
         raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
 
-    # ۲. پیدا کردن آخرین اشتراک
     sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
@@ -588,25 +598,19 @@ async def adjust_user_days(
     ).first()
 
     now = datetime.now(timezone.utc)
-
-    # ⬅️ محاسبه تاریخ جدید
     current_end = sub.end_date if sub else None
 
     if days > 0:
-        # اضافه کردن روز (با تابع کمکی)
         new_end = calculate_new_end_date(current_end, days)
     else:
-        # کم کردن روز (فقط از تاریخ فعلی کم کن)
         if current_end:
             new_end = current_end + timedelta(days=days)
             new_end = new_end.replace(hour=23, minute=59, second=59, microsecond=0)
         else:
             new_end = now + timedelta(days=days)
 
-    # ۳. ذخیره
     if sub:
         sub.end_date = new_end
-        # اگه تاریخ جدید از الان کمتر شد، اشتراک منقضی بشه
         if new_end < now:
             sub.status = "expired"
         else:
@@ -624,7 +628,6 @@ async def adjust_user_days(
 
     session.commit()
 
-    # ۴. ارسال پیامک (اختیاری)
     if send_sms:
         try:
             send_subscription_activated_sms(
@@ -637,7 +640,7 @@ async def adjust_user_days(
 
 
 # ═══════════════════════════════════════════════════════════
-# ۱۰. مدیریت دسترسی‌ها و حذف کاربر (فیکس شده)
+# ۱۰. مدیریت دسترسی‌ها و حذف کاربر
 # ═══════════════════════════════════════════════════════════
 @router.post("/users/{user_id}/make-admin")
 async def make_user_admin(
@@ -691,28 +694,22 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
 
     if hard_delete:
-        # ⬅️ ۱. اول همه پیام‌های تیکت‌های این کاربر رو پاک کن
         user_tickets = session.exec(
             select(Ticket).where(Ticket.user_id == user_id)
         ).all()
         ticket_ids = [t.id for t in user_tickets]
 
         if ticket_ids:
-            session.exec(
-                select(TicketMessage).where(TicketMessage.ticket_id.in_(ticket_ids))
-            ).all()
             for msg in session.exec(
                 select(TicketMessage).where(TicketMessage.ticket_id.in_(ticket_ids))
             ).all():
                 session.delete(msg)
-            session.commit()  # ⬅️ حتماً کامیت کن
+            session.commit()
 
-            # ⬅️ ۲. بعد تیکت‌ها رو پاک کن
             for t in user_tickets:
                 session.delete(t)
             session.commit()
 
-        # ⬅️ ۳. حالا بقیه داده‌های کاربر (اشتراک، پرداخت)
         for sub in session.exec(
             select(Subscription).where(Subscription.user_id == user_id)
         ).all():
@@ -723,7 +720,6 @@ async def delete_user(
             session.delete(pay)
         session.commit()
 
-        # ⬅️ ۴. و در آخر خود کاربر
         session.delete(user)
         session.commit()
         return {
@@ -821,8 +817,6 @@ async def approve_payment(
         .order_by(Subscription.created_at.desc())
     ).first()
     now = datetime.now(timezone.utc)
-
-    # ⬅️ محاسبه تاریخ جدید
     current_end = sub.end_date if sub else None
     new_end = calculate_new_end_date(current_end, plan_info["days"])
 
@@ -885,7 +879,6 @@ async def get_user_ticket_count(
     return {"count": count}
 
 
-# ⬅️ endpoint عمومی برای چک کردن حالت تعمیرات (بدون لاگین)
 @router.get("/maintenance/public")
 async def get_public_maintenance_status():
     return {"is_maintenance": MAINTENANCE_FLAG.exists()}

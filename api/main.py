@@ -10,7 +10,6 @@ import logging
 from fastapi.responses import JSONResponse
 from fastapi import Request
 
-
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import auth as auth_router
 from api.routers import ws as ws_router
@@ -19,13 +18,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware  # ⬅️ جدید
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import admin, subscription
 from api.routers import admin_ws
-from api.routers import tickets  # ⬅️ جدید
+from api.routers import tickets
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -60,7 +59,7 @@ ws_app.include_router(ws_router.router)
 
 
 # ═══════════════════════════════════════════════════════════
-# App اصلی
+# App اصلی (فقط یک بار تعریف — تکراری حذف شد)
 # ═══════════════════════════════════════════════════════════
 app = FastAPI(
     title=settings.APP_NAME,
@@ -69,18 +68,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    description="دستیار هوشمند تحلیل و مانیتورینگ بازار — Trademun",
-    lifespan=lifespan,
-)
-
-# ⬅️ سرو کردن فایل‌های تیکت (باید بعد از تعریف app باشه)
+# ⬅️ سرو کردن فایل‌های تیکت
 _tickets_dir = Path("data/tickets")
 _tickets_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/data/tickets", StaticFiles(directory=str(_tickets_dir)), name="tickets")
+
+# ⚠️ پوشه data/backups به صورت عمومی mount نمی‌شه — فقط از endpoint امن /admin/backups/{name}/download
 
 
 @app.exception_handler(Exception)
@@ -113,7 +106,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ⬅️ اضافه شده: استخراج IP واقعی از هدرهای Caddy
+# ⬅️ استخراج IP واقعی از هدرهای Caddy
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 
