@@ -159,3 +159,15 @@ class TicketMessage(SQLModel, table=True):
     attachment_name: Optional[str] = Field(default=None)  # ⬅️ جدید
     is_read: bool = Field(default=False, index=True)  # ⬅️ جدید
     created_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 فاز ۱۴ — توکن اختصاصی اکستنشن
+# ═══════════════════════════════════════════════════════════
+class ExtensionToken(SQLModel, table=True):
+    __tablename__ = "extension_tokens"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    token_hash: str = Field(index=True)  # ذخیره هش توکن، نه خود توکن
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=_utcnow)

@@ -13,6 +13,7 @@ from fastapi import Request
 from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import auth as auth_router
 from api.routers import ws as ws_router
+from api.routers import extension
 
 from contextlib import asynccontextmanager
 
@@ -123,6 +124,8 @@ app.include_router(subscription.router)
 app.include_router(admin.router)
 app.include_router(admin_ws.router)
 app.include_router(tickets.router)
+app.include_router(extension.router)
+
 
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket

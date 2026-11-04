@@ -421,4 +421,20 @@ class TicketStats(BaseModel):
     total_count: int = 0
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔌 فاز ۱۴ — اسکیمای اکستنشن
+# ═══════════════════════════════════════════════════════════
+class ExtensionTokenResponse(BaseModel):
+    token: str
+    expires_in_hours: int = 24
+
+
+class ExtensionVerifyResponse(BaseModel):
+    valid: bool
+    reason: Optional[str] = None
+    user_name: Optional[str] = None
+    plan: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
 TokenResponse.model_rebuild()

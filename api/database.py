@@ -181,3 +181,29 @@ def migrate_db():
 
     except Exception as e:
         logger.warning(f"[Database] migration: {e}")
+
+        # ═══ فاز ۱۴ — جدول extension_tokens ═══
+
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS extension_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                token_hash VARCHAR NOT NULL,
+                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_extension_tokens_hash 
+            ON extension_tokens(token_hash);
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_extension_tokens_user 
+            ON extension_tokens(user_id);
+        """))
+    logger.info("[Migration] ✅ جدول extension_tokens آماده است")
+except Exception as e:
+    logger.warning(f"[Migration] extension_tokens: {e}")

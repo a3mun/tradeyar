@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  LogOut, CheckCircle2, Copy, CreditCard, Sparkles, ShieldCheck, 
-  Pencil, MessageSquare, Home, Mail, Lock, User as UserIcon, Calendar, 
-  Crown, Clock, Zap, ArrowRight, X, ChevronLeft
+  LogOut, CheckCircle2, Copy, Sparkles, ShieldCheck, 
+  Pencil, MessageSquare, Home, Mail, Lock, User as UserIcon, 
+  Crown, Clock, Zap, X, Send, Bot, Download, BookOpen, Gift
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from "next/link";
@@ -27,7 +27,12 @@ const CARD_HOLDER = "محمدمهدی";
 
 const getPlanNameFa = (plan: string) => {
   const map: Record<string, string> = {
-    "free": "رایگان (تست ۳ روزه)", "1_month": "اشتراک یک ماهه", "3_months": "اشتراک سه ماهه", "6_months": "اشتراک شش ماهه", "12_months": "اشتراک یک ساله", "نامحدود (مدیر)": "نامحدود (مدیر)"
+    "free": "پلن رایگان", 
+    "1_month": "اشتراک یک ماهه", 
+    "3_months": "اشتراک سه ماهه", 
+    "6_months": "اشتراک شش ماهه", 
+    "12_months": "اشتراک یک ساله", 
+    "نامحدود (مدیر)": "نامحدود (مدیر)"
   };
   return map[plan] || plan || "نامشخص";
 };
@@ -130,23 +135,23 @@ export default function DashboardPage() {
 
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
   const subStatus = getSubStatus(sub);
+  const displayName = user.full_name || user.phone;
 
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
       <Header />
-      <main className="flex-1 container mx-auto p-4 py-6 max-w-4xl space-y-6">
+      <main className="flex-1 container mx-auto p-4 py-6 max-w-5xl space-y-6">
         
-        {/* هدر خوش‌آمدگویی (بهینه‌شده برای موبایل) */}
+        {/* هدر خوش‌آمدگویی */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">
-                خوش آمدی، <span className="text-[#d6ad60]">{user.full_name || "کاربر تریدمون"}</span> 👋
+              <h1 className="text-xl sm:text-2xl font-bold text-white truncate">
+                خوش آمدی، <span className="text-[#d6ad60]">{displayName}</span> 👋
               </h1>
               <p className="text-gray-400 mt-1 text-xs sm:text-sm">امروز چه خبر؟ بازار منتظرته.</p>
             </div>
-            {/* دکمه‌های موبایل */}
-            <div className="flex gap-2 shrink-0 sm:hidden">
+            <div className="flex gap-2 shrink-0">
               <Link href="/">
                 <Button variant="outline" size="icon" className="h-9 w-9 border-white/10 text-gray-300 hover:bg-white/5">
                   <Home className="h-4 w-4" />
@@ -157,52 +162,44 @@ export default function DashboardPage() {
               </Button>
             </div>
           </div>
-          
-          {/* دکمه‌های دسکتاپ */}
-          <div className="hidden sm:flex gap-2 justify-end">
-            <Link href="/">
-              <Button variant="outline" size="sm" className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white">
-                <Home className="h-4 w-4" /> صفحه اصلی
-              </Button>
-            </Link>
-            <Button variant="destructive" size="sm" onClick={handleLogout} className="gap-2">
-              <LogOut className="h-4 w-4" /> خروج
-            </Button>
-          </div>
         </motion.div>
 
         {/* کارت وضعیت اشتراک */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative overflow-hidden rounded-3xl border border-[#d6ad60]/20 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-5 sm:p-6 shadow-2xl">
-          <div className="absolute top-0 right-0 p-4 opacity-10"><Crown className="h-20 w-20 sm:h-24 sm:w-24 text-[#d6ad60]" /></div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative overflow-hidden rounded-3xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#0d1b2d] via-[#14263e] to-[#07111f] p-5 sm:p-6 shadow-2xl">
+          <div className="absolute -top-10 -right-10 p-4 opacity-5"><Crown className="h-48 w-48 text-[#d6ad60]" /></div>
+          
           <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-1 w-full sm:w-auto">
-              <div className="flex items-center gap-2 text-[#d6ad60]">
-                <Crown className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="text-xs sm:text-sm font-bold">وضعیت اشتراک</span>
+            <div className="space-y-2 w-full sm:w-auto">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/20 text-[#d6ad60]">
+                <Crown className="h-3.5 w-3.5" />
+                <span className="text-[10px] sm:text-xs font-bold">وضعیت اشتراک شما</span>
               </div>
+              
               {sub ? (
-                <>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <div className="space-y-1">
+                  <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                    {sub.plan === "free" ? <Gift className="h-5 w-5 text-[#d6ad60]" /> : <ShieldCheck className="h-5 w-5 text-green-400" />}
                     {getPlanNameFa(sub.plan)}
-                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${subStatus.active ? "bg-green-500 shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`} />
+                    {sub.plan === "free" && <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">۳ روز رایگان</span>}
+                    <span className={`inline-block h-2 w-2 rounded-full ${subStatus.active ? "bg-green-500 shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`} />
                   </h2>
                   <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-400">
                     <Clock className="h-3.5 w-3.5" />
-                    <span>انقضا: {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fa-IR') : "نامحدود"}</span>
+                    <span>تاریخ انقضا: {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fa-IR') : "نامحدود"}</span>
                   </div>
-                </>
+                </div>
               ) : (
                 <h2 className="text-xl sm:text-2xl font-bold text-white">در حال دریافت...</h2>
               )}
             </div>
+            
             {!showForm && !success && (
-              <Button onClick={() => setShowForm(true)} className="h-11 sm:h-12 px-5 sm:px-6 gap-2 text-sm sm:text-base font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90 shadow-lg shadow-[#d6ad60]/20 w-full sm:w-auto shrink-0">
+              <Button onClick={() => setShowForm(true)} className="h-11 sm:h-12 px-5 sm:px-6 gap-2 text-sm sm:text-base font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90 shadow-lg shadow-[#d6ad60]/20 w-full sm:w-auto shrink-0 transition-transform hover:scale-[1.02]">
                 <Zap className="h-4 w-4 sm:h-5 sm:w-5" /> ارتقا / تمدید
               </Button>
             )}
           </div>
 
-          {/* فرم تمدید */}
           <AnimatePresence>
             {success ? (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="relative z-10 mt-6 flex items-center gap-2 text-green-500 bg-green-500/10 p-4 rounded-xl border border-green-500/20">
@@ -270,6 +267,40 @@ export default function DashboardPage() {
           </AnimatePresence>
         </motion.div>
 
+        {/* کارت افزونه کروم */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 sm:p-5 transition-all hover:border-[#d6ad60]/40">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#d6ad60]/10 rounded-bl-full blur-2xl group-hover:bg-[#d6ad60]/20 transition-all" />
+            
+            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3 w-full">
+                <div className="bg-[#d6ad60]/10 p-2.5 sm:p-3 rounded-xl text-[#d6ad60] shrink-0 mt-1">
+                  <Zap className="h-5 w-5 sm:h-6 sm:w-6" />
+                </div>
+                <div>
+                  <p className="font-bold text-sm sm:text-base">افزونه کروم (Extension) نوسان‌گیر لحظه‌ای تریدمون</p>
+                  <p className="text-[10px] sm:text-xs text-gray-400 mt-1 leading-relaxed text-justify">
+                    مخصوص صرافی‌های <b>دریا گلد</b> و <b>آلفا گلد</b>. این صرافی‌ها روی <b>انس طلا (XAU/USD)</b> معاملات تعهدی (مارجین) ارائه می‌دهند. افزونه با اتصال به WebSocket داخلی این صرافی‌ها، قیمت‌ها را بدون دستکاری در حساب شما دریافت کرده و تحلیل تکنیکال لحظه‌ای ارائه می‌دهد. <br />
+                    <span className="text-red-400/80 text-[9px] mt-1 block">⚠️ تصمیم‌گیری نهایی و مسئولیت معاملات با شماست.</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 w-full md:w-auto shrink-0 mt-3 md:mt-0">
+                <Link href="/extension/guide" className="flex-1 md:flex-none">
+                  <Button variant="outline" className="w-full border-white/10 text-gray-300 hover:bg-white/5 text-xs sm:text-sm h-9 gap-2">
+                    <BookOpen className="h-4 w-4" /> راهنما
+                  </Button>
+                </Link>
+                <a href="/downloads/trademun-extension.zip" target="_blank" rel="noreferrer" className="flex-1 md:flex-none" download>
+                  <Button className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] text-xs sm:text-sm font-bold h-9 gap-2">
+                    <Download className="h-4 w-4" /> دانلود افزونه
+                  </Button>
+                </a>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
         {/* کارت اطلاعات حساب */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 sm:p-6 shadow-xl">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
@@ -317,7 +348,16 @@ export default function DashboardPage() {
               </DialogContent>
             </Dialog>
           </div>
+          
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {/* 👈 این باکس تغییر کرد که اسم هم داخلش باشه */}
+            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
+              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><UserIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
+              <div className="min-w-0 flex flex-col">
+                <p className="text-[9px] sm:text-[10px] text-gray-400">نام</p>
+                <p className="text-xs sm:text-sm text-white truncate">{user.full_name || "ثبت نشده"}</p>
+              </div>
+            </div>
             <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
               <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
               <div className="min-w-0">
@@ -339,44 +379,59 @@ export default function DashboardPage() {
                 <p className="text-xs sm:text-sm text-white font-mono dir-ltr truncate">{user.phone}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
-              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
-              <div className="min-w-0">
-                <p className="text-[9px] sm:text-[10px] text-gray-400">وضعیت</p>
-                <p className={`text-xs sm:text-sm ${subStatus.active ? "text-green-500" : "text-red-500"}`}>{subStatus.text}</p>
-              </div>
-            </div>
           </div>
         </motion.div>
 
-        {/* دسترسی سریع (فقط تیکت) */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-          <Link href="/dashboard/tickets">
-            <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 sm:p-5 transition-all hover:border-[#d6ad60]/40 hover:from-[#1a2c45]">
-              {/* افکت نور */}
-              <div className="absolute top-0 right-0 w-32 h-32 bg-[#d6ad60]/10 rounded-bl-full blur-2xl group-hover:bg-[#d6ad60]/20 transition-all" />
-              
-              <div className="relative flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="relative bg-[#d6ad60]/10 p-2.5 sm:p-3 rounded-xl text-[#d6ad60] group-hover:scale-110 transition-transform">
-                    <MessageSquare className="h-5 w-5 sm:h-6 sm:w-6" />
-                    {ticketStats?.unread_count > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white animate-pulse">
-                        {ticketStats.unread_count}
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-bold text-sm sm:text-base">تیکت‌های پشتیبانی</p>
-                    <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5">
-                      {ticketStats?.open_count > 0 ? `${ticketStats.open_count} تیکت باز داری` : "سوال یا مشکلی داری؟"}
-                    </p>
-                  </div>
+        {/* شبکه ارتباطی و پشتیبانی */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          
+          {/* تیکت پشتیبانی */}
+          <Link href="/dashboard/tickets" className="block">
+            <div className="group relative overflow-hidden rounded-2xl border-2 border-[#d6ad60]/40 bg-gradient-to-br from-[#1a2c45] to-[#07111f] p-4 h-full transition-all hover:border-[#d6ad60] hover:scale-[1.02]">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-[#d6ad60]/20 rounded-bl-full blur-xl group-hover:bg-[#d6ad60]/30 transition-all" />
+              <div className="relative flex items-start gap-3 h-full">
+                <div className="relative bg-[#d6ad60] p-2.5 rounded-xl text-[#101827] shrink-0 shadow-lg shadow-[#d6ad60]/20">
+                  <MessageSquare className="h-5 w-5" />
+                  {ticketStats?.unread_count > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white animate-pulse">
+                      {ticketStats.unread_count}
+                    </span>
+                  )}
                 </div>
-                <ArrowRight className="h-5 w-5 text-gray-500 group-hover:text-[#d6ad60] transition-colors" />
+                <div className="flex-1">
+                  <p className="font-bold text-sm">تیکت پشتیبانی</p>
+                  <p className="text-[10px] text-gray-300 mt-1 font-medium">
+                    {ticketStats?.open_count > 0 ? `${ticketStats.open_count} تیکت باز داری` : "پاسخگویی سریع به سوالات شما"}
+                  </p>
+                </div>
               </div>
             </div>
           </Link>
+
+          {/* کانال‌ها */}
+          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 flex flex-col justify-center">
+            <p className="font-bold text-sm mb-2 text-gray-200">کانال‌های رسمی</p>
+            <div className="flex flex-col gap-2">
+              <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#d6ad60] transition-colors">
+                <Send className="h-3.5 w-3.5" /> کانال تلگرام (ارسال خودکار سیگنال‌های لحظه‌ای)
+              </a>
+              <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#d6ad60] transition-colors">
+                <Send className="h-3.5 w-3.5" /> کانال بله (ارسال خودکار سیگنال‌های لحظه‌ای)
+              </a>
+            </div>
+          </div>
+
+          {/* ربات هوشمند (به زودی) */}
+          <div className="rounded-2xl border border-white/10 border-dashed bg-white/5 p-4 flex flex-col justify-center relative overflow-hidden opacity-70">
+            <div className="absolute top-2 left-2 bg-yellow-500/20 text-yellow-500 text-[9px] px-1.5 py-0.5 rounded font-bold">به زودی</div>
+            <p className="font-bold text-sm mb-2 text-gray-200 flex items-center gap-1.5">
+              <Bot className="h-4 w-4" /> ربات هوشمند اختصاصی
+            </p>
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              دریافت سیگنال‌های شخصی‌سازی شده و تعامل هوشمند در تلگرام و بله.
+            </p>
+          </div>
+
         </motion.div>
 
       </main>
