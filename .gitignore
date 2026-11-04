@@ -11,7 +11,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
+
 eggs/
 .eggs/
 lib60/
@@ -30,6 +30,7 @@ venv/
 ENV/
 env/
 .python-version
+/.env.backup_*
 
 # ═══ تست و کیفیت کد ═══
 .pytest_cache/
@@ -99,7 +100,7 @@ desktop.ini
 
 # ??? Temporary / Generated Files ???
 response.json
-test_api.py
+test_*.py
 signal_audit_report.json
 trademun_signals_*.json
 structure.txt
