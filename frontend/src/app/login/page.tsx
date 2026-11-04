@@ -18,7 +18,9 @@ import {
   CheckCircle2, 
   Cpu, 
   TrendingUp, 
-  Key
+  Key,
+  Download,
+  AlertTriangle
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════
@@ -33,7 +35,7 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
     if (!isInView) return;
     
     let start = 0;
-    const duration = 1500; // مدت زمان انیمیشن (میلی‌ثانیه)
+    const duration = 1500; 
     const steps = 50;
     const stepTime = duration / steps;
     const increment = value / steps;
@@ -54,36 +56,44 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
   return <span ref={ref} className="num">{count}{suffix}</span>;
 }
 
-// 🔴 آمار (با مقادیر عددی برای انیمیشن)
+// 🔴 آمار
 const STATS = [
-  { label: "اندیکاتور تکنیکال", value: 32, suffix: "+" }, // ← عدد هدف را اینجا تغییر بده
-  { label: "صرافی متصل", value: 5, suffix: "" }, // ← عدد هدف را اینجا تغییر بده
-  { label: "دقت پیش‌بینی جهت", value: 78, suffix: "٪" }, // ← عدد هدف را اینجا تغییر بده
-  { label: "دقت رسیدن به هدف", value: 62, suffix: "٪" }, // ← عدد هدف را اینجا تغییر بده
+  { label: "اندیکاتور تکنیکال", value: 32, suffix: "+" },
+  { label: "صرافی متصل", value: 7, suffix: "" },
+  { label: "دقت پیش‌بینی جهت", value: 78, suffix: "٪" },
+  { label: "دقت رسیدن به هدف", value: 62, suffix: "٪" },
 ];
 
 // 🔴 قابلیت‌ها
 const FEATURES = [
   { icon: Zap, title: "تحلیل جامع بازار", desc: "موتور تحلیل با ۳۲ اندیکاتور تکنیکال حرفه‌ای" },
   { icon: Cpu, title: "هوش مصنوعی", desc: "تحلیل عمیق داده‌ها با هوش مصنوعی" },
-  { icon: Key, title: "API شخصی", desc: "اتصال کلید هوش مصنوعی شخصی خودت" },
+  { icon: Globe, title: "افزونه کروم", desc: "تحلیل زنده XAU/USD در صرافی‌های دریا گلد و آلفا گلد" },
+  { icon: TrendingUp, title: "مقایسه صرافی‌ها", desc: "مقایسه لحظه‌ای قیمت‌ها بین ۵ صرافی معتبر ایرانی" },
   { icon: ShieldCheck, title: "مدیریت ریسک", desc: "حد ضرر و هدف هوشمند بر اساس نوسان بازار" },
   { icon: Activity, title: "هشدار تله‌ها", desc: "تشخیص تله‌های صعودی، نزولی و شکست‌های جعلی" },
-  { icon: TrendingUp, title: "مقایسه صرافی‌ها", desc: "اولین سایت مقایسه لحظه‌ای صرافی‌های ایرانی" },
 ];
 
-// 🔴 لیست لوگوها (فعال و غیرفعال)
-const EXCHANGES = [
-  { name: "نوبیتکس", logo: "/logos/nobitex.png", active: true },
-  { name: "بیت‌پین", logo: "/logos/bitpin.png", active: true },
-  { name: "والکس", logo: "/logos/wallex.png", active: true },
-  { name: "تبدیل", logo: "/logos/tabdeal.png", active: true },
-  { name: "بورس تهران", logo: "/logos/tsetmc.png", active: true },
-  { name: "رمزینکس", logo: "/logos/ramzinex.png", active: false },
-  { name: "توبیت", logo: "/logos/toobit.png", active: false },
-  { name: "بینگ‌ایکس", logo: "/logos/bingx.png", active: false },
-  { name: "بیت۲۴", logo: "/logos/bit24.png", active: false },
-  { name: "آبان‌تتر", logo: "/logos/abantether.png", active: false },
+// 🔴 لیست لوگوها
+const EXCHANGES_MAJOR = [
+  { name: "نوبیتکس", logo: "/logos/nobitex.png" },
+  { name: "بیت‌پین", logo: "/logos/bitpin.png" },
+  { name: "والکس", logo: "/logos/wallex.png" },
+  { name: "تبدیل", logo: "/logos/tabdeal.png" },
+  { name: "بورس تهران", logo: "/logos/tsetmc.png" },
+];
+
+const EXCHANGES_COMING_SOON = [
+  { name: "رمزینکس", logo: "/logos/ramzinex.png" },
+  { name: "توبیت", logo: "/logos/toobit.png" },
+  { name: "بینگ‌ایکس", logo: "/logos/bingx.png" },
+  { name: "بیت۲۴", logo: "/logos/bit24.png" },
+  { name: "آبان‌تتر", logo: "/logos/abantether.png" },
+];
+
+const EXCHANGES_GOLD = [
+  { name: "آلفا گلد", logo: "/logos/alfagold.png" },
+  { name: "دریا گلد", logo: "/logos/daryagold.png" },
 ];
 
 export default function LoginPage() {
@@ -284,7 +294,7 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/80 via-[#07111f]/60 to-[#07111f]/95" />
       </div>
 
-      {/* هدر — 🔴 نئون لوگو حذف شد */}
+      {/* هدر */}
       <header className="relative z-10 flex items-center justify-between p-4 sm:p-6">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
           <img src="/icon-512.png" alt="Trademun" className="h-14 w-auto sm:h-16 rounded-xl object-contain" />
@@ -343,26 +353,79 @@ export default function LoginPage() {
 
           {/* 🔴 لوگوی صرافی‌ها — فقط در دسکتاپ */}
           <div className="mt-8 w-full max-w-lg hidden lg:block">
-            <p className="text-[10px] text-gray-400 mb-3 text-right">پشتیبانی از صرافی‌های معتبر و در آینده نزدیک</p>
-            <div className="flex flex-wrap items-center justify-start gap-2">
-              {EXCHANGES.map((ex, i) => (
-                <div key={i} className={`flex flex-col items-center gap-1 ${!ex.active ? "opacity-40" : ""}`}>
-                  <div className={`h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 ${!ex.active ? "grayscale" : ""}`}>
+            {/* صرافی‌های بزرگ */}
+            <p className="text-[10px] text-gray-400 mb-3 text-right">پشتیبانی از صرافی‌های معتبر ایرانی</p>
+            <div className="flex flex-wrap items-center justify-start gap-3">
+              {EXCHANGES_MAJOR.map((ex, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div className="h-9 w-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1">
                     <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                       const parent = (e.target as HTMLImageElement).parentElement;
                       if (parent && !parent.querySelector('.fallback-text')) {
                         const span = document.createElement('span');
-                        span.className = 'fallback-text text-[7px] text-gray-300 font-bold';
+                        span.className = 'fallback-text text-[8px] text-gray-300 font-bold';
                         span.innerText = ex.name.substring(0, 2);
                         parent.appendChild(span);
                       }
                     }} />
                   </div>
-                  <span className="text-[7px] text-gray-400">{ex.name}</span>
+                  <span className="text-[8px] text-gray-400">{ex.name}</span>
                 </div>
               ))}
             </div>
+
+            {/* به زودی */}
+            <div className="mt-5 flex items-center gap-2">
+              <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
+            </div>
+            <div className="flex flex-wrap items-center justify-start gap-3 mt-2 opacity-50">
+              {EXCHANGES_COMING_SOON.map((ex, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div className="h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      const parent = (e.target as HTMLImageElement).parentElement;
+                      if (parent && !parent.querySelector('.fallback-text')) {
+                        const span = document.createElement('span');
+                        span.className = 'fallback-text text-[7px] text-gray-500 font-bold';
+                        span.innerText = ex.name.substring(0, 2);
+                        parent.appendChild(span);
+                      }
+                    }} />
+                  </div>
+                  <span className="text-[7px] text-gray-500">{ex.name}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* تحلیل اختصاصی انس طلا */}
+            <div className="mt-6 flex items-center gap-2">
+              <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
+              <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-start gap-3 mt-3">
+              {EXCHANGES_GOLD.map((ex, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      const parent = (e.target as HTMLImageElement).parentElement;
+                      if (parent && !parent.querySelector('.fallback-text')) {
+                        const span = document.createElement('span');
+                        span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold';
+                        span.innerText = ex.name.substring(0, 2);
+                        parent.appendChild(span);
+                      }
+                    }} />
+                  </div>
+                  <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-right">
+              ⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.
+            </p>
           </div>
         </div>
 
@@ -477,28 +540,80 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* 🔴 لوگوی صرافی‌ها — فقط در موبایل (زیر LONG/SHORT) */}
+      {/* 🔴 لوگوی صرافی‌ها — فقط در موبایل */}
       <div className="relative z-10 w-full px-4 pb-8 lg:hidden">
-        <p className="text-[10px] text-gray-400 mb-3 text-center">پشتیبانی از صرافی‌های معتبر</p>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {EXCHANGES.map((ex, i) => (
-            <div key={i} className={`flex flex-col items-center gap-1 ${!ex.active ? "opacity-40" : ""}`}>
-              <div className={`h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 ${!ex.active ? "grayscale" : ""}`}>
+        <p className="text-[10px] text-gray-400 mb-3 text-center">پشتیبانی از صرافی‌های معتبر ایرانی</p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {EXCHANGES_MAJOR.map((ex, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1">
                 <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
                   (e.target as HTMLImageElement).style.display = 'none';
                   const parent = (e.target as HTMLImageElement).parentElement;
                   if (parent && !parent.querySelector('.fallback-text')) {
                     const span = document.createElement('span');
-                    span.className = 'fallback-text text-[7px] text-gray-300 font-bold';
+                    span.className = 'fallback-text text-[8px] text-gray-300 font-bold';
                     span.innerText = ex.name.substring(0, 2);
                     parent.appendChild(span);
                   }
                 }} />
               </div>
-              <span className="text-[7px] text-gray-400">{ex.name}</span>
+              <span className="text-[8px] text-gray-400">{ex.name}</span>
             </div>
           ))}
         </div>
+
+        {/* به زودی */}
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-2 opacity-50">
+          {EXCHANGES_COMING_SOON.map((ex, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  const parent = (e.target as HTMLImageElement).parentElement;
+                  if (parent && !parent.querySelector('.fallback-text')) {
+                    const span = document.createElement('span');
+                    span.className = 'fallback-text text-[7px] text-gray-500 font-bold';
+                    span.innerText = ex.name.substring(0, 2);
+                    parent.appendChild(span);
+                  }
+                }} />
+              </div>
+              <span className="text-[7px] text-gray-500">{ex.name}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* تحلیل اختصاصی انس طلا */}
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
+          <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-3">
+          {EXCHANGES_GOLD.map((ex, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  const parent = (e.target as HTMLImageElement).parentElement;
+                  if (parent && !parent.querySelector('.fallback-text')) {
+                    const span = document.createElement('span');
+                    span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold';
+                    span.innerText = ex.name.substring(0, 2);
+                    parent.appendChild(span);
+                  }
+                }} />
+              </div>
+              <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-center">
+          ⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.
+        </p>
       </div>
 
       <footer className="relative z-10 border-t border-white/5 bg-[#07111f]/50 px-4 py-3 text-center text-[10px] text-gray-500 backdrop-blur-sm sm:px-6">
