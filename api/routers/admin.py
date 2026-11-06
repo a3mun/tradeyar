@@ -11,6 +11,7 @@ import gzip
 import threading
 import time
 import sys
+from fastapi import Body
 
 from api.plans import PLANS, calculate_new_end_date
 from sqlalchemy import func
@@ -32,7 +33,15 @@ from openpyxl.utils import get_column_letter
 from api.config import BASE_DIR
 from api.database import get_session, engine, is_sqlite
 from api.auth import require_admin
-from api.models import User, Subscription, PaymentRequest, Ticket, TicketMessage
+from api.models import (
+    User,
+    Subscription,
+    PaymentRequest,
+    Ticket,
+    TicketMessage,
+    RefundRequest,
+    ExtensionDownloadLog,
+)
 from api.plans import PLANS
 from services.sms import send_subscription_activated_sms
 
@@ -419,6 +428,9 @@ async def export_users_excel(
 async def list_users(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
 ):
+    from api.models import ExtensionDownloadLog
+    from sqlalchemy import func
+
     users = session.exec(select(User).order_by(User.created_at.desc())).all()
     result = []
     for u in users:
@@ -427,7 +439,19 @@ async def list_users(
             .where(Subscription.user_id == u.id)
             .order_by(Subscription.created_at.desc())
         ).first()
+
         status_text, is_active = _calc_sub_status(sub, u.is_admin)
+
+        # 🔴 چک کردن اینکه آیا کاربر افزونه رو دانلود کرده یا نه
+        has_downloaded = (
+            session.exec(
+                select(func.count())
+                .select_from(ExtensionDownloadLog)
+                .where(ExtensionDownloadLog.user_id == u.id)
+            ).one()
+            > 0
+        )
+
         result.append(
             {
                 "id": u.id,
@@ -450,8 +474,11 @@ async def list_users(
                 ),
                 "sub_status": status_text,
                 "is_active_sub": is_active,
+                "extension_downloaded": has_downloaded,  # 🔴 فیلد جدید
+                "is_active": u.is_active,
             }
         )
+
     return {"ok": True, "items": result}
 
 
@@ -487,12 +514,27 @@ async def get_user_details(
         .where(PaymentRequest.user_id == user_id)
         .order_by(PaymentRequest.created_at.desc())
     ).all()
+
+    # 🔴 محاسبه جمع‌بندی مالی
+    total_paid = sum(
+        p.amount
+        for p in payments
+        if p.status == "approved" and p.payment_method != "refund"
+    )
+    total_refunded = sum(
+        p.amount
+        for p in payments
+        if p.status == "approved" and p.payment_method == "refund"
+    )
+    net_balance = total_paid - total_refunded
+
     pay_list = [
         {
             "id": p.id,
             "plan": p.plan,
             "amount": p.amount,
             "status": p.status,
+            "payment_method": p.payment_method,
             "created_at": p.created_at.isoformat(),
             "note": p.receipt_note,
         }
@@ -508,9 +550,13 @@ async def get_user_details(
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "last_ip": user.last_ip,
             "last_user_agent": user.last_user_agent,
+            "is_active": user.is_active,  # 🔴 این خط حتماً باشه
         },
         "subscriptions": subs_list,
         "payments": pay_list,
+        "total_paid": total_paid,  # 🔴 جدید
+        "total_refunded": total_refunded,  # 🔴 جدید
+        "net_balance": net_balance,  # 🔴 جدید
     }
 
 
@@ -759,6 +805,8 @@ async def list_payments(
                     user.last_login.isoformat() if user and user.last_login else None
                 ),
                 "plan": p.plan,
+                "amount": p.amount or 0,
+                "payment_method": p.payment_method or "card",
                 "receipt_note": p.receipt_note,
                 "created_at": p.created_at.isoformat(),
                 "ip_address": p.ip_address or "نامشخص",
@@ -770,42 +818,146 @@ async def list_payments(
     return {"ok": True, "items": result}
 
 
-@router.get("/transactions")
-async def list_all_transactions(
+# 🔴 اندپوینت جدید برای همه تراکنش‌ها (شامل رد شده‌ها)
+@router.get("/all-transactions")
+async def list_all_transactions_merged(
     admin: User = Depends(require_admin), session: Session = Depends(get_session)
 ):
     payments = session.exec(
         select(PaymentRequest).order_by(PaymentRequest.created_at.desc())
     ).all()
+
     result = []
     for p in payments:
         user = session.get(User, p.user_id)
+        plan_info = PLANS.get(p.plan, {})
         result.append(
             {
-                "id": p.id,
+                "id": f"pay_{p.id}",
+                "source": "payment_request",
                 "user_phone": user.phone if user else "ناشناس",
                 "plan": p.plan,
-                "amount": p.amount,
+                "plan_price": plan_info.get("price", 0),  # 🔴 قیمت اصلی پلن
+                "amount": p.amount or 0,
+                "payment_method": p.payment_method or "card",
                 "status": p.status,
-                "created_at": p.created_at.isoformat(),
+                "created_at": p.created_at.isoformat() if p.created_at else None,
                 "reviewed_at": p.reviewed_at.isoformat() if p.reviewed_at else None,
                 "reviewed_by": p.reviewed_by,
                 "receipt_note": p.receipt_note,
                 "payment_time": p.payment_time,
+                "admin_note": p.admin_note,
+                "full_name": p.full_name,
             }
         )
     return {"ok": True, "items": result}
 
 
+# 🔴 اندپوینت جدید برای ویرایش مبلغ توسط ادمین
+@router.patch("/transactions/{tx_id}/amount")
+async def update_transaction_amount(
+    tx_id: str,
+    amount: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if tx_id.startswith("pay_"):
+        pid = int(tx_id.replace("pay_", ""))
+        p = session.get(PaymentRequest, pid)
+        if not p:
+            raise HTTPException(404, "تراکنش یافت نشد")
+        p.amount = amount
+        # 🔴 حفظ یادداشت قبلی
+        old_note = p.admin_note or ""
+        p.admin_note = f"{old_note} (مبلغ توسط مدیر ویرایش شد)"
+        session.add(p)
+        session.commit()
+        return {"ok": True, "message": "مبلغ ویرایش شد", "id": tx_id, "amount": amount}
+    raise HTTPException(400, "شناسه نامعتبر")
+
+
+# 🔴 اندپوینت جدید برای اکسل تراکنش‌ها
+@router.get("/transactions/excel")
+async def export_transactions_excel(
+    admin: User = Depends(require_admin), session: Session = Depends(get_session)
+):
+    payments = session.exec(
+        select(PaymentRequest).order_by(PaymentRequest.created_at.desc())
+    ).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "تراکنش‌ها"
+    ws.sheet_view.rightToLeft = True
+
+    headers = [
+        "شناسه",
+        "شماره کاربر",
+        "پلن",
+        "روش پرداخت",
+        "مبلغ (تومان)",
+        "وضعیت",
+        "تاریخ ثبت",
+        "بررسی توسط",
+        "یادداشت ادمین",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(name="Arial", bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="14213D")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for p in payments:
+        user = session.get(User, p.user_id)
+        status_fa = {
+            "pending": "در انتظار",
+            "approved": "تایید شده",
+            "rejected": "رد شده",
+        }.get(p.status, p.status)
+        method_fa = {"zibal": "درگاه زیبال", "card": "کارت به کارت"}.get(
+            p.payment_method, p.payment_method or "نامشخص"
+        )
+        ws.append(
+            [
+                f"pay_{p.id}",
+                user.phone if user else "ناشناس",
+                PLANS.get(p.plan, {}).get("title", p.plan),
+                method_fa,
+                p.amount or 0,
+                status_fa,
+                p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else "",
+                p.reviewed_by or "—",
+                p.admin_note or "",
+            ]
+        )
+
+    for column in ws.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column)
+        ws.column_dimensions[get_column_letter(column[0].column)].width = min(
+            max(max_length + 4, 14), 35
+        )
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="trademun-transactions-{timestamp}.xlsx"'
+        },
+    )
+
+
 @router.post("/payments/{payment_id}/approve")
 async def approve_payment(
     payment_id: int,
+    admin_note: str = Body(None, embed=True),  # 🔴 embed=True
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
     payment = session.get(PaymentRequest, payment_id)
-    if not payment or payment.status != "pending":
-        raise HTTPException(status_code=404, detail="درخواست یافت نشد")
     user = session.get(User, payment.user_id)
     plan_info = PLANS.get(payment.plan)
     if not plan_info:
@@ -839,6 +991,7 @@ async def approve_payment(
     payment.status = "approved"
     payment.reviewed_at = now
     payment.reviewed_by = admin.phone
+    payment.admin_note = admin_note  # 🔴 ذخیره یادداشت
     session.add(payment)
     session.commit()
 
@@ -852,15 +1005,15 @@ async def approve_payment(
 @router.post("/payments/{payment_id}/reject")
 async def reject_payment(
     payment_id: int,
+    admin_note: str = Body(None, embed=True),  # 🔴 embed=True
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
     payment = session.get(PaymentRequest, payment_id)
-    if not payment or payment.status != "pending":
-        raise HTTPException(status_code=404, detail="درخواست یافت نشد")
     payment.status = "rejected"
     payment.reviewed_at = datetime.now(timezone.utc)
     payment.reviewed_by = admin.phone
+    payment.admin_note = admin_note  # 🔴 ذخیره یادداشت
     session.add(payment)
     session.commit()
     return {"ok": True, "message": "پرداخت رد شد"}
@@ -882,3 +1035,378 @@ async def get_user_ticket_count(
 @router.get("/maintenance/public")
 async def get_public_maintenance_status():
     return {"is_maintenance": MAINTENANCE_FLAG.exists()}
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: int,
+    new_password: str,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    from api.auth import get_password_hash
+
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
+    user.hashed_password = get_password_hash(new_password)
+    session.add(user)
+    session.commit()
+    return {"ok": True, "message": "رمز عبور کاربر با موفقیت تغییر یافت"}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 آمار دانلود افزونه
+# ═══════════════════════════════════════════════════════════
+@router.get("/users/{user_id}/extension-stats")
+async def get_extension_stats(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    from api.models import ExtensionDownloadLog
+    from sqlalchemy import func
+
+    # تعداد کل
+    total = session.exec(
+        select(func.count())
+        .select_from(ExtensionDownloadLog)
+        .where(ExtensionDownloadLog.user_id == user_id)
+    ).one()
+
+    # لیست کامل لاگ‌ها (مرتب از جدید به قدیم)
+    logs = session.exec(
+        select(ExtensionDownloadLog)
+        .where(ExtensionDownloadLog.user_id == user_id)
+        .order_by(ExtensionDownloadLog.downloaded_at.desc())
+    ).all()
+
+    return {
+        "total_downloads": total or 0,
+        "logs": [
+            {
+                "id": log.id,
+                "downloaded_at": log.downloaded_at.isoformat(),
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+            }
+            for log in logs
+        ],
+    }
+
+
+@router.get("/extension-logs")
+async def get_extension_logs(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    from api.models import ExtensionDownloadLog
+
+    logs = session.exec(
+        select(ExtensionDownloadLog)
+        .order_by(ExtensionDownloadLog.downloaded_at.desc())
+        .limit(100)
+    ).all()
+
+    result = []
+    for log in logs:
+        user = session.get(User, log.user_id)
+        result.append(
+            {
+                "id": log.id,
+                "user_phone": user.phone if user else "ناشناس",
+                "user_name": user.full_name if user else "-",
+                "downloaded_at": log.downloaded_at.isoformat(),
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+            }
+        )
+    return {"items": result}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 اندپوینت جدید: تغییر وضعیت تراکنش توسط ادمین
+# ═══════════════════════════════════════════════════════════
+@router.patch("/transactions/{tx_id}/status")
+async def update_transaction_status(
+    tx_id: str,
+    new_status: str,
+    send_sms: bool = False,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if tx_id.startswith("pay_"):
+        pid = int(tx_id.replace("pay_", ""))
+        p = session.get(PaymentRequest, pid)
+        if not p:
+            raise HTTPException(404, "تراکنش یافت نشد")
+
+        p.status = new_status
+        p.reviewed_at = datetime.now(timezone.utc)
+        p.reviewed_by = admin.phone
+
+        # فعال‌سازی اشتراک در صورت تایید
+        if new_status == "approved":
+            user = session.get(User, p.user_id)
+            plan_info = PLANS.get(p.plan)
+            if plan_info and user:
+                sub = session.exec(
+                    select(Subscription)
+                    .where(Subscription.user_id == user.id)
+                    .order_by(Subscription.created_at.desc())
+                ).first()
+                now = datetime.now(timezone.utc)
+                current_end = sub.end_date if sub else None
+                new_end = calculate_new_end_date(current_end, plan_info["days"])
+                if sub:
+                    sub.plan = p.plan
+                    sub.start_date = now
+                    sub.end_date = new_end
+                    sub.status = "active"
+                    session.add(sub)
+                else:
+                    sub = Subscription(
+                        user_id=user.id,
+                        plan=p.plan,
+                        start_date=now,
+                        end_date=new_end,
+                        status="active",
+                    )
+                    session.add(sub)
+
+                # ارسال پیامک (فقط اگر انتخاب شده باشه)
+                if send_sms:
+                    try:
+                        send_subscription_activated_sms(
+                            user.phone, plan_info["title"], new_end
+                        )
+                    except Exception:
+                        pass
+
+        session.add(p)
+        session.commit()
+        return {"ok": True, "message": f"وضعیت تراکنش به {new_status} تغییر یافت"}
+    raise HTTPException(400, "شناسه نامعتبر")
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 اندپوینت جدید: لاگ تغییرات تراکنش
+# ═══════════════════════════════════════════════════════════
+@router.get("/transactions/{tx_id}/logs")
+async def get_transaction_logs(
+    tx_id: str,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    # فعلاً یه لاگ ساده برمی‌گردونیم (چون جدول جداگانه نداریم)
+    return {"logs": []}
+
+
+@router.patch("/transactions/{tx_id}/note")
+async def update_transaction_note(
+    tx_id: str,
+    admin_note: str = Body(..., embed=True),
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if tx_id.startswith("pay_"):
+        pid = int(tx_id.replace("pay_", ""))
+        p = session.get(PaymentRequest, pid)
+        if not p:
+            raise HTTPException(404, "تراکنش یافت نشد")
+
+        p.admin_note = admin_note
+        session.add(p)
+        session.commit()
+        return {"ok": True, "message": "یادداشت ذخیره شد"}
+    raise HTTPException(400, "شناسه نامعتبر")
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 مدیریت عودت وجه (توسط ادمین)
+# ═══════════════════════════════════════════════════════════
+@router.post("/users/{user_id}/refund")
+async def create_refund_request(
+    user_id: int,
+    new_plan: str = Body(...),
+    refund_amount: int = Body(...),
+    admin_note: str = Body(None),
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "کاربر یافت نشد")
+
+    sub = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user_id)
+        .order_by(Subscription.created_at.desc())
+    ).first()
+
+    if not sub or sub.plan == "free":
+        raise HTTPException(400, "کاربر اشتراک فعال ندارد")
+
+    # 🔴 فقط درخواست عودت ثبت می‌شه (تغییر پلن دستی توسط ادمین انجام شده)
+    req = RefundRequest(
+        user_id=user_id,
+        subscription_id=sub.id,
+        old_plan=sub.plan,
+        new_plan=new_plan,
+        refund_amount=refund_amount,
+        admin_note=admin_note,
+        status="pending",
+    )
+    session.add(req)
+    session.commit()
+    return {"ok": True, "message": "درخواست عودت ثبت شد (تغییر پلن را دستی بررسی کنید)"}
+
+
+@router.get("/refunds")
+async def list_refunds(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    reqs = session.exec(
+        select(RefundRequest).order_by(RefundRequest.created_at.desc())
+    ).all()
+    result = []
+    for r in reqs:
+        user = session.get(User, r.user_id)
+        result.append(
+            {
+                "id": r.id,
+                "user_phone": user.phone if user else "ناشناس",
+                "old_plan": r.old_plan,
+                "new_plan": r.new_plan,
+                "refund_amount": r.refund_amount,
+                "admin_note": r.admin_note,
+                "status": r.status,
+                "created_at": r.created_at.isoformat(),
+            }
+        )
+    return {"ok": True, "items": result}
+
+
+@router.post("/refunds/{req_id}/approve")
+async def approve_refund(
+    req_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    req = session.get(RefundRequest, req_id)
+    if not req or req.status != "pending":
+        raise HTTPException(404, "درخواست یافت نشد")
+
+    req.status = "refunded"
+    req.processed_at = datetime.now(timezone.utc)
+    req.processed_by = admin.phone
+    session.add(req)
+
+    # 🔴 ثبت تراکنش عودت
+    new_payment = PaymentRequest(
+        user_id=req.user_id,
+        plan="refund",
+        amount=req.refund_amount,
+        status="approved",
+        payment_method="refund",
+        admin_note=f"عودت وجه - {req.admin_note or ''}",
+        created_at=datetime.now(timezone.utc),
+        reviewed_at=datetime.now(timezone.utc),
+        reviewed_by=admin.phone,
+    )
+    session.add(new_payment)
+    session.commit()
+    return {"ok": True, "message": "عودت وجه تایید شد"}
+
+
+@router.post("/refunds/{req_id}/reject")
+async def reject_refund(
+    req_id: int,
+    admin_note: str = Body(None, embed=True),
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    req = session.get(RefundRequest, req_id)
+    if not req or req.status != "pending":
+        raise HTTPException(404, "درخواست یافت نشد")
+
+    req.status = "rejected"
+    req.processed_at = datetime.now(timezone.utc)
+    req.processed_by = admin.phone
+    req.admin_note = admin_note or req.admin_note
+    session.add(req)
+    session.commit()
+    return {"ok": True, "message": "درخواست عودت رد شد"}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 آمار کلی پنل ادمین
+# ═══════════════════════════════════════════════════════════
+@router.get("/dashboard-stats")
+async def get_dashboard_stats(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    from api.models import PaymentRequest, RefundRequest
+    from sqlalchemy import func
+
+    # درآمد کل (فقط پرداخت‌های تایید شده و غیر refund)
+    total_revenue = (
+        session.exec(
+            select(func.sum(PaymentRequest.amount))
+            .where(PaymentRequest.status == "approved")
+            .where(PaymentRequest.payment_method != "refund")
+        ).one()
+        or 0
+    )
+
+    # جمع عودت‌ها (تایید شده)
+    total_refunded = (
+        session.exec(
+            select(func.sum(PaymentRequest.amount))
+            .where(PaymentRequest.status == "approved")
+            .where(PaymentRequest.payment_method == "refund")
+        ).one()
+        or 0
+    )
+
+    # درآمد خالص
+    net_revenue = total_revenue - total_refunded
+
+    # تعداد درخواست‌های عودت pending
+    pending_refunds = (
+        session.exec(
+            select(func.count())
+            .select_from(RefundRequest)
+            .where(RefundRequest.status == "pending")
+        ).one()
+        or 0
+    )
+
+    return {
+        "ok": True,
+        "total_revenue": total_revenue,
+        "total_refunded": total_refunded,
+        "net_revenue": net_revenue,
+        "pending_refunds": pending_refunds,
+    }
+
+
+@router.post("/users/{user_id}/activate")
+async def activate_user(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if admin.phone != MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
+    user.is_active = True
+    session.add(user)
+    session.commit()
+    return {"ok": True, "message": f"کاربر {user.phone} فعال شد"}

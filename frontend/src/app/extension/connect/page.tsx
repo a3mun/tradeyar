@@ -100,6 +100,9 @@ export default function ExtensionConnectPage() {
             <CheckCircle2 className="mx-auto h-16 w-16 text-green-500 mb-6" />
             <h1 className="text-xl font-bold mb-2 text-green-400">اتصال با موفقیت انجام شد!</h1>
             <p className="text-sm text-gray-400 mb-6">می‌توانید این تب را ببندید و به صرافی برگردید. پنل تحلیل فعال شد.</p>
+            <button onClick={() => window.close()} className="bg-[#d6ad60] text-[#101827] px-6 py-2 rounded-lg font-bold text-sm hover:opacity-90 mb-4">
+              بستن این تب
+            </button>
             <div className="text-xs text-gray-500">این تب به صورت خودکار بسته می‌شود...</div>
           </>
         )}

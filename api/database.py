@@ -42,6 +42,46 @@ def init_db():
     logger.info(f"✅ دیتابیس آماده ({'sqlite' if is_sqlite else 'postgres'})")
 
 
+# ═══ فاز جدید — جدول refund_requests ═══
+try:
+    with engine.begin() as conn:
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS refund_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    subscription_id INTEGER NOT NULL,
+                    old_plan VARCHAR,
+                    new_plan VARCHAR,
+                    refund_amount INTEGER DEFAULT 0,
+                    admin_note VARCHAR,
+                    status VARCHAR DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    processed_at TIMESTAMP,
+                    processed_by VARCHAR
+                );
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS refund_requests (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    subscription_id INTEGER NOT NULL REFERENCES subscriptions(id),
+                    old_plan VARCHAR,
+                    new_plan VARCHAR,
+                    refund_amount INTEGER DEFAULT 0,
+                    admin_note VARCHAR,
+                    status VARCHAR DEFAULT 'pending',
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    processed_at TIMESTAMP WITH TIME ZONE,
+                    processed_by VARCHAR
+                );
+            """))
+    logger.info("[Migration] ✅ جدول refund_requests آماده است")
+except Exception as e:
+    logger.warning(f"[Migration] refund_requests: {e}")
+
+
 def _add_missing_columns_sqlite(inspector, conn):
     """migration برای SQLite — ستون‌های جدید signallog."""
     if "signals_log" not in inspector.get_table_names():
@@ -80,13 +120,9 @@ def _add_missing_columns_sqlite(inspector, conn):
 
 
 def _add_missing_columns_postgres(inspector, conn):
-    """
-    migration برای PostgreSQL — همه‌ی ستون‌های اضافه‌شده در طول فازها.
-    با IF NOT EXISTS امن هست.
-    """
+    """migration برای PostgreSQL"""
     existing_tables = set(inspector.get_table_names())
 
-    # ─── signallog: ستون‌های فاز ۸.۲ به بعد ───
     if "signals_log" in existing_tables:
         cols = {col["name"] for col in inspector.get_columns("signals_log")}
         signallog_cols = [
@@ -117,18 +153,15 @@ def _add_missing_columns_postgres(inspector, conn):
                             f"ALTER TABLE signals_log ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
                         )
                     )
-                    logger.info(f"  + signals_log.{col_name} اضافه شد")
-                except Exception as e:
-                    logger.warning(f"  - signallog.{col_name}: {e}")
+                except Exception:
+                    pass
 
-    # ─── users: ستون‌های فاز ۱۱ ───
     if "users" in existing_tables:
         cols = {col["name"] for col in inspector.get_columns("users")}
-        users_cols = [
+        for col_name, col_type in [
             ("email", "VARCHAR"),
             ("hashed_password", "VARCHAR"),
-        ]
-        for col_name, col_type in users_cols:
+        ]:
             if col_name not in cols:
                 try:
                     conn.execute(
@@ -136,16 +169,15 @@ def _add_missing_columns_postgres(inspector, conn):
                             f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
                         )
                     )
-                    logger.info(f"  + users.{col_name} اضافه شد")
-                except Exception as e:
-                    logger.warning(f"  - users.{col_name}: {e}")
+                except Exception:
+                    pass
 
-    # ─── payment_requests: ستون‌های فاز ۱۱ ───
     if "payment_requests" in existing_tables:
         cols = {col["name"] for col in inspector.get_columns("payment_requests")}
         pay_cols = [
             ("full_name", "VARCHAR"),
             ("payment_time", "VARCHAR"),
+            ("payment_method", "VARCHAR"),
         ]
         for col_name, col_type in pay_cols:
             if col_name not in cols:
@@ -155,19 +187,14 @@ def _add_missing_columns_postgres(inspector, conn):
                             f"ALTER TABLE payment_requests ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
                         )
                     )
-                    logger.info(f"  + payment_requests.{col_name} اضافه شد")
-                except Exception as e:
-                    logger.warning(f"  - payment_requests.{col_name}: {e}")
+                except Exception:
+                    pass
 
 
 def migrate_db():
-    """
-    اضافه کردن ستون‌های جدید به جداول موجود.
-    هم SQLite و هم PostgreSQL رو پشتیبانی می‌کنه.
-    """
+    """migration برای هر دو دیتابیس"""
     try:
         inspector = inspect(engine)
-
         if is_sqlite:
             with engine.connect() as conn:
                 _add_missing_columns_sqlite(inspector, conn)
@@ -178,32 +205,44 @@ def migrate_db():
                 _add_missing_columns_postgres(inspector, conn)
                 conn.commit()
             logger.info("✅ migration برای PostgreSQL انجام شد")
-
     except Exception as e:
         logger.warning(f"[Database] migration: {e}")
 
-        # ═══ فاز ۱۴ — جدول extension_tokens ═══
 
-
+# ═══ فاز ۱۴ — جدول extension_tokens (سازگار با SQLite و Postgres) ═══
 try:
     with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS extension_tokens (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id),
-                token_hash VARCHAR NOT NULL,
-                expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            );
-        """))
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_extension_tokens_hash 
-            ON extension_tokens(token_hash);
-        """))
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_extension_tokens_user 
-            ON extension_tokens(user_id);
-        """))
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS extension_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_hash VARCHAR NOT NULL,
+                    expires_at TIMESTAMP NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS extension_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    token_hash VARCHAR NOT NULL,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+        # ایندکس‌ها
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_extension_tokens_hash ON extension_tokens(token_hash);"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_extension_tokens_user ON extension_tokens(user_id);"
+            )
+        )
     logger.info("[Migration] ✅ جدول extension_tokens آماده است")
 except Exception as e:
     logger.warning(f"[Migration] extension_tokens: {e}")

@@ -122,6 +122,7 @@ class PaymentRequest(SQLModel, table=True):
     amount: int = 0
     plan: str = "1_month"
     status: str = "pending"
+    payment_method: Optional[str] = "card"  # 🔴 جدید
     receipt_note: Optional[str] = None
     admin_note: Optional[str] = None
     reviewed_by: Optional[str] = None
@@ -171,3 +172,33 @@ class ExtensionToken(SQLModel, table=True):
     token_hash: str = Field(index=True)  # ذخیره هش توکن، نه خود توکن
     expires_at: datetime
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔌 فاز ۱۴ — لاگ دانلود افزونه
+# ═══════════════════════════════════════════════════════════
+class ExtensionDownloadLog(SQLModel, table=True):
+    __tablename__ = "extension_download_logs"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    downloaded_at: datetime = Field(default_factory=_utcnow, index=True)
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+
+# ═══════════════════════════════════════════════════════════
+# 🔴 فاز جدید: درخواست عودت وجه (توسط ادمین)
+# ═══════════════════════════════════════════════════════════
+class RefundRequest(SQLModel, table=True):
+    __tablename__ = "refund_requests"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    subscription_id: int = Field(foreign_key="subscriptions.id", index=True)
+    old_plan: str
+    new_plan: str
+    refund_amount: int = 0
+    admin_note: Optional[str] = None  # مثلاً شماره کارت
+    status: str = "pending"  # pending | refunded | rejected
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+    processed_at: Optional[datetime] = None
+    processed_by: Optional[str] = None

@@ -42,6 +42,7 @@ services:
     volumes:
       - ./data:/home/user/app/data
       - ./fonts:/home/user/app/fonts
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

@@ -8,24 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, useInView } from "framer-motion";
 import { 
-  ArrowLeft, 
-  ShieldCheck, 
-  Zap, 
-  Brain, 
-  Globe, 
-  Send, 
-  Activity, 
-  CheckCircle2, 
-  Cpu, 
-  TrendingUp, 
-  Key,
-  Download,
-  AlertTriangle
+  ArrowLeft, ShieldCheck, Zap, Brain, Globe, Send, Activity, CheckCircle2, 
+  Cpu, TrendingUp, Key, Download, AlertTriangle, CreditCard, Sparkles, Lock
 } from "lucide-react";
 
-// ═══════════════════════════════════════════════════════════
-// 🔴 کامپوننت شمارنده پویا (Count-up)
-// ═══════════════════════════════════════════════════════════
 function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
   const [count, setCount] = useState(0);
   const ref = useRef(null);
@@ -33,13 +19,11 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
 
   useEffect(() => {
     if (!isInView) return;
-    
     let start = 0;
     const duration = 1500; 
     const steps = 50;
     const stepTime = duration / steps;
     const increment = value / steps;
-
     const timer = setInterval(() => {
       start += increment;
       if (start >= value) {
@@ -49,14 +33,12 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
         setCount(Math.floor(start));
       }
     }, stepTime);
-
     return () => clearInterval(timer);
   }, [value, isInView]);
 
   return <span ref={ref} className="num">{count}{suffix}</span>;
 }
 
-// 🔴 آمار
 const STATS = [
   { label: "اندیکاتور تکنیکال", value: 32, suffix: "+" },
   { label: "صرافی متصل", value: 7, suffix: "" },
@@ -64,17 +46,15 @@ const STATS = [
   { label: "دقت رسیدن به هدف", value: 62, suffix: "٪" },
 ];
 
-// 🔴 قابلیت‌ها
 const FEATURES = [
   { icon: Zap, title: "تحلیل جامع بازار", desc: "موتور تحلیل با ۳۲ اندیکاتور تکنیکال حرفه‌ای" },
-  { icon: Cpu, title: "هوش مصنوعی", desc: "تحلیل عمیق داده‌ها با هوش مصنوعی" },
-  { icon: Globe, title: "افزونه کروم", desc: "تحلیل زنده XAU/USD در صرافی‌های دریا گلد و آلفا گلد" },
+  { icon: Cpu, title: "تحلیل با کلید شخصی", desc: "تحلیل عمیق با API شخصی خودت (BYOK)" },
+  { icon: Globe, title: "افزونه کروم", desc: "تحلیل زنده XAU/USD در دریا گلد و آلفا گلد" },
   { icon: TrendingUp, title: "مقایسه صرافی‌ها", desc: "مقایسه لحظه‌ای قیمت‌ها بین ۵ صرافی معتبر ایرانی" },
   { icon: ShieldCheck, title: "مدیریت ریسک", desc: "حد ضرر و هدف هوشمند بر اساس نوسان بازار" },
   { icon: Activity, title: "هشدار تله‌ها", desc: "تشخیص تله‌های صعودی، نزولی و شکست‌های جعلی" },
 ];
 
-// 🔴 لیست لوگوها
 const EXCHANGES_MAJOR = [
   { name: "نوبیتکس", logo: "/logos/nobitex.png" },
   { name: "بیت‌پین", logo: "/logos/bitpin.png" },
@@ -102,9 +82,7 @@ export default function LoginPage() {
   useEffect(() => {
     const token = getToken();
     const user = getUser();
-    if (token && user) {
-      router.replace("/");
-    }
+    if (token && user) router.replace("/");
   }, [router]);
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -113,6 +91,9 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [timer, setTimer] = useState(0);
   
+  const [loginMode, setLoginMode] = useState<"otp" | "password">("otp");
+  const [password, setPassword] = useState("");
+
   const [floatingSignals, setFloatingSignals] = useState<any[]>([]);
   const [candleHeights, setCandleHeights] = useState<any[]>([]);
   
@@ -120,25 +101,12 @@ export default function LoginPage() {
   const [codeDigits, setCodeDigits] = useState(["", "", "", "", ""]);
 
   useEffect(() => {
-    setCandleHeights(
-      Array.from({ length: 15 }).map((_, i) => ({
-        id: i,
-        start: 20 + (i * 7) % 40,
-        peak: 50 + (i * 11) % 40,
-        color: i % 2 === 0 ? "bg-[#10b981]" : "bg-[#ef4444]",
-      }))
-    );
-
-    setFloatingSignals(
-      Array.from({ length: 10 }).map((_, i) => ({
-        id: i,
-        x: -100,
-        y: Math.random() * 800,
-        duration: 10 + Math.random() * 8,
-        delay: Math.random() * 5,
-        size: 2 + Math.random() * 1.5,
-      }))
-    );
+    setCandleHeights(Array.from({ length: 15 }).map((_, i) => ({
+      id: i, start: 20 + (i * 7) % 40, peak: 50 + (i * 11) % 40, color: i % 2 === 0 ? "bg-[#10b981]" : "bg-[#ef4444]",
+    })));
+    setFloatingSignals(Array.from({ length: 10 }).map((_, i) => ({
+      id: i, x: -100, y: Math.random() * 800, duration: 10 + Math.random() * 8, delay: Math.random() * 5, size: 2 + Math.random() * 1.5,
+    })));
   }, []);
 
   useEffect(() => {
@@ -150,69 +118,53 @@ export default function LoginPage() {
 
   const handleSendOtp = async () => {
     if (!phone || phone.length < 11) return setError("لطفاً شماره موبایل خود را به درستی وارد کنید.");
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
       const res = await fetch(`${apiUrl}/auth/send-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }),
       });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "خطا در ارسال کد تایید.");
-      }
-      
-      setStep(2);
-      setTimer(120);
-      setTimeout(() => codeInputs.current[0]?.focus(), 100);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      if (!res.ok) { const data = await res.json(); throw new Error(data.detail || "خطا در ارسال کد تایید."); }
+      setStep(2); setTimer(120); setTimeout(() => codeInputs.current[0]?.focus(), 100);
+    } catch (err: any) { setError(err.message); } finally { setLoading(false); }
   };
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const fullCode = codeDigits.join("");
     if (fullCode.length < 5) return setError("لطفاً کد ۵ رقمی ارسال شده را کامل وارد کنید.");
-    
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
       const res = await fetch(`${apiUrl}/auth/verify-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code: fullCode }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, code: fullCode }),
       });
-      
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "کد وارد شده نامعتبر است.");
+      setToken(data.access_token); setUser(data.user);
+      router.push(data.user?.is_new ? "/dashboard?welcome=true" : "/");
+    } catch (err: any) { setError(err.message); setLoading(false); }
+  };
 
-      setToken(data.access_token);
-      setUser(data.user);
-      
-      if (data.user?.is_new) {
-        router.push("/dashboard?welcome=true");
-      } else {
-        router.push("/");
-      }
-      
-    } catch (err: any) {
-      setError(err.message);
-      setLoading(false); 
-    }
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone || phone.length < 11) return setError("شماره موبایل را درست وارد کنید.");
+    if (!password || password.length < 6) return setError("رمز عبور باید حداقل ۶ حرف باشد.");
+    setLoading(true); setError("");
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const res = await fetch(`${apiUrl}/auth/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "شماره یا رمز عبور اشتباه است.");
+      setToken(data.access_token); setUser(data.user);
+      router.push(data.user?.is_new ? "/dashboard?welcome=true" : "/");
+    } catch (err: any) { setError(err.message); } finally { setLoading(false); }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && step === 1) {
-      e.preventDefault();
-      handleSendOtp();
-    }
+    if (e.key === "Enter" && step === 1) { e.preventDefault(); handleSendOtp(); }
   };
 
   const handleCodeChange = (index: number, value: string) => {
@@ -220,81 +172,46 @@ export default function LoginPage() {
     const newDigits = [...codeDigits];
     newDigits[index] = value.substring(value.length - 1);
     setCodeDigits(newDigits);
-
-    if (value && index < 4) {
-      codeInputs.current[index + 1]?.focus();
-    }
-    
+    if (value && index < 4) codeInputs.current[index + 1]?.focus();
     if (newDigits.every(d => d !== "") && index === 4) {
-      setTimeout(() => {
-        const form = document.querySelector("form");
-        if (form) form.requestSubmit();
-      }, 100);
+      setTimeout(() => { const form = document.querySelector("form"); if (form) form.requestSubmit(); }, 100);
     }
   };
 
   const handleCodeKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !codeDigits[index] && index > 0) {
-      codeInputs.current[index - 1]?.focus();
-    }
+    if (e.key === "Backspace" && !codeDigits[index] && index > 0) codeInputs.current[index - 1]?.focus();
   };
 
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#07111f] text-white">
       
-      {/* 🔴 سئو: تگ H1 پنهان */}
-      <div className="hidden">
-        <h1>تحلیل تکنیکال، سیگنال هوش مصنوعی و مقایسه صرافی‌های ایرانی | تریدمون</h1>
-        <p>اولین سایت تحلیل رباتیک کریپتو و بورس ایران با هوش مصنوعی و مقایسه لحظه‌ای قیمت صرافی‌ها</p>
+      <div className="sr-only" aria-hidden="true">
+        <h1>ورود به تریدمون — بهترین پلتفرم تحلیل تکنیکال کریپتو و انس طلا در ایران</h1>
+        <h2>تحلیل هوشمند، سیگنال هوش مصنوعی، مقایسه صرافی‌ها و مدیریت ریسک</h2>
+        <p>
+          با ورود به تریدمون، به موتور تحلیل با ۳۲+ اندیکاتور تکنیکال حرفه‌ای دسترسی پیدا می‌کنید.
+          تحلیل هوشمند با کلید شخصی (BYOK)، اسکنر فرصت‌ها، مقایسه لحظه‌ای قیمت صرافی‌های ایرانی
+          (نوبیتکس، بیت‌پین، والکس، تبدیل، بورس تهران)، تحلیل اختصاصی انس طلا (XAU/USD) در
+          دریا گلد و آلفا گلد، مدیریت ریسک هوشمند، چک‌لیست معاملاتی، سناریوهای پیش‌بینی بازار،
+          راستی‌آزمایی سیگنال، شاخص ترس و طمع، عمق بازار و پروفایل ریسک شخصی‌سازی شده.
+        </p>
       </div>
 
-      {/* ═══ پس‌زمینه سینمایی ═══ */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         <svg className="absolute inset-0 h-full w-full opacity-70" viewBox="0 0 1200 800" preserveAspectRatio="none">
-          <motion.path
-            initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 0.6 }}
-            transition={{ duration: 8, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
-            d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110"
-            fill="none"
-            stroke="#d6ad60"
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
+          <motion.path initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 0.6 }} transition={{ duration: 8, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }} d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110" fill="none" stroke="#d6ad60" strokeWidth="3" strokeLinecap="round" />
         </svg>
-
         <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-40">
           {candleHeights.map((candle) => (
-            <motion.div
-              key={candle.id}
-              initial={{ height: `${candle.start}%`, opacity: 0.4 }}
-              animate={{ height: [`${candle.start}%`, `${candle.peak}%`, `${candle.start}%`] }}
-              transition={{ duration: 5 + (candle.id % 3), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }}
-              className={`w-3 sm:w-4 rounded-t-sm ${candle.color}`}
-            />
+            <motion.div key={candle.id} initial={{ height: `${candle.start}%`, opacity: 0.4 }} animate={{ height: [`${candle.start}%`, `${candle.peak}%`, `${candle.start}%`] }} transition={{ duration: 5 + (candle.id % 3), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }} className={`w-3 sm:w-4 rounded-t-sm ${candle.color}`} />
           ))}
         </div>
-
         {floatingSignals.map((signal) => (
-          <motion.div
-            key={`signal-${signal.id}`}
-            initial={{ x: signal.x, y: signal.y, opacity: 0 }}
-            animate={{ 
-              x: 1200, 
-              y: [signal.y, signal.y + 30, signal.y - 30, signal.y],
-              opacity: [0, 0.7, 0], 
-              scale: [1, 1.3, 1] 
-            }}
-            transition={{ duration: signal.duration, repeat: Infinity, ease: "linear", delay: signal.delay }}
-            className="absolute rounded-full bg-[#d6ad60] shadow-[0_0_15px_#d6ad60]"
-            style={{ width: `${signal.size * 4}px`, height: `${signal.size * 4}px` }}
-          />
+          <motion.div key={`signal-${signal.id}`} initial={{ x: signal.x, y: signal.y, opacity: 0 }} animate={{ x: 1200, y: [signal.y, signal.y + 30, signal.y - 30, signal.y], opacity: [0, 0.7, 0], scale: [1, 1.3, 1] }} transition={{ duration: signal.duration, repeat: Infinity, ease: "linear", delay: signal.delay }} className="absolute rounded-full bg-[#d6ad60] shadow-[0_0_15px_#d6ad60]" style={{ width: `${signal.size * 4}px`, height: `${signal.size * 4}px` }} />
         ))}
-
         <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/80 via-[#07111f]/60 to-[#07111f]/95" />
       </div>
 
-      {/* هدر */}
       <header className="relative z-10 flex items-center justify-between p-4 sm:p-6">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
           <img src="/icon-512.png" alt="Trademun" className="h-14 w-auto sm:h-16 rounded-xl object-contain" />
@@ -307,7 +224,6 @@ export default function LoginPage() {
 
       <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-8 p-4 py-8 sm:p-6 lg:flex-row lg:items-center lg:justify-between lg:pt-16">
         
-        {/* ═══ بخش تبلیغاتی (سمت چپ) ═══ */}
         <div className="flex w-full flex-col items-center lg:items-start lg:w-1/2 text-center lg:text-right">
           
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-4 py-1.5 text-xs font-medium text-yellow-500">
@@ -324,25 +240,19 @@ export default function LoginPage() {
             تریدمون به شما کمک می‌کند تا با تحلیل‌های رباتیک و هوش مصنوعی، بهترین تصمیم را در بازار کریپتو و بورس ایران بگیرید. همچنین می‌توانید قیمت‌ها را بین صرافی‌های مختلف مقایسه کنید.
           </p>
 
-          {/* 🔴 آمار زنده با انیمیشن شمارنده */}
           <div className="mt-6 grid w-full max-w-lg grid-cols-2 gap-3 sm:grid-cols-4">
             {STATS.map((stat, i) => (
-              <div key={i} className="flex flex-col items-center justify-center rounded-xl border border-white/10 bg-white/5 py-2 backdrop-blur-md">
-                <span className="text-lg font-bold text-[#d6ad60]">
-                  <AnimatedNumber value={stat.value} suffix={stat.suffix} />
-                </span>
+              <div key={i} className="flex flex-col items-center justify-center rounded-xl border border-white/10 bg-[#0d1b2d] py-2">
+                <span className="text-lg font-bold text-[#d6ad60]"><AnimatedNumber value={stat.value} suffix={stat.suffix} /></span>
                 <span className="text-[9px] text-gray-400 mt-1 text-center">{stat.label}</span>
               </div>
             ))}
           </div>
 
-          {/* 🔴 کارت‌های قابلیت */}
           <div className="mt-8 grid w-full max-w-lg grid-cols-1 gap-3 sm:grid-cols-2">
             {FEATURES.map((f, i) => (
-              <div key={i} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur-md transition-colors hover:bg-white/10">
-                <div className="rounded-lg bg-[#d6ad60]/15 p-2">
-                  <f.icon className="h-4 w-4 text-[#d6ad60]" />
-                </div>
+              <div key={i} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#0d1b2d] p-3 transition-colors hover:bg-white/5">
+                <div className="rounded-lg bg-[#d6ad60]/15 p-2"><f.icon className="h-4 w-4 text-[#d6ad60]" /></div>
                 <div className="text-right">
                   <p className="text-xs font-bold text-white">{f.title}</p>
                   <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">{f.desc}</p>
@@ -351,55 +261,33 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* 🔴 لوگوی صرافی‌ها — فقط در دسکتاپ */}
           <div className="mt-8 w-full max-w-lg hidden lg:block">
-            {/* صرافی‌های بزرگ */}
             <p className="text-[10px] text-gray-400 mb-3 text-right">پشتیبانی از صرافی‌های معتبر ایرانی</p>
             <div className="flex flex-wrap items-center justify-start gap-3">
               {EXCHANGES_MAJOR.map((ex, i) => (
                 <div key={i} className="flex flex-col items-center gap-1">
-                  <div className="h-9 w-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1">
-                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                      const parent = (e.target as HTMLImageElement).parentElement;
-                      if (parent && !parent.querySelector('.fallback-text')) {
-                        const span = document.createElement('span');
-                        span.className = 'fallback-text text-[8px] text-gray-300 font-bold';
-                        span.innerText = ex.name.substring(0, 2);
-                        parent.appendChild(span);
-                      }
-                    }} />
+                  <div className="h-9 w-9 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1">
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[8px] text-gray-300 font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
                   </div>
                   <span className="text-[8px] text-gray-400">{ex.name}</span>
                 </div>
               ))}
             </div>
 
-            {/* به زودی */}
             <div className="mt-5 flex items-center gap-2">
               <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-3 mt-2 opacity-50">
               {EXCHANGES_COMING_SOON.map((ex, i) => (
                 <div key={i} className="flex flex-col items-center gap-1">
-                  <div className="h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
-                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                      const parent = (e.target as HTMLImageElement).parentElement;
-                      if (parent && !parent.querySelector('.fallback-text')) {
-                        const span = document.createElement('span');
-                        span.className = 'fallback-text text-[7px] text-gray-500 font-bold';
-                        span.innerText = ex.name.substring(0, 2);
-                        parent.appendChild(span);
-                      }
-                    }} />
+                  <div className="h-8 w-8 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[7px] text-gray-500 font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
                   </div>
                   <span className="text-[7px] text-gray-500">{ex.name}</span>
                 </div>
               ))}
             </div>
 
-            {/* تحلیل اختصاصی انس طلا */}
             <div className="mt-6 flex items-center gap-2">
               <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
               <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
@@ -408,16 +296,7 @@ export default function LoginPage() {
               {EXCHANGES_GOLD.map((ex, i) => (
                 <div key={i} className="flex flex-col items-center gap-1">
                   <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
-                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                      const parent = (e.target as HTMLImageElement).parentElement;
-                      if (parent && !parent.querySelector('.fallback-text')) {
-                        const span = document.createElement('span');
-                        span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold';
-                        span.innerText = ex.name.substring(0, 2);
-                        parent.appendChild(span);
-                      }
-                    }} />
+                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
                   </div>
                   <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
                 </div>
@@ -429,191 +308,138 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* ═══ فرم ورود (سمت راست) ═══ */}
         <div className="relative w-full max-w-sm lg:w-[400px] lg:sticky lg:top-24">
           
-          <form onSubmit={handleVerify} className="relative w-full rounded-3xl border border-white/10 bg-[#0d1b2dd0] p-6 shadow-[0_0_40px_rgba(214,173,96,0.1)] backdrop-blur-2xl">
-            
+          <div className="flex gap-1 p-1 mb-3 bg-[#0d1b2d] border border-white/10 rounded-xl">
+            <button onClick={() => { setLoginMode("otp"); setError(""); }} className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "otp" ? "bg-[#d6ad60] text-[#07111f]" : "text-gray-400 hover:text-white"}`}>کد پیامکی</button>
+            <button onClick={() => { setLoginMode("password"); setError(""); }} className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "password" ? "bg-[#d6ad60] text-[#07111f]" : "text-gray-400 hover:text-white"}`}>رمز عبور</button>
+          </div>
+
+          <form onSubmit={loginMode === "password" ? handlePasswordLogin : handleVerifyOtp} className="relative w-full rounded-2xl border border-[#d6ad60]/20 bg-[#0d1b2d] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold mb-1 text-white">ورود به تریدمون</h2>
-              <p className="text-xs text-gray-400">
-                {step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`}
-              </p>
+              <h2 className="text-2xl font-bold mb-1 text-white">{loginMode === "password" ? "ورود با رمز" : "ورود به تریدمون"}</h2>
+              <p className="text-xs text-gray-400">{loginMode === "password" ? "شماره موبایل و رمز عبور خود را وارد کنید." : (step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`)}</p>
             </div>
 
-            {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500">{error}</div>}
+            {error && <div className="mb-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500 border border-red-500/20">{error}</div>}
 
-            {step === 1 ? (
+            {loginMode === "password" ? (
               <div className="space-y-5">
                 <div>
                   <label className="mb-2 block text-xs font-medium text-gray-400">شماره موبایل</label>
-                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/40 px-3 transition-colors focus-within:border-[#d6ad60] focus-within:shadow-[0_0_10px_rgba(214,173,96,0.2)]">
-                    <Input
-                      type="tel"
-                      placeholder="0912 000 0000"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12"
-                      maxLength={11}
-                      dir="ltr"
-                    />
+                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/40 px-3 transition-colors focus-within:border-[#d6ad60]">
+                    <Input type="tel" placeholder="0912 000 0000" value={phone} onChange={(e) => setPhone(e.target.value)} className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12" maxLength={11} dir="ltr" />
                   </div>
                 </div>
-                
-                <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)] transition-all">
-                  {loading ? "در حال ارسال..." : "دریافت کد ورود"}
-                </Button>
-                
-                <div className="text-center mt-2">
-                  <p className="text-[10px] text-[#d6ad60] bg-[#d6ad60]/10 rounded-md py-1.5 inline-block px-3 border border-[#d6ad60]/20">
-                    🎁 با اولین ورود، ۳ روز اشتراک رایگان هدیه بگیر!
-                  </p>
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-gray-400">رمز عبور</label>
+                  <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/40 px-3 transition-colors focus-within:border-[#d6ad60]">
+                    <Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12" dir="ltr" />
+                  </div>
                 </div>
+                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                  {loading ? "در حال ورود..." : "ورود به حساب"}
+                </Button>
               </div>
             ) : (
-              <div className="space-y-5">
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <label className="text-xs font-medium text-gray-400">کد تایید</label>
-                    <button type="button" onClick={() => setStep(1)} className="flex items-center gap-1 text-xs text-[#d6ad60] hover:underline">
-                      ویرایش شماره <ArrowLeft className="h-3 w-3" />
-                    </button>
+              step === 1 ? (
+                <div className="space-y-5">
+                  <div>
+                    <label className="mb-2 block text-xs font-medium text-gray-400">شماره موبایل</label>
+                    <div className="flex flex-row-reverse items-center rounded-xl border border-white/10 bg-black/40 px-3 transition-colors focus-within:border-[#d6ad60]">
+                      <Input type="tel" placeholder="0912 000 0000" value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={handleKeyDown} className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12" maxLength={11} dir="ltr" />
+                    </div>
                   </div>
-                  
-                  <div className="flex justify-between gap-2" dir="ltr">
-                    {codeDigits.map((digit, index) => (
-                      <Input
-                        key={index}
-                        ref={(el) => { codeInputs.current[index] = el; }}
-                        type="text"
-                        inputMode="numeric"
-                        value={digit}
-                        onChange={(e) => handleCodeChange(index, e.target.value)}
-                        onKeyDown={(e) => handleCodeKeyDown(index, e)}
-                        className="h-14 w-12 rounded-xl text-center text-xl font-bold bg-black/40 border-white/10 text-white focus-visible:ring-[#d6ad60] transition-all"
-                        maxLength={1}
-                        autoComplete="one-time-code"
-                      />
-                    ))}
+                  <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                    {loading ? "در حال ارسال..." : "دریافت کد ورود"}
+                  </Button>
+                  <div className="text-center mt-2">
+                    <p className="text-[10px] text-[#d6ad60] bg-[#d6ad60]/10 rounded-md py-1.5 inline-block px-3 border border-[#d6ad60]/20">🎁 با اولین ورود، ۳ روز اشتراک رایگان هدیه بگیر!</p>
                   </div>
                 </div>
-                
-                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#101827] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)] transition-all">
-                  {loading ? "در حال بررسی..." : "ورود به حساب"}
-                </Button>
-                
-                <div className="text-center text-xs">
-                  {timer > 0 ? (
-                    <span className="text-gray-500">ارسال مجدد در {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</span>
-                  ) : (
-                    <button type="button" onClick={handleSendOtp} className="text-[#d6ad60] hover:underline">ارسال مجدد کد</button>
-                  )}
+              ) : (
+                <div className="space-y-5">
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <label className="text-xs font-medium text-gray-400">کد تایید</label>
+                      <button type="button" onClick={() => setStep(1)} className="flex items-center gap-1 text-xs text-[#d6ad60] hover:underline">ویرایش شماره <ArrowLeft className="h-3 w-3" /></button>
+                    </div>
+                    <div className="flex justify-between gap-2" dir="ltr">
+                      {codeDigits.map((digit, index) => (
+                        <Input key={index} ref={(el) => { codeInputs.current[index] = el; }} type="text" inputMode="numeric" value={digit} onChange={(e) => handleCodeChange(index, e.target.value)} onKeyDown={(e) => handleCodeKeyDown(index, e)} className="h-14 w-full max-w-[48px] rounded-xl text-center text-xl font-bold bg-black/40 border-white/10 text-white focus-visible:ring-[#d6ad60]" maxLength={1} autoComplete="one-time-code" />
+                      ))}
+                    </div>
+                  </div>
+                  <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                    {loading ? "در حال بررسی..." : "ورود به حساب"}
+                  </Button>
+                  <div className="text-center text-xs">
+                    {timer > 0 ? (<span className="text-gray-500">ارسال مجدد در {Math.floor(timer/60)}:{String(timer%60).padStart(2,'0')}</span>) : (<button type="button" onClick={handleSendOtp} className="text-[#d6ad60] hover:underline">ارسال مجدد کد</button>)}
+                  </div>
                 </div>
-              </div>
+              )
             )}
           </form>
 
-          <div className="mt-5 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 text-center">
-            <p className="text-[10px] text-yellow-500/80 leading-relaxed">
-              ⚠️ تحلیل‌های تریدمون صرفاً جنبه آموزشی دارند. تصمیم نهایی و مسئولیت سود یا ضرر با خودتونه.
-            </p>
+          <Link href="/subscription" className="mt-4 block">
+            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#0d1b2d] p-3 hover:border-[#d6ad60]/60 transition-all">
+              <div className="flex items-center gap-2.5">
+                <div className="bg-[#d6ad60]/15 p-1.5 rounded-lg"><CreditCard className="h-4 w-4 text-[#d6ad60]" /></div>
+                <div>
+                  <p className="text-xs font-bold text-white">مشاهده پلن‌های اشتراک</p>
+                  <p className="text-[10px] text-gray-400">مقایسه امکانات و قیمت‌ها</p>
+                </div>
+              </div>
+              <ArrowLeft className="h-4 w-4 text-[#d6ad60] group-hover:-translate-x-1 transition-transform" />
+            </div>
+          </Link>
+
+          <div className="mt-4 rounded-xl border border-yellow-500/20 bg-[#0d1b2d] p-3 text-center">
+            <p className="text-[10px] text-yellow-500/80 leading-relaxed">⚠️ تحلیل‌های تریدمون صرفاً جنبه آموزشی دارند. تصمیم نهایی و مسئولیت سود یا ضرر با خودتونه.</p>
           </div>
 
           <div className="mt-6 flex items-center justify-center gap-6 opacity-80">
-            <motion.div
-              animate={{ opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-1.5 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]"
-            >
-              LONG
-            </motion.div>
-            <motion.div
-              animate={{ opacity: [1, 0.4, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-1.5 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]"
-            >
-              SHORT
-            </motion.div>
+            <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }} className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-1.5 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]">LONG</motion.div>
+            <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 2, repeat: Infinity }} className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-1.5 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]">SHORT</motion.div>
           </div>
-
         </div>
       </div>
 
-      {/* 🔴 لوگوی صرافی‌ها — فقط در موبایل */}
       <div className="relative z-10 w-full px-4 pb-8 lg:hidden">
         <p className="text-[10px] text-gray-400 mb-3 text-center">پشتیبانی از صرافی‌های معتبر ایرانی</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           {EXCHANGES_MAJOR.map((ex, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1">
-                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  const parent = (e.target as HTMLImageElement).parentElement;
-                  if (parent && !parent.querySelector('.fallback-text')) {
-                    const span = document.createElement('span');
-                    span.className = 'fallback-text text-[8px] text-gray-300 font-bold';
-                    span.innerText = ex.name.substring(0, 2);
-                    parent.appendChild(span);
-                  }
-                }} />
+              <div className="h-9 w-9 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1">
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[8px] text-gray-300 font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
               </div>
               <span className="text-[8px] text-gray-400">{ex.name}</span>
             </div>
           ))}
         </div>
-
-        {/* به زودی */}
-        <div className="mt-5 flex items-center justify-center gap-2">
-          <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
-        </div>
+        <div className="mt-5 flex items-center justify-center gap-2"><span className="text-[9px] text-gray-500">در آینده نزدیک:</span></div>
         <div className="flex flex-wrap items-center justify-center gap-3 mt-2 opacity-50">
           {EXCHANGES_COMING_SOON.map((ex, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-8 w-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
-                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  const parent = (e.target as HTMLImageElement).parentElement;
-                  if (parent && !parent.querySelector('.fallback-text')) {
-                    const span = document.createElement('span');
-                    span.className = 'fallback-text text-[7px] text-gray-500 font-bold';
-                    span.innerText = ex.name.substring(0, 2);
-                    parent.appendChild(span);
-                  }
-                }} />
+              <div className="h-8 w-8 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1 grayscale">
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[7px] text-gray-500 font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
               </div>
               <span className="text-[7px] text-gray-500">{ex.name}</span>
             </div>
           ))}
         </div>
-
-        {/* تحلیل اختصاصی انس طلا */}
-        <div className="mt-5 flex items-center justify-center gap-2">
-          <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
-          <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
-        </div>
+        <div className="mt-5 flex items-center justify-center gap-2"><AlertTriangle className="h-3 w-3 text-[#d6ad60]" /><p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p></div>
         <div className="flex flex-wrap items-center justify-center gap-3 mt-3">
           {EXCHANGES_GOLD.map((ex, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
               <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
-                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  const parent = (e.target as HTMLImageElement).parentElement;
-                  if (parent && !parent.querySelector('.fallback-text')) {
-                    const span = document.createElement('span');
-                    span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold';
-                    span.innerText = ex.name.substring(0, 2);
-                    parent.appendChild(span);
-                  }
-                }} />
+                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; const parent = (e.target as HTMLImageElement).parentElement; if (parent && !parent.querySelector('.fallback-text')) { const span = document.createElement('span'); span.className = 'fallback-text text-[8px] text-[#d6ad60] font-bold'; span.innerText = ex.name.substring(0, 2); parent.appendChild(span); } }} />
               </div>
               <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
             </div>
           ))}
         </div>
-        <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-center">
-          ⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.
-        </p>
+        <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-center">⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.</p>
       </div>
 
       <footer className="relative z-10 border-t border-white/5 bg-[#07111f]/50 px-4 py-3 text-center text-[10px] text-gray-500 backdrop-blur-sm sm:px-6">
@@ -622,15 +448,9 @@ export default function LoginPage() {
           <span className="hidden sm:inline">•</span>
           <span>دستیار هوشمند بازارهای مالی</span>
           <span className="hidden sm:inline">•</span>
-          <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors">
-            <Globe className="h-3 w-3" /> trademun.ir
-          </a>
-          <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors">
-            <Send className="h-3 w-3" /> t.me/trademun
-          </a>
-          <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors">
-            <Send className="h-3 w-3" /> ble.ir/trademun
-          </a>
+          <a href="https://trademun.ir" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors"><Globe className="h-3 w-3" /> trademun.ir</a>
+          <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors"><Send className="h-3 w-3" /> t.me/trademun</a>
+          <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-[#d6ad60] transition-colors"><Send className="h-3 w-3" /> ble.ir/trademun</a>
         </div>
       </footer>
     </main>

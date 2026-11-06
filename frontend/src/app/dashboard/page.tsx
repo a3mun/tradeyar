@@ -7,32 +7,25 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { 
-  LogOut, CheckCircle2, Copy, Sparkles, ShieldCheck, 
+  LogOut, CheckCircle2, ShieldCheck, 
   Pencil, MessageSquare, Home, Mail, Lock, User as UserIcon, 
-  Crown, Clock, Zap, X, Send, Bot, Download, BookOpen, Gift
+  Crown, Clock, Zap, Send, Bot, Download, BookOpen, Gift, AlertTriangle, ArrowRight,
+  Puzzle, Rocket, Hourglass, Wallet, CreditCard, History, XCircle, Receipt, LayoutDashboard, UserCircle, RefreshCw
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Link from "next/link";
 
-const PLANS = [
-  { id: "1_month", title: "یک ماهه", price: 390000, oldPrice: 590000, discount: 33, days: 30, popular: false },
-  { id: "3_months", title: "سه ماهه", price: 1050000, oldPrice: 1770000, discount: 40, days: 90, popular: true },
-  { id: "6_months", title: "شش ماهه", price: 1870000, oldPrice: 3540000, discount: 47, days: 180, popular: false },
-  { id: "12_months", title: "یک ساله", price: 3270000, oldPrice: 7080000, discount: 54, days: 365, popular: false },
-];
-const CARD_NUMBER = "5859-4710-2303-7983";
-const CARD_HOLDER = "محمدمهدی";
-
 const getPlanNameFa = (plan: string) => {
   const map: Record<string, string> = {
-    "free": "پلن رایگان", 
+    "free": "پلن آشنایی رایگان", 
     "1_month": "اشتراک یک ماهه", 
     "3_months": "اشتراک سه ماهه", 
     "6_months": "اشتراک شش ماهه", 
     "12_months": "اشتراک یک ساله", 
-    "نامحدود (مدیر)": "نامحدود (مدیر)"
+    "نامحدود (مدیر)": "نامحدود (مدیر)",
+    "refund": "عودت وجه" // 🔴 اضافه شد
   };
   return map[plan] || plan || "نامشخص";
 };
@@ -46,27 +39,50 @@ const getSubStatus = (sub: any) => {
   return { active: false, text: "منقضی" };
 };
 
+const PENDING_KEY = "trademun_pending_request";
+
+const getPaymentMethodFa = (method: string | null | undefined) => {
+  if (!method) return "—";
+  if (method === "zibal") return "درگاه زیبال";
+  if (method === "card") return "کارت به کارت";
+  if (method === "refund") return "عودت وجه"; // 🔴 اضافه شد
+  return method;
+};
+
+const getPaymentStatus = (status: string) => {
+  switch (status) {
+    case "approved": return { text: "تایید شده", color: "text-green-500", bg: "bg-green-500/10", border: "border-green-500/20", icon: CheckCircle2 };
+    case "pending": return { text: "در حال بررسی", color: "text-yellow-500", bg: "bg-yellow-500/10", border: "border-yellow-500/20", icon: Hourglass };
+    case "rejected": return { text: "رد شده", color: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", icon: XCircle };
+    case "refunded": return { text: "عودت شده", color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", icon: RefreshCw }; // 🔴 اضافه شد
+    default: return { text: status, color: "text-gray-400", bg: "bg-white/5", border: "border-white/10", icon: History };
+  }
+};
+
+type TabKey = "home" | "history" | "account";
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUserData] = useState<any>(null);
   const [sub, setSub] = useState<any>(null);
   const [ticketStats, setTicketStats] = useState<any>(null);
-  
-  const [showForm, setShowForm] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<string>("3_months");
-  const [note, setNote] = useState("");
-  const [paymentTime, setPaymentTime] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [txLoading, setTxLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<TabKey>("home");
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [editLoading, setEditLoading] = useState(false);
+  const [hasPassword, setHasPassword] = useState(false);
+
+  // 🔴 استیت‌های مدال جزئیات تراکنش برای کاربر
+  const [isUserTxDetailOpen, setIsUserTxDetailOpen] = useState(false);
+  const [selectedUserTx, setSelectedUserTx] = useState<any>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
@@ -77,60 +93,110 @@ export default function DashboardPage() {
     setUserData(u);
     setNewName(u.full_name || "");
     setNewEmail(u.email || "");
-    
+
+    if (typeof window !== "undefined") {
+      setIsPending(localStorage.getItem(PENDING_KEY) === "true");
+    }
+
+    fetch(`${apiUrl}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.user) {
+          setUser(data.user);
+          setUserData(data.user);
+          setHasPassword(!!data.user.has_password);
+        }
+      })
+      .catch(console.error);
+
     fetch(`${apiUrl}/subscription/my`, { headers: { Authorization: `Bearer ${token}` } })
-    .then(res => res.json()).then(data => setSub(data.subscription)).catch(err => console.error(err));
+    .then(res => res.json())
+    .then(data => {
+      setSub(data.subscription);
+      if (data.subscription?.status === "active" && typeof window !== "undefined") {
+        localStorage.removeItem(PENDING_KEY);
+        setIsPending(false);
+      }
+    })
+    .catch(err => console.error(err));
 
     fetch(`${apiUrl}/tickets/stats`, { headers: { Authorization: `Bearer ${token}` } })
-    .then(res => {
-      if (!res.ok) throw new Error("Failed to fetch stats");
-      return res.json();
-    })
+    .then(res => res.ok ? res.json() : { open_count: 0, closed_count: 0, unread_count: 0, total_count: 0 })
     .then(data => setTicketStats(data))
-    .catch(err => {
-      console.warn("Ticket stats fetch failed:", err);
-      setTicketStats({ open_count: 0, closed_count: 0, unread_count: 0, total_count: 0 });
-    });
+    .catch(() => setTicketStats({ open_count: 0, closed_count: 0, unread_count: 0, total_count: 0 }));
+
+    fetch(`${apiUrl}/subscription/my-transactions`, { headers: { Authorization: `Bearer ${token}` } })
+    .then(res => res.ok ? res.json() : { items: [] })
+    .then(data => setTransactions(data.items || []))
+    .catch(() => setTransactions([]))
+    .finally(() => setTxLoading(false));
   }, [router, apiUrl, token]);
 
   const handleLogout = () => { removeToken(); router.replace("/login"); };
-  const copyCard = () => { navigator.clipboard.writeText(CARD_NUMBER.replace(/-/g, "")); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
+  const handleDownload = async () => {
+    if (!token) {
+      setDownloadError("لطفاً ابتدا وارد حساب کاربری خود شوید.");
+      return;
+    }
+    try {
+      const res = await fetch(`${apiUrl}/extension/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+      });
+      
+      if (!res.ok) {
+        const data = await res.json();
+        setDownloadError(data.detail || "برای دانلود افزونه، نیاز به اشتراک حرفه‌ای (Pro) دارید. لطفاً از صفحه اشتراک، پلن خود را ارتقا دهید.");
+        return;
+      }
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "trademun-extension.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setDownloadError("خطا در ارتباط با سرور");
+    }
+  };
+  
+  
   const handleUpdateProfile = async () => {
     if (!newName || newName.length < 2) return alert("نام باید حداقل ۲ حرف باشد");
     if (newPassword) {
       if (newPassword.length < 6) return alert("رمز جدید باید حداقل ۶ حرف باشد");
       if (newPassword !== confirmPassword) return alert("رمز جدید و تکرار آن مطابقت ندارند");
     }
+    
     setEditLoading(true);
     try {
       const res = await fetch(`${apiUrl}/auth/me`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          full_name: newName, email: newEmail || undefined,
-          old_password: oldPassword || undefined, new_password: newPassword || undefined,
+          full_name: newName, 
+          email: newEmail || undefined,
+          new_password: newPassword || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "خطا در ذخیره");
-      setUser(data.user); setUserData(data.user); setIsEditOpen(false);
-      setOldPassword(""); setNewPassword(""); setConfirmPassword("");
+      
+      setUser(data.user); setUserData(data.user); 
+      setHasPassword(!!data.user.has_password);
+      setIsEditOpen(false);
+      setNewPassword(""); setConfirmPassword("");
     } catch (err: any) { alert(err.message); } finally { setEditLoading(false); }
   };
 
-  const handleRequest = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/subscription/request`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan: selectedPlan, receipt_note: note, payment_time: paymentTime }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail);
-      setSuccess(true); setShowForm(false);
-    } catch (err: any) { alert(err.message); } finally { setLoading(false); }
+  const openUserTxDetail = (tx: any) => {
+    setSelectedUserTx(tx);
+    setIsUserTxDetailOpen(true);
   };
 
   if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">در حال بارگذاری...</div>;
@@ -140,10 +206,9 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
       <Header />
-      <main className="flex-1 container mx-auto p-4 py-6 max-w-5xl space-y-6">
+      <main className="flex-1 container mx-auto p-4 py-6 max-w-5xl space-y-5">
         
-        {/* هدر خوش‌آمدگویی */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
+        <motion.div initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-white truncate">
@@ -164,233 +229,205 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* کارت وضعیت اشتراک */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="relative overflow-hidden rounded-3xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#0d1b2d] via-[#14263e] to-[#07111f] p-5 sm:p-6 shadow-2xl">
-          <div className="absolute -top-10 -right-10 p-4 opacity-5"><Crown className="h-48 w-48 text-[#d6ad60]" /></div>
-          
-          <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-2 w-full sm:w-auto">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/20 text-[#d6ad60]">
-                <Crown className="h-3.5 w-3.5" />
-                <span className="text-[10px] sm:text-xs font-bold">وضعیت اشتراک شما</span>
-              </div>
-              
-              {sub ? (
-                <div className="space-y-1">
-                  <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
-                    {sub.plan === "free" ? <Gift className="h-5 w-5 text-[#d6ad60]" /> : <ShieldCheck className="h-5 w-5 text-green-400" />}
-                    {getPlanNameFa(sub.plan)}
-                    {sub.plan === "free" && <span className="text-[10px] bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-bold">۳ روز رایگان</span>}
-                    <span className={`inline-block h-2 w-2 rounded-full ${subStatus.active ? "bg-green-500 shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`} />
-                  </h2>
-                  <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-400">
-                    <Clock className="h-3.5 w-3.5" />
-                    <span>تاریخ انقضا: {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fa-IR') : "نامحدود"}</span>
-                  </div>
-                </div>
-              ) : (
-                <h2 className="text-xl sm:text-2xl font-bold text-white">در حال دریافت...</h2>
-              )}
+        {isPending && (
+          <motion.div 
+            initial={{ opacity: 0, y: -8 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            className="rounded-2xl border border-yellow-500/30 bg-yellow-500/5 p-4 flex items-start gap-3"
+          >
+            <div className="bg-yellow-500/15 p-2 rounded-lg shrink-0">
+              <Hourglass className="h-5 w-5 text-yellow-400 animate-pulse" />
             </div>
-            
-            {!showForm && !success && (
-              <Button onClick={() => setShowForm(true)} className="h-11 sm:h-12 px-5 sm:px-6 gap-2 text-sm sm:text-base font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90 shadow-lg shadow-[#d6ad60]/20 w-full sm:w-auto shrink-0 transition-transform hover:scale-[1.02]">
-                <Zap className="h-4 w-4 sm:h-5 sm:w-5" /> ارتقا / تمدید
-              </Button>
-            )}
-          </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-yellow-400">درخواست اشتراک شما در حال بررسی است</p>
+              <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                تیم پشتیبانی ظرف ۲۴ ساعت آینده درخواست شما را بررسی می‌کند. پس از تایید، اشتراک به‌طور خودکار فعال خواهد شد.
+              </p>
+            </div>
+          </motion.div>
+        )}
 
-          <AnimatePresence>
-            {success ? (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="relative z-10 mt-6 flex items-center gap-2 text-green-500 bg-green-500/10 p-4 rounded-xl border border-green-500/20">
-                <CheckCircle2 className="h-5 w-5 shrink-0" />
-                <span className="text-xs sm:text-sm">درخواست شما ثبت شد. پس از تایید ادمین، اشتراک فعال می‌شود.</span>
-              </motion.div>
-            ) : showForm ? (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="relative z-10 mt-5 space-y-4 bg-black/20 p-4 sm:p-5 rounded-2xl border border-white/10">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-base sm:text-lg text-[#d6ad60]">ارتقا به نسخه حرفه‌ای</h3>
-                  <button onClick={() => setShowForm(false)} className="text-gray-500 hover:text-white"><X className="h-5 w-5" /></button>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                  {PLANS.map((plan) => (
-                    <button key={plan.id} onClick={() => setSelectedPlan(plan.id)} className={`relative p-3 sm:p-4 rounded-xl border-2 text-right transition-all ${selectedPlan === plan.id ? "border-[#d6ad60] bg-[#d6ad60]/10 shadow-md" : "border-white/10 hover:border-[#d6ad60]/50 hover:bg-white/5"}`}>
-                      {plan.popular && (
-                        <span className="absolute -top-2.5 right-3 bg-orange-500 text-white text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                          <Sparkles className="h-2.5 w-2.5" /> پرفروش‌ترین
-                        </span>
-                      )}
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-bold text-xs sm:text-sm text-white">{plan.title}</span>
-                        {plan.discount > 0 && (<span className="text-[10px] bg-green-500/20 text-green-500 px-1.5 py-0.5 rounded-full font-bold">{plan.discount}%</span>)}
+        <div className="flex items-center gap-2 border-b border-white/10 pb-2 overflow-x-auto">
+          <Button
+            variant={activeTab === "home" ? "default" : "ghost"}
+            onClick={() => setActiveTab("home")}
+            className={`gap-2 shrink-0 ${activeTab === "home" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+          >
+            <LayoutDashboard className="h-4 w-4" /> وضعیت اشتراک
+          </Button>
+          <Button
+            variant={activeTab === "history" ? "default" : "ghost"}
+            onClick={() => setActiveTab("history")}
+            className={`gap-2 shrink-0 ${activeTab === "history" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+          >
+            <Receipt className="h-4 w-4" /> تاریخچه مالی
+          </Button>
+          <Button
+            variant={activeTab === "account" ? "default" : "ghost"}
+            onClick={() => setActiveTab("account")}
+            className={`gap-2 shrink-0 ${activeTab === "account" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+          >
+            <UserCircle className="h-4 w-4" /> حساب کاربری
+          </Button>
+        </div>
+
+        {activeTab === "home" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+            <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] via-[#0d1b2d] to-[#07111f] p-5 sm:p-6">
+              <div className="absolute -top-10 -right-10 p-4 opacity-5"><Crown className="h-48 w-48 text-[#d6ad60]" /></div>
+              <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-2 w-full sm:w-auto">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/20 text-[#d6ad60]">
+                    <Crown className="h-3.5 w-3.5" />
+                    <span className="text-[10px] sm:text-xs font-bold">وضعیت اشتراک شما</span>
+                  </div>
+                  {sub ? (
+                    <div className="space-y-1 pr-1">
+                      <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2.5 flex-wrap">
+                        {sub.plan === "free" ? <Gift className="h-5 w-5 text-[#d6ad60]" /> : <ShieldCheck className="h-5 w-5 text-green-400" />}
+                        {getPlanNameFa(sub.plan)}
+                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${subStatus.active ? "bg-green-500 shadow-[0_0_8px_#22c55e]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`} />
+                      </h2>
+                      <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-400 mt-2">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>تاریخ انقضا: {sub.end_date ? new Date(sub.end_date).toLocaleDateString('fa-IR') : "نامحدود"}</span>
                       </div>
-                      <div className="flex items-baseline gap-1.5 mt-1">
-                        <span className="font-bold text-sm sm:text-lg text-white">{plan.price.toLocaleString('fa-IR')}</span>
-                        <span className="text-[10px] sm:text-xs text-gray-400">تومان</span>
-                      </div>
-                      {plan.oldPrice > 0 && (<div className="text-[10px] sm:text-xs text-red-400/80 line-through mt-0.5">{plan.oldPrice.toLocaleString('fa-IR')} تومان</div>)}
-                    </button>
-                  ))}
+                    </div>
+                  ) : (
+                    <h2 className="text-xl sm:text-2xl font-bold text-white">در حال دریافت...</h2>
+                  )}
                 </div>
-
-                <div className="bg-black/30 border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-                  <div className="text-center sm:text-right w-full">
-                    <div className="text-[10px] sm:text-xs text-[#d6ad60] mb-1 flex items-center gap-1 justify-center sm:justify-start"><ShieldCheck className="h-3 w-3" /> پرداخت با هماهنگی (کارت به کارت)</div>
-                    <div className="font-mono text-sm sm:text-lg dir-ltr tracking-wider text-white">{CARD_NUMBER}</div>
-                    <div className="text-[10px] sm:text-xs text-gray-400 mt-0.5">به نام: {CARD_HOLDER}</div>
-                  </div>
-                  <Button variant="outline" size="icon" onClick={copyCard} className="shrink-0 h-10 w-10 sm:h-12 sm:w-12 rounded-full border-white/20 text-[#d6ad60] hover:bg-[#d6ad60]/10">
-                    {copied ? <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" /> : <Copy className="h-4 w-4 sm:h-5 sm:w-5" />}
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] sm:text-xs text-gray-400">زمان واریز (اختیاری)</label>
-                    <Input placeholder="۱۴:۳۰ - ۱۴۰۳/۰۸/۰۳" value={paymentTime} onChange={(e) => setPaymentTime(e.target.value)} className="h-10 sm:h-12 bg-black/30 border-white/10 text-white text-sm" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] sm:text-xs text-gray-400">کد پیگیری (اختیاری)</label>
-                    <Input placeholder="۱۲۳۴" value={note} onChange={(e) => setNote(e.target.value)} className="h-10 sm:h-12 bg-black/30 border-white/10 text-white text-center text-sm" />
-                  </div>
-                </div>
-
-                <div className="flex gap-2 sm:gap-3 pt-1">
-                  <Button onClick={handleRequest} disabled={loading} className="flex-1 h-10 sm:h-12 text-xs sm:text-base font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90">
-                    {loading ? "در حال ارسال..." : "ثبت درخواست"}
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowForm(false)} className="h-10 sm:h-12 border-white/20 text-white hover:bg-white/10 text-xs sm:text-sm">انصراف</Button>
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </motion.div>
-
-        {/* کارت افزونه کروم */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 sm:p-5 transition-all hover:border-[#d6ad60]/40">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-[#d6ad60]/10 rounded-bl-full blur-2xl group-hover:bg-[#d6ad60]/20 transition-all" />
-            
-            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 w-full">
-                <div className="bg-[#d6ad60]/10 p-2.5 sm:p-3 rounded-xl text-[#d6ad60] shrink-0 mt-1">
-                  <Zap className="h-5 w-5 sm:h-6 sm:w-6" />
-                </div>
-                <div>
-                  <p className="font-bold text-sm sm:text-base">افزونه کروم (Extension) نوسان‌گیر لحظه‌ای تریدمون</p>
-                  <p className="text-[10px] sm:text-xs text-gray-400 mt-1 leading-relaxed text-justify">
-                    مخصوص صرافی‌های <b>دریا گلد</b> و <b>آلفا گلد</b>. این صرافی‌ها روی <b>انس طلا (XAU/USD)</b> معاملات تعهدی (مارجین) ارائه می‌دهند. افزونه با اتصال به WebSocket داخلی این صرافی‌ها، قیمت‌ها را بدون دستکاری در حساب شما دریافت کرده و تحلیل تکنیکال لحظه‌ای ارائه می‌دهد. <br />
-                    <span className="text-red-400/80 text-[9px] mt-1 block">⚠️ تصمیم‌گیری نهایی و مسئولیت معاملات با شماست.</span>
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto shrink-0 mt-3 md:mt-0">
-                <Link href="/extension/guide" className="flex-1 md:flex-none">
-                  <Button variant="outline" className="w-full border-white/10 text-gray-300 hover:bg-white/5 text-xs sm:text-sm h-9 gap-2">
-                    <BookOpen className="h-4 w-4" /> راهنما
+                <Link href="/subscription" className="w-full sm:w-auto shrink-0 mt-2 sm:mt-0">
+                  <Button className="h-11 sm:h-12 px-5 sm:px-6 gap-2 text-sm sm:text-base font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] hover:opacity-90 shadow-lg shadow-[#d6ad60]/20 w-full transition-transform hover:scale-[1.02]">
+                    <Zap className="h-4 w-4 sm:h-5 sm:w-5" /> ارتقا / تمدید
                   </Button>
                 </Link>
-                <a href="/downloads/trademun-extension.zip" target="_blank" rel="noreferrer" className="flex-1 md:flex-none" download>
-                  <Button className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] text-xs sm:text-sm font-bold h-9 gap-2">
-                    <Download className="h-4 w-4" /> دانلود افزونه
-                  </Button>
-                </a>
               </div>
             </div>
-          </div>
-        </motion.div>
 
-        {/* کارت اطلاعات حساب */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 sm:p-6 shadow-xl">
-          <div className="flex items-center justify-between mb-3 sm:mb-4">
-            <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
-              <UserIcon className="h-4 w-4 sm:h-5 sm:w-5 text-[#d6ad60]" /> اطلاعات حساب
-            </h2>
-            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <button onClick={() => setIsEditOpen(true)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-transparent px-2.5 sm:px-3 text-[10px] sm:text-xs font-medium text-gray-300 transition-colors hover:bg-white/5 hover:text-white">
-                <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> ویرایش
-              </button>
-              <DialogContent className="sm:max-w-[425px] bg-[#0d1b2d] border-white/10 text-white">
-                <DialogHeader>
-                  <DialogTitle className="text-[#d6ad60] text-base sm:text-lg">ویرایش پروفایل</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
-                  <div>
-                    <label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">نام نمایشی</label>
-                    <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="نام جدید" className="bg-black/30 border-white/10 text-sm" />
+            <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-4 sm:p-5 transition-all hover:border-[#d6ad60]/40">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-[#d6ad60]/8 rounded-bl-full blur-2xl group-hover:bg-[#d6ad60]/15 transition-all pointer-events-none" />
+              <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3 w-full md:flex-1 md:min-w-0">
+                  <div className="bg-[#d6ad60]/12 p-2.5 sm:p-3 rounded-xl text-[#d6ad60] shrink-0 border border-[#d6ad60]/20">
+                    <Puzzle className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
-                  <div>
-                    <label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">ایمیل</label>
-                    <Input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="example@email.com" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" />
-                  </div>
-                  <div className="border-t border-white/10 pt-3 sm:pt-4 space-y-2 sm:space-y-3">
-                    <h3 className="text-xs sm:text-sm font-bold text-[#d6ad60]">تغییر رمز عبور</h3>
-                    {user?.hashed_password && (
-                      <div>
-                        <label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">رمز فعلی</label>
-                        <Input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} placeholder="رمز فعلی" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" />
-                      </div>
-                    )}
-                    <div>
-                      <label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">رمز جدید</label>
-                      <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="حداقل ۶ حرف" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-sm sm:text-base text-white">افزونه کروم تریدمون</p>
+                      <span className="text-[9px] bg-[#d6ad60]/15 text-[#d6ad60] px-2 py-0.5 rounded-full font-bold border border-[#d6ad60]/25">ویژه انس طلا</span>
                     </div>
-                    <div>
-                      <label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">تکرار رمز</label>
-                      <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="تکرار رمز" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" />
-                    </div>
+                    <p className="text-[11px] sm:text-xs text-gray-400 mt-1 leading-relaxed">نوسان‌گیر لحظه‌ای <b className="text-gray-200">XAU/USD</b> در صرافی‌های دریا گلد و آلفا گلد. نیازمند <b className="text-[#d6ad60]">اشتراک حرفه‌ای</b>.</p>
+                    <Link href="/extension/guide" className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-[#d6ad60] hover:text-[#e2c17e] mt-1.5 font-bold"><BookOpen className="h-3 w-3" /> راهنمای جامع افزونه<ArrowRight className="h-3 w-3 rotate-180" /></Link>
                   </div>
-                  <Button onClick={handleUpdateProfile} disabled={editLoading} className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold text-sm h-10 sm:h-11">
-                    {editLoading ? "در حال ذخیره..." : "ذخیره تغییرات"}
-                  </Button>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            {/* 👈 این باکس تغییر کرد که اسم هم داخلش باشه */}
-            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
-              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><UserIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
-              <div className="min-w-0 flex flex-col">
-                <p className="text-[9px] sm:text-[10px] text-gray-400">نام</p>
-                <p className="text-xs sm:text-sm text-white truncate">{user.full_name || "ثبت نشده"}</p>
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto md:shrink-0">
+                  <Link href="/extension/guide" className="w-full sm:w-auto"><Button variant="outline" className="w-full h-10 border-white/15 text-gray-300 hover:bg-white/5 hover:border-[#d6ad60]/40 text-xs sm:text-sm gap-2 px-4"><BookOpen className="h-4 w-4" /> راهنما</Button></Link>
+                  <Button onClick={handleDownload} className="w-full sm:w-auto h-10 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] text-xs sm:text-sm font-bold gap-2 px-4 shadow-md shadow-[#d6ad60]/20 hover:opacity-90"><Download className="h-4 w-4" /> دانلود افزونه</Button>
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
-              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><Mail className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
-              <div className="min-w-0">
-                <p className="text-[9px] sm:text-[10px] text-gray-400">ایمیل</p>
-                <p className="text-xs sm:text-sm text-white truncate" dir="ltr">{user.email || "ثبت نشده"}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
-              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><Lock className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
-              <div className="min-w-0">
-                <p className="text-[9px] sm:text-[10px] text-gray-400">رمز عبور</p>
-                <p className={`text-xs sm:text-sm ${user.hashed_password ? "text-green-500" : "text-yellow-500"}`}>{user.hashed_password ? "تعیین شده" : "تعیین نشده"}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
-              <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60]"><UserIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
-              <div className="min-w-0">
-                <p className="text-[9px] sm:text-[10px] text-gray-400">موبایل</p>
-                <p className="text-xs sm:text-sm text-white font-mono dir-ltr truncate">{user.phone}</p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
-        {/* شبکه ارتباطی و پشتیبانی */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          
-          {/* تیکت پشتیبانی */}
-          <Link href="/dashboard/tickets" className="block">
-            <div className="group relative overflow-hidden rounded-2xl border-2 border-[#d6ad60]/40 bg-gradient-to-br from-[#1a2c45] to-[#07111f] p-4 h-full transition-all hover:border-[#d6ad60] hover:scale-[1.02]">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-[#d6ad60]/20 rounded-bl-full blur-xl group-hover:bg-[#d6ad60]/30 transition-all" />
-              <div className="relative flex items-start gap-3 h-full">
-                <div className="relative bg-[#d6ad60] p-2.5 rounded-xl text-[#101827] shrink-0 shadow-lg shadow-[#d6ad60]/20">
+        {activeTab === "history" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+            <div className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2"><Receipt className="h-4 w-4 sm:h-5 sm:w-5 text-[#d6ad60]" /> تراکنش‌های من</h2>
+                <span className="text-[10px] text-gray-500 bg-white/5 px-2 py-0.5 rounded-full border border-white/5">{transactions.length} تراکنش</span>
+              </div>
+              {txLoading ? (
+                <div className="flex justify-center py-6"><div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-[#d6ad60]"></div></div>
+              ) : transactions.length === 0 ? (
+                <div className="text-center py-6 bg-black/20 rounded-xl border border-white/5"><History className="h-8 w-8 text-gray-600 mx-auto mb-2" /><p className="text-xs text-gray-400">هنوز تراکنشی ثبت نکرده‌اید.</p><Link href="/subscription"><Button variant="outline" size="sm" className="mt-3 border-[#d6ad60]/30 text-[#d6ad60] hover:bg-[#d6ad60]/10 h-8 text-xs gap-1"><Zap className="h-3 w-3" /> خرید اشتراک</Button></Link></div>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {transactions.map((tx: any, idx: number) => {
+                    const st = getPaymentStatus(tx.status);
+                    const StatusIcon = st.icon;
+                    const MethodIcon = tx.payment_method === "zibal" ? Wallet : (tx.payment_method === "refund" ? RefreshCw : CreditCard);
+                    const isRefund = tx.payment_method === "refund" || tx.plan === "refund";
+                    const cardBg = isRefund ? "bg-purple-500/5 border-purple-500/20 hover:border-purple-500/40" : "bg-black/20 border-white/5 hover:border-[#d6ad60]/20";
+                    
+                    return (
+                      <div key={tx.id || idx} className={`flex items-center justify-between gap-2 p-3 rounded-xl border transition-colors cursor-pointer ${cardBg}`} onClick={() => openUserTxDetail(tx)}>
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className={`p-2 rounded-lg ${isRefund ? "bg-purple-500/10 border-purple-500/20" : st.bg + " " + st.border} shrink-0`}>
+                            <StatusIcon className={`h-4 w-4 ${isRefund ? "text-purple-500" : st.color}`} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className={`text-xs font-bold ${isRefund ? "text-purple-400" : "text-white"}`}>{getPlanNameFa(tx.plan)}</p>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${isRefund ? "bg-purple-500/10 text-purple-500 border-purple-500/20" : st.bg + " " + st.color + " " + st.border}`}>{st.text}</span>
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
+                              <span className="flex items-center gap-1"><MethodIcon className="h-3 w-3" /> {getPaymentMethodFa(tx.payment_method)}</span>
+                              <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(tx.created_at).toLocaleString('fa-IR')}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-left sm:text-right shrink-0">
+                          <p className={`text-sm font-bold ${isRefund ? "text-purple-400" : "text-white"}`} dir="ltr">
+                            {(tx.amount || 0).toLocaleString("fa-IR")}
+                            <span className="text-[10px] text-gray-400 mr-1">تومان</span>
+                          </p>
+                          <p className="text-[10px] text-[#d6ad60] mt-1">جزئیات <ArrowRight className="inline h-3 w-3 rotate-180" /></p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === "account" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+            <div className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2"><UserIcon className="h-4 w-4 sm:h-5 sm:w-5 text-[#d6ad60]" /> اطلاعات حساب</h2>
+                <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+                  <button onClick={() => setIsEditOpen(true)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-transparent px-2.5 sm:px-3 text-[10px] sm:text-xs font-medium text-gray-300 transition-colors hover:bg-white/5 hover:text-white"><Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> ویرایش</button>
+                  <DialogContent className="sm:max-w-[425px] bg-[#0d1b2d] border-white/10 text-white">
+                    <DialogHeader><DialogTitle className="text-[#d6ad60] text-base sm:text-lg">ویرایش پروفایل</DialogTitle></DialogHeader>
+                    <div className="space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                      <div><label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">نام نمایشی</label><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="نام جدید" className="bg-black/30 border-white/10 text-sm" /></div>
+                      <div><label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">ایمیل</label><Input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="example@email.com" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" /></div>
+                      <div className="border-t border-white/10 pt-3 sm:pt-4 space-y-2 sm:space-y-3">
+                        <h3 className="text-xs sm:text-sm font-bold text-[#d6ad60]">تغییر رمز عبور</h3>
+                        <div><label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">رمز جدید</label><Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="حداقل ۶ حرف" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" /></div>
+                        <div><label className="text-[10px] sm:text-xs text-gray-400 mb-1 block">تکرار رمز</label><Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="تکرار رمز" dir="ltr" className="bg-black/30 border-white/10 text-center text-sm" /></div>
+                      </div>
+                      <Button onClick={handleUpdateProfile} disabled={editLoading} className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] font-bold text-sm h-10 sm:h-11">{editLoading ? "در حال ذخیره..." : "ذخیره تغییرات"}</Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                {[
+                  { icon: UserIcon, label: "نام", value: user.full_name || "ثبت نشده", isLtr: false },
+                  { icon: Mail, label: "ایمیل", value: user.email || "ثبت نشده", isLtr: true },
+                  { icon: Lock, label: "رمز عبور", value: hasPassword ? "تعیین شده" : "تعیین نشده", color: hasPassword ? "text-green-500" : "text-yellow-500" },
+                  { icon: UserIcon, label: "موبایل", value: user.phone, isLtr: true, isMono: true },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 sm:gap-3 rounded-xl bg-white/5 p-2 sm:p-3 border border-white/5">
+                    <div className="bg-[#d6ad60]/10 p-1.5 sm:p-2 rounded-lg text-[#d6ad60] shrink-0"><item.icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" /></div>
+                    <div className="min-w-0 flex flex-col"><p className="text-[9px] sm:text-[10px] text-gray-400">{item.label}</p><p className={`text-xs sm:text-sm truncate ${item.color || "text-white"} ${item.isLtr ? "dir-ltr" : ""} ${item.isMono ? "font-mono" : ""}`}>{item.value}</p></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-4">
+          <Link href="/dashboard/tickets">
+            <div className="group relative overflow-hidden rounded-2xl border-2 border-[#d6ad60]/40 bg-gradient-to-br from-[#1a2c45] to-[#0a1526] p-4 transition-all hover:border-[#d6ad60] flex items-center justify-between">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-[#d6ad60]/15 rounded-bl-full blur-xl group-hover:bg-[#d6ad60]/25 transition-all pointer-events-none" />
+              <div className="flex items-center gap-3 relative z-10">
+                <div className="relative bg-[#d6ad60] p-2.5 rounded-xl text-[#07111f] shrink-0 shadow-lg shadow-[#d6ad60]/25">
                   <MessageSquare className="h-5 w-5" />
                   {ticketStats?.unread_count > 0 && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white animate-pulse">
@@ -398,44 +435,121 @@ export default function DashboardPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex-1">
-                  <p className="font-bold text-sm">تیکت پشتیبانی</p>
-                  <p className="text-[10px] text-gray-300 mt-1 font-medium">
-                    {ticketStats?.open_count > 0 ? `${ticketStats.open_count} تیکت باز داری` : "پاسخگویی سریع به سوالات شما"}
-                  </p>
+                <div>
+                  <p className="font-bold text-sm text-white">تیکت پشتیبانی</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{ticketStats?.open_count > 0 ? `${ticketStats.open_count} تیکت باز داری` : "پاسخگویی سریع به سوالات"}</p>
                 </div>
               </div>
+              <ArrowRight className="h-4 w-4 text-[#d6ad60] group-hover:-translate-x-1 transition-transform relative z-10" />
             </div>
           </Link>
-
-          {/* کانال‌ها */}
-          <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 flex flex-col justify-center">
-            <p className="font-bold text-sm mb-2 text-gray-200">کانال‌های رسمی</p>
-            <div className="flex flex-col gap-2">
-              <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#d6ad60] transition-colors">
-                <Send className="h-3.5 w-3.5" /> کانال تلگرام (ارسال خودکار سیگنال‌های لحظه‌ای)
-              </a>
-              <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#d6ad60] transition-colors">
-                <Send className="h-3.5 w-3.5" /> کانال بله (ارسال خودکار سیگنال‌های لحظه‌ای)
-              </a>
-            </div>
-          </div>
-
-          {/* ربات هوشمند (به زودی) */}
-          <div className="rounded-2xl border border-white/10 border-dashed bg-white/5 p-4 flex flex-col justify-center relative overflow-hidden opacity-70">
-            <div className="absolute top-2 left-2 bg-yellow-500/20 text-yellow-500 text-[9px] px-1.5 py-0.5 rounded font-bold">به زودی</div>
-            <p className="font-bold text-sm mb-2 text-gray-200 flex items-center gap-1.5">
-              <Bot className="h-4 w-4" /> ربات هوشمند اختصاصی
-            </p>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              دریافت سیگنال‌های شخصی‌سازی شده و تعامل هوشمند در تلگرام و بله.
-            </p>
-          </div>
-
         </motion.div>
 
       </main>
       <Footer />
+
+      <div
+        className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 transition-opacity ${!downloadError ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+        onClick={() => setDownloadError(null)}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl border border-red-500/20 bg-[#0d1b2d] p-6 text-center shadow-2xl transition-transform scale-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10">
+            <AlertTriangle className="h-8 w-8 text-red-500" />
+          </div>
+          <h3 className="mb-2 text-lg font-bold text-white">خطا در دانلود</h3>
+          <p className="mb-6 text-sm leading-relaxed text-gray-400">
+            {downloadError}
+          </p>
+          <div className="flex gap-2">
+            <Link href="/subscription" className="flex-1">
+              <Button className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] font-bold text-sm">
+                ارتقا اشتراک
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              onClick={() => setDownloadError(null)}
+              className="flex-1 border-white/20 text-white hover:bg-white/10 text-sm"
+            >
+              بستن
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 🔴 مدال جزئیات تراکنش برای کاربر */}
+      <Dialog open={isUserTxDetailOpen} onOpenChange={setIsUserTxDetailOpen}>
+        <DialogContent className="bg-[#0d1b2d] border-white/10 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[#d6ad60]">جزئیات تراکنش</DialogTitle>
+          </DialogHeader>
+          {selectedUserTx && (
+            <div className="space-y-3 py-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">پلن:</span>
+                <span className="text-white font-bold">{getPlanNameFa(selectedUserTx.plan)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">مبلغ اصلی پلن:</span>
+                <span className="text-[#d6ad60] font-bold" dir="ltr">
+                  {selectedUserTx.plan_price ? selectedUserTx.plan_price.toLocaleString("fa-IR") : "—"} تومان
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">مبلغ پرداختی شما :</span>
+                <span className="text-white font-bold" dir="ltr">
+                  {(selectedUserTx.amount || 0).toLocaleString("fa-IR")} تومان
+                </span>
+              </div>
+
+              {selectedUserTx.type === "refund" && (
+                <div className="text-xs bg-purple-500/10 text-purple-400 p-2 rounded border border-purple-500/20">
+                  <div>وضعیت عودت: <b className="text-white">
+                    {selectedUserTx.status === "pending" ? "در حال بررسی" : 
+                    selectedUserTx.status === "refunded" ? "عودت شده" : "رد شده"}
+                  </b></div>
+                  {selectedUserTx.admin_note && <div className="mt-1">توضیحات ادمین: {selectedUserTx.admin_note}</div>}
+                </div>
+              )}
+
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">وضعیت:</span>
+                <span className={`font-bold ${getPaymentStatus(selectedUserTx.status).color}`}>{getPaymentStatus(selectedUserTx.status).text}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">روش پرداخت:</span>
+                <span className="text-white">{getPaymentMethodFa(selectedUserTx.payment_method)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-400">تاریخ درخواست:</span>
+                <span className="text-white">{new Date(selectedUserTx.created_at).toLocaleString('fa-IR')}</span>
+              </div>
+              {selectedUserTx.payment_time && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">زمان واریز:</span>
+                  <span className="text-white">{selectedUserTx.payment_time}</span>
+                </div>
+              )}
+              {selectedUserTx.receipt_note && (
+                <div className="text-xs bg-blue-500/10 text-blue-400 p-2 rounded border border-blue-500/20">
+                  <span className="font-bold">توضیحات شما:</span> {selectedUserTx.receipt_note}
+                </div>
+              )}
+              {selectedUserTx.admin_note && (
+                <div className="text-xs bg-yellow-500/10 text-yellow-500 p-2 rounded border border-yellow-500/20">
+                  <span className="font-bold">دلیل ادمین:</span> {selectedUserTx.admin_note}
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" onClick={() => setIsUserTxDetailOpen(false)} className="flex-1 border-white/10 text-gray-300">بستن</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

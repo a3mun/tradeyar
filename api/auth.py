@@ -7,6 +7,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from passlib.context import CryptContext
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -19,6 +20,7 @@ from api.models import OTPCode, User
 
 logger = logging.getLogger(__name__)
 _bearer = HTTPBearer(auto_error=False)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def create_access_token(phone: str, is_admin: bool = False) -> str:
@@ -183,55 +185,59 @@ def get_current_user_optional(
 
 
 # ═══════════════════════════════════════════════════════════
+# 🔴 توابع جدید برای ورود با رمز (هش کردن)
+# ═══════════════════════════════════════════════════════════
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
+
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+# ═══════════════════════════════════════════════════════════
 # 🔌 فاز ۱۴ — توکن اختصاصی اکستنشن
 # ═══════════════════════════════════════════════════════════
 import hashlib
-import secrets
+
 
 def create_extension_token(session: Session, user_id: int) -> str:
-    """ساخت توکن ۲۴ ساعته برای اکستنشن"""
     from api.models import ExtensionToken
-    from datetime import timedelta
-    
-    # ساخت توکن تصادفی
+
     raw_token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    
-    # پاک کردن توکن‌های قبلی کاربر
     old_tokens = session.exec(
         select(ExtensionToken).where(ExtensionToken.user_id == user_id)
     ).all()
     for old in old_tokens:
         session.delete(old)
     session.flush()
-    
-    # ذخیره توکن جدید
     ext_token = ExtensionToken(
         user_id=user_id,
         token_hash=token_hash,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
     )
     session.add(ext_token)
     session.commit()
-    
     return raw_token
 
+
 def verify_extension_token(session: Session, raw_token: str) -> Optional[int]:
-    """بررسی توکن اکستنشن — خروجی user_id یا None"""
     from api.models import ExtensionToken
-    
+
     if not raw_token:
         return None
-        
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     now = datetime.now(timezone.utc)
-    
-    stmt = select(ExtensionToken).where(
-        ExtensionToken.token_hash == token_hash
-    ).where(ExtensionToken.expires_at > now)
-    
+    stmt = (
+        select(ExtensionToken)
+        .where(ExtensionToken.token_hash == token_hash)
+        .where(ExtensionToken.expires_at > now)
+    )
     ext_token = session.exec(stmt).first()
     if not ext_token:
         return None
-        
     return ext_token.user_id

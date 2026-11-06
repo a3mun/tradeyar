@@ -1,29 +1,23 @@
-/**
- * کلاینت Axios برای FastAPI
- */
-import axios, { AxiosError, AxiosResponse } from "axios";
-
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// frontend/src/lib/api.ts
+import axios from "axios";
 
 export const api = axios.create({
-  baseURL: API_URL,
-  timeout: 60000,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000",
+  timeout: 120000, // 🔴 افزایش تایم‌اوت به ۲ دقیقه برای تحلیل‌های سنگین
 });
 
+// اینترسپتور برای مدیریت خطاها
 api.interceptors.response.use(
-  (res: AxiosResponse) => res,
-  (err: AxiosError) => {
-      // ═══ ۴۰۴ رو ignore کن (مورد انتظار برای بعضی جفت‌ها) ═══
-      if (
-        process.env.NODE_ENV === "development" &&
-        err.response?.status !== 404
-      ) {
-        console.error("[API]", err.config?.url, err.message);
-      }
+  (response) => response,
+  (err) => {
+    if (
+      err.response?.status !== 404 &&
+      !err.config?.url?.includes("/analyze")
+    ) {
+      console.warn(`[API Error] ${err.config?.url || "Unknown URL"} - ${err.message}`);
+    }
     return Promise.reject(err);
   }
 );
+
+export default api;

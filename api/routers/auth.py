@@ -1,14 +1,13 @@
 """
 api/routers/auth.py
-ورود و ثبت‌نام با OTP
+ورود و ثبت‌نام با OTP + ورود با رمز عبور
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from sqlmodel import Session, select
 from passlib.context import CryptContext
-
 
 from api.auth import (
     create_access_token,
@@ -19,6 +18,8 @@ from api.auth import (
     normalize_phone,
     save_otp,
     verify_otp,
+    verify_password,
+    get_password_hash,
 )
 from api.config import settings
 from api.database import get_session
@@ -73,6 +74,7 @@ async def verify_otp_endpoint(
     admin_by_config = is_admin_phone(phone)
 
     if user is None:
+        # ساخت کاربر جدید + پلن رایگان
         user = User(
             phone=phone,
             is_active=True,
@@ -83,18 +85,18 @@ async def verify_otp_endpoint(
         )
         session.add(user)
         session.commit()
-    if not user:
-        is_new = True
-        user = User(...)
-        session.add(user)
-        session.commit()
         session.refresh(user)
 
-        sub = Subscription(...)
+        sub = Subscription(
+            user_id=user.id,
+            plan="free",
+            start_date=now,
+            end_date=now + timedelta(days=settings.FREE_PLAN_DAYS),
+            status="active",
+        )
         session.add(sub)
         session.commit()
 
-        # 🔴 نوتیف به ادمین‌های متصل
         try:
             from api.routers.admin_ws import notify_admins
 
@@ -110,18 +112,7 @@ async def verify_otp_endpoint(
         except Exception as e:
             logger.warning(f"[Notify] WebSocket admin failed: {e}")
 
-        session.refresh(user)
-        sub = Subscription(
-            user_id=user.id,
-            plan="free",
-            start_date=now,
-            end_date=now + timedelta(days=settings.FREE_PLAN_DAYS),
-            status="active",
-        )
-        session.add(sub)
-        session.commit()
     else:
-        # ⬅️ منبع حقیقت نقش: allowlist سمت سرور
         user.is_admin = admin_by_config
         user.last_login = now
         user.last_ip = ip
@@ -138,15 +129,49 @@ async def verify_otp_endpoint(
     )
 
 
+# ═══════════════════════════════════════════════════════════
+# 🔴 اندپوینت جدید: ورود با رمز عبور
+# ═══════════════════════════════════════════════════════════
+@router.post("/login", response_model=TokenResponse)
+async def login_with_password(
+    phone: str = Body(...),
+    password: str = Body(...),
+    session: Session = Depends(get_session),
+):
+    phone = normalize_phone(phone)
+    user = session.exec(select(User).where(User.phone == phone)).first()
+
+    if (
+        not user
+        or not user.hashed_password
+        or not verify_password(password, user.hashed_password)
+    ):
+        raise HTTPException(status_code=401, detail="شماره یا رمز عبور اشتباه است")
+
+    token = create_access_token(user.phone, is_admin=user.is_admin)
+
+    return TokenResponse(
+        access_token=token,
+        user=UserRead.model_validate(user, from_attributes=True),
+        is_new_user=False,
+    )
+
+
 @router.get("/me")
 async def me(user: User = Depends(get_current_user)):
     return {
         "ok": True,
-        "user": UserRead.model_validate(user, from_attributes=True).model_dump(),
+        "user": {
+            "id": user.id,
+            "phone": user.phone,
+            "full_name": user.full_name,
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat(),
+            "has_password": bool(user.hashed_password),  # 🔴 برگردوندن وضعیت رمز
+        },
     }
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @router.put("/me")
@@ -155,37 +180,42 @@ async def update_profile(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """آپدیت نام نمایشی، ایمیل و رمز عبور"""
-    # نام
+    """آپدیت نام نمایشی، ایمیل و رمز عبور (بدون نیاز به رمز فعلی)"""
     if req.full_name is not None:
         user.full_name = req.full_name
 
-    # ایمیل
     if req.email is not None:
         if req.email and ("@" not in req.email or "." not in req.email):
             raise HTTPException(status_code=400, detail="ایمیل نامعتبر است")
         user.email = req.email
 
-    # رمز عبور
     if req.new_password:
         if len(req.new_password) < 6:
             raise HTTPException(
                 status_code=400, detail="رمز جدید باید حداقل ۶ حرف باشد"
             )
 
-        # اگه کاربر قبلاً رمز داشت، باید رمز فعلی رو وارد کنه
-        if user.hashed_password:
-            if not req.old_password:
-                raise HTTPException(status_code=400, detail="رمز فعلی را وارد کنید")
-            if not pwd_context.verify(req.old_password, user.hashed_password):
-                raise HTTPException(status_code=400, detail="رمز فعلی اشتباه است")
-
-        # ذخیره رمز جدید (هش شده)
-        user.hashed_password = pwd_context.hash(req.new_password)
+        # 🔴 ذخیره رمز جدید (بدون نیاز به رمز فعلی)
+        user.hashed_password = get_password_hash(req.new_password)
 
     session.add(user)
     session.commit()
     session.refresh(user)
+
+    # 🔴 برگردوندن has_password بعد از ویرایش
+    return {
+        "ok": True,
+        "user": {
+            "id": user.id,
+            "phone": user.phone,
+            "full_name": user.full_name,
+            "email": user.email,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "created_at": user.created_at.isoformat(),
+            "has_password": bool(user.hashed_password),
+        },
+    }
 
     return {
         "ok": True,

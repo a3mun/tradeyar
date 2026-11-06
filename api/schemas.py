@@ -301,6 +301,7 @@ class UserRead(BaseModel):
     is_active: bool
     is_admin: bool
     created_at: datetime
+    has_password: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -328,6 +329,8 @@ class PaymentRequestCreate(BaseModel):
     receipt_note: Optional[str] = None
     full_name: Optional[str] = None
     payment_time: Optional[str] = None
+    amount: Optional[int] = 0  # 🔴 جدید: مبلغ انتخابی کاربر
+    payment_method: Optional[str] = "card"  # 🔴 جدید: "zibal" یا "card"
 
 
 class PaymentRequestRead(BaseModel):
