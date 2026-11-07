@@ -1,15 +1,13 @@
 # ═══════════════════════════════════════════════════════════
 # Trademun — requirements.txt
 # ═══════════════════════════════════════════════════════════
-# ⚠️ فقط پکیج‌های **واقعاً استفاده‌شده**.
-#    هر پکیج جدید را با دلیل اضافه کن، نه به‌صورت احتیاطی.
 
 # ─── تحلیل تکنیکال ───
 pandas>=2.2.0
 numpy>=1.26.0
 pandas-ta-classic>=0.3.0
 
-# ─── دیتا (صرافی‌ها + اسکرپینگ AlanChand/TGJU) ───
+# ─── دیتا ───
 requests>=2.32.0
 beautifulsoup4>=4.12.0
 
@@ -20,7 +18,7 @@ pydantic>=2.9.0
 pydantic-settings>=2.6.0
 python-dotenv>=1.0.0
 
-# ─── WebSocket (فاز ۷) ───
+# ─── WebSocket ───
 websockets>=13.0
 
 # ─── Database ───
@@ -37,6 +35,7 @@ httpx>=0.27.0
 # ─── فاز ۱۱: احراز هویت ───
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1
 python-multipart>=0.0.9
 
 # ─── فاز ۱۱: فراز SMS ───

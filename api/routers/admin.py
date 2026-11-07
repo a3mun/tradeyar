@@ -740,6 +740,7 @@ async def delete_user(
         raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
 
     if hard_delete:
+        # ۱. تیکت‌ها و پیام‌های تیکت
         user_tickets = session.exec(
             select(Ticket).where(Ticket.user_id == user_id)
         ).all()
@@ -756,16 +757,43 @@ async def delete_user(
                 session.delete(t)
             session.commit()
 
+        # ۲. اشتراک‌ها
         for sub in session.exec(
             select(Subscription).where(Subscription.user_id == user_id)
         ).all():
             session.delete(sub)
+
+        # ۳. پرداخت‌ها
         for pay in session.exec(
             select(PaymentRequest).where(PaymentRequest.user_id == user_id)
         ).all():
             session.delete(pay)
+
+        # ۴. توکن‌های اکستنشن
+        from api.models import ExtensionToken
+
+        for tok in session.exec(
+            select(ExtensionToken).where(ExtensionToken.user_id == user_id)
+        ).all():
+            session.delete(tok)
+
+        # ۵. لاگ دانلود اکستنشن
+        from api.models import ExtensionDownloadLog
+
+        for log in session.exec(
+            select(ExtensionDownloadLog).where(ExtensionDownloadLog.user_id == user_id)
+        ).all():
+            session.delete(log)
+
+        # ۶. درخواست‌های عودت وجه
+        for req in session.exec(
+            select(RefundRequest).where(RefundRequest.user_id == user_id)
+        ).all():
+            session.delete(req)
+
         session.commit()
 
+        # ۷. در نهایت خود کاربر
         session.delete(user)
         session.commit()
         return {
