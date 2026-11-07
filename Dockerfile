@@ -11,8 +11,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PORT=7860
 
-# ─── وابستگی‌های سیستمی (با mirror ایرانی) ───
-RUN sed -i 's|deb.debian.org|repo.abrha.net|g' /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true \
+# ─── وابستگی‌های سیستمی (mirror ایرانی پارس‌پک برای Debian Trixie) ───
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until \
+    && printf 'deb https://repo.abrha.net/debian trixie main contrib non-free\ndeb https://repo.abrha.net/debian trixie-updates main contrib non-free\ndeb https://repo.abrha.net/debian-security trixie-security main contrib non-free\n' > /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -27,11 +29,11 @@ ENV HOME=/home/user \
 
 WORKDIR $HOME/app
 
-# ─── نصب پکیج‌های پایتون ───
+# ─── نصب پکیج‌های پایتون (با mirror پارس‌پک + only-binary) ───
 COPY --chown=user requirements.txt ./
 RUN pip config set global.index-url https://mirror.abrha.net/repository/pypi/simple/ \
  && pip config set global.trusted-host mirror.abrha.net \
- && pip install --user --no-cache-dir --default-timeout=1000 -r requirements.txt
+ && pip install --user --no-cache-dir --default-timeout=1000 --only-binary=:all: -r requirements.txt
 
 # ─── کپی کد پروژه ───
 COPY --chown=user . .
