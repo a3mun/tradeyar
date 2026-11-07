@@ -11,8 +11,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PORT=7860
 
-# ─── وابستگی‌های سیستمی ───
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# ─── وابستگی‌های سیستمی (با mirror ایرانی) ───
+RUN sed -i 's|deb.debian.org|repo.abrha.net|g' /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     postgresql-client \
