@@ -51,6 +51,7 @@ async def analyze_endpoint(req: AnalyzeRequest, request: Request):
         tf_name=req.timeframe,
         market_type=req.market_type,
         risk_profile=req.risk_profile,
+        strategy=req.strategy,  # 🔴 فاز C
         ticker_name=req.ticker_name or req.ticker,
         include_extras=True,
     )
@@ -70,7 +71,6 @@ async def analyze_endpoint(req: AnalyzeRequest, request: Request):
 @router.post("/multi")
 async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
     """تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF)."""
-    # 🔴 افزایش سقف مجاز به ۶۰ درخواست در دقیقه برای جلوگیری از خطای 429
     rate_limit_for(request, "analyze_multi", limit=60, window_sec=60)
 
     tfs = await run_in_threadpool(
@@ -79,6 +79,7 @@ async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
         source=req.source,
         market_type=req.market_type,
         risk_profile=req.risk_profile,
+        strategy=req.strategy,  # 🔴 فاز C
         ticker_name=req.ticker_name or req.ticker,
     )
 

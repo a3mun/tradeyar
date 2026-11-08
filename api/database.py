@@ -1,6 +1,11 @@
 """
 api/database.py
 اتصال دیتابیس + session
+============================================================
+نسخه ۳.۰ · فاز ۱۴.۷.۱
+🔴 تغییرات:
+  • + strategy, tp_levels_json, tp_hit_level, timeout_planned_min
+  • migration idempotent برای SQLite و Postgres
 """
 
 import logging
@@ -42,7 +47,7 @@ def init_db():
     logger.info(f"✅ دیتابیس آماده ({'sqlite' if is_sqlite else 'postgres'})")
 
 
-# ═══ فاز جدید — جدول refund_requests ═══
+# ═══ جدول refund_requests ═══
 try:
     with engine.begin() as conn:
         if is_sqlite:
@@ -106,6 +111,20 @@ def _add_missing_columns_sqlite(inspector, conn):
         ("exit_reason", "TEXT"),
         ("trend_predicted_at_entry", "TEXT"),
         ("winning_group", "TEXT"),
+        # فاز B — Pump/Dump
+        ("pump_score", "REAL"),
+        ("dump_score", "REAL"),
+        ("pump_warning", "TEXT"),
+        ("pump_type", "TEXT"),
+        # فاز B — Suggested Entry
+        ("suggested_entry", "REAL"),
+        ("suggested_entry_method", "TEXT"),
+        ("suggested_entry_distance_pct", "REAL"),
+        # 🔴 فاز ۱۴.۷.۱ — استراتژی و TP Ladder
+        ("strategy", "VARCHAR DEFAULT 'swing'"),
+        ("tp_levels_json", "TEXT"),
+        ("tp_hit_level", "INTEGER"),
+        ("timeout_planned_min", "INTEGER"),
     ]
 
     for col_name, col_type in new_columns:
@@ -144,6 +163,20 @@ def _add_missing_columns_postgres(inspector, conn):
             ("exit_reason", "VARCHAR"),
             ("trend_predicted_at_entry", "VARCHAR"),
             ("winning_group", "VARCHAR"),
+            # فاز B — Pump/Dump
+            ("pump_score", "DOUBLE PRECISION"),
+            ("dump_score", "DOUBLE PRECISION"),
+            ("pump_warning", "VARCHAR"),
+            ("pump_type", "VARCHAR"),
+            # فاز B — Suggested Entry
+            ("suggested_entry", "DOUBLE PRECISION"),
+            ("suggested_entry_method", "VARCHAR"),
+            ("suggested_entry_distance_pct", "DOUBLE PRECISION"),
+            # 🔴 فاز ۱۴.۷.۱
+            ("strategy", "VARCHAR DEFAULT 'swing'"),
+            ("tp_levels_json", "TEXT"),
+            ("tp_hit_level", "INTEGER"),
+            ("timeout_planned_min", "INTEGER"),
         ]
         for col_name, col_type in signallog_cols:
             if col_name not in cols:
@@ -209,7 +242,7 @@ def migrate_db():
         logger.warning(f"[Database] migration: {e}")
 
 
-# ═══ فاز ۱۴ — جدول extension_tokens (سازگار با SQLite و Postgres) ═══
+# ═══ جدول extension_tokens ═══
 try:
     with engine.begin() as conn:
         if is_sqlite:
@@ -232,7 +265,6 @@ try:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 );
             """))
-        # ایندکس‌ها
         conn.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS idx_extension_tokens_hash ON extension_tokens(token_hash);"

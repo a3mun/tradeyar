@@ -31,6 +31,7 @@ class AnalyzeRequest(BaseModel):
     ] = "۵ دقیقه"
     market_type: Literal["spot", "futures"] = "spot"
     risk_profile: Literal["aggressive", "conservative"] = "aggressive"
+    strategy: Literal["scalp", "swing", "position"] = "swing"
     ticker_name: Optional[str] = None
 
 
@@ -48,6 +49,8 @@ class AnalyzeResponse(BaseModel):
     timeframe: str
     market_type: str = "futures"
     risk_profile: str = "aggressive"
+    strategy: str = "swing"
+    strategy_name: str = ""
 
     # ═══ نتیجه تحلیل ═══
     price: float
@@ -67,6 +70,10 @@ class AnalyzeResponse(BaseModel):
     atr: float = 0.0
     atr_mult_sl: float = 1.0
     atr_mult_tp: float = 1.5
+
+    # ═══ TP Ladder + timeout ═══
+    tp_levels: Optional[dict] = None
+    timeout_planned_min: Optional[int] = None  # 🆕
 
     # ═══ کارمزد و R:R واقعی ═══
     rr_gross: Optional[float] = None
@@ -118,6 +125,17 @@ class AnalyzeResponse(BaseModel):
 
     # ═══ زمان ═══
     timestamp: datetime = Field(default_factory=_utcnow_aware)
+
+    # ═══ Pump/Dump ═══
+    pump_score: float = 0.0
+    dump_score: float = 0.0
+    pump_warning: str = "none"
+    pump_type: str = "none"
+
+    # ═══ Suggested Entry ═══
+    suggested_entry: Optional[float] = None
+    suggested_entry_method: Optional[str] = None
+    suggested_entry_distance_pct: Optional[float] = None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -205,6 +223,10 @@ class ScanItem(BaseModel):
     is_pre_breakout: bool = False
     pre_breakout_score: float = 0.0
     pre_breakout_bias: str = "neutral"
+    pump_score: float = 0.0
+    dump_score: float = 0.0
+    pump_warning: str = "none"
+    pump_type: str = "none"
 
 
 class ScanResponse(BaseModel):
@@ -216,7 +238,7 @@ class ScanResponse(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════
-# ۶. Backtest (🔴 نسخه ۱.۶ — بازنویسی‌شده)
+# ۶. Backtest (🔴 نسخه ۲.۰ — فاز ۱۴.۷.۱)
 # ═══════════════════════════════════════════════════════════
 class BacktestStats(BaseModel):
     # ─── کلی ───
@@ -224,18 +246,22 @@ class BacktestStats(BaseModel):
     pending: int = 0
     expired: int = 0
 
-    # ─── تفکیک دقیق (خروجی backtest_service) ───
-    tp_hits: int = 0  # ✅ برد واقعی (به TP رسیده)
-    sl_hits: int = 0  # ❌ باخت واقعی (به SL رسیده)
-    timeout_wins: int = 0  # ⏰ جهت درست (تایم‌اوت شد ولی در سود بسته شد)
-    timeout_losses: int = 0  # ⏰ جهت غلط (تایم‌اوت شد ولی در ضرر بسته شد)
-    timeout_flats: int = 0  # ⏸ خنثی (تایم‌اوت شد و سر به سر)
+    # ─── تفکیک دقیق ───
+    tp_hits: int = 0
+    sl_hits: int = 0
+    timeout_wins: int = 0
+    timeout_losses: int = 0
+    timeout_flats: int = 0
 
-    # ─── معیارهای اصلی (برای UI) ───
-    win_rate: float = 0.0  # نرخ برد معامله (فقط TP)
-    direction_accuracy: float = 0.0  # دقت جهت (TP + Timeout Win)
+    # ─── معیارهای اصلی ───
+    win_rate: float = 0.0  # (TP + Timeout Win) / closed
+    tp_hit_rate: float = 0.0  # 🆕 فقط TP / closed
+    direction_accuracy: float = 0.0  # (TP + Timeout Win) / closed
 
-    # ─── روند (بر اساس پیش‌بینی لحظه ورود) ───
+    # ─── 🆕 فاز ۱۴.۷.۱ ───
+    avg_tp_level: float = 0.0  # میانگین TP لمس‌شده (1-3)
+
+    # ─── روند ───
     trend_correct: int = 0
     trend_wrong: int = 0
     trend_accuracy: float = 0.0

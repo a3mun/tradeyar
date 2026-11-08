@@ -2,12 +2,15 @@
 services/analyzer_service.py
 لایه تحلیل — با کش + fingerprint + analyzer_version
 ============================================================
-نسخه ۴.۳:
-  • اضافه کردن trend_predicted_at_entry به output
-  • حفظ ساختار قبلی
+نسخه ۵.۱ · فاز ۱۴.۷.۲
+🔴 تغییرات:
+  • analyze_multi_tf با include_extras=True (cache مشترک با /analyze)
+  • _compute_timeout_planned_min (ATR-based)
+  • پاس دادن strategy/tp_levels/timeout_planned_min به record_signal
 """
 
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
@@ -21,11 +24,12 @@ from core.analyzer import (
     build_checklist_weighted,
     compute_fear_greed,
 )
-from core.contracts import TF_NAMES
+from core.contracts import TF_NAMES, get_signal_timeout
 
 from services.cache import analysis_cache, get_ttl, make_fingerprint
 from services.data_service import fetch_ohlcv, fetch_quote
 from core.data_fetcher import get_data_source
+from core.strategies import get_strategy  # 🔴 فاز ۱۴.۷.۳ — TF filter
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +71,71 @@ def _resolve_live_price(ticker: str, source: str, fallback: float) -> float:
 
 
 def _make_cache_key(
-    ticker: str, source: str, tf_name: str, market_type: str, risk_profile: str
+    ticker: str,
+    source: str,
+    tf_name: str,
+    market_type: str,
+    risk_profile: str,
+    strategy: str = "swing",
 ) -> str:
-    return f"analysis:v{ANALYZER_VERSION}:{ticker}:{source}:{tf_name}:{market_type}:{risk_profile}"
+    """
+    🔴 فاز ۱۴.۷.۲ — cache key بدون include_extras
+    (چون analyze_multi_tf هم include_extras=True شد → cache مشترک)
+    """
+    return f"analysis:v{ANALYZER_VERSION}:{ticker}:{source}:{tf_name}:{market_type}:{risk_profile}:{strategy}"
 
 
 def _make_versioned_fingerprint(df, tf_name: str) -> str:
     raw_fp = make_fingerprint(df, tf_name)
     return f"v{ANALYZER_VERSION}:{raw_fp}"
+
+
+def _compute_timeout_planned_min(result: dict, tf_name: str, market_type: str) -> int:
+    """
+    محاسبه‌ی timeout برنامه‌ریزی‌شده بر اساس فاصله TP.
+    """
+    tf_minutes = {
+        "۱ دقیقه": 1,
+        "۵ دقیقه": 5,
+        "۱۵ دقیقه": 15,
+        "۳۰ دقیقه": 30,
+        "۱ ساعت": 60,
+        "روزانه": 1440,
+    }.get(tf_name, 5)
+
+    fallback_td = get_signal_timeout(tf_name, market_type)
+    fallback_min = int(fallback_td.total_seconds() / 60)
+
+    try:
+        price = float(result.get("price") or 0)
+        atr = float(result.get("atr") or 0)
+        sl_tp = result.get("sl_tp") or {}
+        tp = float(sl_tp.get("tp") or 0)
+
+        if price <= 0 or atr <= 0 or tp <= 0:
+            return fallback_min
+
+        avg_candle_pct = (atr / price) * 100
+        tp_distance_pct = abs(tp - price) / price * 100
+
+        if avg_candle_pct <= 0 or tp_distance_pct <= 0:
+            return fallback_min
+
+        candles_needed = math.ceil(tp_distance_pct / avg_candle_pct)
+        timeout_candles = candles_needed * 1.5
+        timeout_candles = max(3, min(60, timeout_candles))
+        timeout_min = int(timeout_candles * tf_minutes)
+
+        logger.debug(
+            f"[Timeout] {result.get('ticker', '?')} {tf_name}: "
+            f"TP={tp_distance_pct:.2f}% ATR={avg_candle_pct:.2f}% "
+            f"→ candles={candles_needed} → {timeout_min}min "
+            f"(fallback was {fallback_min}min)"
+        )
+        return timeout_min
+    except Exception as e:
+        logger.warning(f"[Timeout] compute failed: {e!r} — using fallback")
+        return fallback_min
 
 
 def _refresh_live_fields(cached: dict, df) -> dict:
@@ -170,6 +231,7 @@ def _record_signal_safe(
     source: str,
     market_type: str,
     risk_profile: str,
+    strategy: str,
     output: dict,
     skip_record: bool,
 ) -> None:
@@ -187,6 +249,12 @@ def _record_signal_safe(
             or (ticker and not ticker[0].isascii())
         )
 
+        timeout_planned_min = _compute_timeout_planned_min(
+            result=output,
+            tf_name=tf_name,
+            market_type=market_type,
+        )
+
         record_signal(
             ticker=ticker,
             name=ticker_name or ticker,
@@ -196,6 +264,7 @@ def _record_signal_safe(
             source=source,
             market_type=market_type,
             risk_profile=risk_profile,
+            strategy=strategy,
             sl_tp={
                 "sl": output.get("sl"),
                 "tp": output.get("tp"),
@@ -218,6 +287,15 @@ def _record_signal_safe(
             orderbook_available=bool(output.get("orderbook")),
             trade_side_irt=_is_irt,
             trend_predicted_at_entry=output.get("trend_predicted_at_entry", "flat"),
+            pump_score=output.get("pump_score"),
+            dump_score=output.get("dump_score"),
+            pump_warning=output.get("pump_warning"),
+            pump_type=output.get("pump_type"),
+            suggested_entry=output.get("suggested_entry"),
+            suggested_entry_method=output.get("suggested_entry_method"),
+            suggested_entry_distance_pct=output.get("suggested_entry_distance_pct"),
+            tp_levels=output.get("tp_levels"),
+            timeout_planned_min=timeout_planned_min,
         )
     except Exception as e:
         logger.debug(f"[Analyzer] record_signal: {e}")
@@ -233,7 +311,9 @@ def analyze(
     include_extras: bool = True,
     use_cache: bool = True,
     skip_record: bool = False,
+    strategy: str = "swing",
 ) -> Optional[dict]:
+
     if not ticker:
         return None
 
@@ -252,7 +332,6 @@ def analyze(
     if df is None or df.empty:
         return None
 
-        # 🔴 برای بورس ایران: جایگزینی آخرین کندل با قیمت زنده
     if source == "tsetmc" or is_iranian_stock:
         try:
             from core.tsetmc_fetcher import fetch_tsetmc_live_quote
@@ -260,10 +339,8 @@ def analyze(
             live = fetch_tsetmc_live_quote(ticker)
             if live and live.get("price"):
                 live_price = float(live["price"])
-                # به‌روزرسانی قیمت بسته شدن آخرین کندل
                 if not df.empty:
                     df.iloc[-1, df.columns.get_loc("close")] = live_price
-                    # همچنین high و low را با قیمت زنده مقایسه و به‌روزرسانی کن
                     df.iloc[-1, df.columns.get_loc("high")] = max(
                         float(df.iloc[-1]["high"]), live_price
                     )
@@ -275,7 +352,9 @@ def analyze(
 
     data_source = get_data_source(df, source)
     fingerprint = _make_versioned_fingerprint(df, tf_name) if use_cache else ""
-    cache_key = _make_cache_key(ticker, source, tf_name, market_type, risk_profile)
+    cache_key = _make_cache_key(
+        ticker, source, tf_name, market_type, risk_profile, strategy
+    )
     fp_key = f"{cache_key}:fp"
 
     if use_cache:
@@ -296,6 +375,7 @@ def analyze(
                         source,
                         market_type,
                         risk_profile,
+                        strategy,
                         out,
                         skip_record,
                     )
@@ -320,6 +400,7 @@ def analyze(
             ticker=ticker,
             source=data_source,
             orderbook=orderbook,
+            strategy=strategy,
         )
     except Exception as e:
         logger.error(f"[Analyzer] خطا در analyze_symbol: {e}")
@@ -364,6 +445,7 @@ def analyze(
         "timeframe": tf_name,
         "market_type": market_type,
         "risk_profile": risk_profile,
+        "strategy": strategy,
         "price": _resolve_live_price(ticker, data_source, result.get("price", 0.0)),
         "signal": result.get("signal", "خنثی"),
         "direction": result.get("direction", "neutral"),
@@ -372,12 +454,13 @@ def analyze(
         "is_golden": result.get("is_golden", False),
         "consensus": result.get("consensus", "neutral"),
         "regime": result.get("regime", "range"),
-        "session_label": result.get("session_label", ""),  # 🔴 این خط را اضافه کن
+        "session_label": result.get("session_label", ""),
         "action_fa": result.get("action_fa", ""),
         "explanation": result.get("explanation", ""),
         "sl": sl_tp.get("sl"),
         "tp": sl_tp.get("tp"),
         "rr": result.get("rr"),
+        "tp_levels": result.get("tp_levels"),
         "rr_gross": sl_tp.get("rr_gross"),
         "rr_net": sl_tp.get("rr_net"),
         "fee_pct": sl_tp.get("fee_pct"),
@@ -424,8 +507,15 @@ def analyze(
         "pre_breakout": result.get("pre_breakout", {}),
         "pre_breakout_score": result.get("pre_breakout_score", 0),
         "is_pre_breakout": result.get("is_pre_breakout", False),
-        # 🔴 فاز ۱۳.۰ — رفع باگ trend_accuracy
         "trend_predicted_at_entry": result.get("trend_predicted_at_entry", "flat"),
+        "pump_score": result.get("pump_score", 0.0),
+        "dump_score": result.get("dump_score", 0.0),
+        "pump_warning": result.get("pump_warning", "none"),
+        "pump_type": result.get("pump_type", "none"),
+        "suggested_entry": result.get("suggested_entry"),
+        "suggested_entry_method": result.get("suggested_entry_method"),
+        "suggested_entry_distance_pct": result.get("suggested_entry_distance_pct"),
+        "strategy_name": result.get("strategy_name", ""),
     }
 
     if include_extras:
@@ -478,6 +568,7 @@ def analyze(
         source,
         market_type,
         risk_profile,
+        strategy,
         output,
         skip_record,
     )
@@ -501,13 +592,51 @@ def analyze_multi_tf(
     market_type: str = "spot",
     risk_profile: str = "aggressive",
     ticker_name: str = "",
+    strategy: str = "swing",
 ) -> dict:
+    """
+    🔴 فاز ۱۴.۷.۳ — فیلتر TF بر اساس recommended_tfs استراتژی.
+    فقط TFهایی که برای استراتژی معنی دارن fetch می‌شن.
+    """
+
+    # 🔴 فاز ۱۴.۷.۳ — تشخیص: tf_list صریح یا پیش‌فرض؟
+    _is_explicit_tf_list = tf_list is not None
+
     if tf_list is None:
         tf_list = list(TF_NAMES)
+
     if not ticker or not tf_list:
         return {}
 
+    # ═══════════════════════════════════════════════════════════════
+    # 🔴 فاز ۱۴.۷.۳ — فیلتر TF بر اساس recommended_tfs استراتژی
+    # ═══════════════════════════════════════════════════════════════
+    # فقط وقتی فیلتر اعمال می‌شه که tf_list صریحاً پاس داده نشده باشه
+    # (یعنی کاربر از /analyze/multi با TF پیش‌فرض استفاده می‌کنه)
+    #
+    # چرا؟ اگر کاربر مستقیماً TF می‌خواد (مثل تست یا API)، باید بدون
+    # فیلتر اجرا بشه. فیلتر فقط برای «همه TFهای استراتژی» هست.
+    # ═══════════════════════════════════════════════════════════════
+    if not _is_explicit_tf_list:
+        _strategy_cfg = get_strategy(strategy)
+        _recommended = _strategy_cfg.get("recommended_tfs", [])
+        if _recommended:
+            _original_count = len(tf_list)
+            tf_list = [tf for tf in tf_list if tf in _recommended]
+            if len(tf_list) < _original_count:
+                logger.info(
+                    f"[AnalyzeMulti] strategy={strategy} → "
+                    f"filtered {_original_count} → {len(tf_list)} TF: {tf_list}"
+                )
+            if not tf_list:
+                logger.warning(
+                    f"[AnalyzeMulti] strategy={strategy} — هیچ TF مجازی نیست "
+                    f"(recommended={_recommended})"
+                )
+                return {}
+
     if len(tf_list) == 1:
+
         tf = tf_list[0]
         try:
             r = analyze(
@@ -516,8 +645,9 @@ def analyze_multi_tf(
                 tf_name=tf,
                 market_type=market_type,
                 risk_profile=risk_profile,
+                strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=False,
+                include_extras=True,  # 🔴 cache مشترک
             )
             return {tf: r} if r else {}
         except Exception:
@@ -531,8 +661,9 @@ def analyze_multi_tf(
                 tf_name=tf,
                 market_type=market_type,
                 risk_profile=risk_profile,
+                strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=False,
+                include_extras=True,  # 🔴 cache مشترک
             )
         except Exception:
             return None

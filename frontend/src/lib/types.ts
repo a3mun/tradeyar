@@ -40,6 +40,7 @@ export interface AnalyzeRequest {
   timeframe: Timeframe;
   market_type: MarketType;
   risk_profile: RiskProfile;
+  strategy?: "scalp" | "swing" | "position";
   ticker_name?: string;
 }
 
@@ -54,6 +55,8 @@ export interface AnalyzeResponse {
   timeframe: string;
   market_type: string;
   risk_profile: string;
+  strategy?: "scalp" | "swing" | "position";
+  strategy_name?: string;  
   close_series?: number[];
 
   price: number;
@@ -73,6 +76,13 @@ export interface AnalyzeResponse {
   atr: number;
   atr_mult_sl: number;
   atr_mult_tp: number;
+  // 🔴 فاز C+ — نقاط خروج پله‌ای
+  tp_levels?: {
+    tp1: number;
+    tp2: number;
+    tp3: number;
+  } | null;
+  timeout_planned_min?: number | null;   // 🆕
 
   rr_gross?: number | null;
   rr_net?: number | null;
@@ -128,6 +138,18 @@ export interface AnalyzeResponse {
   fingerprint: string;
 
   timestamp: string;
+
+  // 🔴 فاز B — Pump/Dump
+  pump_score?: number;
+  dump_score?: number;
+  pump_warning?: "none" | "watch" | "alert";
+  pump_type?: "none" | "pump" | "dump" | "both";
+
+  // 🔴 فاز B — Suggested Entry
+  suggested_entry?: number | null;
+  suggested_entry_method?: string | null;
+  suggested_entry_distance_pct?: number | null;  
+
 }
 
 export interface GroupData {
@@ -318,6 +340,10 @@ export interface ScanItem {
   is_pre_breakout_down: boolean; 
   pre_breakout_score: number;
   pre_breakout_bias: "up" | "down" | "neutral";
+  pump_score: number;
+  dump_score: number;
+  pump_warning: "none" | "watch" | "alert";
+  pump_type: "none" | "pump" | "dump" | "both";
 }
 
 // ═══ Backtest ═══
@@ -325,29 +351,24 @@ export interface BacktestStats {
   total: number;
   pending: number;
   expired: number;
-  
-  // 🔴 فیلدهای جدید (فاز ۱۰.۱۰)
   tp_hits: number;
   sl_hits: number;
   timeout_wins: number;
   timeout_losses: number;
   timeout_flats: number;
-  
-  // معیارهای اصلی
   win_rate: number;
+  tp_hit_rate: number;         // 🆕
   direction_accuracy: number;
-  
-  // روند
+  avg_tp_level: number;        // 🆕
   trend_correct: number;
   trend_wrong: number;
   trend_accuracy: number;
-  
-  // بقیه
   profit_factor: number;
   avg_rr: number;
   avg_rr_net: number;
   expectancy: number;
 }
+
 
 export interface BacktestResponse {
   ok: boolean;
@@ -399,6 +420,11 @@ export interface SignalHistoryItem {
   // 🔴 فیلدهای جدید (فاز ۱۰.۱۰)
   exit_reason?: "tp_hit" | "sl_hit" | "timeout" | null;
   trend_predicted_at_entry?: "bull" | "bear" | "flat" | null;
+
+  strategy?: "scalp" | "swing" | "position";
+  tp_levels?: { tp1: number; tp2: number; tp3: number } | null;
+  tp_hit_level?: 1 | 2 | 3 | null;
+
 }
 
 export interface BacktestHistoryResponse {

@@ -2,25 +2,31 @@
 services/signal_recorder.py
 ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۶.۴ · فاز ۱۲.۴
+نسخه ۷.۰ · فاز ۱۴.۷.۱
 🔴 تغییرات:
-  • MIN_CONFIDENCE_TO_RECORD = 25
-  • استثنا برای سیگنال قوی (≥ 70%): حتی اگه is_worthwhile=False ثبت می‌شه
-  • لاگ دقیق برای دیباگ
+  • strategy در dedup_key → هر استراتژی جدا ثبت می‌شود
+  • tp_levels_json ذخیره می‌شود
+  • timeout_planned_min ذخیره می‌شود (برای دیباگ)
+  • MIN_CONFIDENCE_TO_RECORD → پویا بر اساس استراتژی
+  • cooldown از strategies.py (per-strategy)
+  • cooldown فقط برای همان جهت + همان استراتژی
 """
 
 import json
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
-from sqlalchemy import insert
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from api.database import engine, is_sqlite
 from api.models import SignalLog
 from core.contracts import Signal as SigEnum
+from core.strategies import (
+    get_strategy,
+    get_cooldown_minutes,
+    get_min_confidence,  # 🔴 جدید
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +43,8 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 _TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
-MIN_CONFIDENCE_TO_RECORD = 25
-COOLDOWN_MINUTES_SAME_TF = 5
-
-# 🔴 استثنا: سیگنال‌های قوی (بالاتر از این) حتی با is_worthwhile=False ثبت می‌شن
+# 🔴 فاز ۱۴.۷.۳ — از 40 به 30 (هم‌راستا با آسان‌ترین ترکیب: جسورانه+اسکالپ)
+MIN_CONFIDENCE_FLOOR = 30
 STRONG_CONFIDENCE_BYPASS = 70
 
 
@@ -57,10 +61,21 @@ def _signal_base(signal: str) -> str:
 
 
 def _dedup_key_simple(
-    ticker, tf_name, signal, source, market_type, risk_profile
+    ticker, tf_name, signal, source, market_type, risk_profile, strategy
 ) -> str:
+    """
+    🔴 dedup_key شامل strategy → هر استراتژی جدا ثبت می‌شود.
+    """
     return "|".join(
-        [ticker, tf_name, _signal_base(signal), source, market_type, risk_profile]
+        [
+            ticker,
+            tf_name,
+            _signal_base(signal),
+            source,
+            market_type,
+            risk_profile,
+            strategy,
+        ]
     )
 
 
@@ -95,10 +110,23 @@ def _compute_is_weak(signal: str, confidence: int, consensus: str) -> bool:
     return False
 
 
-def _has_recent_same_tf_signal(
-    session, ticker, direction, source, tf_name, market_type, risk_profile
+def _has_recent_same_direction_signal(
+    session,
+    ticker,
+    direction,
+    source,
+    tf_name,
+    market_type,
+    risk_profile,
+    strategy,
+    cooldown_min: int,
 ) -> bool:
-    cutoff = _utcnow() - timedelta(minutes=COOLDOWN_MINUTES_SAME_TF)
+    """
+    🔴 cooldown فقط برای **همان جهت** + **همان استراتژی**.
+    اگر سیگنال تغییر جهت داد (LONG → SHORT)، بلاک نمی‌شود.
+    """
+    cutoff = _utcnow() - timedelta(minutes=cooldown_min)
+
     existing = session.exec(
         select(SignalLog)
         .where(SignalLog.ticker == ticker)
@@ -107,23 +135,10 @@ def _has_recent_same_tf_signal(
         .where(SignalLog.tf == tf_name)
         .where(SignalLog.market_type == market_type)
         .where(SignalLog.risk_profile == risk_profile)
+        .where(SignalLog.strategy == strategy)  # 🆕 فاز ۱۴.۷.۱
         .where(SignalLog.timestamp >= cutoff)
     ).first()
     return existing is not None
-
-    """گروهی که بیشترین سهم را در جهت سیگنال داشت"""
-    if not groups or direction not in ("long", "short"):
-        return None
-    best_group, best_abs = None, 0.0
-    for g_name, g_data in groups.items():
-        g_score = g_data.get("score", 0.0)
-        if direction == "long" and g_score > best_abs:
-            best_abs = g_score
-            best_group = g_name
-        elif direction == "short" and g_score < -best_abs:
-            best_abs = abs(g_score)
-            best_group = g_name
-    return best_group
 
 
 def record_signal(
@@ -135,6 +150,7 @@ def record_signal(
     source: str = "nobitex",
     market_type: str = "futures",
     risk_profile: str = "aggressive",
+    strategy: str = "swing",  # 🆕 فاز ۱۴.۷.۱
     sl_tp: dict | None = None,
     direction: str = "neutral",
     confidence: int = 0,
@@ -154,26 +170,35 @@ def record_signal(
     trade_side_irt: bool = False,
     origin: str = "auto_scan",
     trend_predicted_at_entry: str = "flat",
+    pump_score: float | None = None,
+    dump_score: float | None = None,
+    pump_warning: str | None = None,
+    pump_type: str | None = None,
+    suggested_entry: float | None = None,
+    suggested_entry_method: str | None = None,
+    suggested_entry_distance_pct: float | None = None,
+    tp_levels: dict | None = None,  # 🆕 فاز ۱۴.۷.۱
+    timeout_planned_min: int | None = None,  # 🆕 فاز ۱۴.۷.۱
 ) -> bool:
 
-    # ═══ لاگ ورودی ═══
+    # 🔴 فاز ۱۴.۷.۳ — min_conf_to_record پویا (استراتژی + ریسک)
+    strategy_min_conf = get_min_confidence(strategy, risk_profile)
+    min_conf_to_record = max(MIN_CONFIDENCE_FLOOR, strategy_min_conf)
+
     logger.info(
-        f"[Recorder] 🔍 trying: {ticker} {tf_name} signal={signal} "
-        f"conf={confidence}% direction={direction} "
-        f"is_worthwhile={is_worthwhile}"
+        f"[Recorder] 🔍 trying: {ticker} {tf_name} strategy={strategy} "
+        f"signal={signal} conf={confidence}% (min={min_conf_to_record}%) "
+        f"direction={direction} is_worthwhile={is_worthwhile}"
     )
 
     # ═══ چک‌های اولیه ═══
-    # 🔴 منبع واحد حقیقت: سیگنال‌های زیر ۴۰٪ اصلاً ثبت نمی‌شوند
-    if confidence < 40:
+    if confidence < min_conf_to_record:
         logger.debug(
-            f"[Recorder] ⏭ {ticker} {tf_name}: conf={confidence}% < 40% (غیرسیگنال)"
+            f"[Recorder] ⏭ {ticker} {tf_name}: conf={confidence}% "
+            f"< {min_conf_to_record}% (استراتژی {strategy})"
         )
         return False
 
-    # (بقیه چک‌های قبلی مثل tf_name in _TF_SKIP_FOR_IRT و ... بدون تغییر ادامه پیدا می‌کنند)
-
-    # ═══ چک‌های اولیه ═══
     if tf_name in _TF_SKIP_FOR_IRT and trade_side_irt:
         logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: TF ۱ دقیقه برای IRT رد شد")
         return False
@@ -188,14 +213,7 @@ def record_signal(
         logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: price={price} نامعتبر")
         return False
 
-    if confidence < MIN_CONFIDENCE_TO_RECORD:
-        logger.debug(
-            f"[Recorder] ⏭ {ticker} {tf_name}: conf={confidence}% "
-            f"< {MIN_CONFIDENCE_TO_RECORD}%"
-        )
-        return False
-
-    # 🔴 فاز ۱۲.۴ — استثنا برای سیگنال قوی
+    # استثنا برای سیگنال قوی
     if is_worthwhile is False:
         if confidence < STRONG_CONFIDENCE_BYPASS:
             logger.info(
@@ -203,7 +221,6 @@ def record_signal(
                 f"(R:R پایین) — conf={confidence}% < {STRONG_CONFIDENCE_BYPASS}%"
             )
             return False
-        # سیگنال قوی با R:R پایین — ثبت با هشدار
         logger.warning(
             f"[Recorder] ⚠️ {ticker} {tf_name}: is_worthwhile=False ولی "
             f"conf={confidence}% ≥ {STRONG_CONFIDENCE_BYPASS}% — ثبت با هشدار"
@@ -211,7 +228,7 @@ def record_signal(
 
     if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
         logger.debug(
-            f"[Recorder] ⏭ {ticker} {tf_name}: sl/tp تعریف نشده " f"(sl_tp={sl_tp})"
+            f"[Recorder] ⏭ {ticker} {tf_name}: sl/tp تعریف نشده (sl_tp={sl_tp})"
         )
         return False
 
@@ -219,7 +236,7 @@ def record_signal(
     is_weak = _compute_is_weak(signal, confidence, consensus)
     now = _utcnow()
     dedup = _dedup_key_simple(
-        ticker, tf_name, signal, source, market_type, risk_profile
+        ticker, tf_name, signal, source, market_type, risk_profile, strategy
     )
 
     sl = sl_tp.get("sl") if sl_tp else None
@@ -232,6 +249,14 @@ def record_signal(
             if isinstance(val, dict) and val.get("active"):
                 active_trap = key
                 break
+
+    # 🆕 serialize tp_levels به JSON
+    tp_levels_json = None
+    if tp_levels:
+        try:
+            tp_levels_json = json.dumps(tp_levels, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"[Recorder] tp_levels serialize: {e!r}")
 
     values = {
         "ticker": ticker,
@@ -250,6 +275,7 @@ def record_signal(
         "tf": tf_name,
         "market_type": market_type,
         "risk_profile": risk_profile,
+        "strategy": strategy,  # 🆕
         "had_trap": bool(active_trap),
         "trap_type": active_trap,
         "dedup_key": dedup,
@@ -266,17 +292,41 @@ def record_signal(
         "trade_side_irt": bool(trade_side_irt),
         "is_weak": is_weak,
         "trend_predicted_at_entry": trend_predicted_at_entry,
+        "pump_score": float(pump_score) if pump_score is not None else None,
+        "dump_score": float(dump_score) if dump_score is not None else None,
+        "pump_warning": pump_warning,
+        "pump_type": pump_type,
+        "suggested_entry": (
+            float(suggested_entry) if suggested_entry is not None else None
+        ),
+        "suggested_entry_method": suggested_entry_method,
+        "suggested_entry_distance_pct": (
+            float(suggested_entry_distance_pct)
+            if suggested_entry_distance_pct is not None
+            else None
+        ),
+        "tp_levels_json": tp_levels_json,  # 🆕
+        "timeout_planned_min": timeout_planned_min,  # 🆕
     }
 
     try:
         with Session(engine) as session:
-            # ═══ cooldown ═══
-            if _has_recent_same_tf_signal(
-                session, ticker, direction, source, tf_name, market_type, risk_profile
+            # ═══ cooldown بر اساس استراتژی ═══
+            cooldown_min = get_cooldown_minutes(strategy, tf_name)
+            if _has_recent_same_direction_signal(
+                session,
+                ticker,
+                direction,
+                source,
+                tf_name,
+                market_type,
+                risk_profile,
+                strategy,
+                cooldown_min,
             ):
                 logger.info(
-                    f"[Recorder] ⏭ {ticker} {tf_name}: cooldown "
-                    f"({COOLDOWN_MINUTES_SAME_TF} دقیقه — سیگنال مشابه اخیراً ثبت شده)"
+                    f"[Recorder] ⏭ {ticker} {tf_name} [{strategy}]: cooldown "
+                    f"({cooldown_min} دقیقه — سیگنال مشابه در همین جهت+استراتژی)"
                 )
                 return False
 
@@ -284,7 +334,9 @@ def record_signal(
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
-            logger.info(f"[Recorder] ✅ {ticker} {tf_name} {signal} ({confidence}%)")
+            logger.info(
+                f"[Recorder] ✅ {ticker} {tf_name} [{strategy}] {signal} ({confidence}%)"
+            )
             try:
                 from services.notifier import notify_signal
 
@@ -295,7 +347,7 @@ def record_signal(
             return True
         else:
             logger.info(
-                f"[Recorder] ⏭ {ticker} {tf_name}: dedup "
+                f"[Recorder] ⏭ {ticker} {tf_name} [{strategy}]: dedup "
                 f"(سیگنال مشابه قبلاً ثبت شده)"
             )
             return False

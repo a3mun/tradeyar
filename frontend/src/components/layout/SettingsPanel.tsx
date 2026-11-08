@@ -43,6 +43,8 @@ export function SettingsPanel() {
     setSource, setTimeframe, setMarketType, setRiskProfile,
   } = useAppStore();
 
+  const { strategy, setStrategy } = useAppStore();
+
   const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
   const selectedMeta = SOURCE_BY_KEY[source];
   const isWallex = selectedMeta?.value === "wallex";
@@ -187,6 +189,57 @@ export function SettingsPanel() {
             <Button size="sm" onClick={() => setRiskProfile("conservative")} className={`h-7 text-[10px] font-bold ${riskProfile === "conservative" ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm" : "border border-white/10 text-gray-300 hover:bg-white/5 bg-[#0d1b2d]"}`}>🛡️ محتاطانه</Button>
           </div>
         </div>
+
+
+        {/* 🔴 فاز C — استراتژی (بازطراحی‌شده) */}
+        <div className="space-y-1">
+          <label className="text-[10px] font-medium text-muted-foreground">
+            📊 استراتژی معاملاتی
+          </label>
+          <div className="grid grid-cols-3 gap-1">
+            {[
+              { key: "scalp" as const, label: "⚡ اسکالپ", hint: "سریع" },
+              { key: "swing" as const, label: "🌊 سوئینگ", hint: "میان‌مدت" },
+              { key: "position" as const, label: "🏛 پوزیشن", hint: "بلندمدت" },
+            ].map((s) => {
+              const isActive = strategy === s.key;
+              // 🔴 قفل: فقط تداخل غیرممکن (اسکالپ با محتاطانه)
+              const isLocked = s.key === "scalp" && riskProfile !== "aggressive";
+              
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setStrategy(s.key)}
+                  className={`rounded-lg border py-1.5 text-[10px] font-bold transition-all ${
+                    isActive
+                      ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.3)]"
+                      : "border-white/10 bg-[#0d1b2d] text-gray-300 hover:bg-white/5"
+                  } ${isLocked ? "opacity-50" : ""}`}
+                  title={
+                    isLocked
+                      ? "اسکالپ فقط با پروفایل جسورانه سازگار است — کلیک کن تا خودکار اصلاح شود"
+                      : ""
+                  }
+                >
+                  <div>{s.label}</div>
+                  <div
+                    className={`text-[8px] font-normal ${
+                      isActive ? "text-[#101827]/70" : "opacity-60"
+                    }`}
+                  >
+                    {s.hint}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[8px] text-gray-500 leading-relaxed text-justify">
+            💡 <span className="text-[#d6ad60] font-bold">اسکالپ</span> فقط با فیوچرز + جسورانه سازگار است.
+            <span className="text-[#d6ad60] font-bold"> پوزیشن</span> با اسپات + TF روزانه.
+            <span className="text-[#d6ad60] font-bold"> سوئینگ</span> انعطاف‌پذیر است. تغییر نامنطبق، خودکار اصلاح می‌شود.
+          </p>
+        </div>
+
 
         {/* ۷. بازار */}
         <div className="space-y-1">

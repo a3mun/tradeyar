@@ -2,13 +2,12 @@
 api/models.py
 مدل‌های دیتابیس — SQLModel
 ============================================================
-نسخه ۲.۰ · فاز ۱۰.۱۰
+نسخه ۳.۰ · فاز ۱۴.۷.۱
 🔴 تغییرات:
-  • + exit_reason: "tp_hit" | "sl_hit" | "timeout" | None
-  • + trend_predicted_at_entry: "bull" | "bear" | "flat" | None
-      winning_group: Optional[str] = Field(default=None, index=True)
-    # "trend" | "momentum" | "volume" | "structure" | "sentiment" | None
-  • این دو ستون، تعریف win/loss و trend_accuracy را شفاف می‌کنند
+  • + strategy (فاز C)
+  • + tp_levels_json (TP پله‌ای)
+  • + tp_hit_level (کدام TP لمس شد)
+  • + timeout_planned_min (برای دیباگ)
 """
 
 from datetime import datetime, timezone
@@ -42,6 +41,8 @@ class SignalLog(SQLModel, table=True):
     tf: str = Field(default="۵ دقیقه", index=True)
     market_type: str = "futures"
     risk_profile: str = "aggressive"
+    # 🔴 فاز C — استراتژی
+    strategy: str = Field(default="swing", index=True)
     result: Optional[str] = Field(default=None, index=True)
     result_time: Optional[datetime] = None
     exit_price: Optional[float] = None
@@ -65,18 +66,29 @@ class SignalLog(SQLModel, table=True):
     trend_correct: Optional[bool] = None
     is_weak: bool = Field(default=False, index=True)
 
-    # ═══ 🔴 نسخه ۲.۰ — ستون‌های جدید ═══
     exit_reason: Optional[str] = Field(default=None, index=True)
-    # "tp_hit"    → TP خورده (برد واقعی)
-    # "sl_hit"    → SL خورده (باخت واقعی)
-    # "timeout"   → timeout شده (جهت ممکن است درست یا غلط باشد)
-    # None        → هنوز باز
-
     trend_predicted_at_entry: Optional[str] = Field(default=None, index=True)
-    # "bull"  → در لحظه ثبت، trend_score >= +0.30
-    # "bear"  → در لحظه ثبت، trend_score <= -0.30
-    # "flat"  → در لحظه ثبت، trend_score بین -0.30 تا +0.30
-    # None    → برای سیگنال‌های قدیمی که این فیلد نداشتن
+
+    # 🔴 فاز B — Pump/Dump
+    pump_score: Optional[float] = None
+    dump_score: Optional[float] = None
+    pump_warning: Optional[str] = None
+    pump_type: Optional[str] = None
+
+    # 🔴 فاز B — Suggested Entry
+    suggested_entry: Optional[float] = None
+    suggested_entry_method: Optional[str] = None
+    suggested_entry_distance_pct: Optional[float] = None
+
+    # 🔴 فاز ۱۴.۷.۱ — TP Ladder در DB
+    tp_levels_json: Optional[str] = None
+    # JSON: {"tp1": ..., "tp2": ..., "tp3": ...}
+
+    tp_hit_level: Optional[int] = Field(default=None, index=True)
+    # 1 = TP1 لمس شد، 2 = TP2، 3 = TP3، None = هیچ‌کدام
+
+    timeout_planned_min: Optional[int] = None
+    # چقدر timeout برنامه‌ریزی شده بود (برای دیباگ)
 
 
 class User(SQLModel, table=True):
@@ -122,7 +134,7 @@ class PaymentRequest(SQLModel, table=True):
     amount: int = 0
     plan: str = "1_month"
     status: str = "pending"
-    payment_method: Optional[str] = "card"  # 🔴 جدید
+    payment_method: Optional[str] = "card"
     receipt_note: Optional[str] = None
     admin_note: Optional[str] = None
     reviewed_by: Optional[str] = None
@@ -134,19 +146,16 @@ class PaymentRequest(SQLModel, table=True):
     reviewed_at: Optional[datetime] = None
 
 
-# ═══════════════════════════════════════════════════════════
-# 🎫 فاز ۱۳ — سیستم تیکتینگ
-# ═══════════════════════════════════════════════════════════
 class Ticket(SQLModel, table=True):
     __tablename__ = "tickets"
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
     subject: str = Field(max_length=200)
-    status: str = Field(default="open", index=True)  # open | closed
+    status: str = Field(default="open", index=True)
     created_at: datetime = Field(default_factory=_utcnow, index=True)
     updated_at: datetime = Field(default_factory=_utcnow)
     closed_at: Optional[datetime] = None
-    closed_by: Optional[str] = None  # phone ادمین
+    closed_by: Optional[str] = None
 
 
 class TicketMessage(SQLModel, table=True):
@@ -156,27 +165,21 @@ class TicketMessage(SQLModel, table=True):
     sender_id: int = Field(foreign_key="users.id", index=True)
     is_admin: bool = Field(default=False)
     message: str
-    attachment_path: Optional[str] = Field(default=None)  # ⬅️ جدید
-    attachment_name: Optional[str] = Field(default=None)  # ⬅️ جدید
-    is_read: bool = Field(default=False, index=True)  # ⬅️ جدید
+    attachment_path: Optional[str] = Field(default=None)
+    attachment_name: Optional[str] = Field(default=None)
+    is_read: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=_utcnow, index=True)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 فاز ۱۴ — توکن اختصاصی اکستنشن
-# ═══════════════════════════════════════════════════════════
 class ExtensionToken(SQLModel, table=True):
     __tablename__ = "extension_tokens"
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
-    token_hash: str = Field(index=True)  # ذخیره هش توکن، نه خود توکن
+    token_hash: str = Field(index=True)
     expires_at: datetime
     created_at: datetime = Field(default_factory=_utcnow)
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔌 فاز ۱۴ — لاگ دانلود افزونه
-# ═══════════════════════════════════════════════════════════
 class ExtensionDownloadLog(SQLModel, table=True):
     __tablename__ = "extension_download_logs"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -186,9 +189,6 @@ class ExtensionDownloadLog(SQLModel, table=True):
     user_agent: Optional[str] = None
 
 
-# ═══════════════════════════════════════════════════════════
-# 🔴 فاز جدید: درخواست عودت وجه (توسط ادمین)
-# ═══════════════════════════════════════════════════════════
 class RefundRequest(SQLModel, table=True):
     __tablename__ = "refund_requests"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -197,8 +197,8 @@ class RefundRequest(SQLModel, table=True):
     old_plan: str
     new_plan: str
     refund_amount: int = 0
-    admin_note: Optional[str] = None  # مثلاً شماره کارت
-    status: str = "pending"  # pending | refunded | rejected
+    admin_note: Optional[str] = None
+    status: str = "pending"
     created_at: datetime = Field(default_factory=_utcnow, index=True)
     processed_at: Optional[datetime] = None
     processed_by: Optional[str] = None

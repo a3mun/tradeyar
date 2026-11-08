@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * SignalCard — کارت سیگنال (نسخه ۱۲.۲ · فاز ۱۲.۱)
+ * SignalCard — کارت سیگنال (نسخه ۱۴.۷.۳ · فاز ۱۴.۷.۲)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۲.۲:
- *   • قیمت وسط‌چین (نه چسبیده به چپ)
- *   • ارتفاع ثابت — خنثی و سیگنال هم‌ارتفاع (placeholder برای SL/TP)
- *   • فشرده‌سازی هدر و بدنه
- *   • نوار سیگنال افقی
- *   • حفظ بیپ طلایی + چشمک
+ * 🔴 تغییرات نسخه ۱۴.۷.۳:
+ *   • از tfDataCache می‌خونه (sync فوری با TFTable)
+ *   • fetch فقط اگر cache تازه نیست
+ *   • بعد از fetch موفق → setTfData برای sync
+ *   • fee_pct بدون ×۲
+ *   • session داخل کامپوننت
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -27,6 +27,7 @@ import {
   Info,
   Wifi,
   WifiOff,
+  Crosshair,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,15 @@ import { AnalysisUnavailable } from "@/components/signal/AnalysisUnavailable";
 import { Sparkline } from "@/components/ui/sparkline";
 import { CryptoIcon } from "@/components/ui/crypto-icon";
 import type { AnalyzeResponse } from "@/lib/types";
+import { CopyableNumber } from "@/components/ui/copyable-number";
+
+import {
+  getConfidenceLevel,
+  getStrategyMinConf,  // 🔴 جدید
+  isSignalActive,      // 🔴 جدید
+  type ConfidenceLevel,
+} from "@/lib/thresholds";
+
 import {
   regimeIcon,
   regimeFullFa,
@@ -58,32 +68,9 @@ import {
   formatNumber,
 } from "@/lib/display";
 
-// ═══════════════════════════════════════════════════════════
-// سطوح پنج‌گانه
-// ═══════════════════════════════════════════════════════════
-type ConfidenceLevel = "golden" | "strong" | "normal" | "weak" | "neutral";
-
-function getConfidenceLevel(
-  confidence: number,
-  isDirectional: boolean
-): ConfidenceLevel {
-  if (!isDirectional) return "neutral";
-  if (confidence >= 85) return "golden";
-  if (confidence >= 70) return "strong";
-  if (confidence >= 50) return "normal";
-  if (confidence >= 25) return "weak";
-  return "neutral";
-}
-
 const LEVEL_STYLES: Record<
   ConfidenceLevel,
-  {
-    bg: string;
-    border: string;
-    text: string;
-    icon: string;
-    label: string;
-  }
+  { bg: string; border: string; text: string; icon: string; label: string }
 > = {
   golden: {
     bg: "rgba(250,204,21,0.15)",
@@ -140,8 +127,7 @@ const SIGNAL_PILL_STYLE: Record<
       bg: "rgba(34,197,94,0.30)",
       border: "#22c55e",
       color: "#4ade80",
-      boxShadow:
-        "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(34,197,94,0.8)",
+      boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(34,197,94,0.8)",
       textShadow: "0 0 8px rgba(34,197,94,0.9)",
       opacity: 1,
     },
@@ -183,8 +169,7 @@ const SIGNAL_PILL_STYLE: Record<
       bg: "rgba(239,68,68,0.30)",
       border: "#ef4444",
       color: "#f87171",
-      boxShadow:
-        "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(239,68,68,0.8)",
+      boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(239,68,68,0.8)",
       textShadow: "0 0 8px rgba(239,68,68,0.9)",
       opacity: 1,
     },
@@ -324,6 +309,21 @@ const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
   },
 };
 
+const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
+  scalp: {
+    fa: "⚡ اسکالپ",
+    cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  },
+  swing: {
+    fa: "🌊 سوئینگ",
+    cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
+  },
+  position: {
+    fa: "🏛 پوزیشن",
+    cls: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  },
+};
+
 const TF_TO_SHORT: Record<string, string> = {
   "۱ دقیقه": "1m",
   "۵ دقیقه": "5m",
@@ -332,20 +332,6 @@ const TF_TO_SHORT: Record<string, string> = {
   "۱ ساعت": "1h",
   "روزانه": "1d",
 };
-
-  // ═══ محاسبه وضعیت بازار برای فوتر ═══
-  const getSessionStatus = () => {
-    const d = new Date();
-    const utcHour = d.getUTCHours();
-    const utcDay = d.getUTCDay();
-    if (utcDay === 0 || utcDay === 6) return { label: "📅 آخر هفته", color: "text-orange-400" };
-    if (utcHour >= 0 && utcHour < 6) return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
-    if (utcHour >= 12 && utcHour < 16) return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
-    return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
-  };
-  const session = getSessionStatus();
-  
-
 
 function tfShort(tf: string): string {
   return TF_TO_SHORT[tf] || tf;
@@ -382,14 +368,16 @@ export function SignalCard() {
     timeframe,
     marketType,
     riskProfile,
+    strategy,
     watchlist,
     addToWatchlist,
     removeFromWatchlist,
+    getTfData,
+    setTfData,
   } = useAppStore();
 
   const capability = useAnalysisCapability(source);
-  const { quote, signal: wsSignal, status: wsStatus } = useWebSocket();
-  const setWsSignal = useAppStore((s) => s.setWsSignal);
+  const { quote, status: wsStatus } = useWebSocket();
 
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -414,6 +402,41 @@ export function SignalCard() {
     return () => clearInterval(t);
   }, []);
 
+  const session = (() => {
+    const utcHour = now.getUTCHours();
+    const utcDay = now.getUTCDay();
+    if (utcDay === 0 || utcDay === 6)
+      return { label: "📅 آخر هفته", color: "text-orange-400" };
+    if (utcHour >= 0 && utcHour < 6)
+      return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
+    if (utcHour >= 12 && utcHour < 16)
+      return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
+    return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
+  })();
+
+  // 🔴 فاز ۱۴.۷.۳ — reset روی تغییر تنظیمات
+  useEffect(() => {
+    const cached = getTfData(timeframe);
+    if (cached) {
+      // ✅ cache تازه → فوری نشون بده، بدون fetch
+      setData(cached);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    // ❌ cache نیست → fetch
+    setData(null);
+    setError(null);
+    setSparklineSeries([]);
+    setSparklinePrice(0);
+    prevPriceRef.current = null;
+    animRef.current = 0;
+    setAnimPrice(0);
+    lastGoldenKeyRef.current = "";
+  }, [strategy, ticker, timeframe, marketType, riskProfile, getTfData]);
+
+  // 🔴 فاز ۱۴.۷.۳ — fetch (اگر cache نداریم)
   useEffect(() => {
     if (!ticker) return;
     if (capability.planned || !sourceSupportsPair(source, ticker)) {
@@ -428,6 +451,11 @@ export function SignalCard() {
         cancelled = true;
       };
     }
+
+    // اگر cache تازه هست → skip fetch
+    const cached = getTfData(timeframe);
+    if (cached) return;
+
     let cancelled = false;
     queueMicrotask(() => {
       if (!cancelled) {
@@ -443,11 +471,14 @@ export function SignalCard() {
           timeframe,
           market_type: marketType,
           risk_profile: riskProfile,
+          strategy,
           ticker_name: tickerName,
         });
         if (cancelled) return;
         setData(res.data);
         setError(null);
+        // 🔴 sync با TFTable
+        setTfData(timeframe, res.data);
       } catch (err: unknown) {
         if (cancelled) return;
         const detail = (err as { response?: { data?: { detail?: unknown } } })
@@ -474,30 +505,11 @@ export function SignalCard() {
     timeframe,
     marketType,
     riskProfile,
+    strategy,
     capability.planned,
+    getTfData,
+    setTfData,
   ]);
-
-  useEffect(() => {
-    if (wsSignal) {
-      setData(wsSignal as unknown as AnalyzeResponse);
-    }
-  }, [wsSignal]);
-
-  useEffect(() => {
-    if (!wsSignal) return;
-    const sig = wsSignal as unknown as {
-      ticker?: string;
-      timeframe?: string;
-      source?: string;
-    };
-    setWsSignal({
-      ticker: String(sig.ticker || ""),
-      timeframe: String(sig.timeframe || ""),
-      source: sig.source || source,
-      data: wsSignal,
-      receivedAt: Date.now(),
-    });
-  }, [wsSignal, source, setWsSignal]);
 
   useEffect(() => {
     if (!ticker) {
@@ -705,6 +717,16 @@ export function SignalCard() {
     data.confidence || 0,
     isDirectional
   );
+
+  // 🔴 فاز ۱۴.۷.۳ — isActiveSignal بر اساس min_conf ترکیبی
+  const isActiveSignal = isSignalActive(
+    data.confidence || 0,
+    data.direction || "neutral",
+    data.signal || "",
+    strategy,
+    riskProfile
+  );
+
   const levelStyle = LEVEL_STYLES[confidenceLevel];
 
   const dirKey: "long" | "short" | "neutral" =
@@ -937,6 +959,32 @@ export function SignalCard() {
               <Badge className={`border py-0 text-[8px] ${profileLabel.cls}`}>
                 {profileLabel.fa}
               </Badge>
+
+              {data.strategy && (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge
+                      className={`border py-0 text-[8px] cursor-help ${
+                        STRATEGY_LABELS[data.strategy]?.cls ||
+                        STRATEGY_LABELS.swing.cls
+                      }`}
+                    >
+                      {STRATEGY_LABELS[data.strategy]?.fa ||
+                        STRATEGY_LABELS.swing.fa}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-[10px]">
+                      {data.strategy === "scalp" &&
+                        "⚡ اسکالپ: معاملات سریع فیوچرز — TP تنگ، Timeout کوتاه"}
+                      {data.strategy === "swing" &&
+                        "🌊 سوئینگ: معاملات میان‌مدت — TP/SL متعادل"}
+                      {data.strategy === "position" &&
+                        "🏛 پوزیشن: سرمایه‌گذاری بلندمدت — TP باز، SL بازتر"}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
               {isFallback ? (
@@ -1004,12 +1052,9 @@ export function SignalCard() {
             </Tooltip>
           )}
 
-          {/* ═══ قیمت + سیگنال ═══ */}
           <div className="rounded-lg bg-muted/40 px-2.5 py-2">
             <div className="flex items-center justify-between gap-2">
-              {/* ─── چپ: جهت + ورود + تغییر ─── */}
               <div className="shrink-0 flex flex-col items-start gap-0.5 min-w-[80px]">
-                {/* جهت */}
                 <span
                   className={`text-[10px] font-bold ${
                     data.direction === "long"
@@ -1025,13 +1070,7 @@ export function SignalCard() {
                       ? "▼ نزولی"
                       : "● خنثی"}
                 </span>
-                {/* ورود */}
-                {entryPrice > 0 && (
-                  <span className="num text-[9px] text-muted-foreground/70">
-                    ورود {formatNumber(entryPrice)}
-                  </span>
-                )}
-                {/* تغییر */}
+
                 {displayChange != null && displayChange !== 0 ? (
                   <span
                     className={`num text-[9px] font-medium ${
@@ -1042,11 +1081,12 @@ export function SignalCard() {
                     {Math.abs(displayChange).toFixed(2)}%
                   </span>
                 ) : (
-                  <span className="num text-[9px] text-muted-foreground/50">—</span>
+                  <span className="num text-[9px] text-muted-foreground/50">
+                    —
+                  </span>
                 )}
               </div>
 
-              {/* ─── وسط: قیمت بزرگ ─── */}
               <p
                 className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${
                   priceFlash === "up"
@@ -1059,33 +1099,37 @@ export function SignalCard() {
                 {formatNumber(animPrice || livePrice)}
               </p>
 
-              {/* ─── راست: نوار سیگنال ─── */}
               <div className="shrink-0 text-center min-w-[80px]">
                 <div
                   className="mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1"
                   style={{
-                    background: pillStyle.bg,
-                    borderColor: pillStyle.border,
-                    color: pillStyle.color,
-                    boxShadow: pillStyle.boxShadow,
-                    textShadow: pillStyle.textShadow,
-                    opacity: pillStyle.opacity,
-                    borderWidth: confidenceLevel === "golden" ? "2px" : "1px",
+                    background: isActiveSignal ? pillStyle.bg : "rgba(100,116,139,0.08)",
+                    borderColor: isActiveSignal ? pillStyle.border : "rgba(100,116,139,0.25)",
+                    color: isActiveSignal ? pillStyle.color : "#94a3b8",
+                    boxShadow: isActiveSignal ? pillStyle.boxShadow : "none",
+                    textShadow: isActiveSignal ? pillStyle.textShadow : "none",
+                    opacity: isActiveSignal ? pillStyle.opacity : 0.6,
+                    borderWidth:
+                      isActiveSignal && confidenceLevel === "golden" ? "2px" : "1px",
                   }}
                 >
                   <SignalIcon
                     className="h-3.5 w-3.5 shrink-0"
                     style={
-                      confidenceLevel === "golden"
-                        ? {
-                            animation: "golden-icon-glow 1.5s ease-in-out infinite",
-                          }
+                      isActiveSignal && confidenceLevel === "golden"
+                        ? { animation: "golden-icon-glow 1.5s ease-in-out infinite" }
                         : undefined
                     }
                   />
                   <p className="text-[12px] font-bold leading-none whitespace-nowrap">
-                    {confidenceLevel === "golden" && "💎 "}
-                    {data.signal}
+                    {isActiveSignal && confidenceLevel === "golden" && "💎 "}
+                    {isActiveSignal
+                      ? data.signal
+                      : data.signal?.includes("در حال تشکیل")
+                        ? "در حال تشکیل"
+                        : data.signal?.includes("دور")
+                          ? "دور"
+                          : "خنثی"}
                   </p>
                 </div>
                 <p
@@ -1097,7 +1141,6 @@ export function SignalCard() {
               </div>
             </div>
           </div>
-
 
           {series ? (
             <Sparkline
@@ -1130,7 +1173,6 @@ export function SignalCard() {
             </div>
           )}
 
-          {/* ═══ SL/TP/RR — همیشه با ارتفاع ثابت (placeholder در حالت خنثی) ═══ */}
           <div className="grid grid-cols-3 gap-1.5 min-h-[48px]">
             {sl != null && tp != null ? (
               <>
@@ -1139,9 +1181,9 @@ export function SignalCard() {
                     <Shield className="h-2.5 w-2.5" />
                     حد ضرر
                   </div>
-                  <p className="num mt-0.5 truncate text-[10px] font-bold text-red-500">
-                    {formatNumber(sl)}
-                  </p>
+                  <div className="mt-0.5 text-[10px] font-bold text-red-500">
+                    <CopyableNumber value={sl} />
+                  </div>
                   {distToSl != null && (
                     <p className="num text-[8px] text-muted-foreground">
                       {distToSl >= 0 ? "−" : "+"}
@@ -1172,11 +1214,11 @@ export function SignalCard() {
                 <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1.5 py-1 text-center">
                   <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
                     <Target className="h-2.5 w-2.5" />
-                    هدف
+                    هدف نهایی
                   </div>
-                  <p className="num mt-0.5 truncate text-[10px] font-bold text-green-500">
-                    {formatNumber(tp)}
-                  </p>
+                  <div className="mt-0.5 text-[10px] font-bold text-green-500">
+                    <CopyableNumber value={tp} />
+                  </div>
                   {distToTp != null && (
                     <p className="num text-[8px] text-muted-foreground">
                       {distToTp >= 0 ? "+" : "−"}
@@ -1208,13 +1250,116 @@ export function SignalCard() {
                 <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
                   <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50">
                     <Target className="h-2.5 w-2.5" />
-                    هدف
+                    هدف نهایی
                   </div>
                   <p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">
                     —
                   </p>
                 </div>
               </>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            {data.suggested_entry && data.direction !== "neutral" ? (
+              <div
+                className={`flex flex-col justify-center rounded-md border-2 px-2 py-1.5 ${
+                  data.direction === "long"
+                    ? "border-green-500/40 bg-green-500/5"
+                    : "border-red-500/40 bg-red-500/5"
+                }`}
+              >
+                <div className="flex items-center justify-center gap-1 mb-1">
+                  <Crosshair className="h-3 w-3 text-cyan-400" />
+                  <span className="text-[9px] font-bold text-cyan-400">
+                    🎯 نقطه ورود پیشنهادی
+                  </span>
+                </div>
+                <div className="text-[16px] font-bold text-foreground leading-none text-center">
+                  <CopyableNumber value={data.suggested_entry} />
+                </div>
+                <div className="text-[8px] text-muted-foreground text-right mt-1.5">
+                  نحوه محاسبه:{" "}
+                  <span className="text-cyan-400 font-medium">
+                    {data.suggested_entry_method === "structural" &&
+                      "📍 سطح ساختاری Swing"}
+                    {data.suggested_entry_method === "atr_pullback" &&
+                      "📊 پولبک ATR"}
+                    {data.suggested_entry_method === "fib_0382" &&
+                      "🌀 فیبوناچی 0.382"}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
+                <p className="text-[9px] text-muted-foreground/50">
+                  بدون نقطه ورود
+                </p>
+              </div>
+            )}
+
+            {data.tp_levels && data.tp_levels.tp1 != null ? (
+              <div className="flex flex-col justify-center rounded-md border border-emerald-500/25 bg-emerald-500/5 px-2 py-1.5">
+                <div className="flex items-center justify-center gap-1 mb-1">
+                  <span className="text-[9px] font-bold text-emerald-400">
+                    🎯 خروج پله‌ای
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-0.5 text-[7px] text-muted-foreground/70 font-bold mb-0.5 pb-0.5 border-b border-emerald-500/20">
+                  <div className="text-center">خالص</div>
+                  <div className="text-center">خام</div>
+                  <div className="text-center">قیمت</div>
+                  <div className="text-center">پله</div>
+                </div>
+                <div className="space-y-0.5">
+                  {[
+                    { label: "TP1", value: data.tp_levels.tp1 },
+                    { label: "TP2", value: data.tp_levels.tp2 },
+                    { label: "TP3", value: data.tp_levels.tp3 },
+                  ].map(({ label, value }) => {
+                    const entry = data.suggested_entry ?? data.price;
+                    // 🔴 فاز ۱۴.۷.۲ — fee_pct از backend خودش رفت‌وبرگشتیه
+                    const feeRoundTrip = data.fee_pct ?? 0;
+
+                    const grossPct =
+                      entry > 0
+                        ? ((value - entry) / entry) *
+                          100 *
+                          (data.direction === "short" ? -1 : 1)
+                        : null;
+                    const netPct =
+                      grossPct != null ? grossPct - feeRoundTrip : null;
+
+                    return (
+                      <div
+                        key={label}
+                        className="grid grid-cols-4 gap-0.5 items-center"
+                      >
+                        <div className="text-center num font-bold text-emerald-400 text-[8px]">
+                          {netPct != null
+                            ? `${netPct >= 0 ? "+" : ""}${netPct.toFixed(1)}٪`
+                            : "—"}
+                        </div>
+                        <div className="text-center num text-emerald-400/60 text-[7px]">
+                          {grossPct != null
+                            ? `${grossPct >= 0 ? "+" : ""}${grossPct.toFixed(1)}٪`
+                            : "—"}
+                        </div>
+                        <div className="text-center num font-bold text-emerald-300 text-[10px]">
+                          <CopyableNumber value={value} />
+                        </div>
+                        <div className="text-center font-bold text-emerald-300/70 text-[8px]">
+                          {label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
+                <p className="text-[9px] text-muted-foreground/50">بدون TP</p>
+              </div>
             )}
           </div>
 
@@ -1319,9 +1464,10 @@ export function SignalCard() {
           >
             trademun.ir
           </span>
-          
-          {/* 🔴 بج وضعیت بازار در فوتر کارت */}
-          <span className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}>
+
+          <span
+            className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}
+          >
             {session.label}
           </span>
 

@@ -1,11 +1,20 @@
 "use client";
 
 /**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه نهایی ۱۷.۰ · آستانه‌های جدید)
+ * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۰ · فاز ۱۴.۷.۲)
  * ============================================================
+ * 🔴 تغییرات نسخه ۱۸.۰:
+ *   • TFهای غیرفعال بر اساس استراتژی (اسکالپ: 1m/5m، پوزیشن: 30m/1h/1d)
+ *   • از getConfidenceLevel مشترک (lib/thresholds)
+ *   • strategy در deps (رفع data کهنه)
+ *   • wsSignal filter strategy (رفع سیگنال اشتباه)
+ *   • از getTfData/setTfData برای cache (sync با SignalCard)
+ *   • polling ۳۰s (به‌جای ۵s) — سبک‌تر
+ *   • Badge استراتژی در هدر
+ *   • روی کلیک TF غیرفعال → پیام آموزشی
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -15,12 +24,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair, SOURCE_BY_KEY } from "@/lib/sources";
 import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
+import {
+  getConfidenceLevel,
+  getStrategyMinConf,  // 🔴 جدید
+  isSignalActive,      // 🔴 جدید
+  CONF_BAR_COLOR,
+  type ConfidenceLevel,
+} from "@/lib/thresholds";
 
+// ═══════════════════════════════════════════════════════════
+// TFها به ترتیب
+// ═══════════════════════════════════════════════════════════
 const TIMEFRAMES: Timeframe[] = [
   "۱ دقیقه",
   "۵ دقیقه",
@@ -30,7 +55,34 @@ const TIMEFRAMES: Timeframe[] = [
   "روزانه",
 ];
 
-// 🔴 تبدیل کلمات انگلیسی به فارسی
+// ═══════════════════════════════════════════════════════════
+// TFهای مجاز per strategy
+// ═══════════════════════════════════════════════════════════
+const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
+  scalp: ["۱ دقیقه", "۵ دقیقه"],  // 🔴 فقط ۱د و ۵د — هم‌راستا با strategies.py
+  swing: TIMEFRAMES,
+  position: ["۳۰ دقیقه", "۱ ساعت", "روزانه"],
+};
+
+
+const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
+  scalp: {
+    fa: "⚡ اسکالپ",
+    cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  },
+  swing: {
+    fa: "🌊 سوئینگ",
+    cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
+  },
+  position: {
+    fa: "🏛 پوزیشن",
+    cls: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  },
+};
+
+// ═══════════════════════════════════════════════════════════
+// ترجمه سیگنال به فارسی
+// ═══════════════════════════════════════════════════════════
 function translateSignal(signal: string) {
   let s = signal;
   s = s.replace(/LONG/g, "خرید");
@@ -48,22 +100,9 @@ function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
   return "neutral";
 }
 
-type ConfidenceLevel = "golden" | "strong" | "normal" | "weak" | "neutral";
-
-// 🔴 آستانه‌های جدید (شروع از ۴۰٪)
-function getConfidenceLevel(confidence: number, isActiveSignal: boolean): ConfidenceLevel {
-  if (!isActiveSignal) {
-    if (confidence >= 30) return "normal"; // در حال تشکیل
-    if (confidence >= 15) return "weak"; // دور
-    return "neutral"; // خنثی
-  }
-  if (confidence >= 85) return "golden";
-  if (confidence >= 70) return "strong";
-  if (confidence >= 55) return "normal"; // معمولی
-  if (confidence >= 40) return "weak"; // ضعیف
-  return "neutral";
-}
-
+// ═══════════════════════════════════════════════════════════
+// استایل سیگنال (رنگ + قاب)
+// ═══════════════════════════════════════════════════════════
 type Direction = "long" | "short" | "neutral";
 
 interface SignalStyle {
@@ -75,42 +114,140 @@ interface SignalStyle {
   opacity: number;
 }
 
-// 🔴 رنگ‌بندی استاندارد
-const SIGNAL_STYLE_MAP: Record<Direction, Record<ConfidenceLevel, SignalStyle>> = {
+const SIGNAL_STYLE_MAP: Record<
+  Direction,
+  Record<ConfidenceLevel, SignalStyle>
+> = {
   long: {
-    golden: { bg: "rgba(250,204,21,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
-    strong: { bg: "rgba(34,197,94,0.20)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.4)", textShadow: "none", opacity: 1 },
-    normal: { bg: "rgba(34,197,94,0.10)", border: "rgba(34,197,94,0.5)", color: "#4ade80", boxShadow: "none", textShadow: "none", opacity: 0.9 },
-    weak: { bg: "rgba(34,197,94,0.05)", border: "rgba(34,197,94,0.3)", color: "rgba(74,222,128,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 }, 
-    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    golden: {
+      bg: "rgba(250,204,21,0.20)",
+      border: "#facc15",
+      color: "#facc15",
+      boxShadow: "0 0 16px rgba(250,204,21,0.6)",
+      textShadow: "none",
+      opacity: 1,
+    },
+    strong: {
+      bg: "rgba(34,197,94,0.20)",
+      border: "#22c55e",
+      color: "#4ade80",
+      boxShadow: "0 0 10px rgba(34,197,94,0.4)",
+      textShadow: "none",
+      opacity: 1,
+    },
+    normal: {
+      bg: "rgba(34,197,94,0.10)",
+      border: "rgba(34,197,94,0.5)",
+      color: "#4ade80",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.9,
+    },
+    weak: {
+      bg: "rgba(34,197,94,0.05)",
+      border: "rgba(34,197,94,0.3)",
+      color: "rgba(74,222,128,0.8)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.8,
+    },
+    neutral: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.4)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.5,
+    },
   },
   short: {
-    golden: { bg: "rgba(239,68,68,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
-    strong: { bg: "rgba(239,68,68,0.20)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 10px rgba(239,68,68,0.4)", textShadow: "none", opacity: 1 },
-    normal: { bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.5)", color: "#f87171", boxShadow: "none", textShadow: "none", opacity: 0.9 },
-    weak: { bg: "rgba(239,68,68,0.05)", border: "rgba(239,68,68,0.3)", color: "rgba(248,113,113,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 }, 
-    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    golden: {
+      bg: "rgba(239,68,68,0.20)",
+      border: "#facc15",
+      color: "#facc15",
+      boxShadow: "0 0 16px rgba(250,204,21,0.6)",
+      textShadow: "none",
+      opacity: 1,
+    },
+    strong: {
+      bg: "rgba(239,68,68,0.20)",
+      border: "#ef4444",
+      color: "#f87171",
+      boxShadow: "0 0 10px rgba(239,68,68,0.4)",
+      textShadow: "none",
+      opacity: 1,
+    },
+    normal: {
+      bg: "rgba(239,68,68,0.10)",
+      border: "rgba(239,68,68,0.5)",
+      color: "#f87171",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.9,
+    },
+    weak: {
+      bg: "rgba(239,68,68,0.05)",
+      border: "rgba(239,68,68,0.3)",
+      color: "rgba(248,113,113,0.8)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.8,
+    },
+    neutral: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.4)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.5,
+    },
   },
   neutral: {
-    // 🔴 حالت‌های غیرفعال (خنثی، دور، در حال تشکیل) بدون قاب و پس‌زمینه
-    golden: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
-    strong: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
-    normal: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.7 }, // در حال تشکیل
-    weak: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.6)", boxShadow: "none", textShadow: "none", opacity: 0.5 }, // دور
-    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.3)", boxShadow: "none", textShadow: "none", opacity: 0.3 }, // خنثی
+    golden: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.4)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.5,
+    },
+    strong: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.4)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.5,
+    },
+    normal: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.8)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.7,
+    },
+    weak: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.6)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.5,
+    },
+    neutral: {
+      bg: "transparent",
+      border: "transparent",
+      color: "rgba(148,163,184,0.3)",
+      boxShadow: "none",
+      textShadow: "none",
+      opacity: 0.3,
+    },
   },
-};
-
-// 🔴 رنگ درصد اطمینان: آبی
-const CONF_COLORS: Record<ConfidenceLevel, { text: string; bar: string }> = {
-  golden: { text: "#60a5fa", bar: "#3b82f6" }, 
-  strong: { text: "#93c5fd", bar: "#60a5fa" },
-  normal: { text: "#bfdbfe", bar: "#93c5fd" },
-  weak: { text: "#dbeafe", bar: "#bfdbfe" }, 
-  neutral: { text: "#e2e8f0", bar: "#cbd5e1" }, 
 };
 
 const ROW_HEIGHT = "h-[42px]";
+const POLL_INTERVAL_MS = 30_000; // 🔴 فاز ۱۴.۷.۲ — 30s (قبلاً 5s)
 
 export function TFTable() {
   const {
@@ -120,22 +257,47 @@ export function TFTable() {
     timeframe,
     marketType,
     riskProfile,
+    strategy,
     setTimeframe,
+    getTfData,
+    setTfData,
     wsSignal,
   } = useAppStore();
 
   const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
+  const [showDisabledHint, setShowDisabledHint] = useState<string | null>(null);
 
+  // ═══════════════════════════════════════════════════════════
+  // TFهای مجاز برای استراتژی فعلی
+  // ═══════════════════════════════════════════════════════════
+  const allowedTfs = useMemo(() => {
+    return TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
+  }, [strategy]);
+  
+  // ═══════════════════════════════════════════════════════════
+  // 🔴 فاز ۱۴.۷.۲ — wsSignal filter strategy
+  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (wsSignal && wsSignal.ticker === ticker && wsSignal.data) {
       const newSignal = wsSignal.data as unknown as AnalyzeResponse;
+
+      // ⚠️ فیلتر استراتژی
+      if (newSignal.strategy && newSignal.strategy !== strategy) {
+        return;
+      }
+
       const tf = newSignal.timeframe;
       if (tf) {
         setData((prev) => ({ ...prev, [tf]: newSignal }));
+        // 🔴 sync با cache مشترک
+        setTfData(tf, newSignal);
       }
     }
-  }, [wsSignal, ticker]);
+  }, [wsSignal, ticker, strategy, setTfData]);
 
+  // ═══════════════════════════════════════════════════════════
+  // 🔴 فاز ۱۴.۷.۲ — fetch از cache یا API
+  // ═══════════════════════════════════════════════════════════
   const fetchMultiData = async () => {
     if (!ticker || !sourceSupportsPair(source, ticker)) {
       setData({});
@@ -149,32 +311,85 @@ export function TFTable() {
         timeframe: "۵ دقیقه",
         market_type: marketType,
         risk_profile: riskProfile,
+        strategy,
         ticker_name: tickerName,
       });
-      setData(res.data.timeframes || {});
+      const tfs = (res.data.timeframes || {}) as Record<
+        string,
+        AnalyzeResponse
+      >;
+      setData(tfs);
+
+      // 🔴 sync با cache مشترک
+      for (const [tf, tfData] of Object.entries(tfs)) {
+        if (tfData) {
+          setTfData(tf, tfData);
+        }
+      }
     } catch {
       // silent fail
     }
   };
 
+  // ═══════════════════════════════════════════════════════════
+  // 🔴 fetch اولیه — با strategy در deps
+  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     fetchMultiData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, tickerName, source, marketType, riskProfile]);
+  }, [ticker, tickerName, source, marketType, riskProfile, strategy]);
 
+  // ═══════════════════════════════════════════════════════════
+  // 🔴 polling ۳۰s — با strategy در deps
+  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (!ticker || !sourceSupportsPair(source, ticker)) return;
 
     const interval = setInterval(() => {
       fetchMultiData();
-    }, 5000);
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, source, tickerName, marketType, riskProfile]);
+  }, [ticker, source, tickerName, marketType, riskProfile, strategy]);
 
-  const handleRowClick = (tf: string) => setTimeframe(tf as Timeframe);
+  // ═══════════════════════════════════════════════════════════
+  // 🔴 روی mount: از cache بخون (اگر پر شده)
+  // ═══════════════════════════════════════════════════════════
+  const hasHydratedRef = useRef(false);
+  useEffect(() => {
+    if (hasHydratedRef.current) return;
+    hasHydratedRef.current = true;
+
+    const cachedData: Record<string, AnalyzeResponse> = {};
+    let hasAny = false;
+    for (const tf of TIMEFRAMES) {
+      const c = getTfData(tf);
+      if (c) {
+        cachedData[tf] = c;
+        hasAny = true;
+      }
+    }
+    if (hasAny) {
+      setData(cachedData);
+    }
+  }, [getTfData]);
+
+  // ═══════════════════════════════════════════════════════════
+  // کلیک روی TF
+  // ═══════════════════════════════════════════════════════════
+  const handleRowClick = (tf: string) => {
+    // اگر TF غیرفعال است → پیام آموزشی
+    if (!allowedTfs.includes(tf as Timeframe)) {
+      setShowDisabledHint(tf);
+      setTimeout(() => setShowDisabledHint(null), 3000);
+      return;
+    }
+    setTimeframe(tf as Timeframe);
+  };
+
   const sourceMeta = SOURCE_BY_KEY[source];
+  const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
 
   return (
     <Card>
@@ -186,7 +401,7 @@ export function TFTable() {
           </p>
         </div>
         {ticker && (
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             <span
               className="inline-flex items-center rounded-md border px-2 py-0.5 text-[10px]"
               style={{
@@ -211,6 +426,26 @@ export function TFTable() {
                 {sourceMeta.label}
               </span>
             )}
+            {/* 🔴 badge استراتژی */}
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge
+                  className={`border py-0 text-[9px] cursor-help ${strategyMeta.cls}`}
+                >
+                  {strategyMeta.fa}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-[10px]">
+                  {strategy === "scalp" &&
+                    "⚡ اسکالپ: فقط TFهای ۱ و ۵ دقیقه"}
+                  {strategy === "swing" &&
+                    "🌊 سوئینگ: همه‌ی TFها فعال"}
+                  {strategy === "position" &&
+                    "🏛 پوزیشن: فقط ۳۰ دقیقه، ۱ ساعت، روزانه"}
+                </p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
       </CardHeader>
@@ -238,14 +473,47 @@ export function TFTable() {
             {TIMEFRAMES.map((tf) => {
               const row = data[tf];
               const isActive = tf === timeframe;
+              const isAllowed = allowedTfs.includes(tf);
+              const isHinting = showDisabledHint === tf;
+
+              if (!isAllowed) {
+                // 🔴 TF غیرفعال برای این استراتژی
+                return (
+                  <TableRow
+                    key={tf}
+                    onClick={() => handleRowClick(tf)}
+                    className={`${ROW_HEIGHT} cursor-not-allowed opacity-40 hover:bg-transparent`}
+                  >
+                    <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0 text-muted-foreground">
+                      {tf}
+                      <span className="mr-1 text-[8px]">🔒</span>
+                    </TableCell>
+                    <TableCell
+                      colSpan={3}
+                      className="text-center text-[10px] text-muted-foreground py-0"
+                    >
+                      {isHinting
+                        ? `برای استراتژی «${strategyMeta.fa}» قابل استفاده نیست`
+                        : "غیرفعال برای این استراتژی"}
+                    </TableCell>
+                  </TableRow>
+                );
+              }
 
               if (!row) {
                 return (
-                  <TableRow key={tf} className={`opacity-50 ${ROW_HEIGHT}`}>
+                  <TableRow
+                    key={tf}
+                    className={`opacity-50 ${ROW_HEIGHT}`}
+                    onClick={() => handleRowClick(tf)}
+                  >
                     <TableCell className="text-right text-[10px] font-medium py-0">
                       {tf}
                     </TableCell>
-                    <TableCell colSpan={3} className="text-center text-[10px] text-muted-foreground py-0">
+                    <TableCell
+                      colSpan={3}
+                      className="text-center text-[10px] text-muted-foreground py-0"
+                    >
                       دیتا نیست
                     </TableCell>
                   </TableRow>
@@ -253,16 +521,30 @@ export function TFTable() {
               }
 
               const conf = row.confidence || 0;
+              const dirFromBackend: Direction =
+                row.direction === "long"
+                  ? "long"
+                  : row.direction === "short"
+                    ? "short"
+                    : "neutral";
+
+              // 🔴 آستانه مشترک
+              // 🔴 فاز ۱۴.۷.۳ — isActiveSignal بر اساس min_conf ترکیبی
+              const isActiveSignal = isSignalActive(
+                conf,
+                row.direction || "neutral",
+                row.signal || "",
+                strategy,
+                riskProfile
+              );
+
+              const isDirectional =
+                dirFromBackend === "long" || dirFromBackend === "short";
+              const confLevel = getConfidenceLevel(conf, isDirectional);
               
-              // 🔴 سیگنال فقط وقتی فعال است که درصد >= ۴۰ باشد
-              const isActiveSignal = conf >= 40;
-              
-              const dirFromBackend: Direction = row.direction === "long" ? "long" : row.direction === "short" ? "short" : "neutral";
               const styleDirection = isActiveSignal ? dirFromBackend : "neutral";
-              
-              const confLevel = getConfidenceLevel(conf, isActiveSignal);
               const sigStyle = SIGNAL_STYLE_MAP[styleDirection][confLevel];
-              const confStyle = CONF_COLORS[isActiveSignal ? confLevel : "neutral"];
+              const confStyle = CONF_BAR_COLOR[confLevel];
 
               const rowClass = isActive
                 ? confLevel === "golden"
@@ -275,32 +557,53 @@ export function TFTable() {
                 : `cursor-pointer transition-colors hover:bg-muted/50 ${ROW_HEIGHT}`;
 
               const goldenMark = confLevel === "golden" ? "💎 " : "";
-              
-              // 🔴 تعیین متن نمایشی (۴۰٪ به بالا سیگنال)
-              let displaySignal = "خنثی";
-              if (conf >= 40) {
-                displaySignal = translateSignal(row.signal || "خنثی");
-              } else if (conf >= 30) {
-                displaySignal = "در حال تشکیل";
-              } else if (conf >= 15) {
-                displaySignal = "دور";
-              }
 
-              // 🔴 تغییر رنگ متن برای دور و در حال تشکیل بر اساس جهت
+              // 🔴 تعیین متن نمایشی بر اساس آستانه‌های مشترک
+              // 🔴 فاز ۱۴.۷.۳ — displaySignal منطقی
+              // ترتیب: چک کن backend چی گفته
+              let displaySignal = "خنثی";
+              const rawSignal = row.signal || "";
+              
+              if (isActiveSignal) {
+                // سیگنال فعال → نمایش سیگنال ترجمه‌شده
+                displaySignal = translateSignal(rawSignal);
+              } else if (rawSignal.includes("در حال تشکیل")) {
+                // "در حال تشکیل" از backend
+                displaySignal = "در حال تشکیل";
+              } else if (rawSignal.includes("دور")) {
+                displaySignal = "دور";
+              } else if (conf >= 25) {
+                // جهت مشخص ولی کمتر از min_conf
+                displaySignal = "در حال تشکیل";
+              } else if (conf >= 10) {
+                displaySignal = "دور";
+              } else {
+                displaySignal = "خنثی";
+              }
+              
+              // 🔴 رنگ متن برای غیرفعال‌ها
               let textColor = sigStyle.color;
               if (!isActiveSignal && conf >= 15) {
                 if (dirFromBackend === "short") {
-                  textColor = conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)"; 
+                  textColor =
+                    conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)";
                 } else if (dirFromBackend === "long") {
-                  textColor = conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)"; 
+                  textColor =
+                    conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)";
                 }
               }
 
               return (
-                <TableRow key={tf} onClick={() => handleRowClick(tf)} className={rowClass}>
+                <TableRow
+                  key={tf}
+                  onClick={() => handleRowClick(tf)}
+                  className={rowClass}
+                >
                   <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0">
                     {tf}
-                    {isActive && <span className="mr-1 text-[8px] text-primary">●</span>}
+                    {isActive && (
+                      <span className="mr-1 text-[8px] text-primary">●</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <span
@@ -312,8 +615,11 @@ export function TFTable() {
                         boxShadow: sigStyle.boxShadow,
                         textShadow: sigStyle.textShadow,
                         opacity: sigStyle.opacity,
-                        // 🔴 حذف کامل قاب برای حالت‌های غیرفعال
-                        borderWidth: !isActiveSignal ? 0 : (confLevel === "golden" ? "2px" : "1px"),
+                        borderWidth: !isActiveSignal
+                          ? 0
+                          : confLevel === "golden"
+                            ? "2px"
+                            : "1px",
                       }}
                     >
                       {goldenMark}

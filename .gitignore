@@ -112,3 +112,4 @@ render_worker/.env
 check_schema.py
 seed_test_data.py
 data/*.bak
+data/backups/

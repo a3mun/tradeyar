@@ -1,16 +1,19 @@
 """
 services/backtest_service.py
-راستی‌آزمایی — موتور اصلی (نسخه ۸.۱ — فاز ۱۳.۱)
+راستی‌آزمایی — موتور اصلی (نسخه ۹.۰ — فاز ۱۴.۷.۱)
 ============================================================
-🔴 تغییرات نسخه ۸.۱ (نسبت به ۸.۰):
-  ۱. محدود کردن df_after به بازه [entry_ts, timeout_end]
-  ۲. قیمت Timeout = آخرین کندل معتبر (نه آخرین قیمت موجود)
-  ۳. نبود داده = برگرداندن None (دوباره بررسی شود)، نه Timeout صفر
-  ۴. compute_stats_by_profile با Timeoutها (هم‌تعریف با compute_stats)
+🔴 تغییرات نسخه ۹.۰:
+  ۱. _check_one: timeout از log.timeout_planned_min (پویا)
+  ۲. _check_one: محاسبه‌ی tp_hit_level (کدام TP لمس شد)
+  ۳. _mark_expired: result_time از آخرین کندل
+  ۴. win_rate یکدست در همه‌ی ۵ تابع: (tp_hits + timeout_wins) / closed
+  ۵. compute_stats: tp_hit_rate + avg_tp_level + timeout_overshoot_min
+  ۶. خواندن tp_levels_json از DB و استفاده در محاسبه‌ی tp_hit_level
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -83,6 +86,56 @@ def fetch_ohlcv(
         return None
 
 
+def _parse_tp_levels(log: SignalLog) -> dict:
+    """tp_levels_json را از DB می‌خواند و به dict تبدیل می‌کند."""
+    if not log.tp_levels_json:
+        return {}
+    try:
+        parsed = json.loads(log.tp_levels_json)
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
+    except Exception:
+        return {}
+
+
+def _compute_tp_hit_level(
+    df_after: pd.DataFrame, log: SignalLog, tp_levels: dict
+) -> Optional[int]:
+    """
+    🆕 فاز ۱۴.۷.۱ — کدام TP لمس شد (1/2/3)؟
+    اگر TP1 لمس شد ولی TP2 نه → برمی‌گردونه 1.
+    اگر TP2 لمس شد ولی TP3 نه → 2.
+    اگر TP3 لمس شد → 3.
+    اگر هیچ‌کدام → None.
+    """
+    if not tp_levels or not isinstance(tp_levels, dict):
+        return None
+    if df_after.empty:
+        return None
+
+    is_long = log.direction == "long"
+    highest = None
+
+    for level_num, key in [(1, "tp1"), (2, "tp2"), (3, "tp3")]:
+        tp_val = tp_levels.get(key)
+        if tp_val is None:
+            continue
+        try:
+            tp_val = float(tp_val)
+        except (TypeError, ValueError):
+            continue
+
+        if is_long:
+            if (df_after["high"] >= tp_val).any():
+                highest = level_num
+        else:
+            if (df_after["low"] <= tp_val).any():
+                highest = level_num
+
+    return highest
+
+
 def _check_one(log: SignalLog) -> Optional[str]:
     if log.result is not None or log.expired:
         return None
@@ -90,7 +143,13 @@ def _check_one(log: SignalLog) -> Optional[str]:
         return None
 
     entry_ts = _ensure_utc(log.timestamp)
-    timeout_td = get_signal_timeout(log.tf, log.market_type)
+
+    # 🆕 فاز ۱۴.۷.۱ — timeout پویا
+    if log.timeout_planned_min and log.timeout_planned_min > 0:
+        timeout_td = timedelta(minutes=log.timeout_planned_min)
+    else:
+        timeout_td = get_signal_timeout(log.tf, log.market_type)
+
     timeout_end = entry_ts + timeout_td
     timeout_min = int(timeout_td.total_seconds() / 60)
     elapsed_min = (_utcnow() - entry_ts).total_seconds() / 60
@@ -108,14 +167,13 @@ def _check_one(log: SignalLog) -> Optional[str]:
 
     df = fetch_ohlcv(log.ticker, log.source, log.tf, limit=bars_needed)
 
-    # 🔴 اصلاح ۳: نبود داده — اگه timeout شده، expired ثبت کن
+    # نبود داده — اگه timeout شده، expired ثبت کن
     if df is None or len(df) == 0 or not isinstance(df.index, pd.DatetimeIndex):
         if elapsed_min >= timeout_min:
-            # timeout گذشته و داده نداریم — با قیمت ورودی expired ثبت کن
             logger.info(
                 f"[Backtest] {log.ticker}/{log.tf} timeout بدون داده — expired با price"
             )
-            return _mark_expired(log, log.price)
+            return _mark_expired(log, log.price, None)
         return None
 
     df_idx_utc = (
@@ -124,13 +182,18 @@ def _check_one(log: SignalLog) -> Optional[str]:
         else df.index.tz_convert("UTC")
     )
 
-    # 🔴 اصلاح ۱: محدود کردن به بازه اعتبار
+    # محدود کردن به بازه اعتبار
     df_after = df[(df_idx_utc >= entry_ts) & (df_idx_utc <= timeout_end)]
 
     if df_after.empty:
         if elapsed_min >= timeout_min:
-            return _mark_expired(log, log.price)
+            return _mark_expired(log, log.price, None)
         return None
+
+    # 🆕 محاسبه‌ی tp_hit_level از tp_levels_json
+    tp_levels = _parse_tp_levels(log)
+    tp_hit_level = _compute_tp_hit_level(df_after, log, tp_levels)
+    log.tp_hit_level = tp_hit_level
 
     is_long = log.direction == "long"
 
@@ -172,14 +235,17 @@ def _check_one(log: SignalLog) -> Optional[str]:
         return "loss"
 
     if elapsed_min >= timeout_min:
-        # 🔴 اصلاح ۲: قیمت خروج = آخرین کندل معتبر
+        # قیمت خروج = آخرین کندل معتبر
         current_price = float(df_after["close"].iloc[-1])
-        return _mark_expired(log, current_price)
+        last_time = df_after.index[-1]
+        return _mark_expired(log, current_price, _to_utc_dt(last_time))
 
     return None
 
 
-def _mark_expired(log: SignalLog, current_price: float) -> str:
+def _mark_expired(
+    log: SignalLog, current_price: float, result_time: Optional[datetime] = None
+) -> str:
     log.expired = True
     log.exit_reason = "timeout"
     log.expired_at_price = current_price
@@ -201,7 +267,7 @@ def _mark_expired(log: SignalLog, current_price: float) -> str:
         log.expired_bias = "flat"
         log.result = None
 
-    log.result_time = _utcnow()
+    log.result_time = result_time or _utcnow()
     return "expired"
 
 
@@ -257,6 +323,7 @@ def _fetch_closed_rows(
     time_filter: str,
     risk_profile: str,
     limit: int,
+    strategy: str = "",
 ) -> list[SignalLog]:
     stmt = select(SignalLog).where(
         or_(SignalLog.result.isnot(None), SignalLog.expired == True)  # noqa: E712
@@ -267,6 +334,8 @@ def _fetch_closed_rows(
         stmt = stmt.where(SignalLog.source == source)
     if risk_profile:
         stmt = stmt.where(SignalLog.risk_profile == risk_profile)
+    if strategy:
+        stmt = stmt.where(SignalLog.strategy == strategy)
     if time_filter != "all":
         now = _utcnow()
         days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
@@ -293,18 +362,13 @@ def _get_r_value(log: SignalLog) -> float:
     return 0.0
 
 
-def compute_stats(
-    tf: str = "",
-    source: str = "",
-    time_filter: str = "all",
-    risk_profile: str = "",
-    limit: int = BACKTEST_MAX_SIGNALS,
-) -> dict:
-    limit = max(50, min(limit, 500))
-    with Session(engine) as session:
-        rows = _fetch_closed_rows(session, tf, source, time_filter, risk_profile, limit)
-
-    total, expired = len(rows), sum(1 for r in rows if r.expired)
+def _compute_core_stats(rows: list[SignalLog]) -> dict:
+    """
+    🆕 فاز ۱۴.۷.۱ — محاسبه‌ی آمار پایه، مشترک بین همه‌ی ۵ تابع.
+    win_rate یکدست: (tp_hits + timeout_wins) / closed
+    """
+    total = len(rows)
+    expired_count = sum(1 for r in rows if r.expired)
 
     tp_hits = sum(1 for r in rows if r.exit_reason == "tp_hit")
     sl_hits = sum(1 for r in rows if r.exit_reason == "sl_hit")
@@ -319,11 +383,24 @@ def compute_stats(
     )
 
     closed_real = tp_hits + sl_hits + timeout_wins + timeout_losses
-    win_rate = (tp_hits / closed_real * 100) if closed_real > 0 else 0.0
+    # 🔴 یکدست: WR = (TP + Timeout Win) / Closed
+    win_rate = (
+        ((tp_hits + timeout_wins) / closed_real * 100) if closed_real > 0 else 0.0
+    )
+    tp_hit_rate = (tp_hits / closed_real * 100) if closed_real > 0 else 0.0
     direction_acc = (
         ((tp_hits + timeout_wins) / closed_real * 100) if closed_real > 0 else 0.0
     )
 
+    # 🆕 میانگین tp_hit_level (فقط بین اون‌هایی که TP لمس شد)
+    tp_level_values = [r.tp_hit_level for r in rows if r.tp_hit_level]
+    avg_tp_level = (
+        round(sum(tp_level_values) / len(tp_level_values), 2)
+        if tp_level_values
+        else 0.0
+    )
+
+    # trend accuracy
     trend_correct, trend_wrong = 0, 0
     for r in rows:
         if r.result not in ("win", "loss"):
@@ -348,6 +425,42 @@ def compute_stats(
     trend_total = trend_correct + trend_wrong
     trend_acc = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
 
+    return {
+        "total": total,
+        "expired": expired_count,
+        "tp_hits": tp_hits,
+        "sl_hits": sl_hits,
+        "timeout_wins": timeout_wins,
+        "timeout_losses": timeout_losses,
+        "timeout_flats": timeout_flats,
+        "closed_real": closed_real,
+        "win_rate": round(win_rate, 2),
+        "tp_hit_rate": round(tp_hit_rate, 2),
+        "direction_accuracy": round(direction_acc, 2),
+        "avg_tp_level": avg_tp_level,
+        "trend_correct": trend_correct,
+        "trend_wrong": trend_wrong,
+        "trend_accuracy": round(trend_acc, 2),
+    }
+
+
+def compute_stats(
+    tf: str = "",
+    source: str = "",
+    time_filter: str = "all",
+    risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
+    strategy: str = "",
+) -> dict:
+    limit = max(50, min(limit, 500))
+    with Session(engine) as session:
+        rows = _fetch_closed_rows(
+            session, tf, source, time_filter, risk_profile, limit, strategy
+        )
+
+    core = _compute_core_stats(rows)
+
+    # profit factor / expectancy (نیاز به R-values)
     r_values = [_get_r_value(r) for r in rows]
     r_values = [r for r in r_values if r != 0]
     gross_profit = sum(r for r in r_values if r > 0)
@@ -361,7 +474,7 @@ def compute_stats(
     losses_r = [r for r in r_values if r < 0]
     avg_win = (gross_profit / len(wins_r)) if wins_r else 0.0
     avg_loss = (gross_loss / len(losses_r)) if losses_r else 0.0
-    p_win = win_rate / 100
+    p_win = core["win_rate"] / 100
     p_loss = 1 - p_win
     expectancy = (
         ((p_win * avg_win) - (p_loss * avg_loss))
@@ -370,89 +483,66 @@ def compute_stats(
     )
 
     return {
-        "total": total,
-        "tp_hits": tp_hits,
-        "sl_hits": sl_hits,
-        "timeout_wins": timeout_wins,
-        "timeout_losses": timeout_losses,
-        "timeout_flats": timeout_flats,
+        "total": core["total"],
+        "tp_hits": core["tp_hits"],
+        "sl_hits": core["sl_hits"],
+        "timeout_wins": core["timeout_wins"],
+        "timeout_losses": core["timeout_losses"],
+        "timeout_flats": core["timeout_flats"],
         "pending": 0,
-        "expired": expired,
-        "win_rate": round(win_rate, 2),
-        "direction_accuracy": round(direction_acc, 2),
+        "expired": core["expired"],
+        "win_rate": core["win_rate"],
+        "tp_hit_rate": core["tp_hit_rate"],
+        "direction_accuracy": core["direction_accuracy"],
+        "avg_tp_level": core["avg_tp_level"],  # 🆕
         "profit_factor": round(profit_factor, 3),
         "avg_rr_net": round(avg_rr_net, 3),
         "expectancy": round(expectancy, 3),
-        "trend_correct": trend_correct,
-        "trend_wrong": trend_wrong,
-        "trend_accuracy": round(trend_acc, 2),
+        "trend_correct": core["trend_correct"],
+        "trend_wrong": core["trend_wrong"],
+        "trend_accuracy": core["trend_accuracy"],
     }
 
 
 def compute_stats_by_tf(
-    time_filter: str = "all", risk_profile: str = "", limit: int = BACKTEST_MAX_SIGNALS
+    time_filter: str = "all",
+    risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
+    strategy: str = "",
 ) -> dict[str, dict]:
     limit = max(50, min(limit, 500))
     result: dict[str, dict] = {}
     with Session(engine) as session:
-        rows = _fetch_closed_rows(session, "", "", time_filter, risk_profile, limit)
+        rows = _fetch_closed_rows(
+            session, "", "", time_filter, risk_profile, limit, strategy
+        )
     by_tf: dict[str, list[SignalLog]] = {}
     for r in rows:
         by_tf.setdefault(r.tf, []).append(r)
 
     for tf, items in by_tf.items():
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        tw = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
-        )
-        tl = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
-        )
-        closed = tp_hits + sl_hits + tw + tl
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
-
-        tc, tw_wrong = 0, 0
-        for r in items:
-            if r.result not in ("win", "loss"):
-                continue
-            pred = r.trend_predicted_at_entry
-            if not pred or pred == "flat":
-                continue
-            if pred == "bull":
-                if r.direction == "long" and r.result == "win":
-                    tc += 1
-                elif r.direction == "long" and r.result == "loss":
-                    tw_wrong += 1
-                elif r.direction == "short":
-                    tw_wrong += 1
-            elif pred == "bear":
-                if r.direction == "short" and r.result == "win":
-                    tc += 1
-                elif r.direction == "short" and r.result == "loss":
-                    tw_wrong += 1
-                elif r.direction == "long":
-                    tw_wrong += 1
-        t_total = tc + tw_wrong
-        t_acc = (tc / t_total * 100) if t_total > 0 else 0.0
-
+        core = _compute_core_stats(items)
         result[tf] = {
-            "total": len(items),
-            "wins": tp_hits,
-            "losses": sl_hits,
-            "win_rate": round(wr, 2),
-            "direction_accuracy": round(da, 2),
-            "trend_accuracy": round(t_acc, 2),
+            "total": core["total"],
+            "wins": core["tp_hits"],
+            "losses": core["sl_hits"],
+            "win_rate": core["win_rate"],
+            "direction_accuracy": core["direction_accuracy"],
+            "trend_accuracy": core["trend_accuracy"],
+            "avg_tp_level": core["avg_tp_level"],
         }
     return result
 
 
-# 🔴 اصلاح ۴: compute_stats_by_profile با Timeoutها
-def compute_stats_by_profile(time_filter: str = "all") -> dict[str, dict]:
+def compute_stats_by_profile(
+    time_filter: str = "all",
+    strategy: str = "",
+) -> dict[str, dict]:
     result: dict[str, dict] = {}
     with Session(engine) as session:
         stmt = select(SignalLog)
+        if strategy:
+            stmt = stmt.where(SignalLog.strategy == strategy)
         if time_filter != "all":
             now = _utcnow()
             days = {"1d": 1, "7d": 7, "30d": 30}.get(time_filter)
@@ -465,61 +555,49 @@ def compute_stats_by_profile(time_filter: str = "all") -> dict[str, dict]:
         by_profile.setdefault(r.risk_profile, []).append(r)
 
     for profile, items in by_profile.items():
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        tw = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
-        )
-        tl = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
-        )
-        closed = tp_hits + sl_hits + tw + tl
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
+        core = _compute_core_stats(items)
         result[profile] = {
-            "total": len(items),
-            "wins": tp_hits,
-            "losses": sl_hits,
-            "timeout_wins": tw,
-            "timeout_losses": tl,
-            "win_rate": round(wr, 2),
-            "direction_accuracy": round(da, 2),
+            "total": core["total"],
+            "wins": core["tp_hits"],
+            "losses": core["sl_hits"],
+            "timeout_wins": core["timeout_wins"],
+            "timeout_losses": core["timeout_losses"],
+            "win_rate": core["win_rate"],
+            "direction_accuracy": core["direction_accuracy"],
         }
     return result
 
 
 def compute_stats_by_regime(
-    time_filter: str = "all", risk_profile: str = ""
+    time_filter: str = "all",
+    risk_profile: str = "",
+    strategy: str = "",
 ) -> dict[str, dict]:
     result: dict[str, dict] = {}
     with Session(engine) as session:
         rows = _fetch_closed_rows(
-            session, "", "", time_filter, risk_profile, BACKTEST_MAX_SIGNALS
+            session,
+            "",
+            "",
+            time_filter,
+            risk_profile,
+            BACKTEST_MAX_SIGNALS,
+            strategy,
         )
     by_regime: dict[str, list[SignalLog]] = {}
     for r in rows:
         by_regime.setdefault(r.regime or "unknown", []).append(r)
 
     for regime, items in by_regime.items():
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        tw = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
-        )
-        tl = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
-        )
-        closed = tp_hits + sl_hits + tw + tl
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
+        core = _compute_core_stats(items)
         result[regime] = {
-            "total": len(items),
-            "tp_hits": tp_hits,
-            "sl_hits": sl_hits,
-            "timeout_wins": tw,
-            "timeout_losses": tl,
-            "win_rate": round(wr, 2),
-            "direction_accuracy": round(da, 2),
+            "total": core["total"],
+            "tp_hits": core["tp_hits"],
+            "sl_hits": core["sl_hits"],
+            "timeout_wins": core["timeout_wins"],
+            "timeout_losses": core["timeout_losses"],
+            "win_rate": core["win_rate"],
+            "direction_accuracy": core["direction_accuracy"],
         }
     return result
 
@@ -530,29 +608,22 @@ def compute_stats_by_quality(
     time_filter: str = "all",
     risk_profile: str = "",
     limit: int = BACKTEST_MAX_SIGNALS,
+    strategy: str = "",
 ) -> dict[str, dict]:
     limit = max(50, min(limit, 500))
     with Session(engine) as session:
-        rows = _fetch_closed_rows(session, tf, source, time_filter, risk_profile, limit)
+        rows = _fetch_closed_rows(
+            session, tf, source, time_filter, risk_profile, limit, strategy
+        )
 
     def _stats(items: list[SignalLog]) -> dict:
-        tp_hits = sum(1 for r in items if r.exit_reason == "tp_hit")
-        sl_hits = sum(1 for r in items if r.exit_reason == "sl_hit")
-        tw = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "win"
-        )
-        tl = sum(
-            1 for r in items if r.exit_reason == "timeout" and r.expired_bias == "loss"
-        )
-        closed = tp_hits + sl_hits + tw + tl
-        wr = (tp_hits / closed * 100) if closed > 0 else 0.0
-        da = ((tp_hits + tw) / closed * 100) if closed > 0 else 0.0
+        core = _compute_core_stats(items)
         return {
-            "total": len(items),
-            "wins": tp_hits,
-            "losses": sl_hits,
-            "win_rate": round(wr, 2),
-            "direction_accuracy": round(da, 2),
+            "total": core["total"],
+            "wins": core["tp_hits"],
+            "losses": core["sl_hits"],
+            "win_rate": core["win_rate"],
+            "direction_accuracy": core["direction_accuracy"],
         }
 
     return {

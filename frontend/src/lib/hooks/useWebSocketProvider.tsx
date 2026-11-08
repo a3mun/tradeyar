@@ -3,12 +3,13 @@
 /**
  * useWebSocketProvider — اتصال WebSocket مرکزی
  * ============================================================
- * نسخه ۱.۱ · فاز ۷
+ * نسخه ۲.۰ · فاز ۱۴.۷.۲
  *
- * 🔴 تغییرات نسخه ۱.۱:
- *   • فیلتر signal/quote بر اساس ticker (رفع «خنگ شدن» SignalCard)
- *   • tickerRef برای ردیابی بدون rebuild اتصال
- *   • setSignal(null) در تغییر نماد
+ * 🔴 تغییرات نسخه ۲.۰:
+ *   • حذف signal از context (جایگزین: tfDataCache در useAppStore)
+ *   • فقط quote + orderbook + status
+ *   • filter ticker (بدون تغییر)
+ *   • رفع باگ «signal با strategy اشتباه»
  */
 
 import {
@@ -63,14 +64,13 @@ export type WSStatus =
 interface WSContextValue {
   quote: QuoteData | null;
   orderbook: OrderBookData | null;
-  signal: Record<string, unknown> | null;
   status: WSStatus;
+  // ❌ signal حذف شد — از tfDataCache استفاده کن
 }
 
 const WSContext = createContext<WSContextValue>({
   quote: null,
   orderbook: null,
-  signal: null,
   status: "idle",
 });
 
@@ -92,7 +92,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [orderbook, setOrderbook] = useState<OrderBookData | null>(null);
-  const [signal, setSignal] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<WSStatus>("idle");
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -101,7 +100,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const backoffIdxRef = useRef(0);
   const mountedRef = useRef(false);
 
-  // ─── 🔴 ticker فعلی برای فیلتر پیام‌ها ───
+  // ─── ticker فعلی برای فیلتر پیام‌ها ───
   const tickerRef = useRef(ticker);
   useEffect(() => {
     tickerRef.current = ticker;
@@ -169,16 +168,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         const currentTicker = tickerRef.current;
 
         if (msg.type === "quote") {
-          // 🔴 فیلتر: فقط اگه مربوط به ticker فعلیه
           if (msg.data?.ticker && msg.data.ticker !== currentTicker) return;
           setQuote(msg.data);
         } else if (msg.type === "orderbook") {
           if (msg.data?.ticker && msg.data.ticker !== currentTicker) return;
           setOrderbook(msg.data);
-        } else if (msg.type === "signal") {
-          if (msg.data?.ticker && msg.data.ticker !== currentTicker) return;
-          setSignal(msg.data);
         }
+        // ❌ signal حذف شد — از tfDataCache استفاده کن
       } catch {
         // JSON نامعتبر → نادیده
       }
@@ -188,33 +184,31 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       // onclose بعدش میاد
     };
 
-ws.onclose = () => {
-  if (pingTimerRef.current) {
-    clearInterval(pingTimerRef.current);
-    pingTimerRef.current = null;
-  }
-  if (!mountedRef.current) return;
+    ws.onclose = () => {
+      if (pingTimerRef.current) {
+        clearInterval(pingTimerRef.current);
+        pingTimerRef.current = null;
+      }
+      if (!mountedRef.current) return;
 
-  // ─── 🟢 اگه کد ۱۰۰۰ (بسته‌ی معمولی) یا StrictMode بود، سریع reconnect ───
-  // ─── وگرنه backoff ───
-  const wasClean = ws.readyState === WebSocket.CLOSED && backoffIdxRef.current === 0;
-  
-  if (wasClean) {
-    // ─── reconnect فوری برای StrictMode ───
-    reconnectTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) connect();
-    }, 100);
-  } else {
-    const idx = Math.min(backoffIdxRef.current, BACKOFF_STEPS.length - 1);
-    const delay = BACKOFF_STEPS[idx];
-    backoffIdxRef.current = idx + 1;
+      const wasClean =
+        ws.readyState === WebSocket.CLOSED && backoffIdxRef.current === 0;
 
-    setStatus("reconnecting");
-    reconnectTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) connect();
-    }, delay);
-  }
-};
+      if (wasClean) {
+        reconnectTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) connect();
+        }, 100);
+      } else {
+        const idx = Math.min(backoffIdxRef.current, BACKOFF_STEPS.length - 1);
+        const delay = BACKOFF_STEPS[idx];
+        backoffIdxRef.current = idx + 1;
+
+        setStatus("reconnecting");
+        reconnectTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) connect();
+        }, delay);
+      }
+    };
   }, [sendSubscribe]);
 
   // ═══ mount: باز کردن اتصال ═══
@@ -243,16 +237,15 @@ ws.onclose = () => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // ─── پاک کردن داده‌ی قبلی ───
     setQuote(null);
     setOrderbook(null);
-    setSignal(null);
+    // ❌ setSignal حذف شد
 
     sendSubscribe(ws);
   }, [sendSubscribe]);
 
   return (
-    <WSContext.Provider value={{ quote, orderbook, signal, status }}>
+    <WSContext.Provider value={{ quote, orderbook, status }}>
       {children}
     </WSContext.Provider>
   );
