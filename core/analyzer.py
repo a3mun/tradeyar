@@ -1201,7 +1201,12 @@ def build_scenarios(
     direction="neutral",
     traps=None,
     ticker="",
+    strategy: str = "swing",  # 🔴 فاز ۱۴.۸.۱
 ) -> list[dict]:
+    """
+    🔴 فاز ۱۴.۸.۱ — سناریوهای per-strategy.
+    هر استراتژی سناریوهای متفاوتی داره.
+    """
     scenarios = []
     if not groups:
         return scenarios
@@ -1220,112 +1225,235 @@ def build_scenarios(
     def _fmt(val):
         return f"{val:,.0f} {unit}" if is_iranian else f"${val:,.2f}"
 
-    if regime == "trend" and adx > 35 and price > 0 and atr > 0:
-        if direction == "neutral" and m_score < 0.3 and v_score < 0.3:
-            sl = price - atr * 1.2
+    strategy_labels = {
+        "scalp": "⚡ اسکالپ",
+        "swing": "🌊 سوئینگ",
+        "position": "🏛 پوزیشن",
+    }
+    strat_label = strategy_labels.get(strategy, "🌊 سوئینگ")
+
+    # ═══════════════════════════════════════════════════════════════
+    # سناریوهای اسکالپ (سریع، نوسان‌گیری)
+    # ═══════════════════════════════════════════════════════════════
+    if strategy == "scalp":
+        if atr > 0 and price > 0:
+            # حرکت ATR محور
+            if direction == "long":
+                sl = price - atr * 1.2
+                tp = price + atr * 1.2 * 0.7  # tp_multiplier=0.7
+                scenarios.append(
+                    {
+                        "condition": f"اگه حجم تأیید کنه و قیمت بالای {_fmt(price + atr * 0.5)} بمونه",
+                        "action": f"ورود LONG سریع — SL={_fmt(sl)} · TP={_fmt(tp)}",
+                        "probability": 0.65,
+                        "color": "green",
+                        "type": "entry",
+                        "icon": "⚡",
+                        "strategy": "scalp",
+                    }
+                )
+            elif direction == "short":
+                sl = price + atr * 1.2
+                tp = price - atr * 1.2 * 0.7
+                scenarios.append(
+                    {
+                        "condition": f"اگه حجم خروجی ادامه پیدا کنه و قیمت زیر {_fmt(price - atr * 0.5)} بمونه",
+                        "action": f"ورود SHORT سریع — SL={_fmt(sl)} · TP={_fmt(tp)}",
+                        "probability": 0.65,
+                        "color": "red",
+                        "type": "entry",
+                        "icon": "⚡",
+                        "strategy": "scalp",
+                    }
+                )
+        # سناریو همیشه پر باشه
+        if len(scenarios) < 2:
             scenarios.append(
                 {
-                    "condition": f"اگه حجم بالاتر بره و RSI از {rsi:.0f} بالاتر بره",
-                    "action": f"ورود LONG — SL={_fmt(sl)}",
+                    "condition": "اگه RSI از ۵۰ رد بشه و Stochastic کراس بزنه",
+                    "action": "ورود سریع — SL تنگ (۰.۵×ATR)، خروج در ۳-۵ کندل",
+                    "probability": 0.55,
+                    "color": "yellow",
+                    "type": "wait",
+                    "icon": "⏱",
+                    "strategy": "scalp",
+                }
+            )
+
+    # ═══════════════════════════════════════════════════════════════
+    # سناریوهای سوئینگ (میان‌مدت)
+    # ═══════════════════════════════════════════════════════════════
+    elif strategy == "swing":
+        # شکست مقاومت با تأیید حجم
+        if resistance > 0 and price > 0:
+            dist_r = (resistance - price) / price * 100
+            if dist_r < 2.0:
+                scenarios.append(
+                    {
+                        "condition": f"اگه قیمت از مقاومت {_fmt(resistance)} با حجم بالا رد بشه",
+                        "action": f"ورود LONG بعد از کندل تأیید — SL زیر {_fmt(resistance * 0.99)}",
+                        "probability": 0.60,
+                        "color": "green",
+                        "type": "breakout",
+                        "icon": "🚀",
+                        "strategy": "swing",
+                    }
+                )
+            elif dist_r < 5.0:
+                scenarios.append(
+                    {
+                        "condition": f"اگه قیمت به مقاومت {_fmt(resistance)} برسه و رد بشه",
+                        "action": "منتظر پولبک بمون — ورود در سطح تأیید",
+                        "probability": 0.55,
+                        "color": "yellow",
+                        "type": "wait",
+                        "icon": "⏸",
+                        "strategy": "swing",
+                    }
+                )
+        # پولبک به حمایت
+        if support > 0 and price > 0:
+            dist_s = (price - support) / price * 100
+            if dist_s < 3.0:
+                scenarios.append(
+                    {
+                        "condition": f"اگه قیمت به حمایت {_fmt(support)} برسه و برگشت بزنه",
+                        "action": f"ورود LONG — SL زیر {_fmt(support * 0.98)}",
+                        "probability": 0.65,
+                        "color": "green",
+                        "type": "entry",
+                        "icon": "💚",
+                        "strategy": "swing",
+                    }
+                )
+        if len(scenarios) < 2:
+            scenarios.append(
+                {
+                    "condition": "اگه RSI بالای ۵۰ بمونه و EMA20 > EMA50",
+                    "action": "ورود با تأیید چند TF — خروج در ۱۰-۲۰ کندل",
+                    "probability": 0.55,
+                    "color": "yellow",
+                    "type": "wait",
+                    "icon": "⏸",
+                    "strategy": "swing",
+                }
+            )
+
+    # ═══════════════════════════════════════════════════════════════
+    # سناریوهای پوزیشن (بلندمدت)
+    # ═══════════════════════════════════════════════════════════════
+    elif strategy == "position":
+        if atr > 0 and price > 0:
+            if direction == "long":
+                # TP بازتر (tp_multiplier=1.2)
+                sl = price - atr * 1.8 * 1.2  # tf_sl_mult(1.8) × strategy_sl_mult(1.2)
+                tp = price + atr * 4.0 * 1.2  # tf_tp_mult(4.0) × strategy_tp_mult(1.2)
+                scenarios.append(
+                    {
+                        "condition": "اگه قیمت بالای EMA200 بمونه و شیب EMA200 صعودی باشه",
+                        "action": f"ورود LONG بلندمدت — SL={_fmt(sl)} · TP={_fmt(tp)} (چند هفته)",
+                        "probability": 0.60,
+                        "color": "green",
+                        "type": "entry",
+                        "icon": "🏛",
+                        "strategy": "position",
+                    }
+                )
+            elif direction == "short":
+                sl = price + atr * 1.8 * 1.2
+                tp = price - atr * 4.0 * 1.2
+                scenarios.append(
+                    {
+                        "condition": "اگه قیمت زیر EMA200 بمونه و شیب EMA200 نزولی باشه",
+                        "action": f"ورود SHORT بلندمدت — SL={_fmt(sl)} · TP={_fmt(tp)} (چند هفته)",
+                        "probability": 0.60,
+                        "color": "red",
+                        "type": "entry",
+                        "icon": "🏛",
+                        "strategy": "position",
+                    }
+                )
+        # سناریوی DCA (خرید پله‌ای)
+        if support > 0 and direction == "long":
+            scenarios.append(
+                {
+                    "condition": f"اگه قیمت به حمایت {_fmt(support)} برسه",
+                    "action": "DCA — خرید پله‌ای (۳۰٪ / ۳۰٪ / ۴۰٪)",
                     "probability": 0.55,
                     "color": "green",
                     "type": "entry",
-                    "icon": "🟢",
+                    "icon": "💰",
+                    "strategy": "position",
                 }
             )
-        elif direction == "long":
-            sl, tp = price - atr * 1.2, price + atr * 3.0
+        if len(scenarios) < 2:
             scenarios.append(
                 {
-                    "condition": "اگه حجم تأیید کنه و RSI بالای ۵۰ بره",
-                    "action": f"LONG با SL={_fmt(sl)} · TP={_fmt(tp)}",
+                    "condition": "اگه قیمت بالای EMA200 بمونه",
+                    "action": "سرمایه‌گذاری تدریجی — ورود در ۳-۵ هفته",
                     "probability": 0.65,
-                    "color": "green",
-                    "type": "entry",
-                    "icon": "🟢",
+                    "color": "yellow",
+                    "type": "wait",
+                    "icon": "⏳",
+                    "strategy": "position",
                 }
             )
-    if resistance > 0 and price > 0:
-        dist_r = (resistance - price) / price * 100
-        if dist_r < 1.5:
-            scenarios.append(
-                {
-                    "condition": f"اگه قیمت از R ({_fmt(resistance)}) رد نشه",
-                    "action": "مراقب باش",
-                    "probability": 0.55,
-                    "color": "red",
-                    "type": "reversal",
-                    "icon": "🔴",
-                }
-            )
-        elif dist_r < 3.0:
-            scenarios.append(
-                {
-                    "condition": f"اگه قیمت با حجم بالا از {_fmt(resistance)} رد بشه",
-                    "action": "ورود LONG بعد از تأیید حجم",
-                    "probability": 0.50,
-                    "color": "green",
-                    "type": "breakout",
-                    "icon": "🚀",
-                }
-            )
-    if support > 0 and price > 0:
-        dist_s = (price - support) / price * 100
-        if dist_s < 1.5:
-            scenarios.append(
-                {
-                    "condition": f"اگه قیمت به حمایت ({_fmt(support)}) برسه",
-                    "action": "فرصت خرید — SL زیر حمایت",
-                    "probability": 0.60,
-                    "color": "green",
-                    "type": "entry",
-                    "icon": "💚",
-                }
-            )
+
+    # ═══════════════════════════════════════════════════════════════
+    # هشدار تله‌ها (مشترک برای همه استراتژی‌ها)
+    # ═══════════════════════════════════════════════════════════════
     if traps and traps.get("fake_breakout", {}).get("active"):
         scenarios.append(
             {
                 "condition": "اگه قیمت سریع برگرده داخل محدوده",
-                "action": "شکست جعلیه — منتظر تأیید بمون",
+                "action": "⚠️ شکست جعلیه — منتظر تأیید حجم بمون",
                 "probability": 0.70,
                 "color": "yellow",
                 "type": "warning",
                 "icon": "⚠️",
+                "strategy": strategy,
             }
         )
     if traps and traps.get("bull_trap", {}).get("active"):
         scenarios.append(
             {
                 "condition": "اگه قیمت ناگهان برگرده پایین",
-                "action": "تله صعودیه — وارد LONG نشو",
+                "action": "🚨 تله صعودیه — وارد LONG نشو",
                 "probability": 0.65,
                 "color": "red",
                 "type": "warning",
                 "icon": "🚨",
+                "strategy": strategy,
             }
         )
     if traps and traps.get("bear_trap", {}).get("active"):
         scenarios.append(
             {
                 "condition": "اگه قیمت ناگهان برگرده بالا",
-                "action": "تله نزولیه — وارد SHORT نشو",
+                "action": "🚨 تله نزولیه — وارد SHORT نشو",
                 "probability": 0.65,
                 "color": "red",
                 "type": "warning",
                 "icon": "🚨",
+                "strategy": strategy,
             }
         )
+
+    # حداقل ۲ سناریو
     if len(scenarios) < 2:
         scenarios.append(
             {
                 "condition": "اگه شرایط فعلی ادامه داشته باشه",
-                "action": "صبر کن — سیگنال واضحی نداره",
+                "action": f"صبر کن — سیگنال واضحی برای {strat_label} نداره",
                 "probability": 0.70,
                 "color": "yellow",
                 "type": "wait",
                 "icon": "⏸",
+                "strategy": strategy,
             }
         )
+
+    # مرتب‌سازی با احتمال
     scenarios.sort(key=lambda x: -x["probability"])
     return scenarios[:3]
 
@@ -2404,6 +2532,7 @@ def analyze_symbol(
                 direction,
                 traps,
                 ticker,
+                strategy=strategy,  # 🔴 فاز ۱۴.۸.۱
             ),
             "trend_score": groups["trend"].get("score", 0.0),
             "trend_vote": groups["trend"].get("vote", 0),
@@ -2475,12 +2604,30 @@ GROUP_LABELS = {
 }
 
 
-def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple:
+def build_checklist_weighted(
+    tfs: dict, main_tf: str = "۵ دقیقه", strategy: str = "swing"
+) -> tuple:
+    """
+    🔴 فاز ۱۴.۸.۲ — وزن‌های گروه‌ها بر اساس استراتژی + رژیم.
+    """
     r_main = tfs.get(main_tf) or tfs.get("۵ دقیقه")
     if not r_main:
         return [], 0, "داده کافی نیست", "red"
     items, regime = [], r_main.get("regime", "range")
-    weights = _regime_weights(regime)
+
+    # 🔴 وزن‌ها = ترکیب استراتژی + رژیم
+    from .strategies import get_strategy
+
+    strategy_cfg = get_strategy(strategy)
+    strategy_weights = strategy_cfg.get("group_weights", {})
+    regime_weights = _regime_weights(regime)
+
+    weights = {}
+    for group in ["momentum", "trend", "volume", "volatility", "structure"]:
+        sw = strategy_weights.get(group, 1.0)
+        rw = regime_weights.get(group, 1.0)
+        weights[group] = (sw + rw) / 2.0
+
     groups = r_main.get("groups", {})
     total_w, earned_w = 0, 0
     multi_tf_ok, multi_tf_info = r_main.get("multi_tf_ok", True), r_main.get(
@@ -2536,6 +2683,8 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
                     }
                 )
                 total_w += trap_info.get("severity", 5)
+
+    # 🔴 گروه‌ها با وزن داینامیک
     for g_key, (icon, g_name, g_desc) in GROUP_LABELS.items():
         if g_key not in groups:
             continue
@@ -2567,6 +2716,7 @@ def build_checklist_weighted(tfs: dict, main_tf: str = "۵ دقیقه") -> tuple
         )
         total_w += g_weight_pct
         earned_w += g_weight_pct * 0.5 if g_vote == 0 else g_weight_pct
+
     sl_tp, rr = r_main.get("sl_tp"), safe_num(r_main.get("rr"))
     if sl_tp:
         items.append(
@@ -2749,6 +2899,9 @@ def _build_fundamental_context(
 def build_analysis_paragraph(
     ticker, name, tfs, gsr=None, risk_profile="aggressive", tf_name="۵ دقیقه"
 ) -> str:
+    """
+    🔴 فاز ۱۴.۸.۱ — پاراگراف تحلیل با استراتژی، TP ladder، suggested entry.
+    """
     lines = []
     r_main = tfs.get(tf_name) or tfs.get("۵ دقیقه")
     if not r_main:
@@ -2767,6 +2920,16 @@ def build_analysis_paragraph(
     profile_fa = {"aggressive": "جسورانه", "conservative": "محتاطانه"}.get(
         risk_profile, "جسورانه"
     )
+
+    # 🔴 استراتژی
+    strategy = r_main.get("strategy", "swing")
+    strategy_name = r_main.get("strategy_name", "")
+    strategy_fa = {
+        "scalp": "⚡ اسکالپ",
+        "swing": "🌊 سوئینگ",
+        "position": "🏛 پوزیشن",
+    }.get(strategy, "🌊 سوئینگ")
+
     signal, confidence, price = (
         r_main.get("signal", "خنثی"),
         r_main.get("confidence", 0),
@@ -2790,16 +2953,45 @@ def build_analysis_paragraph(
         r_main.get("scenarios", []),
     )
 
+    # 🔴 فاز ۱۴.۸.۱ — tp_levels, suggested_entry, pump
+    tp_levels = r_main.get("tp_levels") or {}
+    suggested_entry = r_main.get("suggested_entry")
+    suggested_entry_method = r_main.get("suggested_entry_method")
+    suggested_entry_distance = r_main.get("suggested_entry_distance_pct")
+    pump_score = r_main.get("pump_score", 0)
+    dump_score = r_main.get("dump_score", 0)
+    pump_warning = r_main.get("pump_warning", "none")
+    pump_type = r_main.get("pump_type", "none")
+
     def H(text: str) -> str:
         return f"▎**{text}**"
 
-    lines.extend([f"_{tf_name} · {profile_fa} · {market_fa}_", ""])
+    def _fmt(val):
+        if is_tsetmc:
+            return f"{val:,.0f} ریال"
+        if is_iranian:
+            return f"{val:,.0f} تومان"
+        return f"${val:,.2f}"
+
+    # ═══════════════════════════════════════════════════════════════
+    # Header
+    # ═══════════════════════════════════════════════════════════════
+    lines.extend(
+        [
+            f"_{tf_name} · {profile_fa} · {market_fa} · {strategy_fa}_",
+            "",
+        ]
+    )
+
+    # ═══════════════════════════════════════════════════════════════
+    # سیگنال اصلی
+    # ═══════════════════════════════════════════════════════════════
     if SigEnum.is_long(signal):
         if confidence >= 85:
             main_line = f"💎 **سیگنال طلایی خرید** · اطمینان {confidence}٪"
         elif confidence >= 70:
             main_line = f"✅ **خرید قوی** · اطمینان {confidence}٪"
-        elif confidence >= 50:
+        elif confidence >= 55:
             main_line = f"🟢 **خرید** · اطمینان {confidence}٪"
         else:
             main_line = f"🟡 **خرید ضعیف** · اطمینان {confidence}٪"
@@ -2808,10 +3000,14 @@ def build_analysis_paragraph(
             main_line = f"💎 **سیگنال طلایی فروش** · اطمینان {confidence}٪"
         elif confidence >= 70:
             main_line = f"🔴 **فروش قوی** · اطمینان {confidence}٪"
-        elif confidence >= 50:
+        elif confidence >= 55:
             main_line = f"🔴 **فروش** · اطمینان {confidence}٪"
         else:
             main_line = f"🟠 **فروش ضعیف** · اطمینان {confidence}٪"
+    elif "در حال تشکیل" in signal:
+        main_line = f"⏳ **در حال تشکیل** · {confidence}٪ (نزدیک به سیگنال)"
+    elif "دور" in signal:
+        main_line = f"⚪ **دور از ورود** · {confidence}٪"
     else:
         main_line = (
             "🚫 **بلاک شده** — روند مخالف قویه"
@@ -2819,26 +3015,96 @@ def build_analysis_paragraph(
             else f"⚪ **صبر کن** — سیگنال واضحی نیست ({confidence}٪)"
         )
     lines.extend([main_line, ""])
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🔴 فاز ۱۴.۸.۱ — هشدار Pump/Dump
+    # ═══════════════════════════════════════════════════════════════
+    if pump_warning in ("watch", "alert"):
+        if pump_type == "pump":
+            lines.extend(
+                [
+                    f"⚠️ **هشدار پامپ** (امتیاز {pump_score:.0f}/100): حرکت صعودی غیرعادی — احتمال اصلاح",
+                    "",
+                ]
+            )
+        elif pump_type == "dump":
+            lines.extend(
+                [
+                    f"⚠️ **هشدار دامپ** (امتیاز {dump_score:.0f}/100): حرکت نزولی غیرعادی — احتمال برگشت",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"⚠️ **هشدار نوسان شدید** (pump={pump_score:.0f}, dump={dump_score:.0f})",
+                    "",
+                ]
+            )
+
+    # ═══════════════════════════════════════════════════════════════
+    # SL/TP/RR
+    # ═══════════════════════════════════════════════════════════════
     if sl_tp:
         sl, tp = safe_num(sl_tp.get("sl")), safe_num(sl_tp.get("tp"))
         rr_net, fee_pct = sl_tp.get("rr_net"), sl_tp.get("fee_pct")
-        if is_iranian:
-            lines.append(f"ورود {price:,.0f} {unit} · SL {sl:,.0f} · TP {tp:,.0f}")
-        else:
-            lines.append(f"ورود {price:,.2f}$ · SL {sl:,.2f}$ · TP {tp:,.2f}$")
+        lines.append(f"ورود {_fmt(price)} · SL {_fmt(sl)} · TP {_fmt(tp)}")
         if rr_net is not None:
             rr_verdict = (
                 "عالی"
                 if rr_net >= 2.0
                 else (
-                    "خوب"
-                    if rr_net >= 1.5
-                    else ("قابل قبول" if rr_net >= 1.0 else "ضعیف")
+                    "خوب" if rr_net >= 1.5 else "قابل قبول" if rr_net >= 1.0 else "ضعیف"
                 )
             )
             fee_line = f" · هزینه {fee_pct:.2f}٪" if fee_pct is not None else ""
             lines.append(f"R:R خالص {rr_net:.2f} ({rr_verdict}){fee_line}")
         lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🔴 فاز ۱۴.۸.۱ — خروج پله‌ای
+    # ═══════════════════════════════════════════════════════════════
+    if tp_levels and tp_levels.get("tp1"):
+        lines.extend(
+            [
+                H("🎯 خروج پله‌ای"),
+                "",
+                "| پله | قیمت |",
+                "|------|------|",
+                f"| TP1 (۳۳٪) | {_fmt(tp_levels.get('tp1', 0))} |",
+                f"| TP2 (۶۶٪) | {_fmt(tp_levels.get('tp2', 0))} |",
+                f"| TP3 (۱۰۰٪) | {_fmt(tp_levels.get('tp3', 0))} |",
+                "",
+            ]
+        )
+
+    # ═══════════════════════════════════════════════════════════════
+    # 🔴 فاز ۱۴.۸.۱ — نقطه ورود پیشنهادی
+    # ═══════════════════════════════════════════════════════════════
+    if suggested_entry and suggested_entry > 0:
+        method_fa = {
+            "structural": "سطح ساختاری Swing",
+            "atr_pullback": "پولبک ATR",
+            "fib_0382": "فیبوناچی 0.382",
+        }.get(suggested_entry_method or "", "—")
+        dist_txt = (
+            f" (فاصله {suggested_entry_distance:.2f}٪)"
+            if suggested_entry_distance
+            else ""
+        )
+        lines.extend(
+            [
+                H("🎯 نقطه ورود پیشنهادی"),
+                "",
+                f"ورود بهتر: {_fmt(suggested_entry)}{dist_txt}",
+                f"روش: {method_fa}",
+                "",
+            ]
+        )
+
+    # ═══════════════════════════════════════════════════════════════
+    # تله‌ها
+    # ═══════════════════════════════════════════════════════════════
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
     if active_traps:
         trap_names = {
@@ -2853,6 +3119,10 @@ def build_analysis_paragraph(
                 "",
             ]
         )
+
+    # ═══════════════════════════════════════════════════════════════
+    # تحلیل بازار
+    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("۱. بازار چطوره؟"), ""])
     if adx >= 40:
         adx_fa, adx_note = "روند قویه", "بالای ۴۰ یعنی روند محکم و قابل اعتماد"
@@ -2862,10 +3132,14 @@ def build_analysis_paragraph(
         adx_fa, adx_note = "روند ضعیفه", "بین ۱۸ تا ۲۵ یعنی روند شکننده‌ست"
     else:
         adx_fa, adx_note = "بدون رونده", "زیر ۱۸ یعنی بازار بی‌جهته"
+
     if SigEnum.is_long(signal) or SigEnum.is_short(signal):
         direction_fa = "صعودی" if SigEnum.is_long(signal) else "نزولی"
         lines.extend(
-            [f"جهت غالب {direction_fa}ه و {adx_fa} (ADX={adx:.0f}).", f"{adx_note}."]
+            [
+                f"جهت غالب {direction_fa}ه و {adx_fa} (ADX={adx:.0f}).",
+                f"{adx_note}.",
+            ]
         )
     else:
         if neutral_explain and neutral_explain.get("long"):
@@ -2880,8 +3154,12 @@ def build_analysis_paragraph(
     if override_reason:
         lines.extend(["", f"⚠️ {override_reason}"])
     lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # چرا این سیگنال؟
+    # ═══════════════════════════════════════════════════════════════
     if SigEnum.is_long(signal) or SigEnum.is_short(signal):
-        lines.extend([H("۲. چرا این سیگنال؟"), ""])
+        lines.extend([H(f"۲. چرا این سیگنال برای {strategy_fa}؟"), ""])
         GROUP_META = {
             "momentum": "مومنتوم",
             "trend": "روند",
@@ -2909,6 +3187,10 @@ def build_analysis_paragraph(
                 for reason in g_reasons[:2]:
                     lines.append(f"  {reason.strip()}")
                 lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # نظر گروه‌ها (جدول)
+    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("۳. نظر گروه‌ها"), ""])
     if votes_long > votes_short:
         summary = (
@@ -2950,10 +3232,18 @@ def build_analysis_paragraph(
             )
             lines.append(f"| {g_name} | {verdict} | {strength_txt} |")
         lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # واگرایی
+    # ═══════════════════════════════════════════════════════════════
     if divergence.get("has_divergence"):
         lines.extend([f"⚠️ واگرایی: {divergence.get('reason', '')}", ""])
     if multi_tf_info and multi_tf_info != "بدون بررسی":
         lines.extend([f"🎯 {multi_tf_info}", ""])
+
+    # ═══════════════════════════════════════════════════════════════
+    # عمق بازار
+    # ═══════════════════════════════════════════════════════════════
     ob = r_main.get("orderbook")
     if ob and ob.get("imbalance") is not None:
         lines.extend([H("۴. عمق بازار"), ""])
@@ -2978,6 +3268,10 @@ def build_analysis_paragraph(
                 f"• دیوار سفارش {'خرید' if wall['side'] == 'bid' else 'فروش'} در {wall['price']:,.2f} ({wall['ratio']:.1f}× حجم معمولی)"
             )
         lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # سطوح کلیدی
+    # ═══════════════════════════════════════════════════════════════
     r, s = safe_num(r_main.get("resistance")), safe_num(r_main.get("support"))
     if (r > 0 or s > 0) and price > 0:
         lines.extend([H("۵. سطوح کلیدی"), ""])
@@ -2988,16 +3282,7 @@ def build_analysis_paragraph(
                 if dist_r < 1.0
                 else ("متوسط" if dist_r < 3.0 else "دور")
             )
-            if is_tsetmc:
-                lines.append(
-                    f"🔴 **مقاومت:** {r:,.0f} ریال ({dist_r:+.2f}٪ — {proximity})"
-                )
-            elif is_iranian:
-                lines.append(
-                    f"🔴 **مقاومت:** {r:,.0f} تومان ({dist_r:+.2f}٪ — {proximity})"
-                )
-            else:
-                lines.append(f"🔴 **مقاومت:** {r:,.2f}$ ({dist_r:+.2f}٪ — {proximity})")
+            lines.append(f"🔴 **مقاومت:** {_fmt(r)} ({dist_r:+.2f}٪ — {proximity})")
         if s > 0:
             dist_s = (s - price) / price * 100
             proximity_s = (
@@ -3005,19 +3290,12 @@ def build_analysis_paragraph(
                 if abs(dist_s) < 1.0
                 else ("متوسط" if abs(dist_s) < 3.0 else "دور")
             )
-            if is_tsetmc:
-                lines.append(
-                    f"🟢 **حمایت:** {s:,.0f} ریال ({dist_s:+.2f}٪ — {proximity_s})"
-                )
-            elif is_iranian:
-                lines.append(
-                    f"🟢 **حمایت:** {s:,.0f} تومان ({dist_s:+.2f}٪ — {proximity_s})"
-                )
-            else:
-                lines.append(
-                    f"🟢 **حمایت:** {s:,.2f}$ ({dist_s:+.2f}٪ — {proximity_s})"
-                )
+            lines.append(f"🟢 **حمایت:** {_fmt(s)} ({dist_s:+.2f}٪ — {proximity_s})")
         lines.append("")
+
+    # ═══════════════════════════════════════════════════════════════
+    # سناریوها
+    # ═══════════════════════════════════════════════════════════════
     if scenarios:
         lines.extend([H("۶. سناریوهای پیش‌رو"), ""])
         for sc in scenarios[:3]:
@@ -3028,18 +3306,20 @@ def build_analysis_paragraph(
                     "",
                 ]
             )
+
+    # ═══════════════════════════════════════════════════════════════
+    # جمع‌بندی
+    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("جمع‌بندی"), ""])
     if SigEnum.is_long(signal) and confidence >= 85 and not active_traps:
-        lines.append(
-            "💎 **سیگنال طلایی!** — این فرصت نایابه. می‌تونی با اطمینان بالا وارد شی."
-        )
+        lines.append("💎 **سیگنال طلایی!** — این فرصت نایابه. با اطمینان بالا وارد شو.")
     elif SigEnum.is_long(signal) and confidence >= 70 and not active_traps:
         lines.append("✅ **می‌تونی وارد شی** — اطمینان بالا، تله‌ای نیست.")
         if r > 0 and (r - price) / price * 100 < 1.5:
-            lines.append(f"⚠️ ولی مقاومت {r:,.0f} نزدیکه — TP رو کمی پایین‌تر بذار.")
+            lines.append(f"⚠️ ولی مقاومت {_fmt(r)} نزدیکه — TP رو کمی پایین‌تر بذار.")
     elif SigEnum.is_long(signal) and active_traps:
         lines.append("🚨 **صبر کن** — تله فعاله. حتی با سیگنال LONG، الان نخر.")
-    elif SigEnum.is_long(signal) and confidence >= 50:
+    elif SigEnum.is_long(signal) and confidence >= 55:
         lines.append("⚠️ **با احتیاط وارد شو** — فقط با ۰.۵-۱٪ سرمایه.")
     elif SigEnum.is_long(signal):
         lines.append("🟡 **صبر کن** — سیگنال ضعیفه، احتمال خطا بالاست.")
@@ -3047,15 +3327,17 @@ def build_analysis_paragraph(
         lines.append("💎 **سیگنال طلایی فروش!** — این فرصت نایابه.")
     elif SigEnum.is_short(signal) and confidence >= 70:
         lines.append("🔴 **SHORT منطقیه** — ولی SL تنگ بذار، نوسان بالاست.")
-    elif SigEnum.is_short(signal) and confidence >= 50:
+    elif SigEnum.is_short(signal) and confidence >= 55:
         lines.append(
-            "🔴 **فروش (SHORT)** — جهت نزولی است، اما حد ضرر را نزدیک بگذار و مراقب برگشت‌های ناگهانی بازار باش."
+            "🔴 **فروش (SHORT)** — جهت نزولیه، اما حد ضرر رو نزدیک بذار و مراقب برگشت ناگهانی باش."
         )
     elif SigEnum.is_short(signal):
         lines.append("🟠 **صبر کن** — ریسک SHORT ضعیف بالاست.")
     else:
         if override_reason:
             lines.append("⏸ **وارد نشو** — رفتن خلاف روند قوی، پول سوزوندنه.")
+        elif "در حال تشکیل" in signal:
+            lines.append("⏳ **در حال تشکیل** — چند دقیقه صبر کن تا سیگنال کامل بشه.")
         else:
             lines.append(
                 "⏸ **بهترین معامله، معامله‌ای هست که انجام نشه.** صبر کن تا سیگنال واضح بیاد."

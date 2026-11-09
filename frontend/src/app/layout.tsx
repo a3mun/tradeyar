@@ -1,16 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Vazirmatn } from "next/font/google";
+import { Vazirmatn, Lalezar } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WebSocketProvider } from "@/lib/hooks/useWebSocket";
 import { SignalDataProvider } from "@/hooks/useSignalData";
 import "./globals.css";
 import { BottomNav } from "@/components/ui/bottom-nav";
-import { MaintenanceGuard } from "@/components/layout/MaintenanceGuard"; // ⬅️ اضافه شد
+import { MaintenanceGuard } from "@/components/layout/MaintenanceGuard";
 
 const vazirmatn = Vazirmatn({
   subsets: ["arabic", "latin"],
   variable: "--font-vazirmatn",
   display: "swap",
+  weight: ["400", "500", "700", "900"],
+});
+
+const lalezar = Lalezar({
+  subsets: ["arabic", "latin"],
+  variable: "--font-lalezar",
+  display: "swap",
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -42,9 +50,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fa" dir="rtl" className="dark">
-      <body className={`${vazirmatn.variable} font-sans antialiased bg-background text-foreground`}>
-        {/* ⬅️ MaintenanceGuard بیرونی‌ترین لایه است */}
+    <html lang="fa" dir="rtl" className={`dark ${vazirmatn.variable} ${lalezar.variable}`}>
+      <body className="font-sans antialiased bg-background text-foreground">
         <MaintenanceGuard>
           <WebSocketProvider>
             <SignalDataProvider>
@@ -55,7 +62,6 @@ export default function RootLayout({
             </SignalDataProvider>
           </WebSocketProvider>
         </MaintenanceGuard>
-
       </body>
     </html>
   );

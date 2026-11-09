@@ -395,7 +395,7 @@ export function TFTable() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <div>
-          <CardTitle className="text-sm">📊 تحلیل بر اساس تایم‌فریم</CardTitle>
+          <CardTitle className="text-sm font-display">📊 تحلیل بر اساس تایم‌فریم</CardTitle>
           <p className="text-[9px] text-muted-foreground">
             روی هر ردیف بزن تا تحلیل همون TF باز بشه
           </p>

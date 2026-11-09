@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════
-   Trademun — Global Styles (فاز ۱۲)
+   Trademun — Global Styles (فاز ۱۴.۸)
    ═══════════════════════════════════════════════════════════ */
 
 @theme {
   --font-sans: var(--font-vazirmatn), system-ui, sans-serif;
+  --font-display: var(--font-lalezar), var(--font-vazirmatn), system-ui, sans-serif;
 
   /* ─── رنگ‌های اصلی (تم سرمه‌ای-طلایی) ─── */
   --color-background: #07111f;
@@ -34,6 +35,14 @@
   --color-neutral: #eab308;
   --color-resistance: #ef4444;
   --color-support: #10b981;
+}
+
+/* ═══ utilities سفارشی ═══ */
+@layer utilities {
+  .font-display {
+    font-family: var(--font-lalezar), var(--font-vazirmatn), system-ui, sans-serif;
+    letter-spacing: 0.02em;
+  }
 }
 
 /* ═══ Base ═══ */

@@ -535,7 +535,7 @@ def analyze(
         try:
             tfs_one = {tf_name: result}
             items, pct, final, color = build_checklist_weighted(
-                tfs_one, main_tf=tf_name
+                tfs_one, main_tf=tf_name, strategy=strategy
             )
             output["checklist"] = {
                 "items": items,
