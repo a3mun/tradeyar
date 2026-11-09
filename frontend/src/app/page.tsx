@@ -78,7 +78,7 @@ export default function HomePage() {
   }, [router]);
 
   const { data } = useSignalData();
-  const { ticker, source, timeframe, marketType, riskProfile } = useAppStore();
+  const { ticker, source, timeframe, marketType, riskProfile, strategy } = useAppStore();
 
   const coherent = sourceSupportsPair(source, ticker);
 
@@ -150,7 +150,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:items-start">
             <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
               <div className="order-1 xl:order-none">
-                <SignalCard key={[ticker, source, timeframe, marketType, riskProfile].join("-")} />
+                <SignalCard key={[ticker, source, timeframe, marketType, riskProfile, strategy].join("-")} />
               </div>
               <div className="order-3 xl:order-none"><OrderBookPanel /></div>
               <div className="order-5 xl:order-none"><AIAnalysis /></div>
