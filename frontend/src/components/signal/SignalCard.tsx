@@ -551,8 +551,8 @@ export function SignalCard() {
     return () => {
       cancelled = true;
     };
-  }, [ticker, source, timeframe, capability.planned]);
-
+  }, [ticker, source, timeframe, strategy, capability.planned]);  // 🔴 strategy اضافه شد
+  
   const entryPrice = data?.price ?? 0;
   const livePrice = quote?.price ?? entryPrice ?? 0;
 
@@ -705,11 +705,24 @@ export function SignalCard() {
   const rr = data.rr;
 
   const displayChange = quote != null ? quote.change_pct : null;
-  const distToSl =
-    sl != null && livePrice > 0 ? ((livePrice - sl) / livePrice) * 100 : null;
-  const distToTp =
-    tp != null && livePrice > 0 ? ((tp - livePrice) / livePrice) * 100 : null;
 
+  // 🔴 فاز ۱۴.۷.۴ — درصد خالص از entry (هم‌راستا با TP Ladder)
+  const _entryForPct = data.suggested_entry ?? data.price;
+  const _fee = data.fee_pct ?? 0;
+  const _dirMult = data.direction === "short" ? -1 : 1;
+
+  const slNetPct = (() => {
+    if (sl == null || sl <= 0 || !_entryForPct || _entryForPct <= 0) return null;
+    const gross = ((sl - _entryForPct) / _entryForPct) * 100 * _dirMult;
+    return gross - _fee;
+  })();
+
+  const tp3NetPct = (() => {
+    if (tp == null || tp <= 0 || !_entryForPct || _entryForPct <= 0) return null;
+    const gross = ((tp - _entryForPct) / _entryForPct) * 100 * _dirMult;
+    return gross - _fee;
+  })();
+  
   const isDirectional =
     data.direction === "long" || data.direction === "short";
 
@@ -1184,10 +1197,10 @@ export function SignalCard() {
                   <div className="mt-0.5 text-[10px] font-bold text-red-500">
                     <CopyableNumber value={sl} />
                   </div>
-                  {distToSl != null && (
-                    <p className="num text-[8px] text-muted-foreground">
-                      {distToSl >= 0 ? "−" : "+"}
-                      {Math.abs(distToSl).toFixed(2)}%
+                  {slNetPct != null && (
+                    <p className="num text-[8px] text-red-500/80">
+                      {slNetPct >= 0 ? "+" : "−"}
+                      {Math.abs(slNetPct).toFixed(2)}%
                     </p>
                   )}
                 </div>
@@ -1219,10 +1232,10 @@ export function SignalCard() {
                   <div className="mt-0.5 text-[10px] font-bold text-green-500">
                     <CopyableNumber value={tp} />
                   </div>
-                  {distToTp != null && (
-                    <p className="num text-[8px] text-muted-foreground">
-                      {distToTp >= 0 ? "+" : "−"}
-                      {Math.abs(distToTp).toFixed(2)}%
+                  {tp3NetPct != null && (
+                    <p className="num text-[8px] text-green-500/80">
+                      {tp3NetPct >= 0 ? "+" : "−"}
+                      {Math.abs(tp3NetPct).toFixed(2)}%
                     </p>
                   )}
                 </div>

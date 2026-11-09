@@ -3,23 +3,21 @@
 /**
  * useSignalData — منبع حقیقت برای تحلیل نماد
  * ============================================================
- * نسخه ۲.۰ · فاز ۷
- * ⚠️ این فایل باید با پسوند .tsx باشد (به‌خاطر JSX در Provider)
+ * نسخه ۳.۰ · فاز ۱۴.۷.۴
+ * 🔴 تغییرات:
+ *   • حذف fetch مستقل (رفع تناقض با SignalCard)
+ *   • از tfDataCache (useAppStore) می‌خونه — هم‌راستا با SignalCard
+ *   • Zustand reactive (بدون polling)
+ *   • بدون useWebSocket.signal (حذف شد)
  */
 
 import {
   createContext,
   useContext,
-  useEffect,
-  useState,
-  useRef,
+  useMemo,
   type ReactNode,
 } from "react";
-import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
-import { useWebSocket } from "@/lib/hooks/useWebSocket";
-import { useAnalysisCapability } from "@/lib/hooks/useAnalysisCapability";
-import { sourceSupportsPair } from "@/lib/sources";
 import type { AnalyzeResponse } from "@/lib/types";
 
 interface SignalDataState {
@@ -35,89 +33,36 @@ const SignalDataContext = createContext<SignalDataState>({
 });
 
 export function SignalDataProvider({ children }: { children: ReactNode }) {
-  const { ticker, tickerName, source, timeframe, marketType, riskProfile } =
-    useAppStore();
-  const capability = useAnalysisCapability(source);
-  const { signal: wsSignal } = useWebSocket();
+  const timeframe = useAppStore((s) => s.timeframe);
+  const getTfData = useAppStore((s) => s.getTfData);
 
-  const [data, setData] = useState<AnalyzeResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // 🔴 Zustand reactive — هر تغییر tfDataCache → re-render
+  // (subscribe به tfDataCache، نه خودش)
+  const tfDataCache = useAppStore((s) => s.tfDataCache);
 
-  const coherent = sourceSupportsPair(source, ticker);
-  const currentKeyRef = useRef<string>("");
+  // محاسبه data از cache (reactive)
+  const data = useMemo(() => {
+    // استفاده از getTfData برای اعتبار TTL و key
+    void tfDataCache; // ← trigger re-render
+    return getTfData(timeframe);
+  }, [timeframe, getTfData, tfDataCache]);
 
-  // ═══ ۱. بار اول: POST /analyze ═══
-  useEffect(() => {
-    const key = `${ticker}|${source}|${timeframe}|${marketType}|${riskProfile}`;
-    currentKeyRef.current = key;
-
-    if (!ticker || capability.planned || !coherent) {
-      setData(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    (async () => {
-      try {
-        const res = await api.post<AnalyzeResponse>("/analyze", {
-          ticker,
-          source,
-          timeframe,
-          market_type: marketType,
-          risk_profile: riskProfile,
-          ticker_name: tickerName,
-        });
-        if (cancelled || currentKeyRef.current !== key) return;
-        setData(res.data);
-      } catch {
-        if (cancelled || currentKeyRef.current !== key) return;
-        setData(null);
-        setError("دریافت تحلیل ناموفق بود");
-      } finally {
-        if (!cancelled && currentKeyRef.current === key) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    ticker,
-    tickerName,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    capability.planned,
-    coherent,
-  ]);
-
-  // ═══ ۲. WS signal → جایگزینی data ═══
-  useEffect(() => {
-    if (!wsSignal) return;
-    const sig = wsSignal as { ticker?: string };
-    if (sig.ticker && sig.ticker !== ticker) return;
-    setData(wsSignal as unknown as AnalyzeResponse);
-    setLoading(false);
-    setError(null);
-  }, [wsSignal, ticker]);
+  const value = useMemo<SignalDataState>(
+    () => ({
+      data,
+      loading: !data,
+      error: null,
+    }),
+    [data]
+  );
 
   return (
-    <SignalDataContext.Provider value={{ data, loading, error }}>
+    <SignalDataContext.Provider value={value}>
       {children}
     </SignalDataContext.Provider>
   );
 }
 
-// ═══ Hook مصرف‌کننده ═══
 export function useSignalData(): SignalDataState {
   return useContext(SignalDataContext);
 }

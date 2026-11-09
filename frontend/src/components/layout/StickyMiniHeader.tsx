@@ -3,13 +3,10 @@
 /**
  * StickyMiniHeader — کارت سیگنال (خلاصه‌ی SignalCard)
  * ============================================================
- * نسخه ۱.۳ · فاز ۷
- *
- * 🔴 تغییرات نسخه ۱.۳:
- *   • برگشت به حالت اسکرول (useScrollVisibility)
- *   • موقع اسکرول به پایین، از زیر Header اصلی میاد
- *   • موقع بالای صفحه، مخفی می‌شه
- *   • اسم: کارت سیگنال
+ * نسخه ۲.۰ · فاز ۱۴.۷.۴
+ * 🔴 تغییرات:
+ *   • حذف useWebSocket().signal (حذف شد)
+ *   • استفاده از tfDataCache (هم‌راستا با SignalCard)
  */
 
 import { TrendingUp, TrendingDown, Minus, ArrowUp } from "lucide-react";
@@ -17,22 +14,23 @@ import { useAppStore } from "@/store/useAppStore";
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
 import { useScrollVisibility } from "@/lib/hooks/useScrollVisibility";
 import { SOURCE_BY_KEY } from "@/lib/sources";
-import { formatNumber, signalColor } from "@/lib/display";
+import { formatNumber } from "@/lib/display";
 
 export function StickyMiniHeader() {
-  const { ticker, tickerName, source, timeframe } = useAppStore();
-  const { quote, signal, status: wsStatus } = useWebSocket();
+  const { ticker, tickerName, source, timeframe, getTfData } = useAppStore();
+  const { quote, status: wsStatus } = useWebSocket();
   const visible = useScrollVisibility(200);
 
-  
-  const displayPrice =
-    quote?.price ?? (signal?.price as number | undefined) ?? 0;
+  // 🔴 از cache مشترک بخون (هم‌راستا با SignalCard)
+  const signal = getTfData(timeframe);
+
+  const displayPrice = quote?.price ?? signal?.price ?? 0;
   const displayChange = quote?.change_pct ?? null;
 
   const meta = SOURCE_BY_KEY[source];
-  const sigText = (signal?.signal as string | undefined) ?? "";
-  const sigConf = (signal?.confidence as number | undefined) ?? 0;
-  const sigDir = (signal?.direction as string | undefined) ?? "neutral";
+  const sigText = signal?.signal ?? "";
+  const sigConf = signal?.confidence ?? 0;
+  const sigDir = signal?.direction ?? "neutral";
 
   const DirIcon =
     sigDir === "long" ? TrendingUp : sigDir === "short" ? TrendingDown : Minus;
@@ -66,7 +64,6 @@ export function StickyMiniHeader() {
         }`}
         aria-label="کارت سیگنال"
       >
-        {/* خط ۱ */}
         <div className="flex w-full items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {wsStatus === "connected" && (
@@ -106,7 +103,6 @@ export function StickyMiniHeader() {
           <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground/50" />
         </div>
 
-        {/* خط ۲ */}
         <div className="flex w-full items-center justify-between gap-2 text-[9px] leading-tight text-muted-foreground">
           <span className="num truncate">{ticker}</span>
           <span className="hidden items-center gap-1.5 sm:flex">
