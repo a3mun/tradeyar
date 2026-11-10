@@ -1,11 +1,11 @@
 """
 core/sources.py
-سوییچ خودکار بین منابع — نسخه ۳.۰ (فقط صرافی‌های ایرانی)
+سوییچ خودکار بین منابع — نسخه ۳.۱ (فقط صرافی‌های ایرانی)
 ============================================================
-تغییرات نسخه ۳.۰:
-  - اضافه bitpin, wallex
-  - حذف global (yfinance)
-  - سوییچ خودکار بین نوبیتکس/بیت‌پین/والکس
+🔴 تغییرات نسخه ۳.۱ (فاز ۱۴.۹.۵):
+  • supports_analysis در get_source_info
+  • source_supports_analysis() helper
+  • tabdeal → supports_analysis=False
 """
 
 import logging
@@ -125,11 +125,12 @@ def get_default_symbol_for_source(source: str) -> str:
 
 def get_source_info(source: str) -> dict:
     """
-    اطلاعات منبع — شامل وضعیت «به‌زودی».
+    اطلاعات منبع — شامل وضعیت «به‌زودی» و پشتیبانی تحلیل.
 
-    Returns:
-        dict با ``icon``, ``short_name``, ``full_name`` و
-        ``planned`` (آیا هنوز پیاده‌سازی نشده).
+    🔴 فاز ۱۴.۹.۵:
+      • supports_analysis — آیا OHLCV دارد (قابل تحلیل)؟
+        → tabdeal: False (فقط قیمت + عمق بازار)
+        → بقیه: True
     """
     if is_planned_source(source):
         return {
@@ -143,6 +144,7 @@ def get_source_info(source: str) -> dict:
             "full_name": "به‌زودی",
             "planned": True,
             "active": False,
+            "supports_analysis": False,
         }
 
     info = {
@@ -150,32 +152,53 @@ def get_source_info(source: str) -> dict:
             "icon": "🟣",
             "short_name": "نوبیتکس",
             "full_name": "نوبیتکس",
+            "supports_analysis": True,
         },
         "bitpin": {
             "icon": "🟢",
             "short_name": "بیت‌پین",
             "full_name": "بیت‌پین",
+            "supports_analysis": True,
         },
         "wallex": {
             "icon": "🔵",
             "short_name": "والکس",
             "full_name": "والکس",
+            "supports_analysis": True,
         },
         "tabdeal": {
             "icon": "🟠",
             "short_name": "تبدیل",
-            "full_name": "تبدیل (قیمت و عمق بازار)",
+            "full_name": "تبدیل (فقط قیمت و عمق بازار)",
+            "supports_analysis": False,
         },
         "tsetmc": {
             "icon": "🇮🇷",
             "short_name": "بورس تهران",
             "full_name": "بورس تهران",
+            "supports_analysis": True,
         },
-    }.get(source, {"icon": "•", "short_name": "—", "full_name": "—"})
+    }.get(
+        source,
+        {
+            "icon": "•",
+            "short_name": "—",
+            "full_name": "—",
+            "supports_analysis": False,
+        },
+    )
 
     info.setdefault("planned", False)
     info.setdefault("active", True)
+    info.setdefault("supports_analysis", False)
     return info
+
+
+def source_supports_analysis(source: str) -> bool:
+    """
+    🔴 فاز ۱۴.۹.۵ — آیا این صرافی OHLCV دارد (قابل تحلیل)؟
+    """
+    return bool(get_source_info(source).get("supports_analysis", False))
 
 
 def get_all_sources_info() -> list[dict]:
@@ -183,7 +206,7 @@ def get_all_sources_info() -> list[dict]:
     لیست همه‌ی منابع با وضعیتشان — برای پر کردن SettingsPanel.
 
     Returns:
-        list از ``{"value", "icon", "label", "planned", "active"}``
+        list از ``{"value", "icon", "label", "planned", "active", "supports_analysis"}``
     """
     from .contracts import DataSource
 
@@ -200,6 +223,7 @@ def get_all_sources_info() -> list[dict]:
                 "full_name": info["full_name"],
                 "planned": info["planned"],
                 "active": info["active"],
+                "supports_analysis": info["supports_analysis"],  # 🔴 جدید
             }
         )
     return items
@@ -213,4 +237,5 @@ __all__ = [
     "get_default_symbol_for_source",
     "get_source_info",
     "get_all_sources_info",
+    "source_supports_analysis",
 ]

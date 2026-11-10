@@ -2,14 +2,14 @@
 services/signal_recorder.py
 ثبت خودکار سیگنال در دیتابیس
 ============================================================
-نسخه ۷.۰ · فاز ۱۴.۷.۱
+نسخه ۷.۱ · فاز ۱۴.۹.۴
 🔴 تغییرات:
-  • strategy در dedup_key → هر استراتژی جدا ثبت می‌شود
-  • tp_levels_json ذخیره می‌شود
-  • timeout_planned_min ذخیره می‌شود (برای دیباگ)
-  • MIN_CONFIDENCE_TO_RECORD → پویا بر اساس استراتژی
-  • cooldown از strategies.py (per-strategy)
-  • cooldown فقط برای همان جهت + همان استراتژی
+  • STRONG_CONFIDENCE_BYPASS پویا بر اساس استراتژی
+    → اسکالپ: 50 (چون R:R در TF پایین طبیعتاً پایینه)
+    → سوئینگ: 70
+    → پوزیشن: 75
+  • min_conf_to_record برای اسکالپ نرم‌تر
+  • strategy در dedup_key (از قبل)
 """
 
 import json
@@ -25,7 +25,7 @@ from core.contracts import Signal as SigEnum
 from core.strategies import (
     get_strategy,
     get_cooldown_minutes,
-    get_min_confidence,  # 🔴 جدید
+    get_min_confidence,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,9 +43,19 @@ _TF_MINUTES: dict[str, int] = {
 }
 
 _TF_SKIP_FOR_IRT = frozenset({"۱ دقیقه"})
-# 🔴 فاز ۱۴.۷.۳ — از 40 به 30 (هم‌راستا با آسان‌ترین ترکیب: جسورانه+اسکالپ)
 MIN_CONFIDENCE_FLOOR = 30
-STRONG_CONFIDENCE_BYPASS = 70
+
+
+def _get_strong_bypass(strategy: str) -> int:
+    """
+    🔴 فاز ۱۴.۹.۴ — آستانه‌ی bypass برای is_worthwhile=False.
+    اسکالپ در TF پایین همیشه R:R پایین داره، پس نباید ۷۰٪ بخواد.
+    """
+    if strategy == "scalp":
+        return 50
+    elif strategy == "position":
+        return 75
+    return 70  # swing
 
 
 def _utcnow() -> datetime:
@@ -63,9 +73,6 @@ def _signal_base(signal: str) -> str:
 def _dedup_key_simple(
     ticker, tf_name, signal, source, market_type, risk_profile, strategy
 ) -> str:
-    """
-    🔴 dedup_key شامل strategy → هر استراتژی جدا ثبت می‌شود.
-    """
     return "|".join(
         [
             ticker,
@@ -121,10 +128,6 @@ def _has_recent_same_direction_signal(
     strategy,
     cooldown_min: int,
 ) -> bool:
-    """
-    🔴 cooldown فقط برای **همان جهت** + **همان استراتژی**.
-    اگر سیگنال تغییر جهت داد (LONG → SHORT)، بلاک نمی‌شود.
-    """
     cutoff = _utcnow() - timedelta(minutes=cooldown_min)
 
     existing = session.exec(
@@ -135,7 +138,7 @@ def _has_recent_same_direction_signal(
         .where(SignalLog.tf == tf_name)
         .where(SignalLog.market_type == market_type)
         .where(SignalLog.risk_profile == risk_profile)
-        .where(SignalLog.strategy == strategy)  # 🆕 فاز ۱۴.۷.۱
+        .where(SignalLog.strategy == strategy)
         .where(SignalLog.timestamp >= cutoff)
     ).first()
     return existing is not None
@@ -150,7 +153,7 @@ def record_signal(
     source: str = "nobitex",
     market_type: str = "futures",
     risk_profile: str = "aggressive",
-    strategy: str = "swing",  # 🆕 فاز ۱۴.۷.۱
+    strategy: str = "swing",
     sl_tp: dict | None = None,
     direction: str = "neutral",
     confidence: int = 0,
@@ -177,18 +180,26 @@ def record_signal(
     suggested_entry: float | None = None,
     suggested_entry_method: str | None = None,
     suggested_entry_distance_pct: float | None = None,
-    tp_levels: dict | None = None,  # 🆕 فاز ۱۴.۷.۱
-    timeout_planned_min: int | None = None,  # 🆕 فاز ۱۴.۷.۱
+    tp_levels: dict | None = None,
+    timeout_planned_min: int | None = None,
 ) -> bool:
 
-    # 🔴 فاز ۱۴.۷.۳ — min_conf_to_record پویا (استراتژی + ریسک)
+    # 🔴 فاز ۱۴.۹.۴ — min_conf_to_record پویا
     strategy_min_conf = get_min_confidence(strategy, risk_profile)
-    min_conf_to_record = max(MIN_CONFIDENCE_FLOOR, strategy_min_conf)
+    if strategy == "scalp":
+        # اسکالپ: floor=25 (چون min_conf=30 ولی برای ثبت 25 کافیه)
+        min_conf_to_record = max(25, strategy_min_conf - 5)
+    else:
+        min_conf_to_record = max(MIN_CONFIDENCE_FLOOR, strategy_min_conf)
+
+    # 🔴 فاز ۱۴.۹.۴ — bypass پویا
+    strong_bypass = _get_strong_bypass(strategy)
 
     logger.info(
         f"[Recorder] 🔍 trying: {ticker} {tf_name} strategy={strategy} "
         f"signal={signal} conf={confidence}% (min={min_conf_to_record}%) "
-        f"direction={direction} is_worthwhile={is_worthwhile}"
+        f"direction={direction} is_worthwhile={is_worthwhile} "
+        f"(bypass={strong_bypass}%)"
     )
 
     # ═══ چک‌های اولیه ═══
@@ -213,17 +224,18 @@ def record_signal(
         logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: price={price} نامعتبر")
         return False
 
-    # استثنا برای سیگنال قوی
+    # استثنا برای سیگنال قوی (پویا بر اساس استراتژی)
     if is_worthwhile is False:
-        if confidence < STRONG_CONFIDENCE_BYPASS:
+        if confidence < strong_bypass:
             logger.info(
                 f"[Recorder] ⏭ {ticker} {tf_name}: is_worthwhile=False "
-                f"(R:R پایین) — conf={confidence}% < {STRONG_CONFIDENCE_BYPASS}%"
+                f"(R:R پایین) — conf={confidence}% < {strong_bypass}% "
+                f"(استراتژی={strategy})"
             )
             return False
         logger.warning(
             f"[Recorder] ⚠️ {ticker} {tf_name}: is_worthwhile=False ولی "
-            f"conf={confidence}% ≥ {STRONG_CONFIDENCE_BYPASS}% — ثبت با هشدار"
+            f"conf={confidence}% ≥ {strong_bypass}% — ثبت با هشدار (استراتژی={strategy})"
         )
 
     if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
@@ -250,7 +262,6 @@ def record_signal(
                 active_trap = key
                 break
 
-    # 🆕 serialize tp_levels به JSON
     tp_levels_json = None
     if tp_levels:
         try:
@@ -275,7 +286,7 @@ def record_signal(
         "tf": tf_name,
         "market_type": market_type,
         "risk_profile": risk_profile,
-        "strategy": strategy,  # 🆕
+        "strategy": strategy,
         "had_trap": bool(active_trap),
         "trap_type": active_trap,
         "dedup_key": dedup,
@@ -305,13 +316,12 @@ def record_signal(
             if suggested_entry_distance_pct is not None
             else None
         ),
-        "tp_levels_json": tp_levels_json,  # 🆕
-        "timeout_planned_min": timeout_planned_min,  # 🆕
+        "tp_levels_json": tp_levels_json,
+        "timeout_planned_min": timeout_planned_min,
     }
 
     try:
         with Session(engine) as session:
-            # ═══ cooldown بر اساس استراتژی ═══
             cooldown_min = get_cooldown_minutes(strategy, tf_name)
             if _has_recent_same_direction_signal(
                 session,
@@ -330,7 +340,6 @@ def record_signal(
                 )
                 return False
 
-            # ═══ insert ═══
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:

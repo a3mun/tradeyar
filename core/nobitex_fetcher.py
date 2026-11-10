@@ -32,7 +32,7 @@ from .utils import safe_num
 # تنظیمات
 # ═══════════════════════════════════════════════════════════
 NOBITEX_BASE = "https://apiv2.nobitex.ir"
-NOBITEX_TIMEOUT = 15
+NOBITEX_TIMEOUT = 3  # 🔴 فاز ۱۴.۹.۵ — از 15 به 3 (سریع‌تر fallback)
 
 HEADERS = {
     "User-Agent": (

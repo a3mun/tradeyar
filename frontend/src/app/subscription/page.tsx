@@ -10,7 +10,7 @@ import {
   Zap, Gift, Check, CreditCard, Wallet, Sparkles, Clock, Info, LayoutDashboard, ArrowRight
 } from "lucide-react";
 import { Header } from "@/components/layout/Header";
-import { Footer } from "@/components/layout/Footer";
+import { PublicFooter } from "@/components/layout/PublicFooter";
 import { getToken } from "@/lib/auth";
 import Link from "next/link";
 
@@ -461,7 +461,7 @@ export default function SubscriptionPage() {
         </motion.div>
 
       </main>
-      <Footer />
+      <PublicFooter />
     </div>
   );
 }

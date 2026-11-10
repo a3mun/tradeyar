@@ -44,6 +44,19 @@ def _clean_limits():
     reset_rate_limits()
 
 
+@pytest.fixture(autouse=True)
+def _clear_multi_cache():
+    """🔴 فاز ۱۴.۹.۵ — پاک کردن cache /analyze/multi قبل از هر تست"""
+    try:
+        from services.analyzer_service import _multi_cache, _multi_cache_lock
+
+        with _multi_cache_lock:
+            _multi_cache.clear()
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture
 def client():
     transport = httpx.ASGITransport(app=app)

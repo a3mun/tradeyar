@@ -157,9 +157,7 @@ def auto_scan_and_record(trigger: str = "scheduler"):
                 except Exception as e:
                     logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
                     total_errors += 1
-                import time
-
-                time.sleep(0.5)
+                # 🔴 فاز ۱۴.۹.۵ — sleep حذف شد (timeout کوتاه خودش rate limit رو مدیریت می‌کنه)
         logger.info(
             f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از {len(exchange_fixed)} نماد × {len(timeframes)} TF (خطا: {total_errors})"
         )

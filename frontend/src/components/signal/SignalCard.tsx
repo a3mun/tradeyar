@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * SignalCard — کارت سیگنال (نسخه ۱۴.۷.۳ · فاز ۱۴.۷.۲)
+ * SignalCard — کارت سیگنال (نسخه ۱۴.۹.۱ · رفع باگ پرش)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۴.۷.۳:
- *   • از tfDataCache می‌خونه (sync فوری با TFTable)
- *   • fetch فقط اگر cache تازه نیست
- *   • بعد از fetch موفق → setTfData برای sync
- *   • fee_pct بدون ×۲
- *   • session داخل کامپوننت
+ * 🔴 تغییرات نسخه ۱۴.۹.۱:
+ *   • رفع باگ پرش: در useEffect اول، فوراً setData(null)
+ *   • رفع ناهماهنگی SignalCard/TFTable: fetch یکسان
+ *   • کلید استراتژی در fetch برای جلوگیری از race
+ *   • حذف setData(cached) تکراری (فقط در صورت تازه بودن)
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -54,8 +53,8 @@ import { CopyableNumber } from "@/components/ui/copyable-number";
 
 import {
   getConfidenceLevel,
-  getStrategyMinConf,  // 🔴 جدید
-  isSignalActive,      // 🔴 جدید
+  getStrategyMinConf,
+  isSignalActive,
   type ConfidenceLevel,
 } from "@/lib/thresholds";
 
@@ -361,7 +360,7 @@ const GOLDEN_STYLES = `
 `;
 
 export function SignalCard() {
-  const {
+    const {
     ticker,
     tickerName,
     source,
@@ -414,18 +413,10 @@ export function SignalCard() {
     return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
   })();
 
-  // 🔴 فاز ۱۴.۷.۳ — reset روی تغییر تنظیمات
+  // 🔴 فاز ۱۴.۹.۱ — reset فوری روی تغییر تنظیمات (رفع باگ پرش)
+  // مهم: اول reset، بعد cache
   useEffect(() => {
-    const cached = getTfData(timeframe);
-    if (cached) {
-      // ✅ cache تازه → فوری نشون بده، بدون fetch
-      setData(cached);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
-    // ❌ cache نیست → fetch
+    // ۱. reset کامل (پاک کردن داده قبلی قبل از fetch)
     setData(null);
     setError(null);
     setSparklineSeries([]);
@@ -434,9 +425,20 @@ export function SignalCard() {
     animRef.current = 0;
     setAnimPrice(0);
     lastGoldenKeyRef.current = "";
+
+    // ۲. cache تازه؟ → فوری نشون بده، بدون fetch
+    const cached = getTfData(timeframe);
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+      return;
+    }
+
+    // ۳. cache نیست → fetch (useEffect بعدی)
+    setLoading(true);
   }, [strategy, ticker, timeframe, marketType, riskProfile, getTfData]);
 
-  // 🔴 فاز ۱۴.۷.۳ — fetch (اگر cache نداریم)
+  // 🔴 فاز ۱۴.۹.۱ — fetch (فقط اگه cache نبود)
   useEffect(() => {
     if (!ticker) return;
     if (capability.planned || !sourceSupportsPair(source, ticker)) {
@@ -452,7 +454,7 @@ export function SignalCard() {
       };
     }
 
-    // اگر cache تازه هست → skip fetch
+    // اگر cache تازه هست → skip fetch (چون useEffect بالا setData کرد)
     const cached = getTfData(timeframe);
     if (cached) return;
 
@@ -477,7 +479,7 @@ export function SignalCard() {
         if (cancelled) return;
         setData(res.data);
         setError(null);
-        // 🔴 sync با TFTable
+        // sync با TFTable
         setTfData(timeframe, res.data);
       } catch (err: unknown) {
         if (cancelled) return;
@@ -551,8 +553,8 @@ export function SignalCard() {
     return () => {
       cancelled = true;
     };
-  }, [ticker, source, timeframe, strategy, capability.planned]);  // 🔴 strategy اضافه شد
-  
+  }, [ticker, source, timeframe, strategy, capability.planned]);
+
   const entryPrice = data?.price ?? 0;
   const livePrice = quote?.price ?? entryPrice ?? 0;
 
@@ -706,7 +708,6 @@ export function SignalCard() {
 
   const displayChange = quote != null ? quote.change_pct : null;
 
-  // 🔴 فاز ۱۴.۷.۴ — درصد خالص از entry (هم‌راستا با TP Ladder)
   const _entryForPct = data.suggested_entry ?? data.price;
   const _fee = data.fee_pct ?? 0;
   const _dirMult = data.direction === "short" ? -1 : 1;
@@ -722,7 +723,7 @@ export function SignalCard() {
     const gross = ((tp - _entryForPct) / _entryForPct) * 100 * _dirMult;
     return gross - _fee;
   })();
-  
+
   const isDirectional =
     data.direction === "long" || data.direction === "short";
 
@@ -731,7 +732,6 @@ export function SignalCard() {
     isDirectional
   );
 
-  // 🔴 فاز ۱۴.۷.۳ — isActiveSignal بر اساس min_conf ترکیبی
   const isActiveSignal = isSignalActive(
     data.confidence || 0,
     data.direction || "neutral",
@@ -1331,7 +1331,6 @@ export function SignalCard() {
                     { label: "TP3", value: data.tp_levels.tp3 },
                   ].map(({ label, value }) => {
                     const entry = data.suggested_entry ?? data.price;
-                    // 🔴 فاز ۱۴.۷.۲ — fee_pct از backend خودش رفت‌وبرگشتیه
                     const feeRoundTrip = data.fee_pct ?? 0;
 
                     const grossPct =

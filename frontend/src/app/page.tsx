@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken, getUser } from "@/lib/auth";
 import { motion } from "framer-motion";
-import { Lock, CreditCard, LayoutDashboard, Home } from "lucide-react";
+import { Lock, CreditCard, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { Header } from "@/components/layout/Header";
@@ -22,20 +22,20 @@ import { PriceComparison } from "@/components/signal/PriceComparison";
 import { OrderBookPanel } from "@/components/signal/OrderBookPanel";
 import { WatchlistCard } from "@/components/signal/WatchlistCard";
 import { Scanner } from "@/components/scan/Scanner";
-import { BacktestPanel } from "@/components/backtest/BacktestPanel";
+import { StatisticsBox } from "@/components/signal/StatisticsBox";
 import { SupportResistance } from "@/components/signal/SupportResistance";
 import { AIAnalysis } from "@/components/signal/AIAnalysis";
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 
 export default function HomePage() {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
-  // ⬅️ چک کردن لاگین و اشتراک
   useEffect(() => {
     const token = getToken();
     const user = getUser();
@@ -45,20 +45,17 @@ export default function HomePage() {
       return;
     }
 
-    // ادمین‌ها همیشه دسترسی دارن
     if (user.is_admin) {
       setHasAccess(true);
       setIsChecking(false);
       return;
     }
 
-    // چک کردن اشتراک
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
     fetch(`${apiUrl}/subscription/my`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.json())
       .then(data => {
         const sub = data.subscription;
-        // ⬅️ تغییر: چک هم status هم end_date (defense in depth)
         const endDate = sub?.end_date ? new Date(sub.end_date) : null;
         const now = new Date();
         const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
@@ -82,7 +79,6 @@ export default function HomePage() {
 
   const coherent = sourceSupportsPair(source, ticker);
 
-  // ⬅️ در حال چک کردن
   if (isChecking) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#07111f]">
@@ -91,7 +87,6 @@ export default function HomePage() {
     );
   }
 
-  // ⬅️ کاربر بدون اشتراک: صفحه اصلی بمونه، ولی کارت خرید اشتراک ببینه
   if (!hasAccess) {
     return (
       <div className="min-h-screen bg-[#07111f] text-white">
@@ -153,10 +148,46 @@ export default function HomePage() {
                 <SignalCard key={[ticker, source, timeframe, marketType, riskProfile, strategy].join("-")} />
               </div>
               <div className="order-3 xl:order-none"><OrderBookPanel /></div>
-              <div className="order-5 xl:order-none"><AIAnalysis /></div>
-              <div className="order-7 xl:order-none"><DeepAnalysis /></div>
+
+              {/* 🔴 مشاور هوشمند */}
+              <div className="order-5 xl:order-none">
+                <CollapsibleSection
+                  id="ai-analysis"
+                  title="مشاور هوشمند"
+                  icon="🧠"
+                  subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
+                  accentColor="#a78bfa"
+                >
+                  <AIAnalysis />
+                </CollapsibleSection>
+              </div>
+
+              {/* 🔴 تحلیل و چرایی */}
+              <div className="order-7 xl:order-none">
+                <CollapsibleSection
+                  id="deep-analysis"
+                  title="تحلیل عمیق تکنیکالی"
+                  icon="💬"
+                  subtitle="توضیح مفصل سیگنال — کلیک کن تا باز بشه"
+                  accentColor="#60a5fa"
+                >
+                  <DeepAnalysis />
+                </CollapsibleSection>
+              </div>
+
+              {/* 🔴 اسکنر فرصت‌ها — کشویی */}
               <div className="order-9 xl:order-none">
-                {coherent ? <Scanner /> : (
+                {coherent ? (
+                  <CollapsibleSection
+                    id="scanner"
+                    title="اسکنر فرصت‌ها"
+                    icon="🔍"
+                    subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
+                    accentColor="#d6ad60"
+                  >
+                    <Scanner />
+                  </CollapsibleSection>
+                ) : (
                   <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
                     ⚠️ اسکنر برای این جفت (صرافی، نماد) فعال نیست.
                   </div>
@@ -172,13 +203,47 @@ export default function HomePage() {
                   <SupportResistance />
                 </div>
               </div>
+
+              {/* 🔴 چک‌لیست */}
               {data?.checklist?.items && data.checklist.items.length > 0 && (
                 <div className="order-6 xl:order-none">
-                  <Checklist data={data.checklist} />
+                  <CollapsibleSection
+                    id="checklist"
+                    title="چک‌لیست شرایط"
+                    icon="✅"
+                    subtitle="بررسی نهایی شرایط — کلیک کن تا باز بشه"
+                    accentColor="#22c55e"
+                  >
+                    <Checklist data={data.checklist} />
+                  </CollapsibleSection>
                 </div>
               )}
-              <div className="order-8 xl:order-none"><PriceComparison /></div>
-              <div className="order-10 xl:order-none"><BacktestPanel /></div>
+
+              {/* 🔴 مقایسه قیمت — کشویی */}
+              <div className="order-8 xl:order-none">
+                <CollapsibleSection
+                  id="price-comparison"
+                  title="مقایسه قیمت صرافی‌ها"
+                  icon="💰"
+                  subtitle="قیمت لحظه‌ای ۴ صرافی — کلیک کن تا باز بشه"
+                  accentColor="#d6ad60"
+                >
+                  <PriceComparison />
+                </CollapsibleSection>
+              </div>
+
+              {/* 🔴 آمار عملکرد */}
+              <div className="order-10 xl:order-none">
+                <CollapsibleSection
+                  id="statistics"
+                  title="آمار عملکرد"
+                  icon="📊"
+                  subtitle="خلاصه‌ی win rate و R:R — کلیک کن تا باز بشه"
+                  accentColor="#f59e0b"
+                >
+                  <StatisticsBox />
+                </CollapsibleSection>
+              </div>
             </div>
           </div>
         </main>

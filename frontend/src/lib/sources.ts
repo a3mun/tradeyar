@@ -93,9 +93,9 @@ unsupportedTfs: ["۳۰ دقیقه"],
     hasOhlcv: false,
     hasUsdt: true,
     hasIrt: true,
-    note: "بدون کندل عمومی — قیمت و عمق بازار از خودش، تحلیل از صرافی دیگر",
+    note: "فقط قیمت و عمق بازار — تحلیل ندارد",  // 🔴 آپدیت
   },
-  {
+{
     value: "tsetmc",
     label: "بورس",
     icon: "🇮🇷",
@@ -225,6 +225,11 @@ export function sourceHasAnalysis(source: string): boolean {
   return SOURCE_BY_KEY[source]?.hasOhlcv ?? true;
 }
 
+/** 🔴 فاز ۱۴.۹.۵ — آیا این صرافی تحلیل OHLCV دارد؟ */
+export function sourceSupportsAnalysis(source: string): boolean {
+  return SOURCE_BY_KEY[source]?.hasOhlcv ?? false;
+}
+
 /** چک: آیا این صرافی فعال است؟ */
 export function isActiveSource(source: string): boolean {
   return SOURCE_BY_KEY[source]?.active ?? false;
@@ -248,6 +253,9 @@ export function sourceSupportsPair(source: string, ticker: string): boolean {
   const meta = SOURCE_BY_KEY[source];
   if (!meta || meta.planned) return false;
   if (!ticker) return false;
+  // 🔴 فاز ۱۴.۹.۵ — tabdeal تحلیل ندارد (فقط quote)
+  // این چک برای sourceSupportsPair در کامپوننت‌های تحلیل استفاده می‌شود
+  // در fetch_quote، از QUOTE_SOURCE_META استفاده می‌شود که tabdeal دارد.
 
   const upper = ticker.toUpperCase();
   const isUsdt = upper.endsWith("-USD") || upper.endsWith("-USDT");

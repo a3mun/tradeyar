@@ -1,16 +1,12 @@
 """
 core/analyzer.py
-موتور تحلیل تکنیکال — نسخه ۱۲.۱ (فاز ۱۲.۶ — ai_export خام)
+موتور تحلیل تکنیکال — نسخه ۱۲.۲.۱ (فاز ۱۴.۹ — رفع باگ اسکالپ + Pylance)
 ============================================================
-🔴 تغییرات نسخه ۱۲.۱:
-  ۱. MIN_CONF_TO_SHOW = 25 (نمایش «ضعیف» از ۲۵٪)
-  ۲. TF_CONFIDENCE_OFFSET — آستانه دینامیک per TF
-  ۳. TF_RR_PROFILES — R:R خام per TF (۱.۸۳ تا ۲.۳۳)
-  ۴. TF_MIN_SL_PCT — حداقل فاصله SL per TF (بالاتر)
-  ۵. _determine_signal — منطق «جهت + قدرت» جدا
-  ۶. _is_boring_market — خنثی فقط وقتی بازار خوابه
-  ۷. رفع باگ cmf (UnboundLocalError)
-  ۸. ai_export واقعاً خام (OHLCV کامل + بدون جهت‌گیری)
+🔴 تغییرات نسخه ۱۲.۲.۱:
+  ۱. رفع باگ min_conf: حذف max(strategy_min_conf, profile_min_conf)
+  ۲. _compute_confidence با پارامتر strategy (agreement پویا)
+  ۳. تعریف strategy_cfg در ابتدای analyze_symbol (رفع خطای Pylance)
+  ۴. حذف لاگ‌های اضافی برای سرعت
 """
 
 import logging
@@ -23,17 +19,16 @@ import pandas_ta_classic as ta
 from .strategies import (
     get_strategy,
     get_strategy_timeout,
-    get_min_confidence,  # 🔴 جدید
-    get_min_votes,  # 🔴 جدید
-    get_strong_trend_threshold,  # 🔴 جدید
+    get_min_confidence,
+    get_min_votes,
+    get_strong_trend_threshold,
 )
 from .pump_detector import detect_pump_dump
 from .suggested_entry import compute_suggested_entry
 
 logger = logging.getLogger(__name__)
 
-# 🔴 نسخه analyzer
-ANALYZER_VERSION = "12.1.1"
+ANALYZER_VERSION = "12.2.1"
 
 from .contracts import (
     Signal as SigEnum,
@@ -48,7 +43,7 @@ from .pre_breakout import detect_pre_breakout
 from .utils import safe_num
 
 # ═══════════════════════════════════════════════════════════
-# ثابت‌های جدید (فاز ۱۲.۱)
+# ثابت‌ها
 # ═══════════════════════════════════════════════════════════
 MIN_CONF_TO_SHOW = 25
 
@@ -61,7 +56,6 @@ TF_CONFIDENCE_OFFSET = {
     "روزانه": +10,
 }
 
-# 🔴 پروفایل R:R per TF
 TF_RR_PROFILES = {
     "۱ دقیقه": {"sl_mult": 1.2, "tp_mult": 1.2},
     "۵ دقیقه": {"sl_mult": 1.3, "tp_mult": 1.5},
@@ -664,13 +658,9 @@ def _analyze_trend(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
     ema50 = safe_num(last.get("ema50"))
     ema20 = safe_num(last.get("ema20"))
 
-    # 🔴 فاز A — اصلاح EMA200: موقعیت قیمت رأی اصلی، شیب فقط بونوس
-    # نسخه قبلی نیاز به شیب هم‌جهت داشت → در بازار رنج با روند خفیف، رأی صفر
-    # نسخه JS فقط price vs ema200 را چک می‌کند (ساده‌تر و درست‌تر)
     if not np.isnan(ema200) and ema200 > 0:
         prev_ema200 = safe_num(df["ema200"].iloc[-2]) if len(df) > 1 else ema200
         if price > ema200:
-            # قیمت بالای EMA200 = صعودی، شیب صعودی = بونوس
             slope_bonus = 1.2 if ema200 > prev_ema200 else 1.0
             signals.append((+1.0, slope_bonus))
             if ema200 > prev_ema200:
@@ -1201,12 +1191,8 @@ def build_scenarios(
     direction="neutral",
     traps=None,
     ticker="",
-    strategy: str = "swing",  # 🔴 فاز ۱۴.۸.۱
+    strategy: str = "swing",
 ) -> list[dict]:
-    """
-    🔴 فاز ۱۴.۸.۱ — سناریوهای per-strategy.
-    هر استراتژی سناریوهای متفاوتی داره.
-    """
     scenarios = []
     if not groups:
         return scenarios
@@ -1232,15 +1218,11 @@ def build_scenarios(
     }
     strat_label = strategy_labels.get(strategy, "🌊 سوئینگ")
 
-    # ═══════════════════════════════════════════════════════════════
-    # سناریوهای اسکالپ (سریع، نوسان‌گیری)
-    # ═══════════════════════════════════════════════════════════════
     if strategy == "scalp":
         if atr > 0 and price > 0:
-            # حرکت ATR محور
             if direction == "long":
                 sl = price - atr * 1.2
-                tp = price + atr * 1.2 * 0.7  # tp_multiplier=0.7
+                tp = price + atr * 1.2 * 0.7
                 scenarios.append(
                     {
                         "condition": f"اگه حجم تأیید کنه و قیمت بالای {_fmt(price + atr * 0.5)} بمونه",
@@ -1266,7 +1248,6 @@ def build_scenarios(
                         "strategy": "scalp",
                     }
                 )
-        # سناریو همیشه پر باشه
         if len(scenarios) < 2:
             scenarios.append(
                 {
@@ -1280,11 +1261,7 @@ def build_scenarios(
                 }
             )
 
-    # ═══════════════════════════════════════════════════════════════
-    # سناریوهای سوئینگ (میان‌مدت)
-    # ═══════════════════════════════════════════════════════════════
     elif strategy == "swing":
-        # شکست مقاومت با تأیید حجم
         if resistance > 0 and price > 0:
             dist_r = (resistance - price) / price * 100
             if dist_r < 2.0:
@@ -1311,7 +1288,6 @@ def build_scenarios(
                         "strategy": "swing",
                     }
                 )
-        # پولبک به حمایت
         if support > 0 and price > 0:
             dist_s = (price - support) / price * 100
             if dist_s < 3.0:
@@ -1339,15 +1315,11 @@ def build_scenarios(
                 }
             )
 
-    # ═══════════════════════════════════════════════════════════════
-    # سناریوهای پوزیشن (بلندمدت)
-    # ═══════════════════════════════════════════════════════════════
     elif strategy == "position":
         if atr > 0 and price > 0:
             if direction == "long":
-                # TP بازتر (tp_multiplier=1.2)
-                sl = price - atr * 1.8 * 1.2  # tf_sl_mult(1.8) × strategy_sl_mult(1.2)
-                tp = price + atr * 4.0 * 1.2  # tf_tp_mult(4.0) × strategy_tp_mult(1.2)
+                sl = price - atr * 1.8 * 1.2
+                tp = price + atr * 4.0 * 1.2
                 scenarios.append(
                     {
                         "condition": "اگه قیمت بالای EMA200 بمونه و شیب EMA200 صعودی باشه",
@@ -1373,7 +1345,6 @@ def build_scenarios(
                         "strategy": "position",
                     }
                 )
-        # سناریوی DCA (خرید پله‌ای)
         if support > 0 and direction == "long":
             scenarios.append(
                 {
@@ -1399,9 +1370,6 @@ def build_scenarios(
                 }
             )
 
-    # ═══════════════════════════════════════════════════════════════
-    # هشدار تله‌ها (مشترک برای همه استراتژی‌ها)
-    # ═══════════════════════════════════════════════════════════════
     if traps and traps.get("fake_breakout", {}).get("active"):
         scenarios.append(
             {
@@ -1439,7 +1407,6 @@ def build_scenarios(
             }
         )
 
-    # حداقل ۲ سناریو
     if len(scenarios) < 2:
         scenarios.append(
             {
@@ -1453,7 +1420,6 @@ def build_scenarios(
             }
         )
 
-    # مرتب‌سازی با احتمال
     scenarios.sort(key=lambda x: -x["probability"])
     return scenarios[:3]
 
@@ -1461,9 +1427,6 @@ def build_scenarios(
 def _apply_trend_override(
     direction: str, aggregate: dict, groups: dict, regime: str, strategy: str = "swing"
 ) -> tuple[str, int, str]:
-    """
-    🔴 فاز ۱۴.۷.۳ — STRONG_TREND per-strategy.
-    """
     trend = groups.get("trend", {}) or {}
     trend_details = trend.get("details", {})
     trend_score = trend.get("score", 0.0)
@@ -1477,18 +1440,33 @@ def _apply_trend_override(
     trend_bull = trend_score >= STRONG_TREND and adx > 20 and dmp > dmn
     trend_bear = trend_score <= -STRONG_TREND and adx > 20 and dmn > dmp
 
+    # 🔴 فاز ۱۴.۹.۴: برای اسکالپ، بلاک نکن — فقط penalty
     if trend_bull and direction == "short":
+        if strategy == "scalp":
+            return (
+                direction,
+                30,
+                f"⚠️ SHORT خلاف روند صعودی — احتیاط (ADX={adx:.0f}, trend={trend_score:+.2f})",
+            )
         return (
             "neutral",
             0,
             f"🚫 SHORT بلاک شد — روند قوی صعودی (ADX={adx:.0f}, DI+ > DI-, STRONG_TREND={STRONG_TREND})",
         )
+
     if trend_bear and direction == "long":
+        if strategy == "scalp":
+            return (
+                direction,
+                30,
+                f"⚠️ LONG خلاف روند نزولی — احتیاط (ADX={adx:.0f}, trend={trend_score:+.2f})",
+            )
         return (
             "neutral",
             0,
             f"🚫 LONG بلاک شد — روند قوی نزولی (ADX={adx:.0f}, DI- > DI+, STRONG_TREND={STRONG_TREND})",
         )
+
     if trend_score >= MEDIUM_TREND and direction == "short":
         return direction, 25, "⚠️ روند صعودی متوسط ولی SHORT"
     if trend_score <= -MEDIUM_TREND and direction == "long":
@@ -1504,28 +1482,18 @@ def _aggregate_votes(
     market_type: str = "spot",
     tf_hint: str = "۵ دقیقه",
     strategy: str = "swing",
-    risk_profile: str = "aggressive",  # 🔴 پارامتر جدید
+    risk_profile: str = "aggressive",
 ) -> dict:
-
-    # ═══════════════════════════════════════════════════════════════
-    # 🔴 فاز C — وزن گروه‌ها = ترکیب وزن استراتژی + وزن رژیم
-    # ═══════════════════════════════════════════════════════════════
-    from .strategies import get_strategy
-
     strategy_cfg = get_strategy(strategy)
     strategy_weights = strategy_cfg.get("group_weights", {})
     regime_weights = _regime_weights(regime)
 
-    # ترکیب: میانگین وزنی (استراتژی + رژیم)
     weights = {}
     for group in ["momentum", "trend", "volume", "volatility", "structure"]:
         sw = strategy_weights.get(group, 1.0)
         rw = regime_weights.get(group, 1.0)
         weights[group] = (sw + rw) / 2.0
 
-    # ═══════════════════════════════════════════════════════════════
-    # جمع‌آوری آراء و امتیازات
-    # ═══════════════════════════════════════════════════════════════
     weighted_sum, total_weight = 0.0, 0.0
     votes_long, votes_short, votes_neutral = 0, 0, 0
     groups_summary = {}
@@ -1554,28 +1522,24 @@ def _aggregate_votes(
             "reasons": result.get("reasons", []),
         }
 
-    # ═══════════════════════════════════════════════════════════════
-    # امتیاز نهایی (با تعدیل رژیم)
-    # ═══════════════════════════════════════════════════════════════
     final_score = weighted_sum / total_weight if total_weight > 0 else 0.0
     if regime == "trend":
         final_score *= 1.2
     elif regime == "range":
         final_score *= 0.85
 
-    # ═══════════════════════════════════════════════════════════════
-    # پروفایل ریسک
-    # ═══════════════════════════════════════════════════════════════
     profile_key = f"{profile}_{market_type}"
     profile_cfg = RISK_PROFILES.get(
         profile_key,
         RISK_PROFILES.get(f"{profile}_spot", RISK_PROFILES["aggressive_spot"]),
     )
 
-    # ═══════════════════════════════════════════════════════════════
-    # جهت بر اساس weighted_sum (وزن‌ها واقعاً اثر می‌گذارند)
-    # ═══════════════════════════════════════════════════════════════
-    WEIGHTED_DIR_THRESHOLD = 0.15
+    # 🔴 فاز ۱۴.۹.۳: آستانه‌ی جهت‌گیری برای اسکالپ خیلی پایین‌تر
+    if strategy == "scalp":
+        WEIGHTED_DIR_THRESHOLD = 0.05
+    else:
+        WEIGHTED_DIR_THRESHOLD = 0.15
+
     if final_score > WEIGHTED_DIR_THRESHOLD:
         weighted_direction = "long"
     elif final_score < -WEIGHTED_DIR_THRESHOLD:
@@ -1583,9 +1547,6 @@ def _aggregate_votes(
     else:
         weighted_direction = "neutral"
 
-    # ═══════════════════════════════════════════════════════════════
-    # آستانه‌های رأی بر اساس TF
-    # ═══════════════════════════════════════════════════════════════
     if tf_hint in ("۱ دقیقه", "۵ دقیقه"):
         _tf_threshold = 1
     elif tf_hint in ("۱۵ دقیقه", "۳۰ دقیقه"):
@@ -1593,17 +1554,18 @@ def _aggregate_votes(
     else:
         _tf_threshold = 2
 
-    # 🔴 فاز ۱۴.۷.۳ — min_votes پویا از strategies
     strategy_min_votes = get_min_votes(strategy, profile)
     profile_min_votes = profile_cfg.get("min_votes_required", 2)
     min_votes = max(strategy_min_votes, profile_min_votes)
     required_votes = max(min_votes, _tf_threshold)
+
+    # 🔴 فاز ۱۴.۹.۲: اسکالپ جسورانه — ۱ رأی کافیه
+    if strategy == "scalp" and tf_hint in ("۱ دقیقه", "۵ دقیقه"):
+        required_votes = 1
+
     min_adx = profile_cfg.get("min_adx", 0)
     adx_ok = adx >= min_adx
 
-    # ═══════════════════════════════════════════════════════════════
-    # تعیین جهت و اجماع
-    # ═══════════════════════════════════════════════════════════════
     if profile == "aggressive":
         if weighted_direction == "long" and votes_long >= required_votes:
             direction = "long"
@@ -1620,7 +1582,18 @@ def _aggregate_votes(
                 else ("normal" if votes_short <= required_votes + 1 else "strong")
             )
         else:
-            direction, consensus = "neutral", "neutral"
+            # 🔴 فاز ۱۴.۹.۳: fallback برای اسکالپ
+            if strategy == "scalp":
+                if votes_long >= 1:
+                    direction = "long"
+                    consensus = "weak"
+                elif votes_short >= 1:
+                    direction = "short"
+                    consensus = "weak"
+                else:
+                    direction, consensus = "neutral", "neutral"
+            else:
+                direction, consensus = "neutral", "neutral"
     else:
         if not adx_ok:
             direction, consensus = "neutral", "neutral"
@@ -1633,21 +1606,33 @@ def _aggregate_votes(
         else:
             direction, consensus = "neutral", "neutral"
 
-    # ═══════════════════════════════════════════════════════════════
-    # استثناها
-    # ═══════════════════════════════════════════════════════════════
-    # اسپات: SHORT ممنوع
     if market_type == "spot" and direction == "short":
         direction, consensus = "neutral", "neutral"
 
-    # اعمال trend override (STRONG_TREND=0.45)
+    # 🔴 فاز ۱۴.۹.۳: fallback نهایی — بهترین گروه با score ≥ 0.2
+    if strategy == "scalp" and direction == "neutral" and groups_summary:
+        best_group_name, best_group = max(
+            groups_summary.items(),
+            key=lambda kv: abs(kv[1].get("score", 0)),
+        )
+        best_score = best_group.get("score", 0)
+        if abs(best_score) >= 0.2:
+            if best_score > 0 and market_type != "spot":
+                direction = "long"
+            elif best_score > 0:
+                direction = "long"
+            else:
+                if market_type == "futures":
+                    direction = "short"
+                else:
+                    direction = "neutral"  # اسپات نمی‌تونه short
+            if direction != "neutral":
+                consensus = "weak"
+
     direction, penalty, override_reason = _apply_trend_override(
         direction, {"final_score": final_score}, groups, regime, strategy=strategy
     )
 
-    # ═══════════════════════════════════════════════════════════════
-    # خروجی
-    # ═══════════════════════════════════════════════════════════════
     return {
         "final_score": round(final_score, 3),
         "votes_long": votes_long,
@@ -1660,13 +1645,17 @@ def _aggregate_votes(
         "groups_summary": groups_summary,
         "override_reason": override_reason,
         "override_penalty_pct": penalty,
-        "group_weights_used": weights,  # 🆕 برای دیباگ
-        "strategy_used": strategy,  # 🆕 برای دیباگ
+        "group_weights_used": weights,
+        "strategy_used": strategy,
     }
 
 
 def _compute_confidence(
-    aggregate: dict, adx: float, divergence: dict, groups: dict = None
+    aggregate: dict,
+    adx: float,
+    divergence: dict,
+    groups: dict = None,
+    strategy: str = "swing",
 ) -> int:
     consensus = aggregate.get("consensus", "neutral")
     direction = aggregate.get("direction", "neutral")
@@ -1676,8 +1665,14 @@ def _compute_confidence(
     final_score = aggregate.get("final_score", 0.0)
     if direction == "neutral" or consensus == "neutral":
         return 0
-    base_map = {"strong": 45, "normal": 32, "weak": 18}
+
+    # 🔴 فاز ۱۴.۹.۲: base_map پویا برای اسکالپ (جسورانه‌تر)
+    if strategy == "scalp":
+        base_map = {"strong": 55, "normal": 42, "weak": 28}
+    else:
+        base_map = {"strong": 45, "normal": 32, "weak": 18}
     base = base_map.get(consensus, 0)
+
     quality = 0
     quality += min(15, abs(final_score) * 20)
     if adx > 40:
@@ -1708,13 +1703,30 @@ def _compute_confidence(
                 quality += 4
     quality = max(0, min(35, quality))
     majority = votes_long if direction == "long" else votes_short
-    agreement = 0
-    if majority >= 4:
-        agreement = 15
-    elif majority == 3:
-        agreement = 10
-    elif majority == 2:
-        agreement = 5
+
+    # 🔴 فاز ۱۴.۹.۲: agreement جسورانه‌تر برای اسکالپ
+    if strategy == "scalp":
+        # اسکالپ: حتی ۱ رأی هم پاداش می‌گیره
+        if majority >= 4:
+            agreement = 18
+        elif majority == 3:
+            agreement = 15
+        elif majority == 2:
+            agreement = 12
+        elif majority == 1:
+            agreement = 5  # 🔴 جدید: ۱ رأی هم +۵
+        else:
+            agreement = 0
+    else:
+        if majority >= 4:
+            agreement = 15
+        elif majority == 3:
+            agreement = 10
+        elif majority == 2:
+            agreement = 5
+        else:
+            agreement = 0
+
     confidence = base + quality + agreement
     if divergence.get("has_divergence"):
         confidence -= divergence.get("penalty", 0)
@@ -1803,8 +1815,17 @@ def _explain_neutral(
 
 
 def _is_boring_market(
-    aggregate: dict, adx: float, vol_ratio: float, final_score: float
+    aggregate: dict,
+    adx: float,
+    vol_ratio: float,
+    final_score: float,
+    strategy: str = "swing",  # 🔴 فاز ۱۴.۹.۲ — پارامتر جدید
 ) -> bool:
+    # 🔴 فاز ۱۴.۹.۲: اسکالپ هرگز "boring" نمی‌شه
+    # اسکالپ برای نوسان‌گیری لحظه‌ایه — "بازار خواب" در ۱ دقیقه معنی نداره
+    if strategy == "scalp":
+        return False
+
     votes_neutral = aggregate.get("votes_neutral", 0)
     return (
         votes_neutral >= BORING_MARKET_NEUTRAL_VOTES
@@ -1823,27 +1844,30 @@ def _determine_signal(
     is_boring: bool,
     allow_short: bool,
     market_type: str,
+    strategy: str = "swing",  # 🔴 فاز ۱۴.۹.۵ — پارامتر جدید
 ) -> tuple[str, str, str]:
     """
-    🔴 فاز ۱۴.۷.۳ — ساختار ۷ سطح:
-      conf < 10          → "خنثی"
-      10 ≤ conf < 25     → "دور"
-      25 ≤ conf < min_conf → "در حال تشکیل"
-      min_conf ≤ conf < min_conf+20 → "ضعیف"
-      min_conf+20 ≤ conf < 70 → "معمولی" ("LONG"/"SHORT")
-      70 ≤ conf < 85     → "قوی"
-      conf ≥ 85          → "طلایی"
+    🔴 فاز ۱۴.۹.۵: آستانه‌ها پویا بر اساس استراتژی.
+    اسکالپ: آستانه‌ها پایین‌تر (کاربر می‌خواد جهت بگیره، نه صبر کنه).
+    سوئینگ/پوزیشن: آستانه‌های فعلی (محافظه‌کارانه).
     """
+    # 🔴 فاز ۱۴.۹.۵ — آستانه‌های پویا
+    if strategy == "scalp":
+        FAR_THRESHOLD = 10  # قبلاً 25
+        WEAK_BUFFER = 5  # قبلاً 20
+    elif strategy == "position":
+        FAR_THRESHOLD = 30  # سخت‌گیرتر
+        WEAK_BUFFER = 20
+    else:  # swing
+        FAR_THRESHOLD = 25
+        WEAK_BUFFER = 20
 
-    # ۱. خنثی مطلق
     if confidence < 10:
         return ("خنثی", f"بدون سیگنال ({confidence}٪)", "⚪ صبر کن")
 
-    # ۲. دور (خیلی ضعیف)
-    if confidence < 25:
+    if confidence < FAR_THRESHOLD:
         return ("دور", f"دور از نقطه ورود ({confidence}٪)", "⚪ صبر کن")
 
-    # ۳. در حال تشکیل (وسط، ولی کمتر از آستانه استراتژی)
     if confidence < min_conf:
         return (
             "در حال تشکیل",
@@ -1851,15 +1875,14 @@ def _determine_signal(
             "⚪ صبر کن",
         )
 
-    # از اینجا سیگنال معامله‌ای است
     if direction == "neutral" or is_boring:
         return ("خنثی", f"بدون جهت مشخص ({confidence}٪)", "⚪ صبر کن")
 
     if market_type == "spot" and direction == "short":
         return "خنثی", f"🔴 در اسپات نمی‌تونی بفروشی ({confidence}٪)", "⚪ صبر کن"
 
-    is_weak = min_conf <= confidence < min_conf + 20
-    is_normal = (min_conf + 20) <= confidence < 70
+    is_weak = min_conf <= confidence < (min_conf + WEAK_BUFFER)
+    is_normal = (min_conf + WEAK_BUFFER) <= confidence < 70
     is_strong = 70 <= confidence < 85
     is_golden = confidence >= 85
 
@@ -1870,46 +1893,37 @@ def _determine_signal(
             return "LONG", "🟢 سیگنال خرید قوی", "🟢 بخر"
         elif is_normal:
             return "LONG", "🟡 سیگنال خرید معمولی", "🟢 بخر"
-        else:  # is_weak
+        else:
             return "LONG ضعیف", f"🟠 خرید ضعیف ({confidence}٪)", "🟡 بخر با احتیاط"
-    else:  # short
+    else:
         if is_golden:
             return "SHORT", "💎 سیگنال طلایی فروش", "🔴 SHORT بزن"
         elif is_strong:
             return "SHORT", "🔴 سیگنال فروش قوی", "🔴 SHORT بزن"
         elif is_normal:
             return "SHORT", "🔴 سیگنال فروش معمولی", "🔴 SHORT بزن"
-        else:  # is_weak
+        else:
             return "SHORT ضعیف", f"🟠 فروش ضعیف ({confidence}٪)", "🟠 SHORT ضعیف"
 
 
 def _get_session_multiplier() -> tuple[float, str]:
-    """
-    ضریب تعدیل بر اساس سشن‌های جهانی و روز هفته.
-    Returns: (multiplier, label_fa)
-    """
     now_utc = datetime.now(ZoneInfo("UTC"))
     hour = now_utc.hour
-    weekday = now_utc.weekday()  # 0=Monday, 5=Saturday, 6=Sunday
+    weekday = now_utc.weekday()
 
-    # همپوشانی لندن-نیویورک (پیک نقدینگی): ۱۲:۰۰–۱۶:۰۰ UTC
     if 12 <= hour < 16:
         base_mult = 1.10
         label = "🔥 همپوشانی لندن-نیویورک"
-    # همپوشانی توکیو-لندن: ۰۷:۰۰–۰۹:۰۰ UTC
     elif 7 <= hour < 9:
         base_mult = 1.0
         label = "⚖️ همپوشانی توکیو-لندن"
-    # فقط بازار آسیا (غرب خواب): ۰۰:۰۰–۰۶:۰۰ UTC
     elif 0 <= hour < 6:
-        base_mult = 0.75  # 🔴 نرم‌تر شد (قبلاً 0.65 بود)
+        base_mult = 0.75
         label = "🌙 فقط بازار آسیا"
-    # بقیه ساعات
     else:
         base_mult = 1.0
         label = "⚖️ بازار عادی"
 
-    # 🔴 آخر هفته: کاهش ملایم‌تر (۵٪ به جای ۱۰٪)
     if weekday >= 5:
         base_mult *= 0.95
         label += " (📅 آخر هفته)"
@@ -1928,30 +1942,13 @@ def analyze_symbol(
     orderbook: dict = None,
     strategy: str = "swing",
 ) -> dict | None:
-    """
-    مغز تحلیل — نسخه بازنویسی‌شده (فاز C+)
-    ============================================================
-    🔴 ترتیب درست:
-      ۱. اندیکاتورها + regime
-      ۲. ۵ گروه تحلیل
-      ۳. pre_breakout + pump_dump
-      ۴. aggregate_votes (با strategy)
-      ۵. divergence + traps + confidence
-      ۶. session + ATR filter + multi_tf + orderbook
-      ۷. determine_signal (با min_conf)
-      ۸. sl_tp (فقط اگر directional)
-      ۹. rr + fee + R:R penalty (ممکن است signal را عوض کند)
-      ۱۰. tp_levels (درست بعد از sl_tp نهایی)
-      ۱۱. suggested_entry
-      ۱۲. return
-    """
     if df is None or df.empty:
         return None
 
+    # 🔴 فاز ۱۴.۹: تعریف strategy_cfg در ابتدای تابع برای رفع خطای Pylance
+    strategy_cfg = get_strategy(strategy)
+
     try:
-        # ═══════════════════════════════════════════════════════════════
-        # ۱. اندیکاتورها + regime
-        # ═══════════════════════════════════════════════════════════════
         df = compute_indicators(df)
         if df is None or df.empty:
             return None
@@ -1990,9 +1987,6 @@ def analyze_symbol(
         )
         thresholds = get_adaptive_thresholds(regime, adx)
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۲. ۵ گروه تحلیل
-        # ═══════════════════════════════════════════════════════════════
         groups = {
             "momentum": _analyze_momentum(df, _thresholds=thresholds),
             "trend": _analyze_trend(df, _thresholds=thresholds),
@@ -2011,9 +2005,6 @@ def analyze_symbol(
         support = structure_details.get("nearest_support", 0)
         resistance = structure_details.get("nearest_resistance", 0)
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۳. pre_breakout + pump_dump
-        # ═══════════════════════════════════════════════════════════════
         df_with_levels = df.copy()
         df_with_levels["nearest_resistance"] = resistance
         df_with_levels["nearest_support"] = support
@@ -2041,9 +2032,6 @@ def analyze_symbol(
                 "active_signals": [],
             }
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۴. aggregate_votes (با strategy)
-        # ═══════════════════════════════════════════════════════════════
         aggregate = _aggregate_votes(
             groups,
             regime,
@@ -2054,9 +2042,6 @@ def analyze_symbol(
             strategy=strategy,
         )
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۵. divergence + traps + confidence
-        # ═══════════════════════════════════════════════════════════════
         divergence = _detect_divergence(groups["momentum"], groups["volume"])
         traps = _detect_traps(groups, price, atr)
         traps_summary = _traps_summary(traps)
@@ -2066,13 +2051,12 @@ def analyze_symbol(
             else (5 if traps_summary["has_warning"] else 0)
         )
 
-        confidence = _compute_confidence(aggregate, adx, divergence, groups)
+        confidence = _compute_confidence(
+            aggregate, adx, divergence, groups, strategy=strategy
+        )
         if trap_penalty > 0:
             confidence = max(0, confidence - trap_penalty)
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۶. session + ATR filter + multi_tf + orderbook
-        # ═══════════════════════════════════════════════════════════════
         session_mult, session_label = _get_session_multiplier()
         confidence = max(0, min(100, int(confidence * session_mult)))
 
@@ -2169,9 +2153,6 @@ def analyze_symbol(
 
         tier = _confidence_tier(confidence)
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۷. determine_signal (با min_conf)
-        # ═══════════════════════════════════════════════════════════════
         direction = aggregate["direction"]
         profile_key = f"{risk_profile}_{market_type}"
         profile = RISK_PROFILES.get(
@@ -2179,15 +2160,9 @@ def analyze_symbol(
             RISK_PROFILES.get(f"{risk_profile}_spot", RISK_PROFILES["aggressive_spot"]),
         )
 
-        # 🔴 فاز ۱۴.۷.۳ — min_conf ترکیبی (استراتژی + ریسک)
-        strategy_cfg = get_strategy(strategy)  # 🔴 این خط اضافه شد
+        # 🔴 فاز ۱۴.۹: رفع باگ min_conf
         strategy_min_conf = get_min_confidence(strategy, risk_profile)
-        profile_min_conf = profile["min_confidence"]
-        min_conf = max(strategy_min_conf, profile_min_conf)
-        logger.debug(
-            f"[Analyzer] {ticker} {tf_name} strategy={strategy} risk={risk_profile}: "
-            f"min_conf={min_conf} (strategy={strategy_min_conf}, profile={profile_min_conf})"
-        )
+        min_conf = strategy_min_conf
 
         consensus = aggregate.get("consensus", "neutral")
         allow_short = profile.get("allow_short", True)
@@ -2205,7 +2180,9 @@ def analyze_symbol(
             )
 
         final_score_raw = aggregate.get("final_score", 0.0)
-        is_boring = _is_boring_market(aggregate, adx, vol_ratio, final_score_raw)
+        is_boring = _is_boring_market(
+            aggregate, adx, vol_ratio, final_score_raw, strategy=strategy
+        )
 
         signal, explanation, action_fa = _determine_signal(
             direction=direction,
@@ -2216,11 +2193,9 @@ def analyze_symbol(
             is_boring=is_boring,
             allow_short=allow_short,
             market_type=market_type,
+            strategy=strategy,  # 🔴 جدید
         )
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۸. sl_tp (فقط اگر directional)
-        # ═══════════════════════════════════════════════════════════════
         sl_tp, rr, fee_warning, _soft_rr_net = None, None, None, None
 
         is_directional = SigEnum.is_directional(signal)
@@ -2366,9 +2341,6 @@ def analyze_symbol(
                     )
                 _soft_rr_net = fee_stats.get("rr_net")
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۹. R:R penalty (ممکن است signal را عوض کند)
-        # ═══════════════════════════════════════════════════════════════
         all_reasons = [fee_warning] if fee_warning else []
         for g_res in groups.values():
             if g_res:
@@ -2395,7 +2367,6 @@ def analyze_symbol(
                     f"⚠️ R:R خالص {_soft_rr_net:.2f} — هزینه بالا، اطمینان کاهش یافت",
                 )
 
-            # signal ممکن است عوض شود
             signal, explanation, action_fa = _determine_signal(
                 direction=direction,
                 confidence=confidence,
@@ -2405,11 +2376,9 @@ def analyze_symbol(
                 is_boring=is_boring,
                 allow_short=allow_short,
                 market_type=market_type,
+                strategy=strategy,  # 🔴 جدید
             )
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۱۰. tp_levels — دقیقاً بعد از sl_tp نهایی و signal نهایی
-        # ═══════════════════════════════════════════════════════════════
         tp_levels = None
         _tp_val = (sl_tp or {}).get("tp")
 
@@ -2436,14 +2405,10 @@ def analyze_symbol(
                             "tp2": round(_p_f - (_p_f - _tp_f) * 0.66, 6),
                             "tp3": round(_tp_f, 6),
                         }
-                    logger.info(f"[TP_LEVELS] ✅ {tp_levels}")
                 except Exception as e:
                     logger.error(f"[TP_LEVELS] ❌ خطا: {e!r}")
                     tp_levels = None
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۱۱. suggested_entry
-        # ═══════════════════════════════════════════════════════════════
         suggested_entry_result = {
             "suggested_entry": None,
             "method": None,
@@ -2464,9 +2429,6 @@ def analyze_symbol(
 
         is_golden = confidence >= 85 and SigEnum.is_directional(signal)
 
-        # ═══════════════════════════════════════════════════════════════
-        # ۱۲. return نهایی
-        # ═══════════════════════════════════════════════════════════════
         return {
             "price": price,
             "rsi": safe_num(last.get("rsi"), 50),
@@ -2532,7 +2494,7 @@ def analyze_symbol(
                 direction,
                 traps,
                 ticker,
-                strategy=strategy,  # 🔴 فاز ۱۴.۸.۱
+                strategy=strategy,
             ),
             "trend_score": groups["trend"].get("score", 0.0),
             "trend_vote": groups["trend"].get("vote", 0),
@@ -2607,16 +2569,10 @@ GROUP_LABELS = {
 def build_checklist_weighted(
     tfs: dict, main_tf: str = "۵ دقیقه", strategy: str = "swing"
 ) -> tuple:
-    """
-    🔴 فاز ۱۴.۸.۲ — وزن‌های گروه‌ها بر اساس استراتژی + رژیم.
-    """
     r_main = tfs.get(main_tf) or tfs.get("۵ دقیقه")
     if not r_main:
         return [], 0, "داده کافی نیست", "red"
     items, regime = [], r_main.get("regime", "range")
-
-    # 🔴 وزن‌ها = ترکیب استراتژی + رژیم
-    from .strategies import get_strategy
 
     strategy_cfg = get_strategy(strategy)
     strategy_weights = strategy_cfg.get("group_weights", {})
@@ -2684,7 +2640,6 @@ def build_checklist_weighted(
                 )
                 total_w += trap_info.get("severity", 5)
 
-    # 🔴 گروه‌ها با وزن داینامیک
     for g_key, (icon, g_name, g_desc) in GROUP_LABELS.items():
         if g_key not in groups:
             continue
@@ -2899,9 +2854,6 @@ def _build_fundamental_context(
 def build_analysis_paragraph(
     ticker, name, tfs, gsr=None, risk_profile="aggressive", tf_name="۵ دقیقه"
 ) -> str:
-    """
-    🔴 فاز ۱۴.۸.۱ — پاراگراف تحلیل با استراتژی، TP ladder، suggested entry.
-    """
     lines = []
     r_main = tfs.get(tf_name) or tfs.get("۵ دقیقه")
     if not r_main:
@@ -2921,7 +2873,6 @@ def build_analysis_paragraph(
         risk_profile, "جسورانه"
     )
 
-    # 🔴 استراتژی
     strategy = r_main.get("strategy", "swing")
     strategy_name = r_main.get("strategy_name", "")
     strategy_fa = {
@@ -2953,7 +2904,6 @@ def build_analysis_paragraph(
         r_main.get("scenarios", []),
     )
 
-    # 🔴 فاز ۱۴.۸.۱ — tp_levels, suggested_entry, pump
     tp_levels = r_main.get("tp_levels") or {}
     suggested_entry = r_main.get("suggested_entry")
     suggested_entry_method = r_main.get("suggested_entry_method")
@@ -2973,9 +2923,6 @@ def build_analysis_paragraph(
             return f"{val:,.0f} تومان"
         return f"${val:,.2f}"
 
-    # ═══════════════════════════════════════════════════════════════
-    # Header
-    # ═══════════════════════════════════════════════════════════════
     lines.extend(
         [
             f"_{tf_name} · {profile_fa} · {market_fa} · {strategy_fa}_",
@@ -2983,9 +2930,6 @@ def build_analysis_paragraph(
         ]
     )
 
-    # ═══════════════════════════════════════════════════════════════
-    # سیگنال اصلی
-    # ═══════════════════════════════════════════════════════════════
     if SigEnum.is_long(signal):
         if confidence >= 85:
             main_line = f"💎 **سیگنال طلایی خرید** · اطمینان {confidence}٪"
@@ -3016,9 +2960,6 @@ def build_analysis_paragraph(
         )
     lines.extend([main_line, ""])
 
-    # ═══════════════════════════════════════════════════════════════
-    # 🔴 فاز ۱۴.۸.۱ — هشدار Pump/Dump
-    # ═══════════════════════════════════════════════════════════════
     if pump_warning in ("watch", "alert"):
         if pump_type == "pump":
             lines.extend(
@@ -3042,9 +2983,6 @@ def build_analysis_paragraph(
                 ]
             )
 
-    # ═══════════════════════════════════════════════════════════════
-    # SL/TP/RR
-    # ═══════════════════════════════════════════════════════════════
     if sl_tp:
         sl, tp = safe_num(sl_tp.get("sl")), safe_num(sl_tp.get("tp"))
         rr_net, fee_pct = sl_tp.get("rr_net"), sl_tp.get("fee_pct")
@@ -3061,9 +2999,6 @@ def build_analysis_paragraph(
             lines.append(f"R:R خالص {rr_net:.2f} ({rr_verdict}){fee_line}")
         lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # 🔴 فاز ۱۴.۸.۱ — خروج پله‌ای
-    # ═══════════════════════════════════════════════════════════════
     if tp_levels and tp_levels.get("tp1"):
         lines.extend(
             [
@@ -3078,9 +3013,6 @@ def build_analysis_paragraph(
             ]
         )
 
-    # ═══════════════════════════════════════════════════════════════
-    # 🔴 فاز ۱۴.۸.۱ — نقطه ورود پیشنهادی
-    # ═══════════════════════════════════════════════════════════════
     if suggested_entry and suggested_entry > 0:
         method_fa = {
             "structural": "سطح ساختاری Swing",
@@ -3102,9 +3034,6 @@ def build_analysis_paragraph(
             ]
         )
 
-    # ═══════════════════════════════════════════════════════════════
-    # تله‌ها
-    # ═══════════════════════════════════════════════════════════════
     active_traps = {k: v for k, v in traps.items() if v.get("active")}
     if active_traps:
         trap_names = {
@@ -3120,9 +3049,6 @@ def build_analysis_paragraph(
             ]
         )
 
-    # ═══════════════════════════════════════════════════════════════
-    # تحلیل بازار
-    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("۱. بازار چطوره؟"), ""])
     if adx >= 40:
         adx_fa, adx_note = "روند قویه", "بالای ۴۰ یعنی روند محکم و قابل اعتماد"
@@ -3155,9 +3081,6 @@ def build_analysis_paragraph(
         lines.extend(["", f"⚠️ {override_reason}"])
     lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # چرا این سیگنال؟
-    # ═══════════════════════════════════════════════════════════════
     if SigEnum.is_long(signal) or SigEnum.is_short(signal):
         lines.extend([H(f"۲. چرا این سیگنال برای {strategy_fa}؟"), ""])
         GROUP_META = {
@@ -3188,9 +3111,6 @@ def build_analysis_paragraph(
                     lines.append(f"  {reason.strip()}")
                 lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # نظر گروه‌ها (جدول)
-    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("۳. نظر گروه‌ها"), ""])
     if votes_long > votes_short:
         summary = (
@@ -3233,17 +3153,11 @@ def build_analysis_paragraph(
             lines.append(f"| {g_name} | {verdict} | {strength_txt} |")
         lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # واگرایی
-    # ═══════════════════════════════════════════════════════════════
     if divergence.get("has_divergence"):
         lines.extend([f"⚠️ واگرایی: {divergence.get('reason', '')}", ""])
     if multi_tf_info and multi_tf_info != "بدون بررسی":
         lines.extend([f"🎯 {multi_tf_info}", ""])
 
-    # ═══════════════════════════════════════════════════════════════
-    # عمق بازار
-    # ═══════════════════════════════════════════════════════════════
     ob = r_main.get("orderbook")
     if ob and ob.get("imbalance") is not None:
         lines.extend([H("۴. عمق بازار"), ""])
@@ -3269,9 +3183,6 @@ def build_analysis_paragraph(
             )
         lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # سطوح کلیدی
-    # ═══════════════════════════════════════════════════════════════
     r, s = safe_num(r_main.get("resistance")), safe_num(r_main.get("support"))
     if (r > 0 or s > 0) and price > 0:
         lines.extend([H("۵. سطوح کلیدی"), ""])
@@ -3293,9 +3204,6 @@ def build_analysis_paragraph(
             lines.append(f"🟢 **حمایت:** {_fmt(s)} ({dist_s:+.2f}٪ — {proximity_s})")
         lines.append("")
 
-    # ═══════════════════════════════════════════════════════════════
-    # سناریوها
-    # ═══════════════════════════════════════════════════════════════
     if scenarios:
         lines.extend([H("۶. سناریوهای پیش‌رو"), ""])
         for sc in scenarios[:3]:
@@ -3307,9 +3215,6 @@ def build_analysis_paragraph(
                 ]
             )
 
-    # ═══════════════════════════════════════════════════════════════
-    # جمع‌بندی
-    # ═══════════════════════════════════════════════════════════════
     lines.extend([H("جمع‌بندی"), ""])
     if SigEnum.is_long(signal) and confidence >= 85 and not active_traps:
         lines.append("💎 **سیگنال طلایی!** — این فرصت نایابه. با اطمینان بالا وارد شو.")
@@ -3346,7 +3251,7 @@ def build_analysis_paragraph(
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 ai_export — واقعاً خام (فاز ۱۲.۶)
+# ai_export
 # ═══════════════════════════════════════════════════════════
 def _now_shamsi_str() -> str:
     try:

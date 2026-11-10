@@ -1,17 +1,13 @@
 "use client";
 
 /**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۰ · فاز ۱۴.۷.۲)
+ * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۱ · فاز ۱۴.۹)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۸.۰:
- *   • TFهای غیرفعال بر اساس استراتژی (اسکالپ: 1m/5m، پوزیشن: 30m/1h/1d)
- *   • از getConfidenceLevel مشترک (lib/thresholds)
- *   • strategy در deps (رفع data کهنه)
- *   • wsSignal filter strategy (رفع سیگنال اشتباه)
- *   • از getTfData/setTfData برای cache (sync با SignalCard)
- *   • polling ۳۰s (به‌جای ۵s) — سبک‌تر
- *   • Badge استراتژی در هدر
- *   • روی کلیک TF غیرفعال → پیام آموزشی
+ * 🔴 تغییرات نسخه ۱۸.۱:
+ *   • polling از ۳۰s به ۶۰s (کاهش فشار سرور)
+ *   • reset فوری قبل از fetch (رفع باگ پرش)
+ *   • hydrate کامل از cache (نه فقط بار اول)
+ *   • هماهنگی کامل با SignalCard
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -37,8 +33,8 @@ import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 import {
   getConfidenceLevel,
-  getStrategyMinConf,  // 🔴 جدید
-  isSignalActive,      // 🔴 جدید
+  getStrategyMinConf,
+  isSignalActive,
   CONF_BAR_COLOR,
   type ConfidenceLevel,
 } from "@/lib/thresholds";
@@ -59,11 +55,10 @@ const TIMEFRAMES: Timeframe[] = [
 // TFهای مجاز per strategy
 // ═══════════════════════════════════════════════════════════
 const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
-  scalp: ["۱ دقیقه", "۵ دقیقه"],  // 🔴 فقط ۱د و ۵د — هم‌راستا با strategies.py
+  scalp: ["۱ دقیقه", "۵ دقیقه"],
   swing: TIMEFRAMES,
   position: ["۳۰ دقیقه", "۱ ساعت", "روزانه"],
 };
-
 
 const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
   scalp: {
@@ -247,10 +242,9 @@ const SIGNAL_STYLE_MAP: Record<
 };
 
 const ROW_HEIGHT = "h-[42px]";
-const POLL_INTERVAL_MS = 30_000; // 🔴 فاز ۱۴.۷.۲ — 30s (قبلاً 5s)
+const POLL_INTERVAL_MS = 60_000; // 🔴 فاز ۱۴.۹ — 60s (قبلاً 30s)
 
-export function TFTable() {
-  const {
+export function TFTable() {  const {
     ticker,
     tickerName,
     source,
@@ -273,30 +267,34 @@ export function TFTable() {
   const allowedTfs = useMemo(() => {
     return TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
   }, [strategy]);
-  
+
   // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۷.۲ — wsSignal filter strategy
+  // 🔴 فاز ۱۴.۹ — wsSignal filter strategy + ticker
   // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (wsSignal && wsSignal.ticker === ticker && wsSignal.data) {
       const newSignal = wsSignal.data as unknown as AnalyzeResponse;
 
-      // ⚠️ فیلتر استراتژی
+      // فیلتر استراتژی
       if (newSignal.strategy && newSignal.strategy !== strategy) {
+        return;
+      }
+
+      // فیلتر ticker (defense in depth)
+      if (newSignal.ticker && newSignal.ticker !== ticker) {
         return;
       }
 
       const tf = newSignal.timeframe;
       if (tf) {
         setData((prev) => ({ ...prev, [tf]: newSignal }));
-        // 🔴 sync با cache مشترک
         setTfData(tf, newSignal);
       }
     }
   }, [wsSignal, ticker, strategy, setTfData]);
 
   // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۷.۲ — fetch از cache یا API
+  // 🔴 فاز ۱۴.۹ — fetch از API + sync با cache
   // ═══════════════════════════════════════════════════════════
   const fetchMultiData = async () => {
     if (!ticker || !sourceSupportsPair(source, ticker)) {
@@ -320,7 +318,7 @@ export function TFTable() {
       >;
       setData(tfs);
 
-      // 🔴 sync با cache مشترک
+      // sync با cache مشترک
       for (const [tf, tfData] of Object.entries(tfs)) {
         if (tfData) {
           setTfData(tf, tfData);
@@ -332,15 +330,41 @@ export function TFTable() {
   };
 
   // ═══════════════════════════════════════════════════════════
-  // 🔴 fetch اولیه — با strategy در deps
+  // 🔴 فاز ۱۴.۹ — reset فوری + fetch
   // ═══════════════════════════════════════════════════════════
   useEffect(() => {
-    fetchMultiData();
+    // ۱. reset فوری (رفع باگ پرش)
+    setData({});
+
+    // ۲. hydrate از cache (اگه همه TFها معتبر باشن)
+    const cachedData: Record<string, AnalyzeResponse> = {};
+    let hasAny = false;
+    for (const tf of TIMEFRAMES) {
+      const c = getTfData(tf);
+      if (c) {
+        cachedData[tf] = c;
+        hasAny = true;
+      }
+    }
+    if (hasAny) {
+      setData(cachedData);
+    }
+
+    // ۳. اگه cache کامل بود، ۲ ثانیه صبر کن بعد fetch (UX بهتر)
+    // اگه cache نبود، فوری fetch
+    if (hasAny && Object.keys(cachedData).length >= TIMEFRAMES.length - 1) {
+      // cache تقریباً کامله → کاربر داده می‌بینه، fetch در پس‌زمینه
+      const t = setTimeout(() => fetchMultiData(), 500);
+      return () => clearTimeout(t);
+    } else {
+      // cache نیست → فوری fetch
+      fetchMultiData();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, tickerName, source, marketType, riskProfile, strategy]);
 
   // ═══════════════════════════════════════════════════════════
-  // 🔴 polling ۳۰s — با strategy در deps
+  // 🔴 فاز ۱۴.۹ — polling ۶۰s
   // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (!ticker || !sourceSupportsPair(source, ticker)) return;
@@ -354,32 +378,9 @@ export function TFTable() {
   }, [ticker, source, tickerName, marketType, riskProfile, strategy]);
 
   // ═══════════════════════════════════════════════════════════
-  // 🔴 روی mount: از cache بخون (اگر پر شده)
-  // ═══════════════════════════════════════════════════════════
-  const hasHydratedRef = useRef(false);
-  useEffect(() => {
-    if (hasHydratedRef.current) return;
-    hasHydratedRef.current = true;
-
-    const cachedData: Record<string, AnalyzeResponse> = {};
-    let hasAny = false;
-    for (const tf of TIMEFRAMES) {
-      const c = getTfData(tf);
-      if (c) {
-        cachedData[tf] = c;
-        hasAny = true;
-      }
-    }
-    if (hasAny) {
-      setData(cachedData);
-    }
-  }, [getTfData]);
-
-  // ═══════════════════════════════════════════════════════════
   // کلیک روی TF
   // ═══════════════════════════════════════════════════════════
   const handleRowClick = (tf: string) => {
-    // اگر TF غیرفعال است → پیام آموزشی
     if (!allowedTfs.includes(tf as Timeframe)) {
       setShowDisabledHint(tf);
       setTimeout(() => setShowDisabledHint(null), 3000);
@@ -426,7 +427,6 @@ export function TFTable() {
                 {sourceMeta.label}
               </span>
             )}
-            {/* 🔴 badge استراتژی */}
             <Tooltip>
               <TooltipTrigger>
                 <Badge
@@ -477,7 +477,6 @@ export function TFTable() {
               const isHinting = showDisabledHint === tf;
 
               if (!isAllowed) {
-                // 🔴 TF غیرفعال برای این استراتژی
                 return (
                   <TableRow
                     key={tf}
@@ -507,19 +506,22 @@ export function TFTable() {
                     className={`opacity-50 ${ROW_HEIGHT}`}
                     onClick={() => handleRowClick(tf)}
                   >
-                    <TableCell className="text-right text-[10px] font-medium py-0">
+                    <TableCell className="text-right text-[10px] font-medium py-0 text-muted-foreground">
                       {tf}
                     </TableCell>
-                    <TableCell
-                      colSpan={3}
-                      className="text-center text-[10px] text-muted-foreground py-0"
-                    >
-                      دیتا نیست
+                    <TableCell className="text-center py-0">
+                      <div className="mx-auto h-4 w-20 animate-pulse rounded bg-muted-foreground/15" />
+                    </TableCell>
+                    <TableCell className="text-center py-0">
+                      <div className="mx-auto h-3 w-10 animate-pulse rounded bg-muted-foreground/15" />
+                    </TableCell>
+                    <TableCell className="text-center py-0">
+                      <div className="mx-auto h-4 w-16 animate-pulse rounded bg-muted-foreground/15" />
                     </TableCell>
                   </TableRow>
                 );
               }
-
+              
               const conf = row.confidence || 0;
               const dirFromBackend: Direction =
                 row.direction === "long"
@@ -528,8 +530,6 @@ export function TFTable() {
                     ? "short"
                     : "neutral";
 
-              // 🔴 آستانه مشترک
-              // 🔴 فاز ۱۴.۷.۳ — isActiveSignal بر اساس min_conf ترکیبی
               const isActiveSignal = isSignalActive(
                 conf,
                 row.direction || "neutral",
@@ -541,7 +541,7 @@ export function TFTable() {
               const isDirectional =
                 dirFromBackend === "long" || dirFromBackend === "short";
               const confLevel = getConfidenceLevel(conf, isDirectional);
-              
+
               const styleDirection = isActiveSignal ? dirFromBackend : "neutral";
               const sigStyle = SIGNAL_STYLE_MAP[styleDirection][confLevel];
               const confStyle = CONF_BAR_COLOR[confLevel];
@@ -558,30 +558,23 @@ export function TFTable() {
 
               const goldenMark = confLevel === "golden" ? "💎 " : "";
 
-              // 🔴 تعیین متن نمایشی بر اساس آستانه‌های مشترک
-              // 🔴 فاز ۱۴.۷.۳ — displaySignal منطقی
-              // ترتیب: چک کن backend چی گفته
               let displaySignal = "خنثی";
               const rawSignal = row.signal || "";
-              
+
               if (isActiveSignal) {
-                // سیگنال فعال → نمایش سیگنال ترجمه‌شده
                 displaySignal = translateSignal(rawSignal);
               } else if (rawSignal.includes("در حال تشکیل")) {
-                // "در حال تشکیل" از backend
                 displaySignal = "در حال تشکیل";
               } else if (rawSignal.includes("دور")) {
                 displaySignal = "دور";
               } else if (conf >= 25) {
-                // جهت مشخص ولی کمتر از min_conf
                 displaySignal = "در حال تشکیل";
               } else if (conf >= 10) {
                 displaySignal = "دور";
               } else {
                 displaySignal = "خنثی";
               }
-              
-              // 🔴 رنگ متن برای غیرفعال‌ها
+
               let textColor = sigStyle.color;
               if (!isActiveSignal && conf >= 15) {
                 if (dirFromBackend === "short") {

@@ -48,6 +48,20 @@ async def lifespan(app: FastAPI):
     init_db()
     migrate_db()
     logger.info("✅ دیتابیس آماده")
+
+    # 🔴 فاز ۱۴.۹.۵ — pre-warm cache در پس‌زمینه
+    import threading
+
+    def _safe_prewarm():
+        try:
+            from services.analyzer_service import prewarm_cache
+
+            prewarm_cache()
+        except Exception as e:
+            logger.warning(f"[Prewarm] خطا: {e!r}")
+
+    threading.Thread(target=_safe_prewarm, daemon=True).start()
+
     yield
     logger.info("👋 خداحافظ")
 

@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * Marquee — نوار قیمت + ساعت سشن‌ها (نسخه ۴.۰ · فاز ۱۴.۹.۱۰)
+ * ============================================================
+ * 🔴 تغییرات نسخه ۴.۰:
+ *   • ساعت‌های سشن به GMT دقیق (زمستانی، آبان ۱۴۰۵)
+ *   • convertToTehran ساده و دقیق (بدون Intl)
+ *   • Lazy load قیمت‌ها (۱ ثانیه تأخیر)
+ */
+
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { formatNumber } from "@/lib/display";
@@ -10,12 +19,49 @@ interface PriceItem {
   unit: string;
 }
 
+// 🔴 ساعت‌های باز/بسته به GMT (زمستان — آبان)
+// ⚠️ برای تابستان (فروردین-مهر): لندن و نیویورک یک ساعت جلوتر
 const MARKETS = [
-  { name: "توکیو", icon: "🇯🇵", tz: "Asia/Tokyo", open: 9, close: 15, weekend: ["Sat", "Sun"] },
-  { name: "لندن", icon: "🇪🇺", tz: "Europe/London", open: 8, close: 16.5, weekend: ["Sat", "Sun"] },
-  { name: "نیویورک", icon: "🇺🇸", tz: "America/New_York", open: 9.5, close: 16, weekend: ["Sat", "Sun"] },
-  { name: "بورس", icon: "🇮🇷", tz: "Asia/Tehran", open: 9, close: 12.5, weekend: ["Thu", "Fri"] },
-  { name: "صندوق طلا", icon: "🪙", tz: "Asia/Tehran", open: 12, close: 18, weekend: ["Thu", "Fri"] },
+  {
+    name: "توکیو",
+    icon: "🇯🇵",
+    tz: "Asia/Tokyo",
+    open: 0, // 00:00 GMT = 03:30 تهران
+    close: 6, // 06:00 GMT = 09:30 تهران
+    weekend: ["Sat", "Sun"],
+  },
+  {
+    name: "لندن",
+    icon: "🇪🇺",
+    tz: "Europe/London",
+    open: 8, // 08:00 GMT = 11:30 تهران (زمستان)
+    close: 16.5, // 16:30 GMT = 20:00 تهران
+    weekend: ["Sat", "Sun"],
+  },
+  {
+    name: "نیویورک",
+    icon: "🇺🇸",
+    tz: "America/New_York",
+    open: 14.5, // 14:30 GMT = 18:00 تهران (زمستان — EST)
+    close: 21, // 21:00 GMT = 00:30 تهران
+    weekend: ["Sat", "Sun"],
+  },
+  {
+    name: "بورس",
+    icon: "🇮🇷",
+    tz: "Asia/Tehran",
+    open: 5.5, // 05:30 GMT = 09:00 تهران
+    close: 9, // 09:00 GMT = 12:30 تهران
+    weekend: ["Thu", "Fri"],
+  },
+  {
+    name: "صندوق طلا",
+    icon: "🪙",
+    tz: "Asia/Tehran",
+    open: 8.5, // 08:30 GMT = 12:00 تهران
+    close: 14.5, // 14:30 GMT = 18:00 تهران
+    weekend: ["Thu", "Fri"],
+  },
 ];
 
 function useIranTime() {
@@ -27,42 +73,20 @@ function useIranTime() {
   return now;
 }
 
-// 🔴 تبدیل دقیق ساعت محلی بازار به وقت تهران با استفاده از Intl
-function convertToTehran(localHour: number, tz: string) {
-  const now = new Date();
-  
-  // استخراج دقیق ساعت و دقیقه فعلی بازار
-  const localParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(now);
-  
-  const currentLocalH = parseInt(localParts.find(p => p.type === "hour")?.value || "0", 10);
-  const currentLocalM = parseInt(localParts.find(p => p.type === "minute")?.value || "0", 10);
+// 🔴 تهران همیشه UTC+3:30 (بدون ساعت تابستانی)
+const TEHRAN_OFFSET_MIN = 3 * 60 + 30;
 
-  // محاسبه اختلاف بازار با ساعت هدف (open یا close)
-  const targetH = Math.floor(localHour);
-  const targetM = Math.round((localHour % 1) * 60);
-  
-  let diffMinutes = (targetH * 60 + targetM) - (currentLocalH * 60 + currentLocalM);
-  
-  // ساخت یک تاریخ جدید که به اندازه اختلاف دقیقه جابجا شده است
-  const targetDate = new Date(now.getTime() + diffMinutes * 60 * 1000);
-  
-  // حالا زمان این تاریخ جدید را در منطقه زمانی تهران بخوان
-  const tehranParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Tehran",
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(targetDate);
-  
-  const tehranH = parseInt(tehranParts.find(p => p.type === "hour")?.value || "0", 10);
-  const tehranM = parseInt(tehranParts.find(p => p.type === "minute")?.value || "0", 10);
+function convertToTehran(gmtHour: number): string {
+  const targetH = Math.floor(gmtHour);
+  const targetM = Math.round((gmtHour % 1) * 60);
 
-  return `${String(tehranH).padStart(2, "0")}:${String(tehranM).padStart(2, "0")}`;
+  let totalMin = targetH * 60 + targetM + TEHRAN_OFFSET_MIN;
+  totalMin = ((totalMin % 1440) + 1440) % 1440;
+
+  const tH = Math.floor(totalMin / 60);
+  const tM = totalMin % 60;
+
+  return `${String(tH).padStart(2, "0")}:${String(tM).padStart(2, "0")}`;
 }
 
 export function Marquee() {
@@ -89,9 +113,16 @@ export function Marquee() {
   };
 
   useEffect(() => {
-    fetchPrices();
+    // 🔴 Lazy load: ۱ ثانیه تأخیر
+    const timer = setTimeout(() => {
+      fetchPrices();
+    }, 1000);
+
     const id = setInterval(fetchPrices, 60000);
-    return () => clearInterval(id);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -108,26 +139,25 @@ export function Marquee() {
 
   const currentPrice = items[priceIdx];
 
-  // منطق وضعیت بازارها
+  // 🔴 وضعیت بازار — ساعت‌ها به GMT
   const marketStatus = (mk: (typeof MARKETS)[number]) => {
-    const localTimeStr = now.toLocaleString("en-US", {
-      timeZone: mk.tz,
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const [h, m] = localTimeStr.split(":").map(Number);
-    const tm = h * 60 + m;
+    const utcH = now.getUTCHours();
+    const utcM = now.getUTCMinutes();
+    const utcTm = utcH * 60 + utcM;
 
-    const localDay = now.toLocaleString("en-US", { timeZone: mk.tz, weekday: "short" });
-    
+    // روز هفته در timezone بازار
+    const localDay = now.toLocaleString("en-US", {
+      timeZone: mk.tz,
+      weekday: "short",
+    });
+
     if (mk.weekend.includes(localDay)) {
       return { label: "تعطیل", color: "text-muted-foreground", time: "" };
     }
 
-    const isOpen = tm >= mk.open * 60 && tm < mk.close * 60;
-    const fmtOpen = convertToTehran(mk.open, mk.tz);
-    const fmtClose = convertToTehran(mk.close, mk.tz);
+    const isOpen = utcTm >= mk.open * 60 && utcTm < mk.close * 60;
+    const fmtOpen = convertToTehran(mk.open);
+    const fmtClose = convertToTehran(mk.close);
 
     return isOpen
       ? { label: "باز", color: "text-green-500", time: `تا ${fmtClose}` }
@@ -137,24 +167,29 @@ export function Marquee() {
   const getSessionStatus = () => {
     const utcHour = now.getUTCHours();
     const utcDay = now.getUTCDay();
-    if (utcDay === 0 || utcDay === 6) return { label: "📅 آخر هفته", color: "text-orange-400" };
-    if (utcHour >= 0 && utcHour < 6) return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
-    if (utcHour >= 12 && utcHour < 16) return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
+    if (utcDay === 0 || utcDay === 6)
+      return { label: "📅 آخر هفته", color: "text-orange-400" };
+    if (utcHour >= 0 && utcHour < 6)
+      return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
+    if (utcHour >= 12 && utcHour < 16)
+      return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
     return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
   };
-  
+
   const currentSession = getSessionStatus();
 
   return (
     <div className="w-full overflow-hidden border-b border-border/40 bg-muted/20">
       {/* ═══════════ موبایل ═══════════ */}
       <div className="md:hidden">
-        {/* خط ۱: وضعیت بازارها + بج وضعیت کلی */}
         <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-b border-border/20 px-2 py-1">
           {MARKETS.map((mk, i) => {
             const st = marketStatus(mk);
             return (
-              <span key={i} className="flex items-center gap-0.5 whitespace-nowrap">
+              <span
+                key={i}
+                className="flex items-center gap-0.5 whitespace-nowrap"
+              >
                 <span className="text-[9px]">{mk.icon}</span>
                 <span className={`text-[8px] font-bold ${st.color}`}>
                   {st.label === "تعطیل" ? "● تعطیل" : `● ${st.time}`}
@@ -162,23 +197,37 @@ export function Marquee() {
               </span>
             );
           })}
-          
-          {/* بج وضعیت بازار در همان خط */}
-          <span className={`flex items-center gap-1 rounded-md border border-border/50 bg-muted/30 px-1.5 py-0.5 text-[8px] font-bold ${currentSession.color}`}>
+
+          <span
+            className={`flex items-center gap-1 rounded-md border border-border/50 bg-muted/30 px-1.5 py-0.5 text-[8px] font-bold ${currentSession.color}`}
+          >
             {currentSession.label}
           </span>
         </div>
-        
-        {/* خط ۲: قیمت‌ها (بدون آیکون) */}
+
         <div className="flex items-center justify-center px-3 py-1">
           {currentPrice ? (
-            <div className={`flex items-center gap-1.5 transition-opacity duration-300 ${priceFading ? "opacity-0" : "opacity-100"}`}>
-              <span className="text-[10px] font-medium text-muted-foreground">{currentPrice.name}:</span>
-              <span className="num text-[11px] font-bold">{currentPrice.price ? formatNumber(currentPrice.price, { maxDecimals: 0 }) : "—"}</span>
-              <span className="text-[9px] text-muted-foreground">{currentPrice.unit}</span>
+            <div
+              className={`flex items-center gap-1.5 transition-opacity duration-300 ${
+                priceFading ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              <span className="text-[10px] font-medium text-muted-foreground">
+                {currentPrice.name}:
+              </span>
+              <span className="num text-[11px] font-bold">
+                {currentPrice.price
+                  ? formatNumber(currentPrice.price, { maxDecimals: 0 })
+                  : "—"}
+              </span>
+              <span className="text-[9px] text-muted-foreground">
+                {currentPrice.unit}
+              </span>
             </div>
           ) : (
-            <span className="text-[10px] text-muted-foreground">در حال بارگذاری...</span>
+            <span className="text-[10px] text-muted-foreground">
+              در حال بارگذاری...
+            </span>
           )}
         </div>
       </div>
@@ -189,16 +238,27 @@ export function Marquee() {
           {MARKETS.map((mk, i) => {
             const st = marketStatus(mk);
             return (
-              <div key={i} className="flex items-center gap-1.5 whitespace-nowrap">
+              <div
+                key={i}
+                className="flex items-center gap-1.5 whitespace-nowrap"
+              >
                 <span className="text-xs">{mk.icon}</span>
-                <span className="text-[11px] font-medium text-muted-foreground">{mk.name}</span>
-                <span className={`text-[11px] font-bold ${st.color}`}>● {st.label}</span>
-                <span className="num text-[10px] text-muted-foreground">{st.time}</span>
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {mk.name}
+                </span>
+                <span className={`text-[11px] font-bold ${st.color}`}>
+                  ● {st.label}
+                </span>
+                <span className="num text-[10px] text-muted-foreground">
+                  {st.time}
+                </span>
               </div>
             );
           })}
-          <div className="flex items-center border-r border-border/40 pr-4 mr-2">
-            <span className={`flex items-center gap-1 rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-[10px] font-bold ${currentSession.color}`}>
+          <div className="mr-2 flex items-center border-r border-border/40 pr-4">
+            <span
+              className={`flex items-center gap-1 rounded-md border border-border/50 bg-muted/20 px-2 py-0.5 text-[10px] font-bold ${currentSession.color}`}
+            >
               {currentSession.label}
             </span>
           </div>
@@ -206,13 +266,26 @@ export function Marquee() {
 
         <div className="flex items-center justify-center gap-10 px-6 py-2">
           {items.length === 0 ? (
-            <span className="text-[11px] text-muted-foreground">در حال بارگذاری...</span>
+            <span className="text-[11px] text-muted-foreground">
+              در حال بارگذاری...
+            </span>
           ) : (
             items.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-[12px] font-medium text-muted-foreground">{item.name}:</span>
-                <span className="num text-[12px] font-bold">{item.price ? formatNumber(item.price, { maxDecimals: 0 }) : "—"}</span>
-                <span className="text-[10px] text-muted-foreground">{item.unit}</span>
+              <div
+                key={i}
+                className="flex items-center gap-2 whitespace-nowrap"
+              >
+                <span className="text-[12px] font-medium text-muted-foreground">
+                  {item.name}:
+                </span>
+                <span className="num text-[12px] font-bold">
+                  {item.price
+                    ? formatNumber(item.price, { maxDecimals: 0 })
+                    : "—"}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {item.unit}
+                </span>
               </div>
             ))
           )}

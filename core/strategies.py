@@ -30,7 +30,7 @@ STRATEGIES = {
             "aggressive": 2,
             "conservative": 3,
         },
-        "strong_trend_threshold": 0.65,  # فقط روند خیلی قوی بلاک
+        "strong_trend_threshold": 0.80,  # فقط روند خیلی قوی بلاک
         "tp_multiplier": 0.7,
         "sl_multiplier": 0.8,
         "timeout_candles": 4,

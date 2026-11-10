@@ -1,14 +1,21 @@
 """
 services/notifier.py
-ارسال سیگنال به تلگرام و بله — نسخه ۲.۳
+ارسال سیگنال به تلگرام و بله — نسخه ۳.۱ (فاز ۱۴.۹.۱۰)
 ============================================================
-🔴 تغییرات نسخه ۲.۳:
-  • هماهنگی کامل با آستانه‌های جدید (شروع سیگنال از ۴۰٪)
-  • به‌روزرسانی برچسب‌های اطمینان (ضعیف ۴۰-۵۵، معمولی ۵۵-۷۰، قوی ۷۰-۸۵، طلایی +۸۵)
-  • بهبود نمایش R:R خالص در پیام
+🔴 تغییرات نسخه ۳.۱:
+  • رفع باگ TP Ladder تکراری (خارج از blockquote شد)
+  • آستانه‌های پویا (اسکالپ ۲۵، بقیه ۴۰)
+  • bypass پویا (اسکالپ ۵۰، سوئینگ ۷۰، پوزیشن ۷۵)
+  • نمایش استراتژی
+  • برچسب‌های ۷ سطح
+  • هشتگ استراتژی
+  • dedup ۵ دقیقه
+  • TP Ladder بدون درصد
 """
 
-import logging, os
+import logging
+import os
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -18,33 +25,55 @@ from api.config import settings
 logger = logging.getLogger(__name__)
 DISABLE_NOTIFY = getattr(settings, "DISABLE_NOTIFICATIONS", "false").lower() == "true"
 
-
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
-# ═══════════════════════════════════════════════════════════
-# 🔴 آستانه‌ها
-# ═══════════════════════════════════════════════════════════
-MIN_CONFIDENCE_TO_NOTIFY = 40
-STRONG_CONFIDENCE_BYPASS = 70
 
-# 🔴 TFهایی که به notify نمی‌رن (فقط UI)
+# ═══════════════════════════════════════════════════════════
+# 🔴 آستانه‌های پویا
+# ═══════════════════════════════════════════════════════════
+def _get_min_confidence(strategy: str) -> int:
+    if strategy == "scalp":
+        return 25
+    return 40
+
+
+def _get_strong_bypass(strategy: str) -> int:
+    if strategy == "scalp":
+        return 50
+    elif strategy == "position":
+        return 75
+    return 70
+
+
 TF_SKIP_FOR_NOTIFY = frozenset({"۱ دقیقه"})
+
+# Cooldown برای جلوگیری از تکرار
+_last_sent: dict[str, float] = {}
+COOLDOWN_SEC = 300  # ۵ دقیقه
+
+
+def _is_recent_duplicate(signal: dict) -> bool:
+    ticker = signal.get("ticker", "")
+    tf = signal.get("tf", "")
+    strategy = signal.get("strategy", "swing")
+    key = f"{ticker}|{tf}|{strategy}"
+    now = time.time()
+    if key in _last_sent and now - _last_sent[key] < COOLDOWN_SEC:
+        logger.debug(f"[Notifier] ⏭ تکرار {key} (cooldown)")
+        return True
+    _last_sent[key] = now
+    return False
 
 
 def _should_skip(signal: dict, source_name: str) -> bool:
-    """چرا نباید ارسال بشه؟ با لاگ دقیق."""
     ticker = signal.get("ticker", "?")
     tf = signal.get("tf", "?")
+    strategy = signal.get("strategy", "swing")
 
-    # ═══ چک TF ═══
     if tf in TF_SKIP_FOR_NOTIFY:
-        logger.debug(
-            f"[Notifier/{source_name}] رد {ticker} {tf}: "
-            f"TF در TF_SKIP_FOR_NOTIFY (ذاتاً R:R خالص پایین)"
-        )
+        logger.debug(f"[Notifier/{source_name}] رد {ticker} {tf}: TF در skip-list")
         return True
 
-    # ═══ چک جهت ═══
     direction = signal.get("direction", "neutral")
     if direction not in ("long", "short"):
         logger.debug(
@@ -52,28 +81,33 @@ def _should_skip(signal: dict, source_name: str) -> bool:
         )
         return True
 
-    # ═══ چک confidence ═══
+    min_conf = _get_min_confidence(strategy)
     confidence = signal.get("confidence", 0)
-    if confidence < MIN_CONFIDENCE_TO_NOTIFY:
+    if confidence < min_conf:
         logger.debug(
             f"[Notifier/{source_name}] رد {ticker} {tf}: "
-            f"confidence={confidence}% < {MIN_CONFIDENCE_TO_NOTIFY}%"
+            f"confidence={confidence}% < {min_conf}% (strategy={strategy})"
         )
         return True
 
-    # 🔴 استثنا: سیگنال قوی (≥ 70%) حتی با is_worthwhile=False
-    if confidence >= STRONG_CONFIDENCE_BYPASS:
+    bypass = _get_strong_bypass(strategy)
+    if confidence >= bypass:
         logger.info(
             f"[Notifier/{source_name}] ⚡ سیگنال قوی: {ticker} {tf} "
-            f"conf={confidence}% (bypass is_worthwhile)"
+            f"conf={confidence}% (bypass, strategy={strategy})"
         )
         return False
 
-    # ═══ چک is_worthwhile ═══
     if signal.get("is_worthwhile") is False:
+        if strategy == "scalp":
+            logger.info(
+                f"[Notifier/{source_name}] ✅ اسکالپ is_worthwhile=False: "
+                f"{ticker} {tf} conf={confidence}%"
+            )
+            return False
         logger.debug(
             f"[Notifier/{source_name}] رد {ticker} {tf}: "
-            f"is_worthwhile=False (R:R پایین)"
+            f"is_worthwhile=False (strategy={strategy})"
         )
         return True
 
@@ -89,7 +123,6 @@ def _format_price(price: float) -> str:
 
 
 def _format_shamsi_date() -> str:
-    """تاریخ و ساعت به وقت تهران — 1405/08/06 - 22:00:25"""
     try:
         now = datetime.now(TEHRAN_TZ)
         try:
@@ -105,8 +138,15 @@ def _format_shamsi_date() -> str:
         return ""
 
 
+def _get_strategy_label(strategy: str) -> tuple[str, str]:
+    return {
+        "scalp": ("⚡", "اسکالپ"),
+        "swing": ("🌊", "سوئینگ"),
+        "position": ("🏛", "پوزیشن"),
+    }.get(strategy, ("🌊", "سوئینگ"))
+
+
 def _get_hashtags(signal: dict) -> str:
-    """ساخت ۵ هشتگ داینامیک"""
     tags = ["#تریدمون_نشه"]
 
     ticker = (
@@ -115,6 +155,15 @@ def _get_hashtags(signal: dict) -> str:
     ticker = "".join(c for c in ticker if c.isalnum())
     if ticker:
         tags.append(f"#{ticker}")
+
+    strategy = signal.get("strategy", "swing")
+    strategy_hashtag = {
+        "scalp": "#اسکالپ",
+        "swing": "#سوئینگ",
+        "position": "#پوزیشن",
+    }.get(strategy)
+    if strategy_hashtag:
+        tags.append(strategy_hashtag)
 
     source = signal.get("source", "")
     source_map = {
@@ -126,14 +175,6 @@ def _get_hashtags(signal: dict) -> str:
     }
     if source in source_map:
         tags.append(source_map[source])
-
-    market_type = signal.get("market_type", "")
-    if market_type == "futures":
-        tags.append("#فیوچرز")
-    elif market_type == "spot":
-        tags.append("#اسپات")
-
-    tags.append("#کریپتو")
 
     return " ".join(tags[:5])
 
@@ -152,15 +193,16 @@ def _get_trap_status(signal: dict) -> str:
     return ""
 
 
-def _confidence_label(confidence: int) -> tuple[str, str]:
-    """برچسب سطح اطمینان — هماهنگ با قانون جدید (۴۰، ۵۵، ۷۰، ۸۵)"""
+def _confidence_label(confidence: int, strategy: str = "swing") -> tuple[str, str]:
+    min_conf = {"scalp": 30, "swing": 40, "position": 50}.get(strategy, 40)
+
     if confidence >= 85:
         return ("💎", "اطمینان طلایی")
     elif confidence >= 70:
         return ("🔥", "اطمینان قوی")
-    elif confidence >= 55:
+    elif confidence >= min_conf + 20:
         return ("✅", "اطمینان معمولی")
-    elif confidence >= 40:
+    elif confidence >= min_conf:
         return ("⚠️", "اطمینان ضعیف")
     else:
         return ("⚪", "بدون اطمینان")
@@ -171,6 +213,7 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
     confidence = signal.get("confidence", 0)
     market_type = signal.get("market_type", "spot")
     risk_profile = signal.get("risk_profile", "aggressive")
+    strategy = signal.get("strategy", "swing")
 
     if direction == "long":
         icon = "🟢"
@@ -182,7 +225,8 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
         icon = "🟡"
         dir_fa = "خنثی"
 
-    conf_icon, conf_fa = _confidence_label(confidence)
+    conf_icon, conf_fa = _confidence_label(confidence, strategy)
+    strategy_icon, strategy_fa = _get_strategy_label(strategy)
 
     market_fa = "فیوچرز" if market_type == "futures" else "اسپات"
     risk_fa = "جسورانه" if risk_profile == "aggressive" else "محتاطانه"
@@ -206,13 +250,34 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
         "روزانه": "1d",
     }.get(signal.get("tf", ""), signal.get("tf", ""))
 
-    # 🔴 R:R خالص (بعد از کارمزد+اسپرد)
     rr_val = signal.get("rr_net") or signal.get("rr", 0) or 0
     rr_str = f"{rr_val:.2f}"
 
     price_str = _format_price(signal.get("price", 0))
     tp_str = _format_price(signal.get("tp", 0))
     sl_str = _format_price(signal.get("sl", 0))
+
+    # 🔴 TP Ladder — بدون درصد
+    tp_levels = signal.get("tp_levels") or {}
+    tp_ladder = ""
+    if tp_levels.get("tp1"):
+        tp1_str = _format_price(tp_levels.get("tp1", 0))
+        tp2_str = _format_price(tp_levels.get("tp2", 0))
+        tp3_str = _format_price(tp_levels.get("tp3", 0))
+        if is_telegram:
+            tp_ladder = (
+                f"\n\n📊 <b>خروج پله‌ای:</b>\n"
+                f"• TP1: <code>{tp1_str}</code>\n"
+                f"• TP2: <code>{tp2_str}</code>\n"
+                f"• TP3: <code>{tp3_str}</code>"
+            )
+        else:
+            tp_ladder = (
+                f"\n\n📊 خروج پله‌ای:\n"
+                f"• TP1: {tp1_str}\n"
+                f"• TP2: {tp2_str}\n"
+                f"• TP3: {tp3_str}"
+            )
 
     trap_text = _get_trap_status(signal)
     trap_line = f" | ⚠️ {trap_text}" if trap_text else ""
@@ -226,6 +291,9 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
     if is_telegram:
         header_line = f"     {golden_mark}{ticker} / <b>TF: {tf_short}</b>"
         direction_line = f"| <b>{dir_fa}</b> | {conf_icon} {conf_fa} ({confidence}%)"
+        strategy_line = (
+            f"{strategy_icon} <b>{strategy_fa}</b> | {market_fa} | {risk_fa}"
+        )
         prices_block = (
             f"<blockquote>"
             f"💰 ورود: <code>{price_str}</code>\n"
@@ -237,6 +305,7 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
     else:
         header_line = f"     {golden_mark}{ticker} / TF: {tf_short}"
         direction_line = f"| {dir_fa} | {conf_icon} {conf_fa} ({confidence}%)"
+        strategy_line = f"{strategy_icon} {strategy_fa} | {market_fa} | {risk_fa}"
         prices_block = (
             f"💰 ورود: {price_str}\n"
             f"🎯 حد سود: {tp_str}\n"
@@ -244,12 +313,14 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
             f"ریسک به ریوارد (خالص): {rr_str}"
         )
 
+    # 🔴 tp_ladder فقط یک بار (بیرون از blockquote)
     msg = (
         f"━━━━━{icon}━━━━━\n"
         f"{header_line}\n\n"
         f"{direction_line}\n"
-        f"| {market_fa} | {risk_fa} |{source_fa}{trap_line}\n\n"
-        f"{prices_block}\n\n"
+        f"{strategy_line}{source_fa}{trap_line}\n\n"
+        f"{prices_block}"
+        f"{tp_ladder}\n\n"
         f"━━━━━{icon}━━━━━\n"
         f"{date_str}\n\n\n"
         f"🌠 تحلیل بازارهای مالی با تریدمون\n"
@@ -264,6 +335,8 @@ def send_telegram(signal: dict) -> bool:
     if DISABLE_NOTIFY:
         return False
     if _should_skip(signal, "telegram"):
+        return False
+    if _is_recent_duplicate(signal):
         return False
 
     token = settings.TELEGRAM_BOT_TOKEN
@@ -290,7 +363,7 @@ def send_telegram(signal: dict) -> bool:
         if resp.status_code == 200:
             logger.info(
                 f"[Notifier/telegram] ✅ {signal.get('ticker')} "
-                f"{signal.get('tf')} {signal.get('confidence')}%"
+                f"{signal.get('tf')} {signal.get('strategy')} {signal.get('confidence')}%"
             )
             return True
         logger.warning(
@@ -306,6 +379,8 @@ def send_bale(signal: dict) -> bool:
     if DISABLE_NOTIFY:
         return False
     if _should_skip(signal, "bale"):
+        return False
+    if _is_recent_duplicate(signal):
         return False
 
     token = settings.BALE_BOT_TOKEN
@@ -325,7 +400,7 @@ def send_bale(signal: dict) -> bool:
         if resp.status_code == 200:
             logger.info(
                 f"[Notifier/bale] ✅ {signal.get('ticker')} "
-                f"{signal.get('tf')} {signal.get('confidence')}%"
+                f"{signal.get('tf')} {signal.get('strategy')} {signal.get('confidence')}%"
             )
             return True
         logger.warning(
@@ -341,13 +416,13 @@ def notify_signal(signal: dict) -> None:
     if DISABLE_NOTIFY:
         logger.info(f"[Notify] ارسال غیرفعال است (DISABLE_NOTIFICATIONS=true)")
         return
-    """ارسال به هر دو کانال — با لاگ دقیق."""
     tg = send_telegram(signal)
     bale = send_bale(signal)
     if not tg and not bale:
         logger.info(
             f"[Notifier] هیچ‌کدام ارسال نشد: "
             f"{signal.get('ticker')} {signal.get('tf')} "
+            f"strategy={signal.get('strategy')} "
             f"conf={signal.get('confidence')}% "
             f"is_worthwhile={signal.get('is_worthwhile')} "
             f"direction={signal.get('direction')}"

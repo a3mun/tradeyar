@@ -1,46 +1,22 @@
 "use client";
 
 /**
- * DeepAnalysis — تحلیل روایی (نسخه ۷.۰ · فاز ۱۴.۸.۲)
+ * DeepAnalysis — تحلیل و چرایی (نسخه ۸.۰ · فاز ۱۴.۹.۶)
  * ============================================================
- * 🔴 تغییرات نسخه ۷.۰:
- *   • حذف جدول گروه‌ها (در چک‌لیست هست)
- *   • روایت انسانی: «چرا این سیگنال؟»
- *   • بخش «چه اتفاقی افتاده؟» + «چی کار کنم؟»
- *   • دلیل‌ها با زبان ساده
+ * 🔴 تغییرات نسخه ۸.۰:
+ *   • حذف همه‌ی AccordionSectionهای داخلی
+ *   • فقط محتوا (کشو بیرونی از CollapsibleSection میاد)
  */
 
-import { useEffect, useState } from "react";
 import {
-  Check,
   AlertTriangle,
   GitBranch,
-  Target,
-  Sparkles,
-  Info,
-  Zap,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  MessageCircle,
   Lightbulb,
+  Zap,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AccordionSection } from "@/components/ui/accordion-section";
 import { useAppStore } from "@/store/useAppStore";
 import { useSignalData } from "@/hooks/useSignalData";
-
-function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-  return isMobile;
-}
 
 const TRAP_LABELS: Record<string, string> = {
   bull_trap: "تله صعودی",
@@ -70,9 +46,6 @@ const STRATEGY_LABELS: Record<
   },
 };
 
-// ═══════════════════════════════════════════════════════════
-// 🔴 روایت‌سازی: چرا این سیگنال؟
-// ═══════════════════════════════════════════════════════════
 function buildNarrative(data: any): {
   headline: string;
   why: string;
@@ -88,9 +61,7 @@ function buildNarrative(data: any): {
   const isWeak = signal.includes("ضعیف");
   const isForming = signal.includes("در حال تشکیل");
   const isFar = signal.includes("دور");
-  const isNeutral = signal.includes("خنثی");
 
-  // ═══ headline (عنوان) ═══
   let headline = "";
   if (isLong) {
     headline = isWeak
@@ -112,9 +83,7 @@ function buildNarrative(data: any): {
     headline = `⚪ بدون سیگنال — بهترین کار، صبر کردنه`;
   }
 
-  // ═══ why (چرا؟) ═══
   const reasons = data.reasons || [];
-  const topReasons = reasons.slice(0, 3).filter((r: string) => r);
   let why = "";
 
   if (isLong || isShort) {
@@ -140,7 +109,6 @@ function buildNarrative(data: any): {
     why = `بازار در رژیم رنج یا بی‌جهته.\n• گروه‌های تحلیل هم‌جهت نیستن\n• اندیکاتورها علامت واضحی نمی‌دن\n• صبر، بهترین استراتژی در این شرایطه`;
   }
 
-  // ═══ action (چیکار کنم؟) ═══
   let action = "";
   if (isLong && conf >= 70) {
     action = `✅ می‌تونی وارد شی — ولی مدیریت سرمایه یادت نره (حداکثر ۲-۳٪).\n💡 حتماً حد ضرر بذار.`;
@@ -222,25 +190,11 @@ function ScenarioCard({
 export function DeepAnalysis() {
   const { timeframe, strategy } = useAppStore();
   const { data, loading } = useSignalData();
-  const [copied, setCopied] = useState(false);
-  const isMobile = useIsMobile();
 
-  const aiExport = data?.ai_export || "";
   const pumpScore = data?.pump_score || 0;
   const dumpScore = data?.dump_score || 0;
   const pumpWarning = data?.pump_warning || "none";
   const pumpType = data?.pump_type || "none";
-
-  const handleCopy = async () => {
-    if (!aiExport) return;
-    try {
-      await navigator.clipboard.writeText(aiExport);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch (e) {
-      console.error(e);
-    }
-  };
 
   if (loading && !data) {
     return (
@@ -266,13 +220,12 @@ export function DeepAnalysis() {
     .map(([k]) => k);
   const scenarios = data.scenarios || [];
   const mainDirection = data.direction || "neutral";
-  const defaultOpenDesktop = !isMobile;
   const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
   const narrative = buildNarrative(data);
 
   return (
-    <div className="space-y-2.5">
-      {/* ۱. هشدار Pump/Dump */}
+    <div className="space-y-3">
+      {/* هشدار Pump/Dump */}
       {pumpWarning !== "none" && (
         <div
           className={`rounded-lg border px-2.5 py-2 ${
@@ -306,17 +259,14 @@ export function DeepAnalysis() {
         </div>
       )}
 
-      {/* ۲. هشدار تله‌ها */}
+      {/* هشدار تله‌ها */}
       {activeTraps.length > 0 && (
-        <AccordionSection
-          title="⚠️ هشدار تله"
-          icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
-          preview={`${activeTraps.length} تله فعال`}
-          tone="orange"
-          pulse
-          defaultOpen={defaultOpenDesktop}
-        >
-          <div className="space-y-2">
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2.5">
+          <p className="text-[10px] font-bold text-red-500 mb-1.5 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            {activeTraps.length} تله فعال
+          </p>
+          <div className="space-y-1.5">
             {activeTraps.map((k) => {
               const trap = traps[k] as {
                 active?: boolean;
@@ -326,98 +276,83 @@ export function DeepAnalysis() {
               return (
                 <div
                   key={k}
-                  className="rounded-lg border border-red-500/30 bg-red-500/5 px-2.5 py-2"
+                  className="rounded-md border border-red-500/20 bg-red-500/5 px-2 py-1.5"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-red-500">
+                    <span className="text-[10px] font-bold text-red-500">
                       🚨 {TRAP_LABELS[k] || k}
                     </span>
-                    <span className="num text-[9px] text-muted-foreground">
+                    <span className="num text-[8px] text-muted-foreground">
                       شدت {trap.severity || 0}/10
                     </span>
                   </div>
-                  <p className="mt-1 text-[10px] leading-relaxed text-foreground/70">
+                  <p className="mt-0.5 text-[9px] leading-relaxed text-foreground/70">
                     {trap.reason}
                   </p>
                 </div>
               );
             })}
           </div>
-        </AccordionSection>
+        </div>
       )}
 
-      {/* ۳. 🔴 تحلیل روایی */}
-      <AccordionSection
-        title="💬 تحلیل و چرایی"
-        icon={<MessageCircle className="h-3.5 w-3.5" />}
-        preview={narrative.headline}
-        tone="primary"
-        pulse
-        defaultOpen={defaultOpenDesktop}
-      >
-        <div className="space-y-2.5">
-          {/* استراتژی فعال */}
-          <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 py-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[12px]">{strategyMeta.icon}</span>
-              <span className="text-[10px] font-bold text-[#d6ad60]">
-                استراتژی: {strategyMeta.fa}
-              </span>
-            </div>
-            <p className="text-[9px] text-muted-foreground mt-0.5">
-              {strategyMeta.why}
-            </p>
-          </div>
-
-          {/* عنوان */}
-          <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2">
-            <p className="text-[11px] font-bold text-foreground/90 leading-relaxed">
-              {narrative.headline}
-            </p>
-          </div>
-
-          {/* چرا؟ */}
-          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2">
-            <p className="text-[9px] font-bold text-blue-400 mb-1 flex items-center gap-1">
-              <Lightbulb className="h-3 w-3" />
-              چرا این سیگنال؟
-            </p>
-            <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
-              {narrative.why}
-            </p>
-          </div>
-
-          {/* چیکار کنم؟ */}
-          <div
-            className={`rounded-lg border px-2.5 py-2 ${
-              narrative.action.includes("✅")
-                ? "border-green-500/30 bg-green-500/5"
-                : narrative.action.includes("⏸") ||
-                  narrative.action.includes("⏳")
-                ? "border-amber-500/30 bg-amber-500/5"
-                : "border-orange-500/30 bg-orange-500/5"
-            }`}
-          >
-            <p className="text-[9px] font-bold text-foreground/80 mb-1">
-              🎯 الان چیکار کنم؟
-            </p>
-            <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
-              {narrative.action}
-            </p>
-          </div>
+      {/* تحلیل روایی */}
+      <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[12px]">{strategyMeta.icon}</span>
+          <span className="text-[10px] font-bold text-[#d6ad60]">
+            استراتژی: {strategyMeta.fa}
+          </span>
         </div>
-      </AccordionSection>
+        <p className="text-[9px] text-muted-foreground mt-0.5">
+          {strategyMeta.why}
+        </p>
+      </div>
 
-      {/* ۴. سناریوها */}
+      {/* عنوان */}
+      <div className="rounded-lg bg-white/5 border border-white/10 px-3 py-2">
+        <p className="text-[11px] font-bold text-foreground/90 leading-relaxed">
+          {narrative.headline}
+        </p>
+      </div>
+
+      {/* چرا؟ */}
+      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2">
+        <p className="text-[9px] font-bold text-blue-400 mb-1 flex items-center gap-1">
+          <Lightbulb className="h-3 w-3" />
+          چرا این سیگنال؟
+        </p>
+        <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
+          {narrative.why}
+        </p>
+      </div>
+
+      {/* چیکار کنم؟ */}
+      <div
+        className={`rounded-lg border px-2.5 py-2 ${
+          narrative.action.includes("✅")
+            ? "border-green-500/30 bg-green-500/5"
+            : narrative.action.includes("⏸") ||
+              narrative.action.includes("⏳")
+            ? "border-amber-500/30 bg-amber-500/5"
+            : "border-orange-500/30 bg-orange-500/5"
+        }`}
+      >
+        <p className="text-[9px] font-bold text-foreground/80 mb-1">
+          🎯 الان چیکار کنم؟
+        </p>
+        <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
+          {narrative.action}
+        </p>
+      </div>
+
+      {/* سناریوها */}
       {scenarios.length > 0 && (
-        <AccordionSection
-          title="🔀 سناریوهای پیش‌رو"
-          icon={<GitBranch className="h-3.5 w-3.5" />}
-          preview={`${scenarios.length} سناریو`}
-          tone="primary"
-          pulse
-          defaultOpen={defaultOpenDesktop}
-        >
+        <div>
+          <p className="text-[10px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
+            <GitBranch className="h-3 w-3" />
+            سناریوهای پیش‌رو ({scenarios.length})
+          </p>
           <div className="space-y-2">
             {scenarios.map((sc, i) => (
               <ScenarioCard
@@ -427,35 +362,16 @@ export function DeepAnalysis() {
               />
             ))}
           </div>
-        </AccordionSection>
+        </div>
       )}
 
-      {/* ۵. هشدار نهایی */}
+      {/* هشدار نهایی */}
       <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-[9px] text-yellow-500/80 leading-relaxed">
         ⚠️ این تحلیل بر اساس دیتای فعلی هست. بازار ممکنه متفاوت عمل کنه.
         همیشه با حد ضرر و مدیریت سرمایه وارد شو.
       </div>
 
-      {/* ۶. دکمه کپی */}
-      <Button
-        onClick={handleCopy}
-        variant="default"
-        className={`w-full ${
-          copied ? "bg-green-600 hover:bg-green-700 text-white" : ""
-        }`}
-        size="sm"
-        disabled={!aiExport}
-      >
-        {copied ? (
-          <>
-            <Check className="h-3.5 w-3.5" /> کپی شد
-          </>
-        ) : (
-          <>
-            <Sparkles className="h-3.5 w-3.5" /> کپی داده‌های خام برای AI
-          </>
-        )}
-      </Button>
+
     </div>
   );
 }

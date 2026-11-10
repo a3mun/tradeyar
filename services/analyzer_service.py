@@ -582,7 +582,60 @@ def analyze(
     return output
 
 
+# 🔴 فاز ۱۴.۹.۵ — pre-warm cache برای نمادهای پرمعامله
+_PREWARM_SYMBOLS = [
+    ("BTC-USD", "nobitex", "futures"),
+    ("ETH-USD", "nobitex", "futures"),
+    ("BTC-IRT", "nobitex", "spot"),
+]
+
+
+def prewarm_cache():
+    """cache رو برای نمادهای پرمعامله گرم می‌کنه (بعد از startup)"""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _warm_one(ticker, source, market_type):
+        try:
+            for tf in ["۵ دقیقه", "۱۵ دقیقه", "۱ ساعت"]:
+                analyze(
+                    ticker=ticker,
+                    source=source,
+                    tf_name=tf,
+                    market_type=market_type,
+                    risk_profile="aggressive",
+                    strategy="swing",
+                    include_extras=False,
+                    use_cache=True,
+                    skip_record=True,  # 🔴 در DB ثبت نکن
+                )
+        except Exception as e:
+            logger.debug(f"[Prewarm] {ticker} {tf}: {e!r}")
+
+    try:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            for ticker, source, mt in _PREWARM_SYMBOLS:
+                executor.submit(_warm_one, ticker, source, mt)
+        logger.info("[Prewarm] ✅ cache گرم شد")
+    except Exception as e:
+        logger.warning(f"[Prewarm] خطا: {e!r}")
+
+
 _MAX_TF_WORKERS = 4
+
+
+import time as _time
+from threading import Lock as _Lock
+
+# 🔴 فاز ۱۴.۹.۵ — cache سراسری برای /analyze/multi (TTL=60s)
+_multi_cache: dict = {}
+_multi_cache_lock = _Lock()
+_MULTI_CACHE_TTL = 60  # seconds
+
+
+def _make_multi_cache_key(
+    ticker: str, source: str, market_type: str, risk_profile: str, strategy: str
+) -> str:
+    return f"{ticker}|{source}|{market_type}|{risk_profile}|{strategy}"
 
 
 def analyze_multi_tf(
@@ -594,6 +647,15 @@ def analyze_multi_tf(
     ticker_name: str = "",
     strategy: str = "swing",
 ) -> dict:
+    # 🔴 فاز ۱۴.۹.۵ — cache سراسری (TTL=60s)
+    _key = _make_multi_cache_key(ticker, source, market_type, risk_profile, strategy)
+    _now = _time.time()
+
+    with _multi_cache_lock:
+        _entry = _multi_cache.get(_key)
+        if _entry and (_now - _entry["at"]) < _MULTI_CACHE_TTL:
+            logger.debug(f"[AnalyzeMulti] cache HIT: {_key}")
+            return _entry["data"]
     """
     🔴 فاز ۱۴.۷.۳ — فیلتر TF بر اساس recommended_tfs استراتژی.
     فقط TFهایی که برای استراتژی معنی دارن fetch می‌شن.
@@ -690,6 +752,15 @@ def analyze_multi_tf(
             if "close_series" not in r or not r["close_series"]:
                 r["close_series"] = []
             results[tf] = r
+
+    # 🔴 فاز ۱۴.۹.۵ — ذخیره در cache
+    with _multi_cache_lock:
+        _multi_cache[_key] = {"data": results, "at": _time.time()}
+        # پاکسازی خودکار (نگه داشتن حداکثر ۱۰۰ ورودی)
+        if len(_multi_cache) > 100:
+            oldest = min(_multi_cache.items(), key=lambda kv: kv[1]["at"])
+            _multi_cache.pop(oldest[0], None)
+
     return results
 
 

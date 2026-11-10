@@ -41,7 +41,7 @@ HEADERS = {
     "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8",
 }
 
-TIMEOUT = 20
+TIMEOUT = 5  # 🔴 فاز ۱۴.۹.۵ — از 20 به 5 (سریع‌تر fallback)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -431,17 +431,12 @@ def fetch_history_by_source(
 
     # ═══ تبدیل (Tabdeal) ═══
     #
-    # 🔴 تبدیل OHLCV عمومی ندارد (فقط قیمت + عمق بازار).
-    #    همان قاعده‌ی آبان‌تتر سابق: برای OHLCV **اجازه‌ی
-    #    fallback** داریم (کاربر باید تحلیل بگیرد)، ولی منبع
-    #    واقعی در ``df.attrs["data_source"]`` برچسب می‌خورد تا
-    #    لایه‌ی سرویس آن را صادقانه گزارش کند.
+    # 🔴 فاز ۱۴.۹.۵ — تبدیل OHLCV ندارد (فقط قیمت + عمق بازار).
+    #    تصمیم: تحلیل روی تبدیل **ارائه نمی‌شود** (به جای fallback
+    #    گمراه‌کننده). فقط قیمت و depth از تبدیل موجود است.
     if source == "tabdeal":
-        logger.debug(
-            f"[Fetcher] تبدیل OHLCV ندارد — برای {ticker} "
-            f"از زنجیره‌ی fallback استفاده می‌شود"
-        )
-        return _next("nobitex", "bitpin", "wallex")
+        logger.debug(f"[Fetcher] {ticker}: تبدیل OHLCV ندارد — تحلیل در دسترس نیست")
+        return None
 
     # ═══ بورس تهران ═══
     if source == "tsetmc":
