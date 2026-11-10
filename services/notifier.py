@@ -13,6 +13,7 @@ services/notifier.py
   • TP Ladder بدون درصد
 """
 
+import json
 import logging
 import os
 import time
@@ -259,6 +260,12 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
 
     # 🔴 TP Ladder — بدون درصد
     tp_levels = signal.get("tp_levels") or {}
+    # 🔴 فاز ۱۴.۹.۱۱ — اگه tp_levels به‌صورت dict نیومد، از tp_levels_json بخون
+    if not tp_levels and signal.get("tp_levels_json"):
+        try:
+            tp_levels = json.loads(signal["tp_levels_json"])
+        except Exception:
+            tp_levels = {}
     tp_ladder = ""
     if tp_levels.get("tp1"):
         tp1_str = _format_price(tp_levels.get("tp1", 0))

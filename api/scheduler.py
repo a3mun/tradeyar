@@ -1,13 +1,13 @@
 """
 api/scheduler.py — راستی‌آزمایی و اسکن خودکار
 ============================================================
-نسخه ۶.۳ · فاز ۱۰.۹.۶
-🔴 تغییرات نهایی:
-  • ۱۰ نماد در هر ۳ صرافی (نوبیتکس، بیت‌پین، والکس)
-  • تایم‌فریم‌ها: نوبیتکس/بیت‌پین کامل، والکس فقط ۱ ساعت و روزانه
-  • اسکن هر ۱۵ دقیقه (چرخشی)
-  • راستی‌آزمایی هر ۳ دقیقه
-  • misfire_grace_time=600 برای جلوگیری از نادیده گرفتن Job
+نسخه ۶.۴ · فاز ۱۴.۹.۱۱
+🔴 تغییرات نسخه ۶.۴:
+  • strategy پویا بر اساس TF (اسکالپ برای TF پایین)
+  • market_type پویا (spot برای -IRT، futures برای بقیه)
+  • EXCHANGE_CYCLE وزن‌دار (والکس کمتر)
+  • _EMPTY_RESULT کامل (errors + skipped)
+  • لاگ کمتر (debug برای start، info برای result)
 """
 
 import logging
@@ -32,11 +32,13 @@ _EMPTY_RESULT = {
     "expired": 0,
     "win": 0,
     "loss": 0,
+    "errors": 0,
+    "skipped": 0,
 }
 
 
 # ═══════════════════════════════════════════════════════════
-# نمادهای ثابت (۱۰ نماد در هر ۳ صرافی)
+# نمادهای ثابت
 # ═══════════════════════════════════════════════════════════
 FIXED_SYMBOLS = [
     # ─── nobitex ───
@@ -78,7 +80,9 @@ TIMEFRAMES_BY_SOURCE = {
 
 SCAN_MARKET_TYPE = "futures"
 SCAN_RISK_PROFILE = "aggressive"
-EXCHANGE_CYCLE = ["nobitex", "wallex", "bitpin"]
+
+# 🔴 EXCHANGE_CYCLE وزن‌دار (نوبیتکس و بیت‌پین بیشتر، والکس کمتر)
+EXCHANGE_CYCLE = ["nobitex", "bitpin", "nobitex", "bitpin", "wallex"]
 _scan_cycle_idx = 0
 
 
@@ -89,19 +93,35 @@ def _next_exchange() -> str:
     return exchange
 
 
+def _strategy_for_tf(tf_name: str) -> str:
+    """🔴 استراتژی پویا بر اساس TF"""
+    if tf_name in ("۱ دقیقه", "۵ دقیقه"):
+        return "scalp"
+    elif tf_name in ("۳۰ دقیقه", "۱ ساعت", "روزانه"):
+        return "position"
+    return "swing"
+
+
+def _market_for_ticker(ticker: str) -> str:
+    """🔴 market_type پویا (-IRT/-TMN → spot)"""
+    upper = ticker.upper()
+    if "-IRT" in upper or "-TMN" in upper:
+        return "spot"
+    return SCAN_MARKET_TYPE
+
+
 def check_pending_signals(trigger: str = "scheduler") -> dict:
     if _backtest_lock.locked():
-        logger.info(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
+        logger.debug(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
         return dict(_EMPTY_RESULT)
     with _backtest_lock:
-        logger.info(f"[Backtest/{trigger}] بررسی سیگنال‌ها...")
+        logger.debug(f"[Backtest/{trigger}] بررسی سیگنال‌ها...")
         try:
             result = backtest_all(max_checks=300)
             updated = result.get("updated", 0)
             errors = result.get("errors", 0)
             skipped = result.get("skipped", 0)
 
-            # 🔴 لاگ کامل شامل errors و skipped
             logger.info(
                 f"[Backtest/{trigger}] ✅ updated={updated} | "
                 f"errors={errors} | skipped={skipped} | "
@@ -118,8 +138,8 @@ def check_pending_signals(trigger: str = "scheduler") -> dict:
                 "expired": 0,
                 "win": 0,
                 "loss": 0,
-                "errors": 0,  # 🔴 اضافه شد
-                "skipped": 0,  # 🔴 اضافه شد
+                "errors": 0,
+                "skipped": 0,
             }
 
 
@@ -140,26 +160,31 @@ def auto_scan_and_record(trigger: str = "scheduler"):
         total_recorded = 0
         total_errors = 0
         for sym in exchange_fixed:
+            # 🔴 strategy + market_type پویا
+            market_type = _market_for_ticker(sym["ticker"])
             for tf_name in timeframes:
+                strategy = _strategy_for_tf(tf_name)
                 try:
                     r = analyze(
                         ticker=sym["ticker"],
                         source=sym["source"],
                         tf_name=tf_name,
-                        market_type=SCAN_MARKET_TYPE,
+                        market_type=market_type,
                         risk_profile=SCAN_RISK_PROFILE,
                         ticker_name=sym["name"],
                         include_extras=False,
                         skip_record=False,
+                        strategy=strategy,  # 🔴 جدید
                     )
                     if r and r.get("signal") != "خنثی":
                         total_recorded += 1
                 except Exception as e:
                     logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
                     total_errors += 1
-                # 🔴 فاز ۱۴.۹.۵ — sleep حذف شد (timeout کوتاه خودش rate limit رو مدیریت می‌کنه)
+
         logger.info(
-            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از {len(exchange_fixed)} نماد × {len(timeframes)} TF (خطا: {total_errors})"
+            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از "
+            f"{len(exchange_fixed)} نماد × {len(timeframes)} TF (خطا: {total_errors})"
         )
         return {
             "ok": True,
@@ -202,7 +227,7 @@ def start_scheduler():
             replace_existing=True,
             max_instances=1,
             coalesce=True,
-            misfire_grace_time=600,  # 🔴 افزایش یافت
+            misfire_grace_time=600,
             kwargs={"trigger": "scheduler"},
         )
     if not scheduler.running:
