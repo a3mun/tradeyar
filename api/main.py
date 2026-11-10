@@ -14,7 +14,7 @@ from api.routers import analyze, backtest, orderbook, scan, symbols
 from api.routers import auth as auth_router
 from api.routers import ws as ws_router
 from api.routers import extension
-
+from api.routers import analyze, backtest, orderbook, scan, symbols, share
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -139,7 +139,7 @@ app.include_router(admin.router)
 app.include_router(admin_ws.router)
 app.include_router(tickets.router)
 app.include_router(extension.router)
-
+app.include_router(share.router)
 
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket

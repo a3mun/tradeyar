@@ -278,3 +278,35 @@ try:
     logger.info("[Migration] ✅ جدول extension_tokens آماده است")
 except Exception as e:
     logger.warning(f"[Migration] extension_tokens: {e}")
+
+# ═══ جدول site_stats_override ═══
+try:
+    with engine.begin() as conn:
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS site_stats_override (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key VARCHAR NOT NULL UNIQUE,
+                    value REAL DEFAULT 0.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_by VARCHAR
+                );
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS site_stats_override (
+                    id SERIAL PRIMARY KEY,
+                    key VARCHAR NOT NULL UNIQUE,
+                    value DOUBLE PRECISION DEFAULT 0.0,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_by VARCHAR
+                );
+            """))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_site_stats_key ON site_stats_override(key);"
+            )
+        )
+    logger.info("[Migration] ✅ جدول site_stats_override آماده است")
+except Exception as e:
+    logger.warning(f"[Migration] site_stats_override: {e}")

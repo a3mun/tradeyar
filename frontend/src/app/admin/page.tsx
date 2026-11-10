@@ -8,6 +8,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion, AnimatePresence } from "framer-motion";
+
 import {
   LogOut,
   CheckCircle2,
@@ -42,6 +43,11 @@ import {
   UserX,
   UserCheck2,
   Hourglass,
+  Target,
+  ChevronDown,
+  Save,
+  RotateCcw,
+  CheckCircle,
 } from "lucide-react";
 import {
   Dialog,
@@ -52,6 +58,8 @@ import {
 import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 import Link from "next/link";
 import { RestoreGuide } from "@/components/admin/RestoreGuide";
+// 🔴 فاز ۱۴.۹.۱۲ — راستی‌آزمایی
+import { BacktestStats } from "@/components/backtest/BacktestStats";
 
 const getPlanNameFa = (plan: string) => {
   const map: Record<string, string> = {
@@ -141,7 +149,14 @@ const paymentStatusBadge = (s: string) => {
   }
 };
 
-type TabKey = "users" | "payments" | "transactions" | "tools" | "zibal" | "refunds";
+type TabKey =
+  | "users"
+  | "payments"
+  | "transactions"
+  | "tools"
+  | "zibal"
+  | "refunds"
+  | "verification";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -165,13 +180,20 @@ export default function AdminPage() {
   >("all");
   const [stats, setStats] = useState<any>(null);
 
+  // 🔴 فاز ۱۴.۹.۱۲ — کنترل آمار نمایشی
+  const [siteStats, setSiteStats] = useState<any>(null);
+  const [inputWinRate, setInputWinRate] = useState<string>("");
+  const [inputDirAcc, setInputDirAcc] = useState<string>("");
+  const [inputTotalSignals, setInputTotalSignals] = useState<string>("");
+  const [overrideSaving, setOverrideSaving] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [adjustDays, setAdjustDays] = useState<number>(0);
   const [sendSmsPlan, setSendSmsPlan] = useState(true);
   const [sendSmsDays, setSendSmsDays] = useState(true);
-
+  const [inputWinRateDict, setInputWinRateDict] = useState<Record<string, string>>({});
+  const [inputDirAccDict, setInputDirAccDict] = useState<Record<string, string>>({});
   const [newPasswordForUser, setNewPasswordForUser] = useState("");
   const [extStats, setExtStats] = useState<any>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -255,7 +277,9 @@ export default function AdminPage() {
     } catch {}
   };
 
-  const fetchStats = async () => {
+
+  
+    const fetchStats = async () => {
     try {
       const res = await fetch(`${apiUrl}/admin/dashboard-stats`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -263,6 +287,83 @@ export default function AdminPage() {
       if (res.ok) setStats(await res.json());
     } catch {}
   };
+
+  // 🔴 فاز ۱۴.۹.۱۲ — fetch آمار نمایشی
+  const fetchSiteStats = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/admin/site-stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSiteStats(data);
+                const newWinRateDict: Record<string, string> = {};
+        const newDirAccDict: Record<string, string> = {};
+        ["scalp", "swing", "position"].forEach((strat) => {
+          if (data.by_strategy?.[strat]?.has_override?.win_rate) {
+            newWinRateDict[strat] = String(data.by_strategy[strat].win_rate);
+          }
+          if (data.by_strategy?.[strat]?.has_override?.direction_accuracy) {
+            newDirAccDict[strat] = String(data.by_strategy[strat].direction_accuracy);
+          }
+        });
+        setInputWinRateDict(newWinRateDict);
+        setInputDirAccDict(newDirAccDict);
+        setInputWinRate(
+          data.has_override?.win_rate ? String(data.win_rate) : ""
+        );
+        setInputDirAcc(
+          data.has_override?.direction_accuracy
+            ? String(data.direction_accuracy)
+            : ""
+        );
+        setInputTotalSignals(data.has_override?.total_signals ? String(data.total_signals) : "");
+
+      }
+    } catch {}
+  };
+
+const saveOverride = async (key: string, value: number) => {
+  if (value < 0 || value > 100) {
+      alert("مقدار باید بین ۰ تا ۱۰۰ باشد");
+      return;
+    }
+    setOverrideSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/admin/site-stats/override`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ key, value }),
+      });
+      if (!res.ok) throw new Error("خطا در ذخیره");
+      await fetchSiteStats();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
+const deleteOverride = async (key: string) => {
+  if (!confirm("برگشت به مقدار واقعی؟")) return;
+    setOverrideSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/admin/site-stats/override/${key}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("خطا در حذف");
+      await fetchSiteStats();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/payments`, {
@@ -275,8 +376,9 @@ export default function AdminPage() {
     fetchBackups();
     fetchMaintenanceStatus();
     fetchStats();
+    fetchSiteStats();
   }, [apiUrl, token]);
-
+      
   useEffect(() => {
     const u = getUser();
     if (!u || !u.is_admin) {
@@ -285,8 +387,9 @@ export default function AdminPage() {
     }
     setUserData(u);
     fetchData();
+    if (activeTab === "verification") fetchSiteStats();
   }, [router, activeTab]);
-
+  
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -1176,6 +1279,19 @@ export default function AdminPage() {
               <Wrench className="h-4 w-4" />
               <span className="hidden sm:inline">ابزارها</span>
             </Button>
+            {/* 🔴 فاز ۱۴.۹.۱۲ — راستی‌آزمایی */}
+            <Button
+              variant={activeTab === "verification" ? "default" : "ghost"}
+              onClick={() => setActiveTab("verification")}
+              className={`shrink-0 gap-2 ${
+                activeTab === "verification"
+                  ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <Target className="h-4 w-4" />
+              <span className="hidden sm:inline">راستی‌آزمایی</span>
+            </Button>
           </div>
         </div>
 
@@ -1896,6 +2012,126 @@ export default function AdminPage() {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ═══ تب verification ═══ */}
+        {activeTab === "verification" && (
+          <div className="space-y-4">
+            
+            {/* ۱. آمار کامل و اصلی (موضوع اصلی) - کشویی */}
+            <details className="group rounded-2xl border border-white/10 bg-white/5 shadow-xl backdrop-blur-xl [&_summary::-webkit-details-marker]:hidden" open>
+              <summary className="flex cursor-pointer items-center justify-between p-4">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
+                  <CheckCircle className="h-4 w-4" />
+                  آمار کامل و تاریخچه راستی‌آزمایی
+                </h3>
+                <ChevronDown className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="border-t border-white/10 p-4">
+                <BacktestStats />
+              </div>
+            </details>
+
+            {/* ۲. کنترل آمار نمایشی (بخش تنظیمات مدیر) - کشویی و پیش‌فرض بسته */}
+            <details className="group rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] shadow-xl [&_summary::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer items-center justify-between p-4">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
+                  <Target className="h-4 w-4" />
+                  کنترل آمار نمایشی سایت (تنظیمات مدیر)
+                </h3>
+                <ChevronDown className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="border-t border-[#d6ad60]/20 p-4">
+                <p className="mb-4 text-[10px] leading-relaxed text-gray-400">
+                  این اعداد در صفحه اصلی به کاربران نمایش داده می‌شوند. می‌تونی برای هر استراتژی، نرخ برد و دقت پیش‌بینی رو به صورت جداگانه و خوش‌بینانه تنظیم کنی.
+                </p>
+
+                {!siteStats ? (
+                  <p className="py-2 text-center text-xs text-gray-500">
+                    در حال بارگذاری...
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    
+                    {/* بخش استراتژی‌ها */}
+                    {["scalp", "swing", "position"].map((strat) => {
+                      const sData = siteStats.by_strategy?.[strat];
+                      if (!sData) return null;
+                      const stratName = strat === "scalp" ? "اسکالپ" : strat === "swing" ? "سوئینگ" : "پوزیشن";
+                      
+                      return (
+                        <div key={strat} className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-3">
+                          <h4 className="text-xs font-bold text-[#d6ad60]">استراتژی: {stratName} (کل: {sData.total} سیگنال)</h4>
+                          
+                          {/* نرخ برد */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex-1">
+                              <p className="text-[10px] text-gray-400">نرخ برد (واقعی: {sData.real_win_rate.toFixed(1)}٪)</p>
+                              <Input
+                                type="number" step="0.1"
+                                value={inputWinRateDict[strat] || ""}
+                                onChange={(e) => setInputWinRateDict({...inputWinRateDict, [strat]: e.target.value})}
+                                className="h-7 text-xs bg-black/40 mt-1" dir="ltr" placeholder="مثلا 75"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1 mt-4">
+                              <Button size="sm" onClick={() => saveOverride(`win_rate_${strat}`, parseFloat(inputWinRateDict[strat]))} className="h-6 text-[10px] bg-green-600">ذخیره</Button>
+                              {sData.has_override?.win_rate && (
+                                <Button size="sm" variant="outline" onClick={() => deleteOverride(`win_rate_${strat}`)} className="h-6 text-[10px] text-red-400 border-red-500/30">واقعی</Button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* دقت پیش‌بینی */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex-1">
+                              <p className="text-[10px] text-gray-400">دقت پیش‌بینی (واقعی: {sData.real_direction_accuracy.toFixed(1)}٪)</p>
+                              <Input
+                                type="number" step="0.1"
+                                value={inputDirAccDict[strat] || ""}
+                                onChange={(e) => setInputDirAccDict({...inputDirAccDict, [strat]: e.target.value})}
+                                className="h-7 text-xs bg-black/40 mt-1" dir="ltr" placeholder="مثلا 80"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1 mt-4">
+                              <Button size="sm" onClick={() => saveOverride(`direction_accuracy_${strat}`, parseFloat(inputDirAccDict[strat]))} className="h-6 text-[10px] bg-purple-600">ذخیره</Button>
+                              {sData.has_override?.direction_accuracy && (
+                                <Button size="sm" variant="outline" onClick={() => deleteOverride(`direction_accuracy_${strat}`)} className="h-6 text-[10px] text-red-400 border-red-500/30">واقعی</Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* مجموع کل سیگنال‌ها */}
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-white">مجموع سیگنال نمایشی</p>
+                          <p className="text-[10px] text-gray-400 mt-1">مقدار واقعی: {siteStats.real_total_signals} سیگنال (۱۰۰ اخیر)</p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            type="number" min="0"
+                            value={inputTotalSignals || ""}
+                            onChange={(e) => setInputTotalSignals(e.target.value)}
+                            className="h-8 w-24 bg-black/40" dir="ltr" placeholder="450"
+                          />
+                          <Button size="sm" onClick={() => saveOverride("total_signals", parseFloat(inputTotalSignals))} className="h-8 bg-blue-600">ذخیره</Button>
+                          {siteStats.has_override?.total_signals && (
+                            <Button size="sm" variant="outline" onClick={() => deleteOverride("total_signals")} className="h-8 text-red-400 border-red-500/30">واقعی</Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+              </div>
+            </details>
+
           </div>
         )}
       </main>

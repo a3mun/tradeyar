@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * AIAnalysis — مشاور هوشمند (نسخه ۶.۰ · فاز ۱۴.۹.۸)
+ * AIAnalysis — مشاور هوشمند (نسخه ۷.۰ · فاز ۱۵)
  * ============================================================
- * 🔴 تغییرات نسخه ۶.۰:
- *   • بازنگری کامل UI
- *   • دو روش: API رایگان + کپی داده خام
- *   • لینک به چت‌های آماده (DeepSeek, ChatGPT, Gemini, Claude, Groq)
- *   • توضیح کوتاه و کاربرپسند
+ * 🔴 تغییرات نسخه ۷.۰:
+ *   • متن‌ها کوتاه‌تر و کاربرپسندتر شدن (لحن دوستانه)
+ *   • دکمه کپی داده هم‌رنگ بقیه دکمه‌های برند (طلایی) شد
+ *   • بازنگری در چیدمان توضیحات
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -154,11 +153,11 @@ export function AIAnalysis() {
     const key = savedKey || apiKey.trim();
     if (!key) {
       setShowKeyInput(true);
-      setAiError("اول کلید رایگان OpenRouter رو وارد کن");
+      setAiError("برای شروع، اول کلید رایگان OpenRouter رو وارد کن.");
       return;
     }
     if (!aiExport) {
-      setAiError("داده‌ای برای ارسال نیست — چند ثانیه صبر کن");
+      setAiError("داده‌ای برای تحلیل نیست — چند لحظه صبر کن.");
       return;
     }
 
@@ -197,16 +196,16 @@ export function AIAnalysis() {
 
         if (res.status === 402 || errMsg.includes("Payment Required")) {
           throw new Error(
-            "موجودی حساب OpenRouter منفیه. برای استفاده از مدل‌های رایگان، موجودی رو مثبت کن (حتی ۱ دلار کافیه) یا یه کلید جدید بساز. در ضمن، می‌تونی از کپی داده خام استفاده کنی."
+            "اعتبار حساب OpenRouter تموم شده. برای استفاده از مدل‌های رایگان، یه کم موجودی (حتی ۱ دلار) شارژ کن یا از روش کپی داده خام استفاده کن."
           );
         }
         if (res.status === 429 || errMsg.includes("rate limit")) {
           throw new Error(
-            "سهمیه روزانه تموم شد. از کپی داده خام استفاده کن و توی DeepSeek یا ChatGPT پیست کن."
+            "سهمیه امروزت تموم شده. فعلاً از روش کپی داده خام توی DeepSeek یا ChatGPT استفاده کن."
           );
         }
         if (errMsg.includes("Invalid") || errMsg.includes("authentication")) {
-          throw new Error("کلید API نامعتبره. کلید رو پاک کن و دوباره وارد کن.");
+          throw new Error("کلید API نامعتبره. پاکش کن و یه کلید جدید بذار.");
         }
         throw new Error(errMsg);
       }
@@ -216,7 +215,7 @@ export function AIAnalysis() {
         resData.choices?.[0]?.message?.content || "پاسخی دریافت نشد"
       );
     } catch (e: unknown) {
-      const msg = (e as Error)?.message || "خطا در ارتباط با AI";
+      const msg = (e as Error)?.message || "مشکلی در ارتباط با هوش مصنوعی پیش اومد.";
       setAiError(msg);
     } finally {
       setAiLoading(false);
@@ -225,13 +224,11 @@ export function AIAnalysis() {
 
   return (
     <div className="space-y-4">
-      {/* ═══ توضیح کوتاه ═══ */}
+      {/* ═══ توضیح کوتاه و کاربرپسند ═══ */}
       <div className="flex items-start gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-400" />
         <p className="text-[10px] leading-relaxed text-blue-300/90">
-          <b>دو روش داری:</b> با API رایگان مستقیم تحلیل بگیر، یا داده‌های خام
-          رو کپی کن و توی DeepSeek/ChatGPT تحلیل بگیر. اگه API خطا داد
-          (تحریم/محدودیت)، روش دوم همیشه کار می‌کنه.
+          <b>دو روش داری:</b> یا با API رایگان مستقیم تحلیل بگیر، یا داده‌های خام رو کپی کن و توی <b>DeepSeek</b> یا <b>ChatGPT</b> بچسبون. اگه روش اول خطا داد، روش دوم همیشه جواب می‌ده.
         </p>
       </div>
 
@@ -243,7 +240,7 @@ export function AIAnalysis() {
           <div className="flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-[#d6ad60]" />
             <span className="text-[11px] font-bold text-[#d6ad60]">
-              روش ۱ — تحلیل مستقیم با API
+              روش ۱ — تحلیل مستقیم
             </span>
           </div>
           <button
@@ -281,7 +278,7 @@ export function AIAnalysis() {
         {showKeyInput && (
           <div className="rounded-lg border border-border bg-background/50 p-2.5">
             <p className="text-[10px] leading-relaxed text-muted-foreground mb-1.5">
-              کلید رایگان از{" "}
+              یه کلید رایگان از{" "}
               <a
                 href="https://openrouter.ai/keys"
                 target="_blank"
@@ -291,7 +288,7 @@ export function AIAnalysis() {
                 openrouter.ai/keys
                 <ExternalLink className="mr-0.5 inline h-2.5 w-2.5" />
               </a>{" "}
-              بگیر — روزی ۵۰ درخواست رایگان
+              بگیر (روزی ۵۰ درخواست رایگان).
             </p>
             <div className="flex gap-2">
               <input
@@ -313,8 +310,7 @@ export function AIAnalysis() {
               </Button>
             </div>
             <p className="text-[9px] text-muted-foreground/70 mt-1">
-              🔒 کلید فقط در مرورگر شما ذخیره می‌شه — هیچ‌وقت به سرور Trademun
-              فرستاده نمی‌شه.
+              🔒 کلیدت فقط توی مرورگر خودت ذخیره میشه و هیچ‌وقت به سرور ما فرستاده نمیشه.
             </p>
           </div>
         )}
@@ -352,24 +348,23 @@ export function AIAnalysis() {
         </div>
 
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          داده‌های خام تحلیل (شامل OHLCV کامل، اندیکاتورها، سطوح کلیدی، عمق
-          بازار، و همه‌ی داده‌های لازم برای تحلیل حرفه‌ای) رو کپی کن و توی
-          هر پلتفرم AI (DeepSeek، ChatGPT، Gemini، Claude و...) پیست کن.
+          داده‌های کامل تحلیل رو کپی کن و توی هر هوش مصنوعی (DeepSeek، ChatGPT، Gemini و...) بچسبون.
           <br />
           <span className="text-purple-400 font-medium">
-            ⚡ فقط با یک کلیک — داده‌های قوی برای تحلیل لحظه‌ای و رباتیک
+            ⚡ سریع‌ترین راه برای تحلیل لحظه‌ای
           </span>
         </p>
 
+        {/* 🔴 دکمه هم‌رنگ بقیه دکمه‌های برند */}
         <Button
           onClick={handleCopyRaw}
           disabled={!aiExport}
-          variant="outline"
+          variant="default"
           size="sm"
-          className={`w-full font-medium transition-colors ${
+          className={`w-full font-bold transition-colors ${
             copied
-              ? "border-green-500/40 bg-green-500/10 text-green-500 hover:bg-green-500/20"
-              : "border-purple-500/40 bg-purple-500/5 text-purple-300 hover:bg-purple-500/15"
+              ? "bg-green-600 text-white hover:bg-green-700"
+              : "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"
           }`}
         >
           {copied ? (
@@ -431,11 +426,11 @@ export function AIAnalysis() {
         )}
       </div>
 
-            <p className="text-[8.5px] text-muted-foreground/70 text-center leading-relaxed pt-1">
-              💡 برای کاربران ایران: <span className="text-emerald-400">DeepSeek</span> و{" "}
-              <span className="text-emerald-400">ChatGPT</span> بدون VPN کار می‌کنن.
-              بقیه نیاز به VPN دارن.
-            </p>
+      <p className="text-[8.5px] text-muted-foreground/70 text-center leading-relaxed pt-1">
+        💡 برای کاربران ایران: <span className="text-emerald-400">DeepSeek</span> و{" "}
+        <span className="text-emerald-400">ChatGPT</span> بدون VPN کار می‌کنن.
+        بقیه نیاز به VPN دارن.
+      </p>
 
       {/* ═══ خطا ═══ */}
       {aiError && (
@@ -445,7 +440,7 @@ export function AIAnalysis() {
             <p className="text-[10px] leading-relaxed text-red-300">
               {aiError}
             </p>
-            {(aiError.includes("موجودی") ||
+            {(aiError.includes("اعتبار") ||
               aiError.includes("نامعتبر") ||
               aiError.includes("کلید") ||
               aiError.includes("سهمیه")) && (
@@ -462,7 +457,7 @@ export function AIAnalysis() {
                   className="flex items-center gap-0.5 text-[9px] text-purple-400 underline hover:text-purple-300"
                 >
                   <Bot className="h-2.5 w-2.5" />
-                  استفاده از کپی داده خام
+                  استفاده از روش کپی داده
                 </button>
               </div>
             )}

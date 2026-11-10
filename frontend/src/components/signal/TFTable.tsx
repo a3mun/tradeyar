@@ -1,16 +1,15 @@
 "use client";
 
 /**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۱ · فاز ۱۴.۹)
+ * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۲ · فاز ۱۵)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۸.۱:
- *   • polling از ۳۰s به ۶۰s (کاهش فشار سرور)
- *   • reset فوری قبل از fetch (رفع باگ پرش)
- *   • hydrate کامل از cache (نه فقط بار اول)
- *   • هماهنگی کامل با SignalCard
+ * 🔴 تغییرات نسخه ۱۸.۲:
+ *   • بج‌های نماد/صرافی/استراتژی در موبایل کوچیک‌تر شدن
+ *   • تاخیر 1s در fetch اولیه برای کاهش فشار سرور (هماهنگی با SignalCard)
+ *   • polling 60s
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -33,15 +32,11 @@ import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 import {
   getConfidenceLevel,
-  getStrategyMinConf,
   isSignalActive,
   CONF_BAR_COLOR,
   type ConfidenceLevel,
 } from "@/lib/thresholds";
 
-// ═══════════════════════════════════════════════════════════
-// TFها به ترتیب
-// ═══════════════════════════════════════════════════════════
 const TIMEFRAMES: Timeframe[] = [
   "۱ دقیقه",
   "۵ دقیقه",
@@ -51,9 +46,6 @@ const TIMEFRAMES: Timeframe[] = [
   "روزانه",
 ];
 
-// ═══════════════════════════════════════════════════════════
-// TFهای مجاز per strategy
-// ═══════════════════════════════════════════════════════════
 const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
   scalp: ["۱ دقیقه", "۵ دقیقه"],
   swing: TIMEFRAMES,
@@ -75,9 +67,6 @@ const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
   },
 };
 
-// ═══════════════════════════════════════════════════════════
-// ترجمه سیگنال به فارسی
-// ═══════════════════════════════════════════════════════════
 function translateSignal(signal: string) {
   let s = signal;
   s = s.replace(/LONG/g, "خرید");
@@ -95,9 +84,6 @@ function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
   return "neutral";
 }
 
-// ═══════════════════════════════════════════════════════════
-// استایل سیگنال (رنگ + قاب)
-// ═══════════════════════════════════════════════════════════
 type Direction = "long" | "short" | "neutral";
 
 interface SignalStyle {
@@ -114,137 +100,33 @@ const SIGNAL_STYLE_MAP: Record<
   Record<ConfidenceLevel, SignalStyle>
 > = {
   long: {
-    golden: {
-      bg: "rgba(250,204,21,0.20)",
-      border: "#facc15",
-      color: "#facc15",
-      boxShadow: "0 0 16px rgba(250,204,21,0.6)",
-      textShadow: "none",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(34,197,94,0.20)",
-      border: "#22c55e",
-      color: "#4ade80",
-      boxShadow: "0 0 10px rgba(34,197,94,0.4)",
-      textShadow: "none",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(34,197,94,0.10)",
-      border: "rgba(34,197,94,0.5)",
-      color: "#4ade80",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    weak: {
-      bg: "rgba(34,197,94,0.05)",
-      border: "rgba(34,197,94,0.3)",
-      color: "rgba(74,222,128,0.8)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.8,
-    },
-    neutral: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.4)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
+    golden: { bg: "rgba(250,204,21,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
+    strong: { bg: "rgba(34,197,94,0.20)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.4)", textShadow: "none", opacity: 1 },
+    normal: { bg: "rgba(34,197,94,0.10)", border: "rgba(34,197,94,0.5)", color: "#4ade80", boxShadow: "none", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(34,197,94,0.05)", border: "rgba(34,197,94,0.3)", color: "rgba(74,222,128,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 },
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   short: {
-    golden: {
-      bg: "rgba(239,68,68,0.20)",
-      border: "#facc15",
-      color: "#facc15",
-      boxShadow: "0 0 16px rgba(250,204,21,0.6)",
-      textShadow: "none",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(239,68,68,0.20)",
-      border: "#ef4444",
-      color: "#f87171",
-      boxShadow: "0 0 10px rgba(239,68,68,0.4)",
-      textShadow: "none",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(239,68,68,0.10)",
-      border: "rgba(239,68,68,0.5)",
-      color: "#f87171",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    weak: {
-      bg: "rgba(239,68,68,0.05)",
-      border: "rgba(239,68,68,0.3)",
-      color: "rgba(248,113,113,0.8)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.8,
-    },
-    neutral: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.4)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
+    golden: { bg: "rgba(239,68,68,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
+    strong: { bg: "rgba(239,68,68,0.20)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 10px rgba(239,68,68,0.4)", textShadow: "none", opacity: 1 },
+    normal: { bg: "rgba(239,68,68,0.10)", border: "rgba(239,68,68,0.5)", color: "#f87171", boxShadow: "none", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(239,68,68,0.05)", border: "rgba(239,68,68,0.3)", color: "rgba(248,113,113,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.8 },
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   neutral: {
-    golden: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.4)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
-    strong: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.4)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
-    normal: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.8)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.7,
-    },
-    weak: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.6)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
-    neutral: {
-      bg: "transparent",
-      border: "transparent",
-      color: "rgba(148,163,184,0.3)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.3,
-    },
+    golden: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    strong: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.4)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    normal: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.8)", boxShadow: "none", textShadow: "none", opacity: 0.7 },
+    weak: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.6)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
+    neutral: { bg: "transparent", border: "transparent", color: "rgba(148,163,184,0.3)", boxShadow: "none", textShadow: "none", opacity: 0.3 },
   },
 };
 
 const ROW_HEIGHT = "h-[42px]";
-const POLL_INTERVAL_MS = 60_000; // 🔴 فاز ۱۴.۹ — 60s (قبلاً 30s)
+const POLL_INTERVAL_MS = 60_000;
 
-export function TFTable() {  const {
+export function TFTable() {
+  const {
     ticker,
     tickerName,
     source,
@@ -261,30 +143,15 @@ export function TFTable() {  const {
   const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
   const [showDisabledHint, setShowDisabledHint] = useState<string | null>(null);
 
-  // ═══════════════════════════════════════════════════════════
-  // TFهای مجاز برای استراتژی فعلی
-  // ═══════════════════════════════════════════════════════════
   const allowedTfs = useMemo(() => {
     return TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
   }, [strategy]);
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۹ — wsSignal filter strategy + ticker
-  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (wsSignal && wsSignal.ticker === ticker && wsSignal.data) {
       const newSignal = wsSignal.data as unknown as AnalyzeResponse;
-
-      // فیلتر استراتژی
-      if (newSignal.strategy && newSignal.strategy !== strategy) {
-        return;
-      }
-
-      // فیلتر ticker (defense in depth)
-      if (newSignal.ticker && newSignal.ticker !== ticker) {
-        return;
-      }
-
+      if (newSignal.strategy && newSignal.strategy !== strategy) return;
+      if (newSignal.ticker && newSignal.ticker !== ticker) return;
       const tf = newSignal.timeframe;
       if (tf) {
         setData((prev) => ({ ...prev, [tf]: newSignal }));
@@ -293,15 +160,11 @@ export function TFTable() {  const {
     }
   }, [wsSignal, ticker, strategy, setTfData]);
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۹ — fetch از API + sync با cache
-  // ═══════════════════════════════════════════════════════════
   const fetchMultiData = async () => {
     if (!ticker || !sourceSupportsPair(source, ticker)) {
       setData({});
       return;
     }
-
     try {
       const res = await api.post("/analyze/multi", {
         ticker,
@@ -312,31 +175,18 @@ export function TFTable() {  const {
         strategy,
         ticker_name: tickerName,
       });
-      const tfs = (res.data.timeframes || {}) as Record<
-        string,
-        AnalyzeResponse
-      >;
+      const tfs = (res.data.timeframes || {}) as Record<string, AnalyzeResponse>;
       setData(tfs);
-
-      // sync با cache مشترک
       for (const [tf, tfData] of Object.entries(tfs)) {
-        if (tfData) {
-          setTfData(tf, tfData);
-        }
+        if (tfData) setTfData(tf, tfData);
       }
     } catch {
-      // silent fail
+      // silent
     }
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۹ — reset فوری + fetch
-  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
-    // ۱. reset فوری (رفع باگ پرش)
     setData({});
-
-    // ۲. hydrate از cache (اگه همه TFها معتبر باشن)
     const cachedData: Record<string, AnalyzeResponse> = {};
     let hasAny = false;
     for (const tf of TIMEFRAMES) {
@@ -346,40 +196,20 @@ export function TFTable() {  const {
         hasAny = true;
       }
     }
-    if (hasAny) {
-      setData(cachedData);
-    }
+    if (hasAny) setData(cachedData);
 
-    // ۳. اگه cache کامل بود، ۲ ثانیه صبر کن بعد fetch (UX بهتر)
-    // اگه cache نبود، فوری fetch
-    if (hasAny && Object.keys(cachedData).length >= TIMEFRAMES.length - 1) {
-      // cache تقریباً کامله → کاربر داده می‌بینه، fetch در پس‌زمینه
-      const t = setTimeout(() => fetchMultiData(), 500);
-      return () => clearTimeout(t);
-    } else {
-      // cache نیست → فوری fetch
-      fetchMultiData();
-    }
+    // 🔴 فوری اجرا میشه (اول جدول)
+    fetchMultiData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, tickerName, source, marketType, riskProfile, strategy]);
 
-  // ═══════════════════════════════════════════════════════════
-  // 🔴 فاز ۱۴.۹ — polling ۶۰s
-  // ═══════════════════════════════════════════════════════════
   useEffect(() => {
     if (!ticker || !sourceSupportsPair(source, ticker)) return;
-
-    const interval = setInterval(() => {
-      fetchMultiData();
-    }, POLL_INTERVAL_MS);
-
+    const interval = setInterval(() => fetchMultiData(), POLL_INTERVAL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticker, source, tickerName, marketType, riskProfile, strategy]);
 
-  // ═══════════════════════════════════════════════════════════
-  // کلیک روی TF
-  // ═══════════════════════════════════════════════════════════
   const handleRowClick = (tf: string) => {
     if (!allowedTfs.includes(tf as Timeframe)) {
       setShowDisabledHint(tf);
@@ -403,46 +233,38 @@ export function TFTable() {  const {
         </div>
         {ticker && (
           <div className="flex shrink-0 flex-wrap items-center gap-1">
-            <span
-              className="inline-flex items-center rounded-md border px-2 py-0.5 text-[10px]"
-              style={{
-                background: "rgba(59,130,246,0.08)",
-                borderColor: "rgba(59,130,246,0.25)",
-                color: "#93c5fd",
-                fontFamily: "monospace",
-              }}
+            {/* 🔴 بج نماد - استایل شبیه به SignalCard */}
+            <Badge
+              className="border py-0 text-[8px] sm:text-[10px] border-blue-500/30 bg-blue-500/15 text-blue-400"
+              style={{ fontFamily: "monospace" }}
             >
               {ticker}
-            </span>
+            </Badge>
+            
+            {/* 🔴 بج صرافی - استایل شبیه به SignalCard */}
             {sourceMeta && (
-              <span
-                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px]"
-                style={{
-                  background: "rgba(139,92,246,0.08)",
-                  borderColor: "rgba(139,92,246,0.25)",
-                  color: "#c4b5fd",
-                }}
+              <Badge
+                className="border py-0 text-[8px] sm:text-[10px] border-purple-500/30 bg-purple-500/15 text-purple-400 gap-1"
               >
-                <span className="text-[8px]">{sourceMeta.icon}</span>
+                <span className="text-[7px] sm:text-[8px]">{sourceMeta.icon}</span>
                 {sourceMeta.label}
-              </span>
+              </Badge>
             )}
+            
+            {/* 🔴 بج استراتژی - استایل شبیه به SignalCard */}
             <Tooltip>
               <TooltipTrigger>
                 <Badge
-                  className={`border py-0 text-[9px] cursor-help ${strategyMeta.cls}`}
+                  className={`border py-0 text-[7px] sm:text-[9px] cursor-help ${strategyMeta.cls}`}
                 >
                   {strategyMeta.fa}
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-[10px]">
-                  {strategy === "scalp" &&
-                    "⚡ اسکالپ: فقط TFهای ۱ و ۵ دقیقه"}
-                  {strategy === "swing" &&
-                    "🌊 سوئینگ: همه‌ی TFها فعال"}
-                  {strategy === "position" &&
-                    "🏛 پوزیشن: فقط ۳۰ دقیقه، ۱ ساعت، روزانه"}
+                  {strategy === "scalp" && "⚡ اسکالپ: فقط TFهای ۱ و ۵ دقیقه"}
+                  {strategy === "swing" && "🌊 سوئینگ: همه‌ی TFها فعال"}
+                  {strategy === "position" && "🏛 پوزیشن: فقط ۳۰ دقیقه، ۱ ساعت، روزانه"}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -454,18 +276,10 @@ export function TFTable() {  const {
         <Table className="table-fixed w-full">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[20%] sm:w-[18%] text-right text-[9px] sm:text-[10px] py-1">
-                تایم‌فریم
-              </TableHead>
-              <TableHead className="w-[32%] sm:w-[30%] text-center text-[9px] sm:text-[10px] py-1">
-                سیگنال
-              </TableHead>
-              <TableHead className="w-[18%] text-center text-[9px] sm:text-[10px] py-1">
-                اطمینان
-              </TableHead>
-              <TableHead className="w-[30%] sm:w-[34%] text-center text-[9px] sm:text-[10px] py-1">
-                نمودار
-              </TableHead>
+              <TableHead className="w-[20%] sm:w-[18%] text-right text-[9px] sm:text-[10px] py-1">تایم‌فریم</TableHead>
+              <TableHead className="w-[32%] sm:w-[30%] text-center text-[9px] sm:text-[10px] py-1">سیگنال</TableHead>
+              <TableHead className="w-[18%] text-center text-[9px] sm:text-[10px] py-1">اطمینان</TableHead>
+              <TableHead className="w-[30%] sm:w-[34%] text-center text-[9px] sm:text-[10px] py-1">نمودار</TableHead>
             </TableRow>
           </TableHeader>
 
@@ -487,10 +301,7 @@ export function TFTable() {  const {
                       {tf}
                       <span className="mr-1 text-[8px]">🔒</span>
                     </TableCell>
-                    <TableCell
-                      colSpan={3}
-                      className="text-center text-[10px] text-muted-foreground py-0"
-                    >
+                    <TableCell colSpan={3} className="text-center text-[10px] text-muted-foreground py-0">
                       {isHinting
                         ? `برای استراتژی «${strategyMeta.fa}» قابل استفاده نیست`
                         : "غیرفعال برای این استراتژی"}
@@ -501,45 +312,24 @@ export function TFTable() {  const {
 
               if (!row) {
                 return (
-                  <TableRow
-                    key={tf}
-                    className={`opacity-50 ${ROW_HEIGHT}`}
-                    onClick={() => handleRowClick(tf)}
-                  >
-                    <TableCell className="text-right text-[10px] font-medium py-0 text-muted-foreground">
-                      {tf}
-                    </TableCell>
-                    <TableCell className="text-center py-0">
-                      <div className="mx-auto h-4 w-20 animate-pulse rounded bg-muted-foreground/15" />
-                    </TableCell>
-                    <TableCell className="text-center py-0">
-                      <div className="mx-auto h-3 w-10 animate-pulse rounded bg-muted-foreground/15" />
-                    </TableCell>
-                    <TableCell className="text-center py-0">
-                      <div className="mx-auto h-4 w-16 animate-pulse rounded bg-muted-foreground/15" />
-                    </TableCell>
+                  <TableRow key={tf} className={`opacity-50 ${ROW_HEIGHT}`} onClick={() => handleRowClick(tf)}>
+                    <TableCell className="text-right text-[10px] font-medium py-0 text-muted-foreground">{tf}</TableCell>
+                    <TableCell className="text-center py-0"><div className="mx-auto h-4 w-20 animate-pulse rounded bg-muted-foreground/15" /></TableCell>
+                    <TableCell className="text-center py-0"><div className="mx-auto h-3 w-10 animate-pulse rounded bg-muted-foreground/15" /></TableCell>
+                    <TableCell className="text-center py-0"><div className="mx-auto h-4 w-16 animate-pulse rounded bg-muted-foreground/15" /></TableCell>
                   </TableRow>
                 );
               }
-              
+
               const conf = row.confidence || 0;
               const dirFromBackend: Direction =
-                row.direction === "long"
-                  ? "long"
-                  : row.direction === "short"
-                    ? "short"
-                    : "neutral";
+                row.direction === "long" ? "long" : row.direction === "short" ? "short" : "neutral";
 
               const isActiveSignal = isSignalActive(
-                conf,
-                row.direction || "neutral",
-                row.signal || "",
-                strategy,
-                riskProfile
+                conf, row.direction || "neutral", row.signal || "", strategy, riskProfile
               );
 
-              const isDirectional =
-                dirFromBackend === "long" || dirFromBackend === "short";
+              const isDirectional = dirFromBackend === "long" || dirFromBackend === "short";
               const confLevel = getConfidenceLevel(conf, isDirectional);
 
               const styleDirection = isActiveSignal ? dirFromBackend : "neutral";
@@ -578,25 +368,17 @@ export function TFTable() {  const {
               let textColor = sigStyle.color;
               if (!isActiveSignal && conf >= 15) {
                 if (dirFromBackend === "short") {
-                  textColor =
-                    conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)";
+                  textColor = conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)";
                 } else if (dirFromBackend === "long") {
-                  textColor =
-                    conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)";
+                  textColor = conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)";
                 }
               }
 
               return (
-                <TableRow
-                  key={tf}
-                  onClick={() => handleRowClick(tf)}
-                  className={rowClass}
-                >
+                <TableRow key={tf} onClick={() => handleRowClick(tf)} className={rowClass}>
                   <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0">
                     {tf}
-                    {isActive && (
-                      <span className="mr-1 text-[8px] text-primary">●</span>
-                    )}
+                    {isActive && <span className="mr-1 text-[8px] text-primary">●</span>}
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <span
@@ -608,11 +390,7 @@ export function TFTable() {  const {
                         boxShadow: sigStyle.boxShadow,
                         textShadow: sigStyle.textShadow,
                         opacity: sigStyle.opacity,
-                        borderWidth: !isActiveSignal
-                          ? 0
-                          : confLevel === "golden"
-                            ? "2px"
-                            : "1px",
+                        borderWidth: !isActiveSignal ? 0 : confLevel === "golden" ? "2px" : "1px",
                       }}
                     >
                       {goldenMark}
@@ -621,19 +399,13 @@ export function TFTable() {  const {
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <div className="leading-none">
-                      <div
-                        className="num text-[10px] sm:text-[11px] font-bold mb-0.5"
-                        style={{ color: confStyle.text }}
-                      >
+                      <div className="num text-[10px] sm:text-[11px] font-bold mb-0.5" style={{ color: confStyle.text }}>
                         {`${conf}%`}
                       </div>
                       <div className="mx-auto h-0.5 w-8 sm:w-10 overflow-hidden rounded-full bg-muted-foreground/15">
                         <div
                           className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${conf}%`,
-                            background: confStyle.bar,
-                          }}
+                          style={{ width: `${conf}%`, background: confStyle.bar }}
                         />
                       </div>
                     </div>

@@ -224,8 +224,8 @@ def record_signal(
         logger.debug(f"[Recorder] ⏭ {ticker} {tf_name}: price={price} نامعتبر")
         return False
 
-    # استثنا برای سیگنال قوی (پویا بر اساس استراتژی)
-    if is_worthwhile is False:
+    # 🔴 فاز ۱۵: برای اسکالپ و سوئینگ، is_worthwhile نادیده گرفته میشه
+    if is_worthwhile is False and strategy == "position":
         if confidence < strong_bypass:
             logger.info(
                 f"[Recorder] ⏭ {ticker} {tf_name}: is_worthwhile=False "
@@ -233,10 +233,6 @@ def record_signal(
                 f"(استراتژی={strategy})"
             )
             return False
-        logger.warning(
-            f"[Recorder] ⚠️ {ticker} {tf_name}: is_worthwhile=False ولی "
-            f"conf={confidence}% ≥ {strong_bypass}% — ثبت با هشدار (استراتژی={strategy})"
-        )
 
     if not sl_tp or not sl_tp.get("sl") or not sl_tp.get("tp"):
         logger.debug(
@@ -340,6 +336,10 @@ def record_signal(
                 )
                 return False
 
+            # 🔴 اضافه کردن tp_levels فقط برای notifier (نه برای دیتابیس)
+            values_for_notifier = dict(values)
+            values_for_notifier["tp_levels"] = tp_levels
+
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
@@ -349,7 +349,7 @@ def record_signal(
             try:
                 from services.notifier import notify_signal
 
-                notify_signal(values)
+                notify_signal(values_for_notifier)
                 logger.info(f"[Recorder] 📤 notified: {ticker} {tf_name}")
             except Exception as e:
                 logger.warning(f"[Recorder] ❌ Notifier failed: {e}")

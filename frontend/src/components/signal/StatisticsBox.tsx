@@ -1,98 +1,151 @@
 "use client";
 
-/**
- * StatisticsBox — آمار عملکرد (نسخه ۱.۰ · فاز ۱۴.۹.۶)
- * ============================================================
- * جایگزین BacktestPanel در صفحه اصلی.
- * فقط خلاصه‌ی آمار (نه تاریخچه کامل).
- */
-
 import { useEffect, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { api } from "@/lib/api";
-import { useAppStore } from "@/store/useAppStore";
+import { getUser } from "@/lib/auth";
 
-interface QuickStats {
+interface StrategyStat {
+  real_win_rate: number;
+  real_direction_accuracy: number;
   total: number;
   win_rate: number;
-  tp_hit_rate: number;
-  avg_rr_net: number;
+  direction_accuracy: number;
+  has_override: { win_rate: boolean; direction_accuracy: boolean };
+}
+
+interface SiteStats {
+  total_signals: number;
+  by_strategy: {
+    scalp: StrategyStat;
+    swing: StrategyStat;
+    position: StrategyStat;
+  };
+}
+
+function DonutChart({ value, size = 80, strokeWidth = 10, color = "#22c55e", label }: { value: number; size?: number; strokeWidth?: number; color?: string; label?: string; }) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(100, value));
+  const offset = circumference - (pct / 100) * circumference;
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="rgba(255,255,255,0.08)" strokeWidth={strokeWidth} fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.6s ease" }} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="num text-base font-bold" style={{ color }}>{pct.toFixed(0)}٪</span>
+        {label && <span className="text-[8px] text-muted-foreground">{label}</span>}
+      </div>
+    </div>
+  );
 }
 
 export function StatisticsBox() {
-  const { source, riskProfile } = useAppStore();
-  const [stats, setStats] = useState<QuickStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<"scalp" | "swing" | "position">("scalp");
+  const [stats, setStats] = useState<SiteStats | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Lazy fetch — بعد از mount (که CollapsibleSection فقط وقتی باز شد انجام می‌ده)
+    const user = getUser();
+    setIsAdmin(Boolean(user?.is_admin));
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) { setLoading(false); return; }
+
+    let cancelled = false;
     setLoading(true);
-    const params = new URLSearchParams();
-    if (source) params.append("source", source);
-    if (riskProfile) params.append("risk_profile", riskProfile);
-    params.append("time_filter", "all");
-    params.append("limit", "500");
 
-    api
-      .get<{ stats: QuickStats }>(`/backtest?${params.toString()}`)
-      .then((res) => setStats(res.data.stats))
-      .catch(() => setStats(null))
-      .finally(() => setLoading(false));
-  }, [source, riskProfile]);
+    api.get<SiteStats & { ok: boolean }>("/backtest/site-stats")
+      .then((res) => {
+        if (cancelled) return;
+        setStats(res.data);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStats(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-  if (loading) {
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  if (isAdmin === false) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <div className="py-6 text-center">
+        <BarChart3 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
+        <p className="text-[11px] text-muted-foreground">این آمار فقط برای مدیران نمایش داده می‌شود.</p>
       </div>
     );
   }
 
-  if (!stats || stats.total === 0) {
-    return (
-      <div className="py-6 text-center text-[11px] text-muted-foreground">
-        هنوز سیگنالی برای آمارگیری ثبت نشده
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center py-8"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+
+  if (!stats || !stats.by_strategy) return <div className="py-6 text-center text-[11px] text-muted-foreground">آماری یافت نشد</div>;
+
+  const currentStat = stats.by_strategy[activeTab];
+  const lossRate = 100 - currentStat.win_rate;
+
+  const tabs = [
+    { key: "scalp", label: "⚡ اسکالپ" },
+    { key: "swing", label: "📊 سوئینگ" },
+    { key: "position", label: "🏛 پوزیشن" },
+  ] as const;
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-lg border border-border/40 bg-muted/20 px-2 py-2 text-center">
-          <div className="text-[9px] text-muted-foreground">کل</div>
-          <div className="num mt-0.5 text-base font-bold">{stats.total}</div>
-          <div className="text-[8px] text-muted-foreground/70">سیگنال</div>
-        </div>
+      {/* متن توضیحی */}
+      <p className="text-center text-[10px] text-muted-foreground mb-2">
+        📌 مبنای این آمار بر اساس عملکرد ۱۰۰ سیگنال اخیر است.
+      </p>
 
-        <div className="rounded-lg border border-green-500/20 bg-green-500/5 px-2 py-2 text-center">
-          <div className="text-[9px] text-green-400">برد</div>
-          <div className="num mt-0.5 text-base font-bold text-green-400">
-            {stats.win_rate.toFixed(0)}٪
-          </div>
-          <div className="text-[8px] text-green-500/60">win rate</div>
-        </div>
-
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2 py-2 text-center">
-          <div className="text-[9px] text-blue-400">TP</div>
-          <div className="num mt-0.5 text-base font-bold text-blue-400">
-            {stats.tp_hit_rate.toFixed(0)}٪
-          </div>
-          <div className="text-[8px] text-blue-500/60">hit rate</div>
-        </div>
-
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2 py-2 text-center">
-          <div className="text-[9px] text-amber-400">R:R</div>
-          <div className="num mt-0.5 text-base font-bold text-amber-400">
-            {stats.avg_rr_net.toFixed(2)}
-          </div>
-          <div className="text-[8px] text-amber-500/60">خالص</div>
-        </div>
+      {/* تب‌های استراتژی */}
+      <div className="flex items-center justify-center gap-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`rounded-md px-3 py-1.5 text-[10px] font-medium transition ${
+              activeTab === tab.key
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      <p className="rounded-md bg-muted/20 px-2 py-1.5 text-[9px] text-muted-foreground leading-relaxed">
-        📊 آمار کل (فیلتر نشده). برای جزئیات و تاریخچه، به پنل مدیر برو.
-      </p>
+      {/* نمودارها */}
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-2 text-center">
+          <p className="mb-1 text-[9px] text-muted-foreground">✅ نرخ برد و باخت</p>
+          <div className="flex items-center justify-center gap-2">
+            <DonutChart value={currentStat.win_rate} color="#22c55e" label="برد" />
+            <div className="space-y-1 text-right text-[9px]">
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-green-500" /><span className="text-muted-foreground">برد:</span><span className="num font-bold text-green-500">{currentStat.win_rate.toFixed(0)}٪</span></div>
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-500" /><span className="text-muted-foreground">باخت:</span><span className="num font-bold text-red-500">{lossRate.toFixed(0)}٪</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2 text-center">
+          <p className="mb-1 text-[9px] text-muted-foreground">🎯 دقت پیش‌بینی</p>
+          <div className="flex items-center justify-center gap-2">
+            <DonutChart value={currentStat.direction_accuracy} color="#a78bfa" label="درست" />
+            <div className="space-y-1 text-right text-[9px]">
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-purple-500" /><span className="text-muted-foreground">درست:</span><span className="num font-bold text-purple-500">{currentStat.direction_accuracy.toFixed(0)}٪</span></div>
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-orange-500" /><span className="text-muted-foreground">غلط:</span><span className="num font-bold text-orange-500">{(100 - currentStat.direction_accuracy).toFixed(0)}٪</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

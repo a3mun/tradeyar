@@ -11,6 +11,7 @@ import gzip
 import threading
 import time
 import sys
+from api.models import SignalLog, SiteStatsOverride, User
 from fastapi import Body
 
 from api.plans import PLANS, calculate_new_end_date
@@ -1438,3 +1439,73 @@ async def activate_user(
     session.add(user)
     session.commit()
     return {"ok": True, "message": f"کاربر {user.phone} فعال شد"}
+
+
+# ═══════════════════════════════════════════════════════════
+# 🎯 سایت آمار — کنترل نمایشی (فاز ۱۴.۹.۱۲)
+# ═══════════════════════════════════════════════════════════
+from pydantic import BaseModel as _PydanticBase
+from services.backtest_service import get_site_stats as _get_site_stats
+
+
+class SiteStatsOverrideRequest(_PydanticBase):
+    key: str
+    value: float
+
+
+@router.get("/site-stats")
+async def admin_get_site_stats(_admin=Depends(require_admin)):
+    return {"ok": True, **_get_site_stats()}
+
+
+@router.post("/site-stats/override")
+async def admin_set_site_stats_override(
+    req: SiteStatsOverrideRequest,
+    current_user=Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    allowed_keys = [
+        "win_rate",
+        "direction_accuracy",
+        "total_signals",
+        "win_rate_scalp",
+        "direction_accuracy_scalp",
+        "win_rate_swing",
+        "direction_accuracy_swing",
+        "win_rate_position",
+        "direction_accuracy_position",
+    ]
+    if req.key not in allowed_keys:
+        raise HTTPException(status_code=400, detail="کلید نامعتبر")
+    if req.value < 0 or req.value > 100:
+        raise HTTPException(status_code=400, detail="مقدار باید بین ۰ تا ۱۰۰ باشد")
+    existing = session.exec(
+        select(SiteStatsOverride).where(SiteStatsOverride.key == req.key)
+    ).first()
+    if existing:
+        existing.value = req.value
+        existing.updated_by = current_user.phone
+        session.add(existing)
+    else:
+        session.add(
+            SiteStatsOverride(
+                key=req.key, value=req.value, updated_by=current_user.phone
+            )
+        )
+    session.commit()
+    return {"ok": True, "key": req.key, "value": req.value}
+
+
+@router.delete("/site-stats/override/{key}")
+async def admin_delete_site_stats_override(
+    key: str,
+    _admin=Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    existing = session.exec(
+        select(SiteStatsOverride).where(SiteStatsOverride.key == key)
+    ).first()
+    if existing:
+        session.delete(existing)
+        session.commit()
+    return {"ok": True, "deleted": key}

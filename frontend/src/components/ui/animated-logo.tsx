@@ -1,42 +1,36 @@
 "use client";
 
 /**
- * AnimatedLogo — لوگو با افکت‌های مدرن (نسخه ۶ — نهایی)
+ * AnimatedLogo — لوگو با افکت‌های مدرن (نسخه ۱۰ — نهایی)
  * ============================================================
- * 🔴 فاز ۱۴.۹.۱۰:
- *   • قابل تنظیم: مربع / مستطیل
- *   • حلقه چرخان (اختیاری، پیش‌فرض false)
- *   • حباب‌های طلایی
- *   • بدون blur، بدون افت کیفیت
+ * 🔴 فاز ۱۵:
+ *   • حباب‌ها با اندازه‌های متنوع (۱ تا ۴ پیکسل)
+ *   • فاصله‌های عمودی و افقی متنوع
+ *   • ۱۰ تا پشت، ۲ تا جلو
+ *   • سایه مشکی ثابت و ملایم
  */
 
 import { useEffect, useState } from "react";
 
 interface AnimatedLogoProps {
-  /** عرض کل (شامل حلقه + ذرات) */
   width?: number;
-  /** ارتفاع کل (شامل حلقه + ذرات) */
   height?: number;
-  /** عرض خود تصویر */
   imgWidth?: number;
-  /** ارتفاع خود تصویر */
   imgHeight?: number;
-  /** مسیر تصویر (پیش‌فرض: /icon-512.png) */
   src?: string;
-  /** نمایش ذرات */
   showParticles?: boolean;
-  /** نمایش حلقه چرخان (پیش‌فرض: false) */
-  showOrbit?: boolean;
-  /** کلاس اضافی */
   className?: string;
 }
 
 interface Particle {
   id: number;
   left: number;
+  bottom: number; // ارتفاع شروع (متفاوت)
   delay: number;
   duration: number;
   size: number;
+  zIndex: number;
+  driftX: number;
 }
 
 export function AnimatedLogo({
@@ -46,61 +40,47 @@ export function AnimatedLogo({
   imgHeight = 64,
   src = "/icon-512.png",
   showParticles = true,
-  showOrbit = false,
   className = "",
 }: AnimatedLogoProps) {
   const [particles, setParticles] = useState<Particle[]>([]);
 
   useEffect(() => {
     if (!showParticles) return;
+    
+    // اندازه‌های متنوع: ۱ تا ۴ پیکسل
+    const sizes = [1, 1.5, 2, 2.5, 3, 3.5, 4, 1.5, 2, 3, 2.5, 1];
+    
     setParticles(
-      Array.from({ length: 10 }).map((_, i) => ({
-        id: i,
-        left: 10 + Math.random() * 80,
-        delay: Math.random() * 2.5,
-        duration: 2.5 + Math.random() * 1.5,
-        size: 2 + Math.random() * 2,
-      }))
+      Array.from({ length: 12 }).map((_, i) => {
+        const isBack = i < 10; // ۱۰ تا پشت، ۲ تا جلو
+        return {
+          id: i,
+          left: 5 + Math.random() * 90,
+          bottom: 5 + Math.random() * 15, // شروع از ارتفاع مختلف (۵٪ تا ۲۰٪)
+          delay: Math.random() * 5.0, // تاخیر متنوع (۰ تا ۵ ثانیه)
+          duration: 4.0 + Math.random() * 3.5, // سرعت متنوع (۴ تا ۷.۵ ثانیه)
+          size: sizes[i % sizes.length],
+          zIndex: isBack ? 0 : 20,
+          driftX: (Math.random() - 0.5) * 50, // جابه‌جایی افقی تا ۲۵ پیکسل
+        };
+      })
     );
   }, [showParticles]);
 
   return (
     <>
       <style jsx global>{`
-        @keyframes logo-glow {
-          0%, 100% {
-            filter: drop-shadow(0 0 3px rgba(214, 173, 96, 0.35))
-                    drop-shadow(0 0 6px rgba(214, 173, 96, 0.2));
-          }
-          50% {
-            filter: drop-shadow(0 0 6px rgba(214, 173, 96, 0.6))
-                    drop-shadow(0 0 12px rgba(214, 173, 96, 0.3));
-          }
-        }
-        @keyframes logo-orbit {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
         @keyframes logo-particle {
           0% {
-            transform: translateY(0) scale(1);
+            transform: translate(0, 0) scale(1);
             opacity: 0;
           }
           15% { opacity: 1; }
           85% { opacity: 1; }
           100% {
-            transform: translateY(-80px) scale(0.3);
+            transform: translate(var(--drift-x, 0px), -90px) scale(0.3);
             opacity: 0;
           }
-        }
-        .logo-animated-img {
-          animation: logo-glow 4s ease-in-out infinite;
-        }
-        .logo-animated-img:hover {
-          animation: logo-glow 1.5s ease-in-out infinite;
-        }
-        .logo-orbit-ring {
-          animation: logo-orbit 14s linear infinite;
         }
         .logo-particle {
           animation: logo-particle linear infinite;
@@ -111,39 +91,6 @@ export function AnimatedLogo({
         className={`relative inline-flex items-center justify-center ${className}`}
         style={{ width, height }}
       >
-        {/* حلقه‌ی چرخان (اختیاری) */}
-        {showOrbit && (
-          <svg
-            className="logo-orbit-ring pointer-events-none absolute inset-0"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            style={{ width, height }}
-            aria-hidden="true"
-          >
-            <ellipse
-              cx="50"
-              cy="50"
-              rx="46"
-              ry="46"
-              fill="none"
-              stroke="rgba(214, 173, 96, 0.20)"
-              strokeWidth="0.5"
-              strokeDasharray="3 10"
-            />
-            <ellipse
-              cx="50"
-              cy="50"
-              rx="46"
-              ry="46"
-              fill="none"
-              stroke="rgba(214, 173, 96, 0.95)"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeDasharray="30 259"
-            />
-          </svg>
-        )}
-
         {/* حباب‌های طلایی */}
         {showParticles && (
           <div
@@ -156,12 +103,14 @@ export function AnimatedLogo({
                 className="logo-particle absolute rounded-full bg-[#d6ad60]"
                 style={{
                   left: `${p.left}%`,
-                  bottom: "20%",
+                  bottom: `${p.bottom}%`,
                   width: `${p.size}px`,
                   height: `${p.size}px`,
                   animationDelay: `${p.delay}s`,
                   animationDuration: `${p.duration}s`,
-                  boxShadow: "0 0 5px rgba(214, 173, 96, 0.8)",
+                  boxShadow: `0 0 ${p.size * 1.5}px rgba(214, 173, 96, 0.6)`,
+                  zIndex: p.zIndex,
+                  ["--drift-x" as any]: `${p.driftX}px`,
                 }}
               />
             ))}
@@ -172,8 +121,12 @@ export function AnimatedLogo({
         <img
           src={src}
           alt="Trademun"
-          className="logo-animated-img relative z-10 object-contain"
-          style={{ width: imgWidth, height: imgHeight }}
+          className="relative z-10 object-contain"
+          style={{
+            width: imgWidth,
+            height: imgHeight,
+            filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+          }}
           draggable={false}
         />
       </div>

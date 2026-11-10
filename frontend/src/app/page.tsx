@@ -238,7 +238,7 @@ export default function HomePage() {
                   id="statistics"
                   title="آمار عملکرد"
                   icon="📊"
-                  subtitle="خلاصه‌ی win rate و R:R — کلیک کن تا باز بشه"
+                  subtitle="خلاصه‌ی عملکرد و دقت پیش‌بینی — کلیک کن تا باز بشه"
                   accentColor="#f59e0b"
                 >
                   <StatisticsBox />

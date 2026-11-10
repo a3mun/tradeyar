@@ -1,13 +1,10 @@
 """
-api/scheduler.py — راستی‌آزمایی و اسکن خودکار
+api/scheduler.py — راستی‌آزمایی (نسخه ۷.۰ · فاز ۱۵)
 ============================================================
-نسخه ۶.۴ · فاز ۱۴.۹.۱۱
-🔴 تغییرات نسخه ۶.۴:
-  • strategy پویا بر اساس TF (اسکالپ برای TF پایین)
-  • market_type پویا (spot برای -IRT، futures برای بقیه)
-  • EXCHANGE_CYCLE وزن‌دار (والکس کمتر)
-  • _EMPTY_RESULT کامل (errors + skipped)
-  • لاگ کمتر (debug برای start، info برای result)
+🔴 تغییرات:
+  • فقط مسئول راستی‌آزمایی است (اسکن به scheduler_worker.py منتقل شد).
+  • استفاده از only_due=True برای کاهش فشار (فقط سیگنال‌های تایم‌آوت‌شده).
+  • حذف FIXED_SYMBOLS و توابع اسکن.
 """
 
 import logging
@@ -37,87 +34,17 @@ _EMPTY_RESULT = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
-# نمادهای ثابت
-# ═══════════════════════════════════════════════════════════
-FIXED_SYMBOLS = [
-    # ─── nobitex ───
-    {"ticker": "BTC-IRT", "name": "بیت‌کوین (تومان)", "source": "nobitex"},
-    {"ticker": "BTC-USD", "name": "بیت‌کوین (USDT)", "source": "nobitex"},
-    {"ticker": "XAUT-IRT", "name": "تتر گلد (تومان)", "source": "nobitex"},
-    {"ticker": "PAXG-USD", "name": "پکس گلد (USDT)", "source": "nobitex"},
-    {"ticker": "PAXG-IRT", "name": "پکس گلد (تومان)", "source": "nobitex"},
-    {"ticker": "SOL-USD", "name": "سولانا", "source": "nobitex"},
-    {"ticker": "XRP-USD", "name": "ریپل", "source": "nobitex"},
-    {"ticker": "DOGE-USD", "name": "دوج‌کوین", "source": "nobitex"},
-    {"ticker": "ETH-USD", "name": "اتریوم", "source": "nobitex"},
-    # ─── bitpin ───
-    {"ticker": "BTC_IRT", "name": "بیت‌کوین (تومان)", "source": "bitpin"},
-    {"ticker": "BTC_USDT", "name": "بیت‌کوین (USDT)", "source": "bitpin"},
-    {"ticker": "PAXG_IRT", "name": "پکس گلد (تومان)", "source": "bitpin"},
-    {"ticker": "PAXG_USDT", "name": "پکس گلد (USDT)", "source": "bitpin"},
-    {"ticker": "SOL_USDT", "name": "سولانا", "source": "bitpin"},
-    {"ticker": "XRP_USDT", "name": "ریپل", "source": "bitpin"},
-    {"ticker": "DOGE_USDT", "name": "دوج‌کوین", "source": "bitpin"},
-    {"ticker": "ETH_USDT", "name": "اتریوم", "source": "bitpin"},
-    # ─── wallex ───
-    {"ticker": "BTC-TMN", "name": "بیت‌کوین (تومان)", "source": "wallex"},
-    {"ticker": "BTC-USDT", "name": "بیت‌کوین (USDT)", "source": "wallex"},
-    {"ticker": "PAXG-TMN", "name": "پکس گلد (تومان)", "source": "wallex"},
-    {"ticker": "PAXG-USDT", "name": "پکس گلد (USDT)", "source": "wallex"},
-    {"ticker": "SOL-USDT", "name": "سولانا", "source": "wallex"},
-    {"ticker": "XRP-USDT", "name": "ریپل", "source": "wallex"},
-    {"ticker": "DOGE-USDT", "name": "دوج‌کوین", "source": "wallex"},
-    {"ticker": "ETH-USDT", "name": "اتریوم", "source": "wallex"},
-]
-
-# 🔴 تایم‌فریم‌های مخصوص هر صرافی
-TIMEFRAMES_BY_SOURCE = {
-    "nobitex": ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"],
-    "bitpin": ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"],
-    "wallex": ["۱ ساعت", "روزانه"],  # فقط ۱ ساعت و روزانه
-}
-
-SCAN_MARKET_TYPE = "futures"
-SCAN_RISK_PROFILE = "aggressive"
-
-# 🔴 EXCHANGE_CYCLE وزن‌دار (نوبیتکس و بیت‌پین بیشتر، والکس کمتر)
-EXCHANGE_CYCLE = ["nobitex", "bitpin", "nobitex", "bitpin", "wallex"]
-_scan_cycle_idx = 0
-
-
-def _next_exchange() -> str:
-    global _scan_cycle_idx
-    exchange = EXCHANGE_CYCLE[_scan_cycle_idx % len(EXCHANGE_CYCLE)]
-    _scan_cycle_idx += 1
-    return exchange
-
-
-def _strategy_for_tf(tf_name: str) -> str:
-    """🔴 استراتژی پویا بر اساس TF"""
-    if tf_name in ("۱ دقیقه", "۵ دقیقه"):
-        return "scalp"
-    elif tf_name in ("۳۰ دقیقه", "۱ ساعت", "روزانه"):
-        return "position"
-    return "swing"
-
-
-def _market_for_ticker(ticker: str) -> str:
-    """🔴 market_type پویا (-IRT/-TMN → spot)"""
-    upper = ticker.upper()
-    if "-IRT" in upper or "-TMN" in upper:
-        return "spot"
-    return SCAN_MARKET_TYPE
-
-
 def check_pending_signals(trigger: str = "scheduler") -> dict:
+    """بررسی سیگنال‌های pending (فقط تایم‌آوت‌شده‌ها)."""
     if _backtest_lock.locked():
         logger.debug(f"[Backtest/{trigger}] اجرای قبلی در جریان — رد شد")
         return dict(_EMPTY_RESULT)
+
     with _backtest_lock:
         logger.debug(f"[Backtest/{trigger}] بررسی سیگنال‌ها...")
         try:
-            result = backtest_all(max_checks=300)
+            # 🔴 فاز ۱۵: only_due=True برای بررسی فقط سیگنال‌های تایم‌آوت‌شده
+            result = backtest_all(max_checks=300, only_due=True)
             updated = result.get("updated", 0)
             errors = result.get("errors", 0)
             skipped = result.get("skipped", 0)
@@ -143,63 +70,8 @@ def check_pending_signals(trigger: str = "scheduler") -> dict:
             }
 
 
-def auto_scan_and_record(trigger: str = "scheduler"):
-    exchange = _next_exchange()
-    logger.info(f"[AutoScan/{trigger}] شروع — صرافی: {exchange}")
-    try:
-        from services.analyzer_service import analyze
-
-        exchange_fixed = [s for s in FIXED_SYMBOLS if s["source"] == exchange]
-        if not exchange_fixed:
-            return {"ok": True, "exchange": exchange, "recorded": 0, "skipped": True}
-
-        timeframes = TIMEFRAMES_BY_SOURCE.get(
-            exchange, ["۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"]
-        )
-
-        total_recorded = 0
-        total_errors = 0
-        for sym in exchange_fixed:
-            # 🔴 strategy + market_type پویا
-            market_type = _market_for_ticker(sym["ticker"])
-            for tf_name in timeframes:
-                strategy = _strategy_for_tf(tf_name)
-                try:
-                    r = analyze(
-                        ticker=sym["ticker"],
-                        source=sym["source"],
-                        tf_name=tf_name,
-                        market_type=market_type,
-                        risk_profile=SCAN_RISK_PROFILE,
-                        ticker_name=sym["name"],
-                        include_extras=False,
-                        skip_record=False,
-                        strategy=strategy,  # 🔴 جدید
-                    )
-                    if r and r.get("signal") != "خنثی":
-                        total_recorded += 1
-                except Exception as e:
-                    logger.debug(f"[AutoScan] {sym['ticker']} {tf_name}: {e!r}")
-                    total_errors += 1
-
-        logger.info(
-            f"[AutoScan/{trigger}] ✅ {total_recorded} سیگنال از "
-            f"{len(exchange_fixed)} نماد × {len(timeframes)} TF (خطا: {total_errors})"
-        )
-        return {
-            "ok": True,
-            "exchange": exchange,
-            "recorded": total_recorded,
-            "symbols_scanned": len(exchange_fixed),
-            "timeframes": timeframes,
-            "errors": total_errors,
-        }
-    except Exception as e:
-        logger.exception(f"[AutoScan/{trigger}] خطا")
-        return {"ok": False, "error": str(e)}
-
-
 def start_scheduler():
+    """استارت اسکنر پس‌زمینه (فقط راستی‌آزمایی)"""
     global scheduler
     if not settings.SCHEDULER_ENABLED:
         logger.info("[Scheduler] غیرفعال")
@@ -212,7 +84,7 @@ def start_scheduler():
     if not scheduler.get_jobs():
         scheduler.add_job(
             check_pending_signals,
-            IntervalTrigger(minutes=3),
+            IntervalTrigger(minutes=5),
             id="check_pending_signals",
             replace_existing=True,
             max_instances=1,
@@ -220,19 +92,9 @@ def start_scheduler():
             misfire_grace_time=120,
             kwargs={"trigger": "scheduler"},
         )
-        scheduler.add_job(
-            auto_scan_and_record,
-            IntervalTrigger(minutes=15),
-            id="auto_scan_and_record",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=600,
-            kwargs={"trigger": "scheduler"},
-        )
     if not scheduler.running:
         scheduler.start()
-        logger.info("[Scheduler] ✅ راستی‌آزمایی هر ۳ دقیقه + اسکن هر ۱۵ دقیقه")
+        logger.info("[Scheduler] ✅ راستی‌آزمایی هر ۵ دقیقه (فقط تایم‌آوت‌شده‌ها)")
 
 
 def stop_scheduler():

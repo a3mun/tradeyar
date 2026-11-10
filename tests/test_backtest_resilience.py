@@ -509,7 +509,7 @@ class TestSchedulerHandlesErrors:
         monkeypatch.setattr(
             sched,
             "backtest_all",
-            lambda max_checks=200: {
+            lambda max_checks=200, only_due=False: {
                 "checked": 5,
                 "updated": 2,
                 "expired": 0,

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { AnimatedLogo } from "@/components/ui/animated-logo";
 import {
   AlertTriangle,
-  Shield,
   Send,
   MessageCircle,
   Info,
@@ -35,8 +34,6 @@ export function Footer() {
 
   return (
     <>
-
-
       {showDisclaimer && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07111f]/80 backdrop-blur-sm p-4"
@@ -85,215 +82,147 @@ export function Footer() {
           {/* ═══════════════════════════════════════════════
               موبایل
           ═══════════════════════════════════════════════ */}
-          <div className="flex flex-col items-center gap-4 text-center md:hidden">
-            {/* لوگو + شعار */}
+          <div className="flex flex-col items-center gap-3 text-center md:hidden">
+            {/* لوگو — بزرگ‌تر */}
             <Link href="/" className="block">
               <AnimatedLogo
-                width={120}
-                height={80}
-                imgWidth={100}
-                imgHeight={66}
+                width={150}
+                height={95}
+                imgWidth={130}
+                imgHeight={82}
               />
             </Link>
-
-            <p className="text-[12px] font-medium leading-relaxed">
+            <p className="text-[11px] font-medium leading-relaxed">
               <span className="text-white/90">
                 معامله هوشمند، از اینجا شروع می‌شه!
               </span>{" "}
               <span className="text-[#d6ad60]">تریدمون نشه؟</span>
             </p>
 
-            {/* لینک‌ها — به صورت دکمه‌های جدا */}
-            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px]">
-              <Link
-                href="/about"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <Info className="h-3.5 w-3.5" />
-                درباره ما
+            {/* لینک‌ها */}
+            <div className="grid w-full max-w-xs grid-cols-2 gap-2 text-[10px]">
+              <Link href="/about" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <Info className="h-3 w-3" /> درباره ما
               </Link>
-              <Link
-                href="/contact"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <Phone className="h-3.5 w-3.5" />
-                تماس با ما
+              <Link href="/contact" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <Phone className="h-3 w-3" /> تماس با ما
               </Link>
-              <Link
-                href="/faq"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <HelpCircle className="h-3.5 w-3.5" />
-                سوالات متداول
+              <Link href="/faq" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <HelpCircle className="h-3 w-3" /> سوالات متداول
+              </Link>
+              <Link href="/dashboard/tickets" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <Ticket className="h-3 w-3" /> ثبت تیکت
               </Link>
             </div>
 
-            {/* شبکه‌ها — دکمه‌های جدا */}
-            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px]">
-              <a
-                href="https://t.me/trademun"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <Send className="h-3.5 w-3.5" />
-                <span>تلگرام</span>
+            {/* شبکه‌ها */}
+            <div className="flex w-full max-w-xs items-center justify-center gap-2 text-[10px]">
+              <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <Send className="h-3 w-3" /> تلگرام
               </a>
-              <a
-                href="https://ble.ir/trademun"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <MessageCircle className="h-3.5 w-3.5" />
-                <span>بله</span>
+              <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+                <MessageCircle className="h-3 w-3" /> بله
               </a>
-              <Link
-                href="/dashboard/tickets"
-                className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]"
-              >
-                <Ticket className="h-3.5 w-3.5" />
-                <span>ثبت تیکت</span>
-              </Link>
             </div>
 
-            {/* سلب مسئولیت */}
-            <div className="flex items-start justify-center gap-1.5 px-2">
-              <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d6ad60]/70" />
-              <p className="text-[10px] leading-relaxed text-[#d6ad60]/80">
-                تریدمون یک موتور تحلیل‌گر ریاضی است. مسئولیت معامله با شماست.
-              </p>
-            </div>
-
-            {/* © + اینماد (لوگو کوچیک) */}
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex flex-col items-center gap-0.5 text-[10px] text-gray-400">
+            {/* لوگوهای اعتماد + کپی‌رایت */}
+            <div className="mt-2 flex w-full flex-col items-center gap-2 border-t border-[#d6ad60]/10 pt-3">
+              <div className="flex items-center justify-center gap-3">
+                <a
+                  href="https://zibal.ir"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-md border border-white/10 bg-white p-0.5 transition-transform hover:scale-105"
+                  title="درگاه پرداخت زیبال"
+                >
+                  <img
+                    src="/logos/zibal-logo.png"
+                    alt="زیبال"
+                    className="h-8 w-auto object-contain"
+                  />
+                </a>
+                <a
+                  referrerPolicy="origin"
+                  target="_blank"
+                  href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+                  rel="noopener noreferrer"
+                  className="block rounded-md border border-white/10 bg-white p-0.5 transition-transform hover:scale-105"
+                  title="نماد اعتماد الکترونیکی"
+                >
+                  <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="اینماد" className="h-9 w-auto object-contain" />
+                </a>
+              </div>
+              <div className="flex flex-col items-center gap-0.5 text-[9px] text-gray-400">
                 <span>
-                  طراحی و توسعه:{" "}
-                  <span className="font-medium text-[#d6ad60]">آسمون</span> | ©{" "}
-                  {year} تریدمون
+                  طراحی: <span className="text-[#d6ad60]">آسمون</span> | © {year} تریدمون
                 </span>
-                <span className="text-[8.5px] text-gray-600" dir="ltr">
+                <span className="text-[8px] text-gray-500" dir="ltr">
                   Designed by Asemun · © {year} Trademun
                 </span>
               </div>
-
-              <a
-                referrerPolicy="origin"
-                target="_blank"
-                href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                rel="noopener noreferrer"
-                className="block rounded-md border border-white/10 bg-white p-1 transition-transform hover:scale-105"
-                title="نماد اعتماد الکترونیکی"
-              >
-                <img
-                  referrerPolicy="origin"
-                  src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                  alt="اینماد"
-                  className="h-10 w-auto object-contain"
-                />
-              </a>
             </div>
           </div>
 
           {/* ═══════════════════════════════════════════════
-              دسکتاپ — ۴ ستون
+              دسکتاپ
           ═══════════════════════════════════════════════ */}
           <div className="hidden md:block">
-            {/* ═══ ردیف ۱: ۴ ستون ═══ */}
-            <div className="grid grid-cols-12 gap-6 mb-4">
-              {/* ستون ۱: لوگو + شعار (۳۵٪) */}
+            <div className="grid grid-cols-12 gap-6 mb-4 items-start">
+              {/* ستون ۱ */}
               <div className="col-span-4 flex flex-col items-start gap-2">
                 <Link href="/" className="block">
-                  <AnimatedLogo
-                    width={110}
-                    height={74}
-                    imgWidth={92}
-                    imgHeight={62}
-                  />
+                  <AnimatedLogo width={160} height={105} imgWidth={140} imgHeight={92} />
                 </Link>
                 <p className="text-[11px] font-medium leading-relaxed">
-                  <span className="text-white/90">
-                    معامله هوشمند، از اینجا شروع می‌شه!
-                  </span>
+                  <span className="text-white/90">معامله هوشمند، از اینجا شروع می‌شه!</span>
                   <br />
                   <span className="text-[#d6ad60]">تریدمون نشه؟</span>
                 </p>
               </div>
 
-              {/* ستون ۲: دسترسی سریع (۲۲٪) */}
-              <div className="col-span-3 space-y-1">
-                <h4 className="mb-1.5 text-xs font-bold text-[#d6ad60]">
-                  دسترسی سریع
-                </h4>
-                <Link
-                  href="/about"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <Info className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>درباره ما</span>
+              {/* ستون ۲ */}
+              <div className="col-span-3 space-y-1.5">
+                <h4 className="mb-2 text-xs font-bold text-[#d6ad60]">دسترسی سریع</h4>
+                <Link href="/about" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <Info className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>درباره ما</span>
                 </Link>
-                <Link
-                  href="/contact"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <Phone className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>تماس با ما</span>
+                <Link href="/contact" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <Phone className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>تماس با ما</span>
                 </Link>
-                <Link
-                  href="/faq"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <HelpCircle className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>سوالات متداول</span>
+                <Link href="/faq" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <HelpCircle className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>سوالات متداول</span>
                 </Link>
               </div>
 
-              {/* ستون ۳: کانال‌های سیگنال (۲۲٪) */}
-              <div className="col-span-3 space-y-1">
-                <h4 className="mb-1.5 text-xs font-bold text-[#d6ad60]">
-                  کانال‌های سیگنال
-                </h4>
-                <a
-                  href="https://t.me/trademun"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <Send className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>کانال تلگرام</span>
+              {/* ستون ۳ */}
+              <div className="col-span-3 space-y-1.5">
+                <h4 className="mb-2 text-xs font-bold text-[#d6ad60]">کانال‌های سیگنال</h4>
+                <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <Send className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>کانال تلگرام</span>
                 </a>
-                <a
-                  href="https://ble.ir/trademun"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <MessageCircle className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>کانال بله</span>
+                <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <MessageCircle className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>کانال بله</span>
                 </a>
-                <Link
-                  href="/dashboard/tickets"
-                  className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]"
-                >
-                  <Ticket className="h-3.5 w-3.5 text-[#d6ad60]/70" />
-                  <span>پشتیبانی (تیکت)</span>
+                <Link href="/dashboard/tickets" className="flex items-center gap-2 text-[11px] text-gray-300 transition-colors hover:text-[#d6ad60]">
+                  <Ticket className="h-3.5 w-3.5 text-[#d6ad60]/70" /><span>پشتیبانی (تیکت)</span>
                 </Link>
               </div>
 
-              {/* ستون ۴: نمادها (۲۱٪) — کنار هم */}
-              <div className="col-span-2 flex items-center justify-end gap-2">
-                {/* زیبال (placeholder) */}
-                <div
-                  className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/10 bg-white/5"
+              {/* ستون ۴ — با فاصله از گوشه */}
+              <div className="col-span-2 flex items-center justify-end gap-5 pr-6">
+                <a
+                  href="https://zibal.ir"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-lg border border-white/10 bg-white p-1 transition-transform hover:scale-105"
                   title="درگاه پرداخت زیبال"
                 >
-                  <span className="text-[8px] font-bold text-gray-400">
-                    زیبال
-                  </span>
-                </div>
-
-                {/* اینماد */}
+                  <img
+                    src="/logos/zibal-logo.png"
+                    alt="زیبال"
+                    className="h-16 w-auto object-contain"
+                  />
+                </a>
                 <a
                   referrerPolicy="origin"
                   target="_blank"
@@ -302,43 +231,20 @@ export function Footer() {
                   className="block rounded-lg border border-white/10 bg-white p-1 transition-transform hover:scale-105"
                   title="نماد اعتماد الکترونیکی"
                 >
-                  <img
-                    referrerPolicy="origin"
-                    src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                    alt="اینماد"
-                    className="h-10 w-auto object-contain"
-                  />
+                  <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="اینماد" className="h-16 w-auto object-contain" />
                 </a>
               </div>
             </div>
 
-            {/* ═══ ردیف ۲: سلب مسئولیت + © ═══ */}
-            <div className="border-t border-[#d6ad60]/10 pt-2.5">
-              <div className="flex flex-row items-center justify-between gap-3">
-                {/* چپ: سلب مسئولیت */}
-                <div className="flex max-w-md items-start gap-1.5">
-                  <Shield className="mt-0.5 h-3 w-3 shrink-0 text-[#d6ad60]/70" />
-                  <p className="text-right text-[9px] leading-relaxed text-[#d6ad60]/70">
-                    تریدمون یک موتور تحلیل‌گر ریاضی است. تصمیم معامله و
-                    مسئولیت سود یا زیان، با شماست.
-                  </p>
-                </div>
-
-                {/* راست: © + آسمون (دو خط) */}
-                <div className="flex shrink-0 flex-col items-end gap-0.5 text-gray-400">
-                  <span className="text-[10px]">
-                    طراحی و توسعه:{" "}
-                    <span className="font-medium text-[#d6ad60]">آسمون</span>{" "}
-                    <span className="mx-1 text-gray-600">|</span> © {year}{" "}
-                    تریدمون
-                  </span>
-                  <span
-                    className="text-[8px] text-gray-600"
-                    dir="ltr"
-                  >
-                    Designed by Asemun · © {year} Trademun
-                  </span>
-                </div>
+            {/* کپی‌رایت وسط */}
+            <div className="border-t border-[#d6ad60]/10 pt-3">
+              <div className="flex flex-col items-center gap-0.5 text-gray-400">
+                <span className="text-[10px]">
+                  طراحی و توسعه: <span className="font-medium text-[#d6ad60]">آسمون</span> | © {year} تریدمون
+                </span>
+                <span className="text-[8px] text-gray-500" dir="ltr">
+                  Designed by Asemun · © {year} Trademun
+                </span>
               </div>
             </div>
           </div>

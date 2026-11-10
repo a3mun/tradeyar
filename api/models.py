@@ -202,3 +202,14 @@ class RefundRequest(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, index=True)
     processed_at: Optional[datetime] = None
     processed_by: Optional[str] = None
+
+
+class SiteStatsOverride(SQLModel, table=True):
+    """آمار نمایشی سایت — قابل override توسط ادمین."""
+
+    __tablename__ = "site_stats_override"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(unique=True, index=True)
+    value: float = 0.0
+    updated_at: datetime = Field(default_factory=_utcnow)
+    updated_by: Optional[str] = None

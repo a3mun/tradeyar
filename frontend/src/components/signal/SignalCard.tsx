@@ -459,14 +459,13 @@ export function SignalCard() {
     if (cached) return;
 
     let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setLoading(true);
-        setError(null);
-      }
-    });
-    (async () => {
-      try {
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      
+      (async () => {
+    try {
         const res = await api.post<AnalyzeResponse>("/analyze", {
           ticker,
           source,
@@ -497,8 +496,11 @@ export function SignalCard() {
         if (!cancelled) setLoading(false);
       }
     })();
+    }, 1000); // پایان setTimeout
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [
     ticker,
@@ -623,6 +625,36 @@ export function SignalCard() {
     if (!cardRef.current || sharing || !data) return;
     setSharing(true);
     try {
+      // ۱. گرفتن کپشن از بک‌اند
+      let captionText = `تحلیل ${data.name || data.ticker} از Trademun\n🔗 trademun.ir`;
+      try {
+        const captionRes = await api.post<{ ok: boolean; caption: string }>("/share/caption", {
+          ticker: data.ticker,
+          name: data.name,
+          source: data.source_used || data.source,
+          tf: data.timeframe,
+          signal: data.signal,
+          direction: data.direction,
+          confidence: data.confidence,
+          strategy: data.strategy,
+          market_type: data.market_type,
+          risk_profile: data.risk_profile,
+          price: data.price,
+          sl: data.sl,
+          tp: data.tp,
+          rr: data.rr,
+          rr_net: data.rr_net,
+          tp_levels: data.tp_levels,
+          traps: data.traps,
+        });
+        if (captionRes.data.ok && captionRes.data.caption) {
+          captionText = captionRes.data.caption;
+        }
+      } catch (e) {
+        console.warn("خطا در گرفتن کپشن، از متن پیش‌فرض استفاده میشه", e);
+      }
+
+      // ۲. گرفتن عکس کارت
       const { toBlob } = await import("html-to-image");
       const blob = await toBlob(cardRef.current, {
         backgroundColor: "#0a0e1a",
@@ -634,25 +666,29 @@ export function SignalCard() {
       const file = new File([blob], fileName, { type: "image/png" });
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const nav = navigator as Navigator & {
-        canShare?: (d: { files: File[] }) => boolean;
+        canShare?: (d: { files: File[]; text?: string }) => boolean;
       };
+      
+      // ۳. اشتراک‌گذاری با کپشن (اگه موبایل بود)
       if (
         isMobile &&
         typeof nav.share === "function" &&
         typeof nav.canShare === "function" &&
-        nav.canShare({ files: [file] })
+        nav.canShare({ files: [file], text: captionText })
       ) {
         try {
           await nav.share({
             files: [file],
             title: `سیگنال ${data.ticker}`,
-            text: `تحلیل ${data.name || data.ticker} از Trademun`,
+            text: captionText,
           });
           return;
         } catch (err) {
           if ((err as Error)?.name === "AbortError") return;
         }
       }
+      
+      // ۴. دانلود عکس + کپی متن توی کلیپ‌بورد (دسکتاپ)
       const link = document.createElement("a");
       link.download = fileName;
       const url = URL.createObjectURL(blob);
@@ -661,13 +697,20 @@ export function SignalCard() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      
+      // کپی کپشن توی کلیپ‌بورد
+      try {
+        await navigator.clipboard.writeText(captionText);
+      } catch (clipErr) {
+        console.warn("کپی کپشن به کلیپ‌بورد ناموفق بود", clipErr);
+      }
     } catch (err) {
       console.error("[Share] خطا:", err);
     } finally {
       setSharing(false);
     }
   };
-
+  
   if (capability.planned) {
     return (
       <AnalysisUnavailable
