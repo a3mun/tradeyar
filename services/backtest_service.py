@@ -1,11 +1,12 @@
 """
 services/backtest_service.py
-راستی‌آزمایی — موتور اصلی (نسخه ۱۰.۱ — فاز ۱۵)
+راستی‌آزمایی — موتور اصلی (نسخه ۱۰.۲ — فاز ۱۵)
 ============================================================
-🔴 تغییرات نسخه ۱۰.۱:
-  ۱. شمارش pending در compute_stats
-  ۲. حذف get_site_stats تکراری
-  ۳. رفع خطای tp_levels در دیتابیس
+🔴 تغییرات نسخه ۱۰.۲:
+  ۱. رفع باگ win_rate (TP کامل هم در tp1_ever_hit حساب می‌شه)
+  ۲. رفع باگ tp_hit_level (برای سیگنال‌های TP خورده)
+  ۳. حذف get_site_stats تکراری
+  ۴. شمارش pending در compute_stats
 """
 
 from __future__ import annotations
@@ -96,10 +97,27 @@ def _parse_tp_levels(log: SignalLog) -> dict:
 def _compute_tp_hit_level(
     df_after: pd.DataFrame, log: SignalLog, tp_levels: dict
 ) -> Optional[int]:
-    if not tp_levels or df_after.empty:
+    if df_after.empty:
         return None
+
     is_long = log.direction == "long"
     highest = None
+
+    # 🔴 اگه tp_levels خالی بود، از log.tp (TP نهایی) استفاده کن
+    if not tp_levels:
+        if log.tp:
+            try:
+                tp_val = float(log.tp)
+            except (TypeError, ValueError):
+                return None
+            if is_long:
+                if (df_after["high"] >= tp_val).any():
+                    return 3  # TP نهایی = TP3
+            else:
+                if (df_after["low"] <= tp_val).any():
+                    return 3
+        return None
+
     for level_num, key in [(1, "tp1"), (2, "tp2"), (3, "tp3")]:
         tp_val = tp_levels.get(key)
         if tp_val is None:
@@ -184,6 +202,8 @@ def _check_one(log: SignalLog) -> Optional[str]:
             log.exit_reason = "tp_hit"
             log.exit_price = log.tp
             log.result_time = _to_utc_dt(tp_time)
+            if log.tp_hit_level is None:
+                log.tp_hit_level = 3  # 🔴 اگه TP نهایی خورد، حداقل TP3
             return "win"
         else:
             log.result = "loss"
@@ -196,6 +216,8 @@ def _check_one(log: SignalLog) -> Optional[str]:
         log.exit_reason = "tp_hit"
         log.exit_price = log.tp
         log.result_time = _to_utc_dt(tp_time)
+        if log.tp_hit_level is None:
+            log.tp_hit_level = 3  # 🔴
         return "win"
     elif sl_time:
         log.result = "loss"
@@ -348,7 +370,10 @@ def _compute_core_stats(rows: list[SignalLog]) -> dict:
         1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "flat"
     )
 
+    # 🔴 TP1 لمس شده (شامل TP کامل)
     tp1_ever_hit = sum(1 for r in rows if r.tp_hit_level and r.tp_hit_level >= 1)
+    # اگه سیگنالی TP کامل خورده ولی tp_hit_level نال بوده، در tp1 حساب بشه
+    tp1_ever_hit = max(tp1_ever_hit, tp_full)
 
     closed_real = tp_full + sl_hits + timeout_wins + timeout_losses
 

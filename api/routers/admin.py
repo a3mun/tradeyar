@@ -49,6 +49,23 @@ from services.sms import send_subscription_activated_sms
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
+
+def _to_jalali_str(dt: datetime | None, include_time: bool = False) -> str:
+    """تبدیل تاریخ میلادی به شمسی (تهران)"""
+    if not dt:
+        return "—"
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        tehran_dt = dt.astimezone(ZoneInfo("Asia/Tehran"))
+        j = jdatetime.datetime.fromgregorian(datetime=tehran_dt)
+        if include_time:
+            return j.strftime("%Y/%m/%d %H:%M")
+        return j.strftime("%Y/%m/%d")
+    except Exception:
+        return "—"
+
+
 MAIN_ADMIN_PHONE = "09129630901"
 MAINTENANCE_FLAG = BASE_DIR / "data" / "maintenance.flag"
 
@@ -368,13 +385,13 @@ async def export_users_excel(
         }.get(status_text, "نامشخص")
         subs_history = " | ".join(
             [
-                f"{s.plan} ({s.start_date.strftime('%Y-%m-%d')} تا {s.end_date.strftime('%Y-%m-%d') if s.end_date else 'نامحدود'})"
+                f"{s.plan} ({_to_jalali_str(s.start_date)} تا {_to_jalali_str(s.end_date) if s.end_date else 'نامحدود'})"
                 for s in subs
             ]
         )
         pay_history = " | ".join(
             [
-                f"{p.plan} ({p.amount} تومان، {p.status}, {p.created_at.strftime('%Y-%m-%d')})"
+                f"{p.plan} ({p.amount} تومان، {p.status}, {_to_jalali_str(p.created_at)})"
                 for p in payments
             ]
         )
@@ -385,15 +402,15 @@ async def export_users_excel(
                 u.email or "ثبت نشده",
                 "تعیین شده" if u.hashed_password else "تعیین نشده",
                 "مدیر" if u.is_admin else "کاربر",
-                u.created_at.strftime("%Y-%m-%d") if u.created_at else "نامشخص",
-                u.last_login.strftime("%Y-%m-%d %H:%M") if u.last_login else "نامشخص",
+                _to_jalali_str(u.created_at),
+                _to_jalali_str(u.last_login, include_time=True),
                 u.last_ip or "نامشخص",
                 "نامحدود" if u.is_admin else (sub.plan if sub else "بدون اشتراک"),
                 (
                     "نامحدود"
                     if u.is_admin
                     else (
-                        sub.end_date.strftime("%Y-%m-%d")
+                        _to_jalali_str(sub.end_date)
                         if sub and sub.end_date
                         else "نامشخص"
                     )
@@ -954,7 +971,7 @@ async def export_transactions_excel(
                 method_fa,
                 p.amount or 0,
                 status_fa,
-                p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else "",
+                _to_jalali_str(p.created_at, include_time=True),
                 p.reviewed_by or "—",
                 p.admin_note or "",
             ]

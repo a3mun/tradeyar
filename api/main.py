@@ -28,6 +28,7 @@ from api.routers import admin_ws
 from api.routers import tickets
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from api.routers import ai
 
 # ═══════════════════════════════════════════════════════════
 # Logging
@@ -140,6 +141,8 @@ app.include_router(admin_ws.router)
 app.include_router(tickets.router)
 app.include_router(extension.router)
 app.include_router(share.router)
+app.include_router(ai.router)
+
 
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket
