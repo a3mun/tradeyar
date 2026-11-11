@@ -370,14 +370,16 @@ def _compute_core_stats(rows: list[SignalLog]) -> dict:
         1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "flat"
     )
 
-    # 🔴 TP1 لمس شده (شامل TP کامل)
+    # 🔴 برد = TP + تایم‌اوت در سود
+    total_wins = tp_full + timeout_wins
     tp1_ever_hit = sum(1 for r in rows if r.tp_hit_level and r.tp_hit_level >= 1)
-    # اگه سیگنالی TP کامل خورده ولی tp_hit_level نال بوده، در tp1 حساب بشه
+    # سیگنال‌هایی که TP کامل خوردن هم در tp1 حساب بشن
     tp1_ever_hit = max(tp1_ever_hit, tp_full)
 
     closed_real = tp_full + sl_hits + timeout_wins + timeout_losses
 
-    win_rate = (tp1_ever_hit / closed_real * 100) if closed_real > 0 else 0.0
+    # 🔴 فرمول خوش‌بینانه: برد = TP + تایم‌اوت در سود
+    win_rate = ((total_wins) / closed_real * 100) if closed_real > 0 else 0.0
     direction_acc = (
         ((tp1_ever_hit + timeout_wins) / closed_real * 100) if closed_real > 0 else 0.0
     )
@@ -415,6 +417,7 @@ def _compute_core_stats(rows: list[SignalLog]) -> dict:
         "timeout_losses": timeout_losses,
         "timeout_flats": timeout_flats,
         "closed_real": closed_real,
+        "total_wins": total_wins,  # 🔴 فیلد جدید
         "tp1_ever_hit": tp1_ever_hit,
         "win_rate": round(win_rate, 2),
         "direction_accuracy": round(direction_acc, 2),

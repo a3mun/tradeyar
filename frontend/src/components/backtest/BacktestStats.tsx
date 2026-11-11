@@ -199,8 +199,8 @@ export function BacktestStats({
       if (strategy) params.append("strategy", strategy);
       if (tf) params.append("tf", tf);
       if (time !== "all") params.append("time_filter", time);
-      params.append("limit", String(displayLimit));
-
+      params.append("limit", String(Math.max(displayLimit, 50)));
+      
       const historyParams = new URLSearchParams(params);
       historyParams.set("limit", "100");
 

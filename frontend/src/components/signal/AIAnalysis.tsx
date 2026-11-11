@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { getToken } from "@/lib/auth";
 import { useSignalData } from "@/hooks/useSignalData";
 
 const LS_OPENROUTER = "openrouter_api_key";
@@ -85,11 +86,11 @@ export function AIAnalysis() {
     setAiResult("");
 
     try {
-      // 🔴 درخواست به پروکسی بک‌اند (نه مستقیم به OpenRouter)
+      // 🔴 استفاده از api (axios) که خودش توکن رو به هدر اضافه می‌کنه
       const res = await api.post<{ ok: boolean; response: string; error?: string }>(
         "/ai",
         {
-          data: aiExport,
+          data: aiExport, // 🔴 string (نه object)
           api_key: savedKey || apiKey.trim() || undefined,
         },
         { timeout: 60000 },
@@ -251,7 +252,7 @@ export function AIAnalysis() {
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
           <div className="flex-1 space-y-1">
             <p className="text-[10px] leading-relaxed text-red-300">{aiError}</p>
-            {(aiError.includes("اعتبار") || aiError.includes("نامعتبر") || aiError.includes("کلید") || aiError.includes("سهمیه")) && (
+            {(aiError.includes("اعتبار") || aiError.includes("نامعتبر") || aiError.includes("کلید") || aiError.includes("سهمیه") || aiError.includes("Authentication")) && (
               <div className="flex flex-wrap gap-2 pt-1">
                 <button onClick={() => setShowKeyInput(true)} className="flex items-center gap-0.5 text-[9px] text-red-400 underline hover:text-red-300">
                   <Globe className="h-2.5 w-2.5" /> تغییر کلید
