@@ -19,10 +19,8 @@ router = APIRouter(prefix="/ai", tags=["AI"])
 
 OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "openrouter/free"
-DEFAULT_KEY = os.environ.get(
-    "OPENROUTER_API_KEY",
-    "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",
-)
+# 🔴 کلید فقط از محیط خوانده می‌شود (در .env سرور تنظیم شود)
+DEFAULT_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 SYSTEM_PROMPT = """تو یه دوست معامله‌گر باتجربه هستی که به رفیقت مشاوره می‌دی.
 
