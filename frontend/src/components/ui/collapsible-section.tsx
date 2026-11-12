@@ -1,36 +1,18 @@
 "use client";
 
-/**
- * CollapsibleSection — بخش کشویی مدرن با Framer Motion
- * ============================================================
- * 🔴 فاز ۱۴.۹.۵:
- *   • children فقط وقتی open=True رندر می‌شن (lazy)
- *   • با keepMounted، بعد از اولین باز شدن state حفظ می‌شه
- *   • انیمیشن نرم با Framer Motion
- *   • ذخیره state در localStorage (بین reload ها پایدار)
- */
-
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface CollapsibleSectionProps {
   id: string;
   title: string;
-  icon?: string;
+  icon?: string | React.ReactNode;
   subtitle?: string;
   accentColor?: string;
-  defaultOpen?: boolean;
-  persist?: boolean;
-  /** 🔴 اگه true، children بعد از اولین باز شدن unmount نمی‌شن */
-  keepMounted?: boolean;
-  className?: string;
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }
-
-const STORAGE_PREFIX = "collapsible:";
 
 export function CollapsibleSection({
   id,
@@ -38,123 +20,60 @@ export function CollapsibleSection({
   icon,
   subtitle,
   accentColor = "#d6ad60",
-  defaultOpen = false,
-  persist = true,
-  keepMounted = true,
-  className,
   children,
+  defaultOpen = false, // 🔴 پیش‌فرض: بسته
 }: CollapsibleSectionProps) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultOpen);
-  const [hasOpenedOnce, setHasOpenedOnce] = useState<boolean>(defaultOpen);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    if (!persist) return;
-    try {
-      const stored = localStorage.getItem(`${STORAGE_PREFIX}${id}`);
-      if (stored !== null) {
-        const wasOpen = stored === "1";
-        setIsOpen(wasOpen);
-        if (wasOpen) setHasOpenedOnce(true);
-      }
-    } catch {
-      // silent
-    }
-  }, [id, persist]);
-
-  const toggle = () => {
-    const next = !isOpen;
-    setIsOpen(next);
-    if (next) setHasOpenedOnce(true);
-    if (persist) {
-      try {
-        localStorage.setItem(`${STORAGE_PREFIX}${id}`, next ? "1" : "0");
-      } catch {
-        // silent
-      }
-    }
-  };
-
-  const shouldRenderChildren = hasOpenedOnce || isOpen || !keepMounted;
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <Card
-      className={cn(
-        "overflow-hidden border transition-colors duration-300",
-        className
-      )}
-      style={{
-        borderColor: isOpen ? `${accentColor}55` : undefined,
-      }}
-    >
-      <CardHeader
-        className="cursor-pointer select-none py-3 px-4 transition-colors hover:bg-muted/20"
-        onClick={toggle}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            toggle();
-          }
-        }}
-        aria-expanded={isOpen}
+    <div className="rounded-xl border border-border/40 bg-[#0d1b2d] overflow-hidden shadow-sm">
+      {/* هدر — همیشه قابل کلیک */}
+      <button
+        onClick={() => setIsOpen((v) => !v)}
+        className="flex w-full items-center justify-between p-3 text-right transition-colors hover:bg-white/5"
+        style={{ borderRight: `3px solid ${accentColor}` }}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            {icon && (
-              <span
-                className="text-lg shrink-0"
-                style={{ filter: isOpen ? "none" : "grayscale(0.3)" }}
-              >
-                {icon}
-              </span>
+        <div className="flex items-center gap-2">
+          {icon && (
+            <span className="text-lg" style={{ color: accentColor }}>
+              {icon}
+            </span>
+          )}
+          <div>
+            <h3 className="text-sm font-bold text-foreground" style={{ color: accentColor }}>
+              {title}
+            </h3>
+            {subtitle && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {subtitle}
+              </p>
             )}
-            <div className="min-w-0">
-              <h3
-                className="text-sm font-bold font-display truncate"
-                style={{ color: isOpen ? accentColor : undefined }}
-              >
-                {title}
-              </h3>
-              {subtitle && (
-                <p className="text-[10px] text-muted-foreground truncate">
-                  {subtitle}
-                </p>
-              )}
-            </div>
           </div>
-          <motion.div
-            animate={{ rotate: isOpen ? 180 : 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="shrink-0 rounded-full p-1"
-            style={{
-              backgroundColor: isOpen ? `${accentColor}22` : "transparent",
-            }}
-          >
-            <ChevronDown
-              className="h-4 w-4 transition-colors"
-              style={{ color: isOpen ? accentColor : undefined }}
-            />
-          </motion.div>
         </div>
-      </CardHeader>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        />
+      </button>
 
-      {isMounted && shouldRenderChildren && (
-        <motion.div
-          key="content"
-          initial={false}
-          animate={{
-            height: isOpen ? "auto" : 0,
-            opacity: isOpen ? 1 : 0,
-          }}
-          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-          style={{ overflow: "hidden" }}
-        >
-          <CardContent className="px-4 pb-4 pt-1">{children}</CardContent>
-        </motion.div>
-      )}
-    </Card>
+      {/* محتوا */}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            {/* 🔴 حداقل ارتفاع برای جلوگیری از پرش Layout Shift */}
+            <div className="border-t border-border/30 p-3 min-h-[100px]">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

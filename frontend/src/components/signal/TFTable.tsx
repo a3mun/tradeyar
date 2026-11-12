@@ -272,7 +272,8 @@ export function TFTable() {
         )}
       </CardHeader>
 
-      <CardContent className="px-1 sm:px-3">
+      {/* 🔴 حداقل ارتفاع برای جلوگیری از پرش هنگام تغییر نماد/صرافی */}
+      <CardContent className="px-1 sm:px-3 min-h-[300px]">
         <Table className="table-fixed w-full">
           <TableHeader>
             <TableRow className="hover:bg-transparent">

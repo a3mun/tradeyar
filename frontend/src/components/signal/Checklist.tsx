@@ -13,7 +13,7 @@ import { useAppStore } from "@/store/useAppStore";
 import type { ChecklistData } from "@/lib/types";
 
 interface Props {
-  data: ChecklistData;
+  data?: ChecklistData;
 }
 
 const STRATEGY_LABELS: Record<string, { fa: string; icon: string }> = {
@@ -62,10 +62,19 @@ function useCountUp(target: number, duration: number = 1500) {
 export function Checklist({ data }: Props) {
   const { strategy } = useAppStore();
 
-  if (!data || !data.items || data.items.length === 0) return null;
+  // 🔴 حالت لودینگ (وقتی داده‌ای نیست)
+  if (!data || !data.items || data.items.length === 0) {
+    return (
+      <div className="space-y-2 py-2">
+        <div className="h-4 w-3/4 animate-pulse rounded bg-muted/30" />
+        <div className="h-4 w-1/2 animate-pulse rounded bg-muted/30" />
+        <div className="h-4 w-2/3 animate-pulse rounded bg-muted/30" />
+        <div className="h-4 w-1/2 animate-pulse rounded bg-muted/30" />
+      </div>
+    );
+  }
 
   const warnings = data.items.filter((i) => i.color === "red");
-  const greens = data.items.filter((i) => i.color === "green").length;
   const percentage = data.percentage || 0;
 
   const progressColor = "text-blue-500";

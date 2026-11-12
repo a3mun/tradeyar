@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * BacktestStats — آمار راستی‌آزمایی (نسخه ۹.۰ · فاز ۱۴.۹.۱۲)
- * ============================================================
- * 🔴 بازنویسی کامل:
- *   • حذف by-tf و by-quality (endpoint حذف شد)
- *   • فیلتر استراتژی + TF + پروفایل + منبع + بازه + نمایشی (۳۰/۱۰۰/همه)
- *   • ۲ نمودار دایره‌ای SVG (برد/باخت + پیش‌بینی)
- *   • جدول per-strategy
- *   • جدول تاریخچه حداقلی
- *   • استفاده از endpointهای جدید: /backtest, /backtest/history,
- *     /backtest/by-strategy, /backtest/run, /backtest/reset
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Clock,
@@ -27,10 +14,6 @@ import { api } from "@/lib/api";
 import type { SignalHistoryItem } from "@/lib/types";
 import { ResetSignalsDialog } from "./ResetSignalsDialog";
 
-// ═══════════════════════════════════════════════════════════
-// تایپ‌ها
-// ═══════════════════════════════════════════════════════════
-
 interface CoreStats {
   total: number;
   expired: number;
@@ -41,7 +24,9 @@ interface CoreStats {
   timeout_flats: number;
   closed_real: number;
   tp1_ever_hit: number;
+  total_wins: number;
   win_rate: number;
+  loss_rate: number;
   direction_accuracy: number;
   trend_correct: number;
   trend_wrong: number;
@@ -57,6 +42,7 @@ interface StrategyStats {
   timeout_wins: number;
   timeout_losses: number;
   win_rate: number;
+  loss_rate: number;
   direction_accuracy: number;
   trend_correct: number;
   trend_wrong: number;
@@ -93,10 +79,6 @@ const LIMIT_OPTIONS = [
   { v: 500, label: "همه" },
 ];
 
-// ═══════════════════════════════════════════════════════════
-// نمودار دایره‌ای SVG
-// ═══════════════════════════════════════════════════════════
-
 function DonutChart({
   value,
   size = 110,
@@ -120,40 +102,20 @@ function DonutChart({
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke={bgColor} strokeWidth={strokeWidth} fill="none" />
         <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={bgColor}
-          strokeWidth={strokeWidth}
-          fill="none"
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={color}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
+          cx={size / 2} cy={size / 2} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none"
+          strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: "stroke-dashoffset 0.6s ease" }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="num text-xl font-bold" style={{ color }}>
-          {pct.toFixed(0)}٪
-        </span>
+        <span className="num text-xl font-bold" style={{ color }}>{pct.toFixed(1)}٪</span>
         {label && <span className="text-[9px] text-muted-foreground">{label}</span>}
       </div>
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════
-// کامپوننت اصلی
-// ═══════════════════════════════════════════════════════════
 
 interface Props {
   source?: string;
@@ -168,7 +130,6 @@ export function BacktestStats({
   time: initTime = "all",
   limit: initLimit = 100,
 }: Props) {
-  // فیلترها
   const [source, setSource] = useState(initSource);
   const [profile, setProfile] = useState(initProfile);
   const [time, setTime] = useState(initTime);
@@ -176,7 +137,6 @@ export function BacktestStats({
   const [tf, setTf] = useState("");
   const [displayLimit, setDisplayLimit] = useState(initLimit);
 
-  // داده
   const [stats, setStats] = useState<CoreStats | null>(null);
   const [byStrategy, setByStrategy] = useState<Record<string, StrategyStats>>({});
   const [items, setItems] = useState<SignalHistoryItem[]>([]);
@@ -189,7 +149,6 @@ export function BacktestStats({
   const [showHistory, setShowHistory] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
-  // ═══ fetch ═══
   const fetchAll = useCallback(async () => {
     try {
       setError("");
@@ -200,18 +159,14 @@ export function BacktestStats({
       if (tf) params.append("tf", tf);
       if (time !== "all") params.append("time_filter", time);
       params.append("limit", String(Math.max(displayLimit, 50)));
-      
+
       const historyParams = new URLSearchParams(params);
       historyParams.set("limit", "100");
 
       const [statsRes, stratRes, histRes] = await Promise.all([
         api.get<{ stats: CoreStats }>(`/backtest?${params.toString()}`),
-        api.get<{ items: Record<string, StrategyStats> }>(
-          `/backtest/by-strategy?${params.toString()}`
-        ),
-        api.get<{ items: SignalHistoryItem[] }>(
-          `/backtest/history?${historyParams.toString()}`
-        ),
+        api.get<{ items: Record<string, StrategyStats> }>(`/backtest/by-strategy?${params.toString()}`),
+        api.get<{ items: SignalHistoryItem[] }>(`/backtest/history?${historyParams.toString()}`),
       ]);
 
       setStats(statsRes.data.stats);
@@ -229,7 +184,6 @@ export function BacktestStats({
     fetchAll();
   }, [fetchAll]);
 
-  // ═══ عملیات ═══
   const handleRun = async () => {
     setRunning(true);
     setNotice("");
@@ -267,17 +221,9 @@ export function BacktestStats({
       const a = document.createElement("a");
       a.href = url;
       const ts = new Intl.DateTimeFormat("en-GB", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "Asia/Tehran",
-      })
-        .format(new Date())
-        .replace(/[/:,\s]/g, "-")
-        .replace(/-+/g, "-");
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Tehran",
+      }).format(new Date()).replace(/[/:,\s]/g, "-").replace(/-+/g, "-");
 
       a.download = `trademun_signals_${ts}.json`;
       a.style.display = "none";
@@ -298,40 +244,16 @@ export function BacktestStats({
     fetchAll();
   };
 
-  // ═══ محاسبات ═══
-  const pendingCount = useMemo(
-    () => items.filter((i) => !i.result && !i.expired).length,
-    [items]
-  );
-
-  const closedCount = useMemo(
-    () => items.filter((i) => i.result || i.expired).length,
-    [items]
-  );
-
-  const lastCheckTime = useMemo(() => {
-    const withResult = items
-      .filter((i) => i.result_time)
-      .sort(
-        (a, b) =>
-          new Date(b.result_time || "").getTime() -
-          new Date(a.result_time || "").getTime()
-      );
-    return withResult[0]?.result_time || null;
-  }, [items]);
+  const pendingCount = useMemo(() => items.filter((i) => !i.result && !i.expired).length, [items]);
+  const closedCount = useMemo(() => items.filter((i) => i.result || i.expired).length, [items]);
 
   const formatDate = (iso: string | null | undefined) => {
     if (!iso) return "—";
     try {
       return new Intl.DateTimeFormat("fa-IR", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
+        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
       }).format(new Date(iso));
-    } catch {
-      return "—";
-    }
+    } catch { return "—"; }
   };
 
   const formatNumber = (n: number | null | undefined) => {
@@ -362,10 +284,6 @@ export function BacktestStats({
     return { label: "—", color: "bg-slate-500/10 text-slate-400 border-slate-400/30", icon: "" };
   };
 
-  const winRateColor = (rate: number) =>
-    rate >= 55 ? "text-green-500" : rate >= 45 ? "text-yellow-500" : "text-red-500";
-
-  // ═══ رندر ═══
   if (loading && !stats) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -376,7 +294,6 @@ export function BacktestStats({
 
   return (
     <div className="space-y-3">
-      {/* هشدار/نوتیف */}
       {error && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-[11px] text-destructive">
           ⚠️ {error}
@@ -388,12 +305,10 @@ export function BacktestStats({
         </p>
       )}
 
-      {/* راهنما */}
       <div className="rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-[9px] leading-relaxed text-muted-foreground">
-        💡 <b className="text-foreground/80">راهنما:</b> «نرخ برد» یعنی درصد سیگنال‌هایی که به TP1 رسیدن. «دقت پیش‌بینی» یعنی درصد دفعاتی که جهت بازار رو درست تشخیص دادیم (حتی اگه به TP نرسه).
+        💡 <b className="text-foreground/80">راهنما:</b> «نرخ برد» فقط شامل سیگنال‌هایی است که به TP کامل رسیده‌اند. «دقت پیش‌بینی» شامل سیگنال‌هایی است که جهت بازار را درست تشخیص داده‌اند (حتی اگر به TP نرسند).
       </div>
 
-      {/* فیلتر نمایشی */}
       <div className="flex items-center justify-center gap-1">
         {LIMIT_OPTIONS.map((opt) => (
           <button
@@ -410,16 +325,13 @@ export function BacktestStats({
         ))}
       </div>
 
-      {/* فیلترهای پیشرفته */}
       <div>
         <button
           onClick={() => setShowFilters((v) => !v)}
           className="flex w-full items-center justify-between rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-[10px] font-medium text-foreground/80"
         >
           <span>⚙️ فیلترها</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 transition-transform ${showFilters ? "rotate-180" : ""}`}
-          />
+          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showFilters ? "rotate-180" : ""}`} />
         </button>
         {showFilters && (
           <div className="mt-1.5 grid grid-cols-2 gap-1.5">
@@ -432,14 +344,13 @@ export function BacktestStats({
         )}
       </div>
 
-      {/* ۵ کارت خلاصه */}
       {stats && (
         <div className="grid grid-cols-5 gap-1 text-center">
-          <SummaryCard 
-            label="کل" 
-            value={(stats.tp_hits || 0) + (stats.sl_hits || 0) + (stats.timeout_wins || 0) + (stats.timeout_losses || 0) + (stats.pending || 0)} 
-            color="text-foreground" 
-            bg="bg-muted/10 border-border/40" 
+          <SummaryCard
+            label="کل"
+            value={(stats.tp_hits || 0) + (stats.sl_hits || 0) + (stats.timeout_wins || 0) + (stats.timeout_losses || 0) + (stats.pending || 0)}
+            color="text-foreground"
+            bg="bg-muted/10 border-border/40"
           />
           <SummaryCard label="برد (TP)" value={stats.tp_hits} color="text-green-500" bg="bg-green-500/5 border-green-500/20" />
           <SummaryCard label="باخت (SL)" value={stats.sl_hits} color="text-red-500" bg="bg-red-500/5 border-red-500/20" />
@@ -448,39 +359,27 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* ۲ نمودار دایره‌ای */}
       {stats && closedCount > 0 && (
         <div className="grid grid-cols-2 gap-2">
+          {/* نمودار نرخ برد (فقط TP) */}
           <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-2.5 text-center">
-            <p className="mb-1 text-[10px] text-muted-foreground">✅ نرخ برد و باخت</p>
+            <p className="mb-1 text-[10px] text-muted-foreground">✅ نرخ برد (TP)</p>
             <div className="flex items-center justify-center gap-2">
-              <DonutChart
-                value={stats.win_rate}
-                color="#22c55e"
-                label="برد"
-              />
+              <DonutChart value={stats.win_rate} color="#22c55e" label="برد" />
               <div className="space-y-1 text-right text-[10px]">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-green-500" />
-                  <span className="text-muted-foreground">برد:</span>
-                  <span className="num font-bold text-green-500">{stats.tp1_ever_hit}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-red-500" />
-                  <span className="text-muted-foreground">باخت:</span>
-                  <span className="num font-bold text-red-500">{stats.sl_hits}</span>
+                  <span className="text-muted-foreground">تعداد:</span>
+                  <span className="num font-bold text-green-500">{stats.tp_hits}</span>
                 </div>
               </div>
             </div>
           </div>
+          {/* نمودار دقت پیش‌بینی */}
           <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2.5 text-center">
             <p className="mb-1 text-[10px] text-muted-foreground">🎯 دقت پیش‌بینی</p>
             <div className="flex items-center justify-center gap-2">
-              <DonutChart
-                value={stats.direction_accuracy}
-                color="#a78bfa"
-                label="درست"
-              />
+              <DonutChart value={stats.direction_accuracy} color="#a78bfa" label="درست" />
               <div className="space-y-1 text-right text-[10px]">
                 <div className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-purple-500" />
@@ -498,7 +397,6 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* مجموع سیگنال */}
       {stats && (
         <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-2 text-center">
           <span className="text-[10px] text-muted-foreground">📊 مجموع سیگنال‌های بررسی‌شده: </span>
@@ -506,7 +404,6 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* جدول per-strategy */}
       {Object.keys(byStrategy).length > 0 && (
         <div className="rounded-lg border border-border/40 bg-muted/10 p-2.5">
           <p className="mb-2 text-[10px] font-medium text-muted-foreground">📈 به تفکیک استراتژی</p>
@@ -516,8 +413,8 @@ export function BacktestStats({
                 <tr className="border-b border-border/40 text-muted-foreground">
                   <th className="pb-1 text-right font-normal">استراتژی</th>
                   <th className="pb-1 text-center font-normal">کل</th>
-                  <th className="pb-1 text-center font-normal text-green-500">برد</th>
-                  <th className="pb-1 text-center font-normal text-red-500">باخت</th>
+                  <th className="pb-1 text-center font-normal text-green-500">نرخ برد</th>
+                  <th className="pb-1 text-center font-normal text-red-500">نرخ باخت</th>
                   <th className="pb-1 text-center font-normal text-purple-400">پیش‌بینی</th>
                 </tr>
               </thead>
@@ -528,11 +425,9 @@ export function BacktestStats({
                     <tr key={key} className="border-b border-border/20 last:border-0">
                       <td className="py-1 font-medium">{label}</td>
                       <td className="num py-1 text-center text-muted-foreground">{s.total}</td>
-                      <td className="num py-1 text-center font-bold text-green-500">{s.tp1_ever_hit}</td>
-                      <td className="num py-1 text-center font-bold text-red-500">{s.sl_hits}</td>
-                      <td className="num py-1 text-center font-bold text-purple-400">
-                        {s.direction_accuracy.toFixed(0)}٪
-                      </td>
+                      <td className="num py-1 text-center font-bold text-green-500">{s.win_rate.toFixed(1)}٪</td>
+                      <td className="num py-1 text-center font-bold text-red-500">{s.loss_rate.toFixed(1)}٪</td>
+                      <td className="num py-1 text-center font-bold text-purple-400">{s.direction_accuracy.toFixed(0)}٪</td>
                     </tr>
                   );
                 })}
@@ -542,7 +437,6 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* تاریخچه (کشویی) */}
       {items.length > 0 && (
         <div>
           <button
@@ -550,9 +444,7 @@ export function BacktestStats({
             className="flex w-full items-center justify-between rounded-md border border-border/40 bg-muted/20 px-2.5 py-1.5 text-[10px] font-medium text-foreground/80"
           >
             <span>📋 تاریخچه سیگنال‌ها ({items.length})</span>
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform ${showHistory ? "rotate-180" : ""}`}
-            />
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showHistory ? "rotate-180" : ""}`} />
           </button>
           {showHistory && (
             <div className="mt-1.5 overflow-x-auto rounded-md border border-border/40 bg-muted/5">
@@ -601,7 +493,6 @@ export function BacktestStats({
         </div>
       )}
 
-      {/* دکمه‌ها */}
       <div className="grid grid-cols-3 gap-2 pt-1">
         <Button onClick={handleRun} disabled={running} size="sm" variant="default">
           {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -612,8 +503,7 @@ export function BacktestStats({
           دانلود JSON
         </Button>
         <Button onClick={() => setResetOpen(true)} size="sm" variant="outline" className="text-destructive hover:text-destructive">
-          <Trash2 className="h-3.5 w-3.5" />
-          ریست
+          <Trash2 className="h-3.5 w-3.5" /> ریست
         </Button>
       </div>
 
@@ -622,21 +512,7 @@ export function BacktestStats({
   );
 }
 
-// ═══════════════════════════════════════════════════════════
-// کامپوننت‌های کمکی
-// ═══════════════════════════════════════════════════════════
-
-function SummaryCard({
-  label,
-  value,
-  color,
-  bg,
-}: {
-  label: string;
-  value: number;
-  color: string;
-  bg: string;
-}) {
+function SummaryCard({ label, value, color, bg }: { label: string; value: number; color: string; bg: string; }) {
   return (
     <div className={`rounded-md border ${bg} px-1 py-1.5`}>
       <p className="text-[8px] text-muted-foreground">{label}</p>
@@ -645,17 +521,7 @@ function SummaryCard({
   );
 }
 
-function FilterSelect({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: { v: string; label: string }[];
-}) {
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { v: string; label: string }[]; }) {
   return (
     <label className="flex flex-col gap-0.5">
       <span className="text-[8px] text-muted-foreground">{label}</span>
@@ -664,11 +530,7 @@ function FilterSelect({
         onChange={(e) => onChange(e.target.value)}
         className="rounded border border-border/40 bg-background px-1.5 py-1 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
       >
-        {options.map((o) => (
-          <option key={o.v} value={o.v}>
-            {o.label}
-          </option>
-        ))}
+        {options.map((o) => (<option key={o.v} value={o.v}>{o.label}</option>))}
       </select>
     </label>
   );

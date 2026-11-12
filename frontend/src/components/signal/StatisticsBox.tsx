@@ -8,8 +8,10 @@ import { getUser } from "@/lib/auth";
 interface StrategyStat {
   real_win_rate: number;
   real_direction_accuracy: number;
+  real_loss_rate: number;
   total: number;
   win_rate: number;
+  loss_rate: number;
   direction_accuracy: number;
   has_override: { win_rate: boolean; direction_accuracy: boolean };
 }
@@ -90,7 +92,24 @@ export function StatisticsBox() {
   if (!stats || !stats.by_strategy) return <div className="py-6 text-center text-[11px] text-muted-foreground">آماری یافت نشد</div>;
 
   const currentStat = stats.by_strategy[activeTab];
-  const lossRate = 100 - currentStat.win_rate;
+
+  // 🔴 منطق اصلاح‌شده:
+  let winRate = currentStat.win_rate;
+  let lossRate = currentStat.loss_rate;
+
+  // اگه ادمین win_rate رو دستکاری کرده باشه، loss_rate میشه ۱۰۰ - win_rate
+  if (currentStat.has_override.win_rate) {
+    lossRate = 100 - winRate;
+  } 
+  // اگه دستکاری نکرده، loss_rate واقعی (از بک‌اند) رو نشون بده. 
+  // ولی اگه winRate صفر بود (یعنی هنوز هیچ TP نداریم)، lossRate هم صفر باشه تا ۱۰۰٪ الکی نشون داده نشه.
+  else if (winRate === 0) {
+    lossRate = 0;
+  }
+
+  const directionAcc = currentStat.direction_accuracy;
+  // دقت پیش‌بینی: اگه صفر بود، غلط هم صفر (نه ۱۰۰)
+  const directionWrong = directionAcc > 0 ? (100 - directionAcc) : 0;
 
   const tabs = [
     { key: "scalp", label: "⚡ اسکالپ" },
@@ -100,12 +119,10 @@ export function StatisticsBox() {
 
   return (
     <div className="space-y-3">
-      {/* متن توضیحی */}
       <p className="text-center text-[10px] text-muted-foreground mb-2">
         📌 مبنای این آمار بر اساس عملکرد ۱۰۰ سیگنال اخیر است.
       </p>
 
-      {/* تب‌های استراتژی */}
       <div className="flex items-center justify-center gap-1">
         {tabs.map((tab) => (
           <button
@@ -122,14 +139,13 @@ export function StatisticsBox() {
         ))}
       </div>
 
-      {/* نمودارها */}
       <div className="grid grid-cols-2 gap-2 mt-2">
         <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-2 text-center">
           <p className="mb-1 text-[9px] text-muted-foreground">✅ نرخ برد و باخت</p>
           <div className="flex items-center justify-center gap-2">
-            <DonutChart value={currentStat.win_rate} color="#22c55e" label="برد" />
+            <DonutChart value={winRate} color="#22c55e" label="برد" />
             <div className="space-y-1 text-right text-[9px]">
-              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-green-500" /><span className="text-muted-foreground">برد:</span><span className="num font-bold text-green-500">{currentStat.win_rate.toFixed(0)}٪</span></div>
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-green-500" /><span className="text-muted-foreground">برد:</span><span className="num font-bold text-green-500">{winRate.toFixed(0)}٪</span></div>
               <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-500" /><span className="text-muted-foreground">باخت:</span><span className="num font-bold text-red-500">{lossRate.toFixed(0)}٪</span></div>
             </div>
           </div>
@@ -138,10 +154,10 @@ export function StatisticsBox() {
         <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-2 text-center">
           <p className="mb-1 text-[9px] text-muted-foreground">🎯 دقت پیش‌بینی</p>
           <div className="flex items-center justify-center gap-2">
-            <DonutChart value={currentStat.direction_accuracy} color="#a78bfa" label="درست" />
+            <DonutChart value={directionAcc} color="#a78bfa" label="درست" />
             <div className="space-y-1 text-right text-[9px]">
-              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-purple-500" /><span className="text-muted-foreground">درست:</span><span className="num font-bold text-purple-500">{currentStat.direction_accuracy.toFixed(0)}٪</span></div>
-              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-orange-500" /><span className="text-muted-foreground">غلط:</span><span className="num font-bold text-orange-500">{(100 - currentStat.direction_accuracy).toFixed(0)}٪</span></div>
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-purple-500" /><span className="text-muted-foreground">درست:</span><span className="num font-bold text-purple-500">{directionAcc.toFixed(0)}٪</span></div>
+              <div className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-orange-500" /><span className="text-muted-foreground">غلط:</span><span className="num font-bold text-orange-500">{directionWrong.toFixed(0)}٪</span></div>
             </div>
           </div>
         </div>

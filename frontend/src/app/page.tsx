@@ -144,7 +144,7 @@ export default function HomePage() {
 
           <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:items-start">
             <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
-              <div className="order-1 xl:order-none">
+              <div className="order-1 xl:order-none min-h-[500px]">
                 <SignalCard key={[ticker, source, timeframe, marketType, riskProfile, strategy].join("-")} />
               </div>
               <div className="order-3 xl:order-none"><OrderBookPanel /></div>
@@ -198,26 +198,24 @@ export default function HomePage() {
             <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
               <div className="order-2 xl:order-none"><TFTable /></div>
               <div className="order-4 xl:order-none">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 min-h-[180px]">
                   <FearGreed />
                   <SupportResistance />
                 </div>
               </div>
 
               {/* 🔴 چک‌لیست */}
-              {data?.checklist?.items && data.checklist.items.length > 0 && (
-                <div className="order-6 xl:order-none">
-                  <CollapsibleSection
-                    id="checklist"
-                    title="چک‌لیست شرایط"
-                    icon="✅"
-                    subtitle="بررسی نهایی شرایط — کلیک کن تا باز بشه"
-                    accentColor="#22c55e"
-                  >
-                    <Checklist data={data.checklist} />
-                  </CollapsibleSection>
-                </div>
-              )}
+              <div className="order-6 xl:order-none">
+                <CollapsibleSection
+                  id="checklist"
+                  title="چک‌لیست شرایط"
+                  icon="✅"
+                  subtitle="بررسی نهایی شرایط — کلیک کن تا باز بشه"
+                  accentColor="#22c55e"
+                >
+                  <Checklist data={data?.checklist} />
+                </CollapsibleSection>
+              </div>
 
               {/* 🔴 مقایسه قیمت — کشویی */}
               <div className="order-8 xl:order-none">
