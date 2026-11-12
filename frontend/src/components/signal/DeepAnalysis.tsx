@@ -1,11 +1,14 @@
 "use client";
 
 /**
- * DeepAnalysis — تحلیل و چرایی (نسخه ۸.۰ · فاز ۱۴.۹.۶)
+ * DeepAnalysis — تحلیل و چرایی (نسخه ۹.۰ · فاز ۱۶.۱)
  * ============================================================
- * 🔴 تغییرات نسخه ۸.۰:
- *   • حذف همه‌ی AccordionSectionهای داخلی
- *   • فقط محتوا (کشو بیرونی از CollapsibleSection میاد)
+ * 🔴 تغییرات نسخه ۹.۰:
+ *   • رفع باگ false-positive «خلاف جهت» (Regex دقیق LONG/SHORT)
+ *   • برچسب «شانس موفقیت» به‌جای «X٪»
+ *   • توضیح راهنما بالای سناریوها
+ *   • فارسی‌سازی Pump/Dump
+ *   • بهبود رنگ‌بندی و فاصله‌گذاری هشدارها
  */
 
 import {
@@ -53,7 +56,6 @@ function buildNarrative(data: any): {
 } {
   const signal = data.signal || "";
   const conf = data.confidence || 0;
-  const direction = data.direction || "neutral";
   const strategy = data.strategy || "swing";
   const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
   const isLong = signal.includes("LONG");
@@ -144,8 +146,9 @@ function ScenarioCard({
   const condition = scenario.condition || "";
   const action = scenario.action || "";
 
-  const isLongScenario = action.includes("LONG") || action.includes("خرید");
-  const isShortScenario = action.includes("SHORT") || action.includes("فروش");
+  // 🔴 فاز ۱۶.۱ — فقط LONG/SHORT انگلیسی کامل
+  const isLongScenario = /\bLONG\b/i.test(action);
+  const isShortScenario = /\bSHORT\b/i.test(action);
   const isConflict =
     (mainDirection === "short" && isLongScenario) ||
     (mainDirection === "long" && isShortScenario);
@@ -157,12 +160,14 @@ function ScenarioCard({
       } transition-all hover:bg-white/10 relative`}
     >
       {isConflict && (
-        <div className="absolute -top-2 -left-2 rounded bg-orange-600 text-[8px] font-bold text-white px-1.5 py-0.5 shadow-sm">
+        <div className="absolute -top-2 -left-2 rounded bg-orange-700 text-[8px] font-bold text-white px-1.5 py-0.5 shadow-sm z-10">
           ⚠️ خلاف جهت
         </div>
       )}
       <div className="flex items-start gap-2">
-        <span className="text-[16px] mt-0.5">{scenario.icon || "•"}</span>
+        <span className="text-[16px] mt-0.5 shrink-0">
+          {scenario.icon || "•"}
+        </span>
         <div className="min-w-0 flex-1 space-y-1.5">
           <p className="text-[11px] font-medium leading-relaxed text-foreground/90">
             {condition}
@@ -177,8 +182,8 @@ function ScenarioCard({
                 style={{ width: `${probability}%` }}
               />
             </div>
-            <span className="num shrink-0 text-[9.5px] font-bold text-muted-foreground">
-              {probability}٪
+            <span className="num shrink-0 text-[9px] font-bold text-muted-foreground whitespace-nowrap">
+              شانس موفقیت {probability}٪
             </span>
           </div>
         </div>
@@ -245,16 +250,18 @@ export function DeepAnalysis() {
                 pumpWarning === "alert" ? "text-red-500" : "text-amber-500"
               }`}
             >
-              {pumpType === "pump" && `⚠️ پامپ شناسایی شد (${pumpScore}/100)`}
-              {pumpType === "dump" && `⚠️ دامپ شناسایی شد (${dumpScore}/100)`}
+              {pumpType === "pump" &&
+                `⚠️ حرکت صعودی غیرعادی (${pumpScore}/100)`}
+              {pumpType === "dump" &&
+                `⚠️ حرکت نزولی غیرعادی (${dumpScore}/100)`}
               {pumpType === "both" &&
-                `⚠️ نوسان شدید (pump=${pumpScore}, dump=${dumpScore})`}
+                `⚠️ نوسان شدید (صعودی ${pumpScore}، نزولی ${dumpScore})`}
             </span>
           </div>
           <p className="mt-1 text-[9px] text-foreground/70">
-            {pumpType === "pump" && "حرکت صعودی غیرعادی — احتمال اصلاح"}
-            {pumpType === "dump" && "حرکت نزولی غیرعادی — احتمال برگشت"}
-            {pumpType === "both" && "نوسان دوطرفه شدید — احتیاط"}
+            {pumpType === "pump" && "احتمال اصلاح قیمت — با احتیاط وارد شو"}
+            {pumpType === "dump" && "احتمال برگشت قیمت — با احتیاط وارد شو"}
+            {pumpType === "both" && "نوسان دوطرفه شدید — احتیاط بیشتر"}
           </p>
         </div>
       )}
@@ -349,9 +356,12 @@ export function DeepAnalysis() {
       {/* سناریوها */}
       {scenarios.length > 0 && (
         <div>
-          <p className="text-[10px] font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
+          <p className="text-[10px] font-bold text-muted-foreground mb-1 flex items-center gap-1">
             <GitBranch className="h-3 w-3" />
             سناریوهای پیش‌رو ({scenarios.length})
+          </p>
+          <p className="text-[9px] text-muted-foreground/70 mb-2 leading-relaxed">
+            💡 «شانس موفقیت» یعنی: از ۱۰۰ بار مشابه، چند بار احتمال داره درست باشه
           </p>
           <div className="space-y-2">
             {scenarios.map((sc, i) => (
@@ -370,8 +380,6 @@ export function DeepAnalysis() {
         ⚠️ این تحلیل بر اساس دیتای فعلی هست. بازار ممکنه متفاوت عمل کنه.
         همیشه با حد ضرر و مدیریت سرمایه وارد شو.
       </div>
-
-
     </div>
   );
 }

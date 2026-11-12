@@ -1193,12 +1193,28 @@ def build_scenarios(
     ticker="",
     strategy: str = "swing",
 ) -> list[dict]:
+    """
+    ساخت سناریوهای پیش‌رو — نسخه ۲.۰ (فاز ۱۶.۱)
+    ================================================
+    🔴 تغییرات:
+      • متن‌های تخصصی → فارسی ساده (LONG→خرید، SL→حد ضرر، ...)
+      • توضیح کوتاه برای هر اقدام
+      • حفظ `_fmt` اصلاح‌شده برای تومان/ریال/دلار
+    """
     scenarios = []
     if not groups:
         return scenarios
+
     is_iranian = _is_iranian_ticker(ticker)
     is_tsetmc = bool(ticker) and not ticker[0].isascii()
-    unit = "ریال" if is_tsetmc else ("تومان" if is_iranian else "$")
+
+    def _fmt(val):
+        if is_tsetmc:
+            return f"{val:,.0f} ریال"
+        if is_iranian:
+            return f"{val:,.0f} تومان"
+        return f"${val:,.2f}"
+
     m, t, v = (
         groups.get("momentum", {}),
         groups.get("trend", {}),
@@ -1208,9 +1224,6 @@ def build_scenarios(
     m_details, t_details = m.get("details", {}), t.get("details", {})
     rsi, adx = m_details.get("rsi", 50), t_details.get("adx", 20)
 
-    def _fmt(val):
-        return f"{val:,.0f} {unit}" if is_iranian else f"${val:,.2f}"
-
     strategy_labels = {
         "scalp": "⚡ اسکالپ",
         "swing": "🌊 سوئینگ",
@@ -1218,6 +1231,9 @@ def build_scenarios(
     }
     strat_label = strategy_labels.get(strategy, "🌊 سوئینگ")
 
+    # ═══════════════════════════════════════════════════════════
+    # اسکالپ
+    # ═══════════════════════════════════════════════════════════
     if strategy == "scalp":
         if atr > 0 and price > 0:
             if direction == "long":
@@ -1225,8 +1241,8 @@ def build_scenarios(
                 tp = price + atr * 1.2 * 0.7
                 scenarios.append(
                     {
-                        "condition": f"اگه حجم تأیید کنه و قیمت بالای {_fmt(price + atr * 0.5)} بمونه",
-                        "action": f"ورود LONG سریع — SL={_fmt(sl)} · TP={_fmt(tp)}",
+                        "condition": f"اگه خریدارها قوی بمونن و قیمت بالای {_fmt(price + atr * 0.5)} تثبیت بشه",
+                        "action": f"می‌تونی سریع بخری · حد ضرر: {_fmt(sl)} · حد سود: {_fmt(tp)} (چند دقیقه)",
                         "probability": 0.65,
                         "color": "green",
                         "type": "entry",
@@ -1239,8 +1255,8 @@ def build_scenarios(
                 tp = price - atr * 1.2 * 0.7
                 scenarios.append(
                     {
-                        "condition": f"اگه حجم خروجی ادامه پیدا کنه و قیمت زیر {_fmt(price - atr * 0.5)} بمونه",
-                        "action": f"ورود SHORT سریع — SL={_fmt(sl)} · TP={_fmt(tp)}",
+                        "condition": f"اگه فروشنده‌ها قوی بمونن و قیمت زیر {_fmt(price - atr * 0.5)} تثبیت بشه",
+                        "action": f"می‌تونی سریع بفروشی · حد ضرر: {_fmt(sl)} · حد سود: {_fmt(tp)} (چند دقیقه)",
                         "probability": 0.65,
                         "color": "red",
                         "type": "entry",
@@ -1251,8 +1267,8 @@ def build_scenarios(
         if len(scenarios) < 2:
             scenarios.append(
                 {
-                    "condition": "اگه RSI از ۵۰ رد بشه و Stochastic کراس بزنه",
-                    "action": "ورود سریع — SL تنگ (۰.۵×ATR)، خروج در ۳-۵ کندل",
+                    "condition": "اگه قدرت خریدارها از فروشنده‌ها بیشتر بشه و کندل‌ها سبز بشن",
+                    "action": "می‌تونی سریع وارد شی · حد ضرر نزدیک (نصف ATR) · خروج در ۳-۵ کندل بعدی",
                     "probability": 0.55,
                     "color": "yellow",
                     "type": "wait",
@@ -1261,14 +1277,17 @@ def build_scenarios(
                 }
             )
 
+    # ═══════════════════════════════════════════════════════════
+    # سوئینگ
+    # ═══════════════════════════════════════════════════════════
     elif strategy == "swing":
         if resistance > 0 and price > 0:
             dist_r = (resistance - price) / price * 100
             if dist_r < 2.0:
                 scenarios.append(
                     {
-                        "condition": f"اگه قیمت از مقاومت {_fmt(resistance)} با حجم بالا رد بشه",
-                        "action": f"ورود LONG بعد از کندل تأیید — SL زیر {_fmt(resistance * 0.99)}",
+                        "condition": f"اگه قیمت از {_fmt(resistance)} (مقاومت) با قدرت رد بشه — یعنی خریدارها برنده بشن",
+                        "action": f"بعد از یک کندل سبز که بالای {_fmt(resistance)} بسته بشه بخر · حد ضرر: {_fmt(resistance * 0.99)}",
                         "probability": 0.60,
                         "color": "green",
                         "type": "breakout",
@@ -1279,8 +1298,8 @@ def build_scenarios(
             elif dist_r < 5.0:
                 scenarios.append(
                     {
-                        "condition": f"اگه قیمت به مقاومت {_fmt(resistance)} برسه و رد بشه",
-                        "action": "منتظر پولبک بمون — ورود در سطح تأیید",
+                        "condition": f"اگه قیمت به {_fmt(resistance)} (مقاومت) برسه و ازش رد نشه",
+                        "action": "صبر کن — ممکنه برگرده · وقتی برگشت (پایین‌تر) فرصت خرید بهتره",
                         "probability": 0.55,
                         "color": "yellow",
                         "type": "wait",
@@ -1293,8 +1312,8 @@ def build_scenarios(
             if dist_s < 3.0:
                 scenarios.append(
                     {
-                        "condition": f"اگه قیمت به حمایت {_fmt(support)} برسه و برگشت بزنه",
-                        "action": f"ورود LONG — SL زیر {_fmt(support * 0.98)}",
+                        "condition": f"اگه قیمت به {_fmt(support)} (حمایت) برسه و ازش برگشت بزنه",
+                        "action": f"فرصت خوب خریده · حد ضررت رو زیر {_fmt(support * 0.98)} بذار",
                         "probability": 0.65,
                         "color": "green",
                         "type": "entry",
@@ -1305,8 +1324,8 @@ def build_scenarios(
         if len(scenarios) < 2:
             scenarios.append(
                 {
-                    "condition": "اگه RSI بالای ۵۰ بمونه و EMA20 > EMA50",
-                    "action": "ورود با تأیید چند TF — خروج در ۱۰-۲۰ کندل",
+                    "condition": "اگه روند صعودی ادامه داشته باشه (خریدارها قوی‌تر بمونن)",
+                    "action": "می‌تونی بخری — ولی چند تایم‌فریم بالاتر (مثلاً ۱ ساعته) رو هم چک کن که هم‌جهت باشن",
                     "probability": 0.55,
                     "color": "yellow",
                     "type": "wait",
@@ -1315,6 +1334,9 @@ def build_scenarios(
                 }
             )
 
+    # ═══════════════════════════════════════════════════════════
+    # پوزیشن
+    # ═══════════════════════════════════════════════════════════
     elif strategy == "position":
         if atr > 0 and price > 0:
             if direction == "long":
@@ -1322,8 +1344,8 @@ def build_scenarios(
                 tp = price + atr * 4.0 * 1.2
                 scenarios.append(
                     {
-                        "condition": "اگه قیمت بالای EMA200 بمونه و شیب EMA200 صعودی باشه",
-                        "action": f"ورود LONG بلندمدت — SL={_fmt(sl)} · TP={_fmt(tp)} (چند هفته)",
+                        "condition": "اگه قیمت بالای میانگین بلندمدت بمونه (یعنی روند کلی صعودیه)",
+                        "action": f"خرید بلندمدت (چند هفته) · حد ضرر: {_fmt(sl)} · حد سود: {_fmt(tp)}",
                         "probability": 0.60,
                         "color": "green",
                         "type": "entry",
@@ -1336,8 +1358,8 @@ def build_scenarios(
                 tp = price - atr * 4.0 * 1.2
                 scenarios.append(
                     {
-                        "condition": "اگه قیمت زیر EMA200 بمونه و شیب EMA200 نزولی باشه",
-                        "action": f"ورود SHORT بلندمدت — SL={_fmt(sl)} · TP={_fmt(tp)} (چند هفته)",
+                        "condition": "اگه قیمت زیر میانگین بلندمدت بمونه (یعنی روند کلی نزولیه)",
+                        "action": f"فروش بلندمدت (چند هفته) · حد ضرر: {_fmt(sl)} · حد سود: {_fmt(tp)}",
                         "probability": 0.60,
                         "color": "red",
                         "type": "entry",
@@ -1348,8 +1370,8 @@ def build_scenarios(
         if support > 0 and direction == "long":
             scenarios.append(
                 {
-                    "condition": f"اگه قیمت به حمایت {_fmt(support)} برسه",
-                    "action": "DCA — خرید پله‌ای (۳۰٪ / ۳۰٪ / ۴۰٪)",
+                    "condition": f"اگه قیمت به {_fmt(support)} (حمایت) برسه",
+                    "action": "خرید پله‌ای (DCA): ۳۰٪ الان، ۳۰٪ اگه ۲٪ پایین‌تر رفت، ۴۰٪ اگه بازم پایین‌تر رفت",
                     "probability": 0.55,
                     "color": "green",
                     "type": "entry",
@@ -1360,8 +1382,8 @@ def build_scenarios(
         if len(scenarios) < 2:
             scenarios.append(
                 {
-                    "condition": "اگه قیمت بالای EMA200 بمونه",
-                    "action": "سرمایه‌گذاری تدریجی — ورود در ۳-۵ هفته",
+                    "condition": "اگه قیمت بالای میانگین بلندمدت بمونه",
+                    "action": "سرمایه‌گذاری تدریجی — طی ۳ تا ۵ هفته پله‌پله وارد شو",
                     "probability": 0.65,
                     "color": "yellow",
                     "type": "wait",
@@ -1370,11 +1392,14 @@ def build_scenarios(
                 }
             )
 
+    # ═══════════════════════════════════════════════════════════
+    # هشدارها (بر اساس تله‌ها)
+    # ═══════════════════════════════════════════════════════════
     if traps and traps.get("fake_breakout", {}).get("active"):
         scenarios.append(
             {
-                "condition": "اگه قیمت سریع برگرده داخل محدوده",
-                "action": "⚠️ شکست جعلیه — منتظر تأیید حجم بمون",
+                "condition": "اگه قیمت بعد از عبور، سریع برگرده پایین (نشونه فریب)",
+                "action": "⚠️ وارد نشو! این یعنی احتمالاً حرکت قلابیه — صبر کن تا مشخص بشه",
                 "probability": 0.70,
                 "color": "yellow",
                 "type": "warning",
@@ -1386,7 +1411,7 @@ def build_scenarios(
         scenarios.append(
             {
                 "condition": "اگه قیمت ناگهان برگرده پایین",
-                "action": "🚨 تله صعودیه — وارد LONG نشو",
+                "action": "🚨 تله صعودیه — الان نخر! صبر کن تا وضعیت روشن بشه",
                 "probability": 0.65,
                 "color": "red",
                 "type": "warning",
@@ -1398,7 +1423,7 @@ def build_scenarios(
         scenarios.append(
             {
                 "condition": "اگه قیمت ناگهان برگرده بالا",
-                "action": "🚨 تله نزولیه — وارد SHORT نشو",
+                "action": "🚨 تله نزولیه — الان نفروش! صبر کن تا وضعیت روشن بشه",
                 "probability": 0.65,
                 "color": "red",
                 "type": "warning",
@@ -1407,11 +1432,14 @@ def build_scenarios(
             }
         )
 
+    # ═══════════════════════════════════════════════════════════
+    # fallback — حداقل ۲ سناریو
+    # ═══════════════════════════════════════════════════════════
     if len(scenarios) < 2:
         scenarios.append(
             {
                 "condition": "اگه شرایط فعلی ادامه داشته باشه",
-                "action": f"صبر کن — سیگنال واضحی برای {strat_label} نداره",
+                "action": f"بهترین کار صبره — سیگنال واضحی برای {strat_label} وجود نداره",
                 "probability": 0.70,
                 "color": "yellow",
                 "type": "wait",
@@ -2748,9 +2776,13 @@ def _build_fundamental_context(
         if price <= 0:
             return out
         fmt = (
-            (lambda v: f"{v:,.2f}$")
-            if not is_iranian
-            else (lambda v: f"{v:,.0f} {unit}")
+            (lambda v: f"{v:,.0f} ریال")
+            if is_tsetmc
+            else (
+                (lambda v: f"{v:,.0f} {unit}")
+                if is_iranian
+                else (lambda v: f"{v:,.2f}$")
+            )
         )
         if atr > 0:
             atr_pct = atr / price * 100
