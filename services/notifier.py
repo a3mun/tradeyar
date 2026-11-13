@@ -1,10 +1,14 @@
 """
 services/notifier.py
-ارسال سیگنال به تلگرام و بله — نسخه ۴.۱ (فاز ۱۵)
+ارسال سیگنال به تلگرام و بله — نسخه ۵.۰ (فاز ۱۶.۱)
 ============================================================
-🔴 تغییرات نسخه ۴.۱:
-  • رفع باگ Dedup مشترک (حالا تلگرام و بله مستقل هستند)
-  • اضافه شدن لاگ‌های دیباگ برای بله
+🔴 تغییرات نسخه ۵.۰:
+  • فیلتر کیفیت جدید برای ارسال به کانال:
+    - آستانه اطمینان بالاتر از سایت (اسکالپ ۴۵، سوئینگ ۵۵، پوزیشن ۶۵)
+    - سیگنال «ضعیف» فقط اگه اطمینان < ۵۰٪ رد بشه (لب مرز خوبه)
+    - تله پرخطر (severity ≥ 7) + اطمینان < ۸۰٪ → رد
+  • حفظ فیلترهای قبلی (جهت‌دار، Bypass، Cooldown)
+  • لاگ بهتر برای دلیل رد
 """
 
 import json
@@ -25,8 +29,9 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 # ═══════════════════════════════════════════════════════════
 # آستانه‌های پویا (بر اساس ماتریس ۵ سطح)
 # ═══════════════════════════════════════════════════════════
-def _get_min_confidence(strategy: str) -> int:
-    return {"scalp": 30, "swing": 40, "position": 50}.get(strategy, 40)
+def _get_min_confidence_telegram(strategy: str) -> int:
+    """🔴 فاز ۱۶.۱ — آستانه‌ی اطمینان برای ارسال به کانال (سخت‌گیرانه‌تر از سایت)"""
+    return {"scalp": 45, "swing": 55, "position": 65}.get(strategy, 55)
 
 
 def _get_strong_bypass(strategy: str) -> int:
@@ -36,12 +41,12 @@ def _get_strong_bypass(strategy: str) -> int:
 
 # Cooldown پویا بر اساس تایم‌فریم (برای اسکالپ کوتاه‌تر)
 _TF_COOLDOWN_SEC = {
-    "۱ دقیقه": 60,  # ۱ دقیقه
-    "۵ دقیقه": 180,  # ۳ دقیقه
-    "۱۵ دقیقه": 300,  # ۵ دقیقه
-    "۳۰ دقیقه": 600,  # ۱۰ دقیقه
-    "۱ ساعت": 1200,  # ۲۰ دقیقه
-    "روزانه": 3600,  # ۱ ساعت
+    "۱ دقیقه": 60,
+    "۵ دقیقه": 180,
+    "۱۵ دقیقه": 300,
+    "۳۰ دقیقه": 600,
+    "۱ ساعت": 1200,
+    "روزانه": 3600,
 }
 _DEFAULT_COOLDOWN = 300
 
@@ -70,39 +75,67 @@ def _is_recent_duplicate(signal: dict, channel: str) -> bool:
 
 
 def _should_skip(signal: dict, channel: str) -> bool:
-    """شرط‌های رد کردن سیگنال"""
+    """
+    🔴 فاز ۱۶.۱ — فیلتر کیفیت سیگنال برای ارسال به کانال.
+    منطق:
+      ۱. فقط جهت‌دار
+      ۲. آستانه اطمینان بالاتر از سایت (اسکالپ ۴۵، سوئینگ ۵۵، پوزیشن ۶۵)
+      ۳. سیگنال «ضعیف» فقط اگه اطمینان < ۵۰٪ رد بشه (لب مرز خوبه)
+      ۴. تله پرخطر (severity ≥ 7) + اطمینان < ۸۰٪ → رد
+      ۵. Bypass برای سیگنال‌های خیلی قوی
+      ۶. R:R برای پوزیشن (اسکالپ و سوئینگ نادیده گرفته می‌شن)
+    """
     ticker = signal.get("ticker", "?")
     tf = signal.get("tf", "?")
     strategy = signal.get("strategy", "swing")
     direction = signal.get("direction", "neutral")
     confidence = signal.get("confidence", 0)
+    signal_text = signal.get("signal", "")
 
     # ۱. فقط جهت‌دار
     if direction not in ("long", "short"):
         logger.debug(f"[Notifier/{channel}] ⏭ {ticker} {tf}: جهت {direction} خنثی")
         return True
 
-    # ۲. حداقل اطمینان
-    min_conf = _get_min_confidence(strategy)
+    # ۲. حداقل اطمینان (سخت‌گیرانه‌تر از سایت)
+    min_conf = _get_min_confidence_telegram(strategy)
     if confidence < min_conf:
         logger.debug(
             f"[Notifier/{channel}] ⏭ {ticker} {tf}: "
-            f"conf={confidence}% < min={min_conf}% ({strategy})"
+            f"اطمینان {confidence}% < {min_conf}% ({strategy})"
         )
         return True
 
-    # ۳. Bypass برای سیگنال‌های قوی
+    # ۳. سیگنال «ضعیف» — فقط اگه اطمینان پایین باشه
+    if "ضعیف" in signal_text and confidence < 50:
+        logger.debug(
+            f"[Notifier/{channel}] ⏭ {ticker} {tf}: "
+            f"سیگنال ضعیف با اطمینان {confidence}% < 50%"
+        )
+        return True
+
+    # ۴. تله پرخطر (severity ≥ 7) + اطمینان < 80% → رد
+    traps_summary = signal.get("traps_summary") or {}
+    if traps_summary.get("has_high_risk"):
+        max_sev = traps_summary.get("max_severity", 0)
+        if confidence < 80:
+            logger.info(
+                f"[Notifier/{channel}] ⏭ {ticker} {tf}: "
+                f"تله پرخطر (severity={max_sev}) + اطمینان {confidence}% < 80%"
+            )
+            return True
+
+    # ۵. Bypass برای سیگنال‌های خیلی قوی
     if confidence >= _get_strong_bypass(strategy):
         logger.info(
             f"[Notifier/{channel}] ⚡ قوی (bypass): {ticker} {tf} conf={confidence}%"
         )
         return False
 
-    # ۴. R:R برای اسکالپ و سوئینگ نادیده گرفته میشه
+    # ۶. R:R برای پوزیشن چک می‌شه (اسکالپ/سوئینگ نادیده)
     if strategy in ("scalp", "swing"):
         return False
 
-    # ۵. R:R برای پوزیشن چک میشه
     if signal.get("is_worthwhile") is False:
         logger.debug(
             f"[Notifier/{channel}] ⏭ {ticker} {tf}: is_worthwhile=False ({strategy})"
@@ -184,12 +217,12 @@ def _get_trap_status(signal: dict) -> str:
 
 
 def _confidence_label(confidence: int, strategy: str) -> tuple[str, str]:
-    min_conf = _get_min_confidence(strategy)
+    min_conf = _get_min_confidence_telegram(strategy)
     if confidence >= 85:
         return ("💎", "اطمینان طلایی")
     elif confidence >= 70:
         return ("🔥", "اطمینان قوی")
-    elif confidence >= min_conf + 20:
+    elif confidence >= min_conf + 15:
         return ("✅", "اطمینان معمولی")
     elif confidence >= min_conf:
         return ("⚠️", "اطمینان ضعیف")
@@ -390,7 +423,6 @@ def send_bale(signal: dict) -> bool:
 
     try:
         resp = requests.post(url, json=payload, timeout=15)
-        # لاگ دقیق برای دیباگ بله
         logger.warning(
             f"[DEBUG/bale] URL={url} | Status={resp.status_code} | Response={resp.text[:500]}"
         )
@@ -416,7 +448,6 @@ def notify_signal(signal: dict) -> None:
         return
 
     tg = send_telegram(signal)
-    # 🔴 استفاده از کپی برای جلوگیری از دستکاری همزمان
     bale = send_bale(dict(signal))
     if not tg and not bale:
         logger.info(

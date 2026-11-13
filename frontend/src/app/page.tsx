@@ -25,6 +25,8 @@ import { Scanner } from "@/components/scan/Scanner";
 import { StatisticsBox } from "@/components/signal/StatisticsBox";
 import { SupportResistance } from "@/components/signal/SupportResistance";
 import { AIAnalysis } from "@/components/signal/AIAnalysis";
+import { EconomicCalendarPlaceholder } from "@/components/signal/EconomicCalendarPlaceholder";
+import { PositionSizeCalculatorPlaceholder } from "@/components/signal/PositionSizeCalculatorPlaceholder"; // 🔴 جدید
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
@@ -166,9 +168,9 @@ export default function HomePage() {
               <div className="order-7 xl:order-none">
                 <CollapsibleSection
                   id="deep-analysis"
-                  title="تحلیل عمیق تکنیکالی"
+                  title="تحلیل تکنیکال"
                   icon="💬"
-                  subtitle="توضیح مفصل سیگنال — کلیک کن تا باز بشه"
+                  subtitle="بررسی عمیق سیگنال — کلیک کن تا باز بشه"
                   accentColor="#60a5fa"
                 >
                   <DeepAnalysis />
@@ -208,9 +210,9 @@ export default function HomePage() {
               <div className="order-6 xl:order-none">
                 <CollapsibleSection
                   id="checklist"
-                  title="چک‌لیست شرایط"
+                  title="چک‌لیست اندیکاتورها"
                   icon="✅"
-                  subtitle="بررسی نهایی شرایط — کلیک کن تا باز بشه"
+                  subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
                   accentColor="#22c55e"
                 >
                   <Checklist data={data?.checklist} />
@@ -230,8 +232,34 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 آمار عملکرد */}
+              {/* 🔴 ماشین‌حساب سود و ضرر — به زودی */}
+              <div className="order-9 xl:order-none">
+                <CollapsibleSection
+                  id="position-calculator"
+                  title="ماشین‌حساب سود و ضرر"
+                  icon="🧮"
+                  subtitle="محاسبه حجم پوزیشن — به زودی"
+                  accentColor="#a78bfa"
+                >
+                  <PositionSizeCalculatorPlaceholder />
+                </CollapsibleSection>
+              </div>
+
+              {/* 🔴 تقویم اقتصادی فارکس */}
               <div className="order-10 xl:order-none">
+                <CollapsibleSection
+                  id="economic-calendar"
+                  title="تقویم اقتصادی فارکس"
+                  icon="📅"
+                  subtitle="رویدادهای مهم اقتصادی — به زودی"
+                  accentColor="#f59e0b"
+                >
+                  <EconomicCalendarPlaceholder />
+                </CollapsibleSection>
+              </div>
+
+              {/* 🔴 آمار عملکرد */}
+              <div className="order-11 xl:order-none">
                 <CollapsibleSection
                   id="statistics"
                   title="آمار عملکرد"

@@ -339,6 +339,19 @@ def record_signal(
             # 🔴 اضافه کردن tp_levels فقط برای notifier (نه برای دیتابیس)
             values_for_notifier = dict(values)
             values_for_notifier["tp_levels"] = tp_levels
+            # 🔴 فاز ۱۶.۱: اضافه کردن traps_summary برای فیلتر notifier
+            if traps:
+                active_severities = [
+                    v.get("severity", 0)
+                    for v in traps.values()
+                    if isinstance(v, dict) and v.get("active")
+                ]
+                values_for_notifier["traps_summary"] = {
+                    "has_high_risk": any(s >= 7 for s in active_severities),
+                    "max_severity": max(active_severities) if active_severities else 0,
+                }
+            # 🔴 فاز ۱۶.۱: اضافه کردن rr_net (که در values هست به عنوان rr_net)
+            # (از قبل هست، فقط مطمئن شو)
 
             inserted = _insert_ignore_conflict(session, values)
 

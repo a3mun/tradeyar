@@ -1934,18 +1934,36 @@ def _determine_signal(
             return "SHORT ضعیف", f"🟠 فروش ضعیف ({confidence}٪)", "🟠 SHORT ضعیف"
 
 
-def _get_session_multiplier() -> tuple[float, str]:
+def _get_session_multiplier(source: str = "nobitex") -> tuple[float, str]:
+    """
+    🔴 فاز ۱۶.۱ — هماهنگ با Marquee.tsx.
+    ⚠️ کریپتو (nobitex, bitpin, wallex, tabdeal) → ۲۴/۷ → 1.0
+    ⚠️ بورس تهران (tsetmc) → سشن‌های خاص خودش
+    """
+    # 🔴 کریپتو ۲۴/۷ هست — سشن‌های فارکس براش معنی نداره
+    if source in ("nobitex", "bitpin", "wallex", "tabdeal"):
+        return 1.0, "⚖️ بازار ۲۴/۷ (کریپتو)"
+
+    # 🔴 بورس تهران: ساعت ۰۹:۰۰ تا ۱۲:۳۰ تهران (۰۵:۳۰ تا ۰۹:۰۰ GMT)
+    if source == "tsetmc":
+        now_utc = datetime.now(ZoneInfo("UTC"))
+        hour = now_utc.hour
+        if 5 <= hour < 9:
+            return 1.05, "🇮🇷 بورس تهران باز"
+        return 0.95, "🌙 بورس تهران بسته"
+
+    # 🔴 بقیه (فارکس/کالا) — سشن‌های فارکس
     now_utc = datetime.now(ZoneInfo("UTC"))
     hour = now_utc.hour
     weekday = now_utc.weekday()
 
-    if 12 <= hour < 16:
+    if 13 <= hour < 17:
         base_mult = 1.10
         label = "🔥 همپوشانی لندن-نیویورک"
-    elif 7 <= hour < 9:
-        base_mult = 1.0
-        label = "⚖️ همپوشانی توکیو-لندن"
-    elif 0 <= hour < 6:
+    elif 8 <= hour < 9:
+        base_mult = 1.05
+        label = "⚡ همپوشانی توکیو-لندن"
+    elif 0 <= hour < 8:
         base_mult = 0.75
         label = "🌙 فقط بازار آسیا"
     else:
@@ -2085,7 +2103,7 @@ def analyze_symbol(
         if trap_penalty > 0:
             confidence = max(0, confidence - trap_penalty)
 
-        session_mult, session_label = _get_session_multiplier()
+        session_mult, session_label = _get_session_multiplier(source)
         confidence = max(0, min(100, int(confidence * session_mult)))
 
         atr_val = safe_num(last.get("atr"))
@@ -2775,6 +2793,8 @@ def _build_fundamental_context(
         )
         if price <= 0:
             return out
+            # 🔴 تعریف is_tsetmc برای استفاده در fmt
+        is_tsetmc = bool(ticker) and not ticker[0].isascii()
         fmt = (
             (lambda v: f"{v:,.0f} ریال")
             if is_tsetmc
