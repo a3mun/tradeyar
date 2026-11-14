@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface CollapsibleSectionProps {
@@ -12,6 +12,7 @@ interface CollapsibleSectionProps {
   accentColor?: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  isLocked?: boolean; // 🔴 نشانگر قفل در هدر
 }
 
 export function CollapsibleSection({
@@ -21,7 +22,8 @@ export function CollapsibleSection({
   subtitle,
   accentColor = "#d6ad60",
   children,
-  defaultOpen = false, // 🔴 پیش‌فرض: بسته
+  defaultOpen = false,
+  isLocked = false,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -40,9 +42,20 @@ export function CollapsibleSection({
             </span>
           )}
           <div>
-            <h3 className="text-sm font-bold text-foreground" style={{ color: accentColor }}>
-              {title}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3
+                className="text-sm font-bold text-foreground"
+                style={{ color: accentColor }}
+              >
+                {title}
+              </h3>
+              {/* 🔴 بج Pro برای کاربر رایگان */}
+              {isLocked && (
+                <span className="flex items-center gap-1 rounded-md bg-[#d6ad60]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#d6ad60] border border-[#d6ad60]/30">
+                  <Lock className="h-2.5 w-2.5" /> Pro
+                </span>
+              )}
+            </div>
             {subtitle && (
               <p className="mt-0.5 text-[10px] text-muted-foreground">
                 {subtitle}
@@ -67,7 +80,6 @@ export function CollapsibleSection({
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            {/* 🔴 حداقل ارتفاع برای جلوگیری از پرش Layout Shift */}
             <div className="border-t border-border/30 p-3 min-h-[100px]">
               {children}
             </div>

@@ -64,6 +64,7 @@ class Settings(BaseSettings):
 
     FARAZ_API_KEY: str = ""
     FARAZ_PATTERN_CODE: str = ""
+    FARAZ_PATTERN_NEW_USER: str = "4eoqoCFhwJ"  # 🔴 پترن اطلاع‌رسانی ثبت‌نام
     FARAZ_SENDER: str = "+983000505"
     FREE_PLAN_DAYS: int = 3
 

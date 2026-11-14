@@ -60,3 +60,43 @@ def send_subscription_activated_sms(
     except Exception as e:
         logger.error(f"[SMS] ❌ خطا در ارسال پیامک تایید: {e}")
         return False
+
+
+def send_new_user_sms(phone: str) -> bool:
+    """
+    🔴 فاز ۱۶.۳ — پیامک اطلاع‌رسانی ثبت‌نام جدید به ادمین.
+    پترن: 4eoqoCFhwJ (new_user_alert)
+    """
+    admin_phone = "09129630901"  # ← شماره ادمین اصلی
+
+    if not settings.FARAZ_API_KEY:
+        logger.warning(f"[SMS] ⚠️ FARAZ_API_KEY تنظیم نشده. کاربر جدید: {phone}")
+        return True
+
+    pattern_code = getattr(settings, "FARAZ_PATTERN_NEW_USER", "") or "4eoqoCFhwJ"
+
+    try:
+        sms = FarazSMS(settings.FARAZ_API_KEY.strip())
+
+        # تاریخ و ساعت شمسی
+        now = datetime.now()
+        jdate = jdatetime.datetime.fromgregorian(datetime=now)
+        date_str = jdate.strftime("%Y/%m/%d - %H:%M")
+
+        sms.send_pattern(
+            pattern_code,
+            admin_phone.strip(),
+            {
+                "phone": phone,
+                "date": date_str,
+            },
+        )
+        logger.info(f"[SMS] ✅ پیامک ثبت‌نام به ادمین ارسال شد: {phone}")
+        return True
+
+    except FarazError as e:
+        logger.error(f"[SMS] ❌ خطای فراز: status={e.status} body={e.body}")
+        return False
+    except Exception as e:
+        logger.exception(f"[SMS] ❌ خطای غیرمنتظره: {e}")
+        return False

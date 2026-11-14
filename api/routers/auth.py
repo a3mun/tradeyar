@@ -97,6 +97,14 @@ async def verify_otp_endpoint(
         session.add(sub)
         session.commit()
 
+        # 🔴 فاز ۱۶.۳ — پیامک اطلاع‌رسانی به ادمین (فقط برای کاربر جدید)
+        try:
+            from services.sms import send_new_user_sms
+
+            send_new_user_sms(phone)
+        except Exception as e:
+            logger.warning(f"[SMS] اطلاع‌رسانی به ادمین ناموفق: {e}")
+
         try:
             from api.routers.admin_ws import notify_admins
 

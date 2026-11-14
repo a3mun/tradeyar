@@ -2,26 +2,29 @@
 api/deps.py
 Dependencyهای مشترک FastAPI — احراز هویت و rate limiting
 ============================================================
-باگ ۴: عملیات مخرب (DELETE /backtest/reset) نیازمند هدر ``X-API-Key``
-است. تا فاز ۷ که JWT کامل می‌آید، این لایه‌ی ساده کافی است.
-
 اصول طراحی:
-  1. **fail-closed**: اگر ``ADMIN_API_KEY`` روی سرور تنظیم نشده باشد،
-     عملیات admin کاملاً مسدود می‌شود (۵۰۳) — نه اینکه باز بماند.
-  2. **مقایسه‌ی زمان-ثابت**: با ``secrets.compare_digest`` تا از
-     timing attack جلوگیری شود.
-  3. **audit log**: هر تلاش (موفق یا ناموفق) لاگ می‌شود.
+  1. **fail-closed**: اگر ``ADMIN_API_KEY`` تنظیم نشده باشد، مسدود.
+  2. **مقایسه‌ی زمان-ثابت**: با ``secrets.compare_digest``.
+  3. **audit log**: هر تلاش لاگ می‌شود.
+
+🔴 فاز ۱۶.۲:
+  • require_active_subscription → فقط Pro/Admin
 """
 
 import logging
 import secrets
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
+from sqlmodel import Session, select
 
+from api.auth import get_current_user
 from api.config import settings
+from api.database import get_session
+from api.models import Subscription, User
 
 logger = logging.getLogger(__name__)
 
@@ -41,44 +44,25 @@ async def require_admin(
     request: Request,
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ) -> bool:
-    """
-    محافظت از endpointهای مخرب با هدر ``X-API-Key``.
-
-    Raises:
-        HTTPException 503: اگر ADMIN_API_KEY روی سرور تنظیم نشده باشد
-        HTTPException 401: اگر هدر غایب باشد
-        HTTPException 403: اگر کلید اشتباه باشد
-
-    Returns:
-        True در صورت موفقیت — تا به‌عنوان dependency استفاده شود.
-    """
+    """محافظت از endpointهای مخرب با هدر X-API-Key."""
     ip = _client_ip(request)
     path = request.url.path
 
-    # ─── fail-closed: بدون کلید تنظیم‌شده، هیچ‌کس دسترسی ندارد ───
     if not settings.ADMIN_API_KEY:
-        logger.error(
-            f"[Auth] ⛔ ADMIN_API_KEY تنظیم نشده — "
-            f"دسترسی به {path} مسدود شد (ip={ip})"
-        )
+        logger.error(f"[Auth] ⛔ ADMIN_API_KEY تنظیم نشده — {path} (ip={ip})")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "عملیات مدیریتی روی این سرور غیرفعال است. "
-                "ادمین باید ADMIN_API_KEY را تنظیم کند."
-            ),
+            detail="عملیات مدیریتی روی این سرور غیرفعال است.",
         )
 
-    # ─── هدر غایب ───
     if not x_api_key:
-        logger.warning(f"[Auth] ⚠️ درخواست بدون X-API-Key: {path} (ip={ip})")
+        logger.warning(f"[Auth] ⚠️ بدون X-API-Key: {path} (ip={ip})")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="هدر X-API-Key لازم است",
             headers={"WWW-Authenticate": "X-API-Key"},
         )
 
-    # ─── مقایسه‌ی زمان-ثابت ───
     if not secrets.compare_digest(x_api_key, settings.ADMIN_API_KEY):
         logger.warning(f"[Auth] ⛔ کلید اشتباه برای {path} (ip={ip})")
         raise HTTPException(
@@ -91,28 +75,15 @@ async def require_admin(
 
 
 # ═══════════════════════════════════════════════════════════
-# ۲. Rate limiting ساده (in-memory)
+# ۲. Rate limiting ساده
 # ═══════════════════════════════════════════════════════════
-# ⚠️ برای چند worker باید به Redis منتقل شود (فاز ۷).
 _buckets: dict[str, list[float]] = defaultdict(list)
 
 
 def rate_limit(key: str, limit: int, window_sec: int = 60) -> None:
-    """
-    محدودیت نرخ sliding-window.
-
-    Args:
-        key: کلید باکت (معمولاً "endpoint:ip")
-        limit: حداکثر تعداد در بازه
-        window_sec: طول بازه به ثانیه
-
-    Raises:
-        HTTPException 429 با هدر Retry-After
-    """
     now = time.time()
     bucket = _buckets[key]
 
-    # ─── پاک‌سازی پنجره ───
     cutoff = now - window_sec
     while bucket and bucket[0] < cutoff:
         bucket.pop(0)
@@ -130,10 +101,50 @@ def rate_limit(key: str, limit: int, window_sec: int = 60) -> None:
 
 
 def reset_rate_limits() -> None:
-    """پاک‌سازی کامل باکت‌ها — برای تست"""
     _buckets.clear()
 
 
 def rate_limit_for(request: Request, scope: str, limit: int, window_sec: int = 60):
-    """میان‌بر: rate_limit با کلید ساخته‌شده از IP و scope"""
     rate_limit(f"{scope}:{_client_ip(request)}", limit, window_sec)
+
+
+# ═══════════════════════════════════════════════════════════
+# ۳. 🔴 فاز ۱۶.۲ — بررسی اشتراک فعال (Pro)
+# ═══════════════════════════════════════════════════════════
+async def require_active_subscription(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> User:
+    """فقط کاربران با پلن Pro فعال یا ادمین."""
+    if user.is_admin:
+        return user
+
+    sub = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .order_by(Subscription.created_at.desc())
+    ).first()
+
+    if not sub:
+        raise HTTPException(
+            status_code=403,
+            detail="این بخش نیازمند اشتراک فعال است. برای تهیه، به صفحه اشتراک بروید.",
+        )
+
+    if sub.plan == "free":
+        raise HTTPException(
+            status_code=403,
+            detail="این بخش نیازمند اشتراک حرفه‌ای است. برای ارتقا، به صفحه اشتراک بروید.",
+        )
+
+    if sub.end_date:
+        end = sub.end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=403,
+                detail="اشتراک شما منقضی شده است. برای تمدید، به صفحه اشتراک بروید.",
+            )
+
+    return user

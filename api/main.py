@@ -50,18 +50,23 @@ async def lifespan(app: FastAPI):
     migrate_db()
     logger.info("✅ دیتابیس آماده")
 
-    # 🔴 فاز ۱۴.۹.۵ — pre-warm cache در پس‌زمینه
-    import threading
+    # 🔴 فاز ۱۶.۳ — pre-warm cache به صورت async (جلوگیری از بلاک شدن startup)
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
 
-    def _safe_prewarm():
+    async def _safe_prewarm_async():
         try:
             from services.analyzer_service import prewarm_cache
 
-            prewarm_cache()
+            # اجرا در threadpool (چون sync هست)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, prewarm_cache)
+            logger.info("[Prewarm] ✅ cache گرم شد")
         except Exception as e:
             logger.warning(f"[Prewarm] خطا: {e!r}")
 
-    threading.Thread(target=_safe_prewarm, daemon=True).start()
+    # اجرا در پس‌زمینه، بدون await
+    asyncio.create_task(_safe_prewarm_async())
 
     yield
     logger.info("👋 خداحافظ")

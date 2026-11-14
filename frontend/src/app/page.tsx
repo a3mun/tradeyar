@@ -26,17 +26,21 @@ import { StatisticsBox } from "@/components/signal/StatisticsBox";
 import { SupportResistance } from "@/components/signal/SupportResistance";
 import { AIAnalysis } from "@/components/signal/AIAnalysis";
 import { EconomicCalendarPlaceholder } from "@/components/signal/EconomicCalendarPlaceholder";
-import { PositionSizeCalculatorPlaceholder } from "@/components/signal/PositionSizeCalculatorPlaceholder"; // 🔴 جدید
+import { PositionSizeCalculatorPlaceholder } from "@/components/signal/PositionSizeCalculatorPlaceholder";
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { ProOverlay } from "@/components/ui/pro-overlay";
 
 export default function HomePage() {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  
+  const [plan, setPlan] = useState<"free" | "pro" | "admin">("free");
+  const isPro = plan === "pro" || plan === "admin";
 
   useEffect(() => {
     const token = getToken();
@@ -49,14 +53,17 @@ export default function HomePage() {
 
     if (user.is_admin) {
       setHasAccess(true);
+      setPlan("admin");
       setIsChecking(false);
       return;
     }
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-    fetch(`${apiUrl}/subscription/my`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
+    fetch(`${apiUrl}/subscription/my`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
         const sub = data.subscription;
         const endDate = sub?.end_date ? new Date(sub.end_date) : null;
         const now = new Date();
@@ -64,12 +71,19 @@ export default function HomePage() {
 
         if (sub && sub.status === "active" && !isExpired) {
           setHasAccess(true);
+          if (sub.plan && sub.plan !== "free") {
+            setPlan("pro");
+          }
+          // 🔴 ذخیره در localStorage برای ProOverlay
+          localStorage.setItem("trademun_subscription", JSON.stringify(sub));
         } else {
           setHasAccess(false);
+          localStorage.removeItem("trademun_subscription");
         }
       })
       .catch(() => {
         setHasAccess(false);
+        localStorage.removeItem("trademun_subscription");
       })
       .finally(() => {
         setIsChecking(false);
@@ -151,7 +165,7 @@ export default function HomePage() {
               </div>
               <div className="order-3 xl:order-none"><OrderBookPanel /></div>
 
-              {/* 🔴 مشاور هوشمند */}
+              {/* 🔒 مشاور هوشمند */}
               <div className="order-5 xl:order-none">
                 <CollapsibleSection
                   id="ai-analysis"
@@ -159,12 +173,15 @@ export default function HomePage() {
                   icon="🧠"
                   subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
                   accentColor="#a78bfa"
+                  isLocked={!isPro}
                 >
-                  <AIAnalysis />
+                  <ProOverlay feature="مشاور هوشمند">
+                    <AIAnalysis />
+                  </ProOverlay>
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 تحلیل و چرایی */}
+              {/* ✅ تحلیل تکنیکال */}
               <div className="order-7 xl:order-none">
                 <CollapsibleSection
                   id="deep-analysis"
@@ -177,7 +194,7 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 اسکنر فرصت‌ها — کشویی */}
+              {/* 🔒 اسکنر فرصت‌ها */}
               <div className="order-9 xl:order-none">
                 {coherent ? (
                   <CollapsibleSection
@@ -186,8 +203,11 @@ export default function HomePage() {
                     icon="🔍"
                     subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
                     accentColor="#d6ad60"
+                    isLocked={!isPro}
                   >
-                    <Scanner />
+                    <ProOverlay feature="اسکنر فرصت‌ها">
+                      <Scanner />
+                    </ProOverlay>
                   </CollapsibleSection>
                 ) : (
                   <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
@@ -206,7 +226,7 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* 🔴 چک‌لیست */}
+              {/* ✅ چک‌لیست */}
               <div className="order-6 xl:order-none">
                 <CollapsibleSection
                   id="checklist"
@@ -219,7 +239,7 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 مقایسه قیمت — کشویی */}
+              {/* ✅ مقایسه قیمت */}
               <div className="order-8 xl:order-none">
                 <CollapsibleSection
                   id="price-comparison"
@@ -232,7 +252,7 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 ماشین‌حساب سود و ضرر — به زودی */}
+              {/* ✅ ماشین‌حساب (به زودی) */}
               <div className="order-9 xl:order-none">
                 <CollapsibleSection
                   id="position-calculator"
@@ -245,7 +265,7 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 تقویم اقتصادی فارکس */}
+              {/* ✅ تقویم اقتصادی (به زودی) */}
               <div className="order-10 xl:order-none">
                 <CollapsibleSection
                   id="economic-calendar"
@@ -258,7 +278,7 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 🔴 آمار عملکرد */}
+              {/* ✅ آمار عملکرد */}
               <div className="order-11 xl:order-none">
                 <CollapsibleSection
                   id="statistics"
