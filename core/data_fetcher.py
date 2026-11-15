@@ -382,6 +382,18 @@ def fetch_history_by_source(
         )
         return _next("nobitex", "bitpin", "wallex")
 
+    # ═══ XAUS.com (برای طلا/نقره) ═══
+    if source == "xaus":
+        try:
+            from core.xaus_fetcher import fetch_xaus_candles
+
+            df = fetch_xaus_candles(ticker, tf_name)
+            if df is not None and not df.empty:
+                return _tag_source(df, "xaus")
+        except Exception as e:
+            logger.warning(f"[Fetcher] xaus {ticker}: {e}")
+        return None
+
     # ═══ نوبیتکس ═══
     if source == "nobitex":
         # ─── اعتبارسنجی نماد قبل از درخواست (جلوگیری از 400) ───
@@ -430,12 +442,27 @@ def fetch_history_by_source(
         return _next("nobitex", "bitpin")
 
     # ═══ تبدیل (Tabdeal) ═══
-    #
-    # 🔴 فاز ۱۴.۹.۵ — تبدیل OHLCV ندارد (فقط قیمت + عمق بازار).
-    #    تصمیم: تحلیل روی تبدیل **ارائه نمی‌شود** (به جای fallback
-    #    گمراه‌کننده). فقط قیمت و depth از تبدیل موجود است.
     if source == "tabdeal":
-        logger.debug(f"[Fetcher] {ticker}: تبدیل OHLCV ندارد — تحلیل در دسترس نیست")
+        # 🔴 فاز ۱۶.۴ — از کندل‌های ساخته‌شده از WebSocket استفاده کن
+        try:
+            from core.candle_builder import get_candles
+
+            candles = get_candles("tabdeal", ticker, tf_name, limit=200)
+            if candles and len(candles) >= 20:
+                df = pd.DataFrame(candles)
+                df["time"] = pd.to_datetime(df["timestamp"], utc=True)
+                df.set_index("time", inplace=True)
+                df = df[["open", "high", "low", "close", "volume"]]
+                df.sort_index(inplace=True)
+                return _tag_source(df, "tabdeal")
+
+            logger.debug(
+                f"[Fetcher] {ticker}: تبدیل کندل کافی ندارد "
+                f"({len(candles) if candles else 0} از ۲۰) — fallback به نوبیتکس"
+            )
+        except Exception as e:
+            logger.warning(f"[Fetcher] tabdeal candles {ticker}: {e}")
+
         return None
 
     # ═══ بورس تهران ═══
@@ -491,6 +518,23 @@ def fetch_quote_by_source(ticker: str, source: str = "nobitex") -> dict | None:
     # ─── تشخیص جفت تتری در برابر تومانی ───
     is_usdt_pair = normalized.endswith("-USD") or normalized.endswith("-USDT")
     is_irt_pair = normalized.endswith("-IRT") or normalized.endswith("-RLS")
+
+    # ═══ XAUS.com (برای طلا/نقره) ═══
+    if source == "xaus":
+        try:
+            from core.xaus_fetcher import fetch_xaus_ticker
+
+            t = fetch_xaus_ticker(normalized)
+            if t and t.get("price"):
+                return {
+                    "ticker": normalized,
+                    "price": float(t["price"]),
+                    "change_pct": float(t.get("change_24h") or 0),
+                    "source": "xaus",
+                }
+        except Exception as e:
+            logger.warning(f"[Quote] xaus {normalized}: {e}")
+        return None
 
     # ═══ نوبیتکس ═══
     if source == "nobitex":
@@ -648,6 +692,10 @@ def source_has_market(ticker: str, source: str) -> bool:
     is_irt_pair = upper.endswith("-IRT") or upper.endswith("-RLS")
 
     source = source.lower()
+
+    # ─── XAUS.com فقط طلا و نقره ───
+    if source == "xaus":
+        return ticker.upper() == "XAU-USD"
 
     # ─── TSETMC فقط سهام بورس (نماد غیر-ASCII) ───
     if source == "tsetmc":

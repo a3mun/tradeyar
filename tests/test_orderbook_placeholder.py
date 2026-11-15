@@ -258,9 +258,10 @@ class TestSourcesEndpoint:
         assert r.status_code == 200
         body = r.json()
         assert body["ok"] is True
-        assert body["active_count"] == 5
+        assert body["active_count"] == 6  # 🔴 xaus اضافه شد
+
         assert body["planned_count"] == 4
-        assert body["total"] == 9
+        assert body["total"] == 10  # 🔴 ۶ فعال + ۴ برنامه‌ریزی‌شده
 
     @pytest.mark.anyio
     async def test_planned_sources_marked(self, client):
@@ -278,7 +279,7 @@ class TestSourcesEndpoint:
 
         items = r.json()["items"]
         active = {i["value"] for i in items if i["active"]}
-        assert active == {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"}
+        assert active == {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"}
 
     @pytest.mark.anyio
     async def test_abantether_not_present(self, client):

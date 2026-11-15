@@ -2,7 +2,12 @@
 core/tabdeal_fetcher.py
 صرافی تبدیل (Tabdeal) — API عمومی
 ============================================================
-نسخه ۱.۰ · فاز ۶.۸
+نسخه ۲.۰ · فاز ۱۶.۴
+
+🔴 تغییرات نسخه ۲.۰:
+  • WebSocket برای نمادهای پرمعامله (سریع و زنده)
+  • fallback به REST برای بقیه نمادها
+  • limit افزایش یافت (100) برای حجم بهتر
 
 ═══ مستندات واقعی (تأیید تجربی ۱۴۰۵/۰۷) ═══
 
@@ -14,46 +19,21 @@ Base URL::
     • ``symbol``       → ``BTCIRT``  (بدون جداکننده) ← در URL
     • ``tabdealSymbol`` → ``BTC_IRT`` (با زیرخط)     ← فقط نمایشی
 
-    اگر با ``BTC_IRT`` درخواست بزنی، تبدیل **۴۰۴** می‌دهد.
-    این نکته در مستندات رسمی مبهم است و تجربی کشف شد.
+═══ endpointهای موجود ═══
 
-═══ endpointهای تأییدشده ═══
-
-    ✅ GET /api/v1/exchangeInfo          — ۱۰۴۶ بازار (IRT و USDT)
+    ✅ GET /api/v1/exchangeInfo          — لیست بازارها
     ✅ GET /api/v1/depth?symbol=X&limit=N — عمق بازار
     ✅ GET /api/v1/trades?symbol=X&limit=N— معاملات اخیر
+    ✅ wss://api1.tabdeal.org/stream/    — WebSocket قیمت لحظه‌ای
 
 ═══ endpointهای **موجود نیست** ═══
 
-    ❌ /api/v1/history    (۴۰۴)
-    ❌ /api/v1/klines     (۴۰۴)
-    ❌ /api/v1/ohlcv      (۴۰۴)
-    ❌ /api/v1/candles    (۴۰۴)
-    ❌ /api/v1/udf/history(۴۰۴)
-    ❌ /api/v1/ticker/*   (۴۰۴)
+    ❌ /api/v1/history, /klines, /ohlcv, /candles, ...
 
-    → **تبدیل OHLCV عمومی ندارد.** پس تحلیل تکنیکال مثل
-      نوبیتکس/بیت‌پین/والکس برایش ممکن نیست. تحلیل با fallback
-      به صرافی دیگر انجام می‌شود (شفاف با ``source_used``).
-
-═══ وضعیت قابلیت‌ها ═══
-
-    ┌──────────────┬────────┐
-    │ قابلیت       │ وضعیت  │
-    ├──────────────┼────────┤
-    │ قیمت لحظه‌ای │ ✅     │ ← از depth (mid) + trades (last)
-    │ عمق بازار    │ ✅     │ ← /depth  (فاز ۶.۵ آماده)
-    │ معاملات      │ ✅     │ ← /trades (برای CVD دقیق‌تر)
-    │ OHLCV        │ ❌     │ ← fallback به صرافی دیگر
-    └──────────────┴────────┘
-
-═══ نکته ═══
-قیمت از ``depth`` (میانه‌ی بهترین bid/ask) گرفته می‌شود، نه
-``trades``. دلیل: آخرین معامله ممکن است دقایق قبل باشد، ولی
-عمق بازار **همیشه** زنده است. برای نماد کم‌معامله این تفاوت
-مهم است.
+    → تبدیل OHLCV عمومی ندارد. تحلیل با fallback به صرافی دیگر.
 """
 
+import json
 import logging
 from typing import Optional
 
@@ -79,21 +59,16 @@ HEADERS = {
     "Accept": "application/json",
 }
 
-# ─── کش ماژول برای exchangeInfo (سنگین: ~۱MB) ───
+# ─── کش ماژول برای exchangeInfo ───
 _EXCHANGE_INFO: Optional[list] = None
-_MARKET_MAP: dict[str, str] = {}  # {"BTC-USD": "BTCUSDT", "BTC-IRT": "BTCIRT"}
+_MARKET_MAP: dict[str, str] = {}
 
 
 # ═══════════════════════════════════════════════════════════
 # نگاشت نماد
 # ═══════════════════════════════════════════════════════════
 def _load_exchange_info(force: bool = False) -> list:
-    """
-    دریافت (و کش) لیست بازارها.
-
-    ⚠️ این پاسخ ~۱MB است. یک بار در طول عمر پروسه گرفته
-       می‌شود و در ماژول کش می‌ماند.
-    """
+    """دریافت و کش لیست بازارهای تبدیل"""
     global _EXCHANGE_INFO, _MARKET_MAP
 
     if _EXCHANGE_INFO is not None and not force:
@@ -116,18 +91,16 @@ def _load_exchange_info(force: bool = False) -> list:
 
     _EXCHANGE_INFO = data
 
-    # ─── ساخت نقشه: ticker استاندارد ما → symbol تبدیل ───
     mapping: dict[str, str] = {}
     for m in data:
         if m.get("status") != "TRADING":
             continue
         base = m.get("baseAsset")
         quote = m.get("quoteAsset")
-        symbol = m.get("symbol")  # ← بدون جداکننده: BTCIRT
+        symbol = m.get("symbol")
         if not (base and quote and symbol):
             continue
 
-        # ─── USDT → پسوند -USD (قرارداد داخلی ما) ───
         if quote == "USDT":
             mapping[f"{base}-USD"] = symbol
         elif quote == "IRT":
@@ -139,19 +112,7 @@ def _load_exchange_info(force: bool = False) -> list:
 
 
 def map_symbol_to_tabdeal(ticker: str) -> Optional[str]:
-    """
-    نگاشت نماد به فرمت تبدیل.
-
-    Examples:
-        >>> map_symbol_to_tabdeal("BTC-USD")
-        'BTCUSDT'
-        >>> map_symbol_to_tabdeal("BTC-IRT")
-        'BTCIRT'
-        >>> map_symbol_to_tabdeal("DOES-NOT-EXIST")
-        None
-
-    ⚠️ خروجی **بدون** جداکننده است (``BTCIRT`` نه ``BTC_IRT``).
-    """
+    """نگاشت نماد به فرمت تبدیل"""
     if not ticker:
         return None
 
@@ -160,7 +121,6 @@ def map_symbol_to_tabdeal(ticker: str) -> Optional[str]:
 
     upper = ticker.upper().replace("_", "-")
 
-    # ─── نرمال‌سازی: BTCUSDT → BTC-USD ───
     if "-" not in upper:
         for suffix, repl in (("USDT", "-USD"), ("IRT", "-IRT"), ("RLS", "-IRT")):
             if upper.endswith(suffix):
@@ -170,7 +130,6 @@ def map_symbol_to_tabdeal(ticker: str) -> Optional[str]:
     if upper in _MARKET_MAP:
         return _MARKET_MAP[upper]
 
-    # ─── تلاش دوم: USDT ↔ USD ───
     if upper.endswith("-USDT"):
         alt = upper[:-5] + "-USD"
         if alt in _MARKET_MAP:
@@ -180,11 +139,7 @@ def map_symbol_to_tabdeal(ticker: str) -> Optional[str]:
 
 
 def tabdeal_symbol_to_display(symbol: str) -> str:
-    """
-    تبدیل symbol به فرمت نمایشی تبدیل (``BTCIRT`` → ``BTC_IRT``).
-
-    ⚠️ فقط برای نمایش — در URL همیشه ``symbol`` بدون جداکننده.
-    """
+    """تبدیل symbol به فرمت نمایشی تبدیل"""
     if not symbol:
         return ""
     data = _load_exchange_info()
@@ -200,12 +155,7 @@ def is_in_tabdeal(ticker: str) -> bool:
 
 
 def supports_tf(tf_name: str) -> bool:
-    """
-    آیا تبدیل این تایم‌فریم را دارد؟
-
-    ⚠️ فعلاً **همیشه False** — چون OHLCV عمومی ندارد.
-       (کد آماده است تا اگر endpoint اضافه شد، فقط True برگردانیم.)
-    """
+    """تبدیل OHLCV ندارد"""
     return False
 
 
@@ -216,29 +166,7 @@ def fetch_tabdeal_candles(
     ticker: str,
     tf_name: str = "۵ دقیقه",
 ) -> Optional[pd.DataFrame]:
-    """
-    دریافت کندل — ❌ **در دسترس نیست**.
-
-    ═══ چرا ═══
-    API عمومی تبدیل endpoint OHLCV ندارد. ۱۲ مسیر مختلف تست شد:
-
-        /api/v1/history      → 404
-        /api/v1/klines       → 404
-        /api/v1/ohlcv        → 404
-        /api/v1/candles      → 404
-        /api/v1/udf/history  → 404
-        /api/v1/market/klines→ 404
-        /api/v1/chart        → 404
-        … و ۵ مسیر دیگر
-
-    ═══ چه می‌شود ═══
-    زنجیره‌ی fallback در ``data_service`` خودکار از نوبیتکس/
-    بیت‌پین/والکس کندل می‌گیرد و تحلیل انجام می‌شود. منبع واقعی
-    در ``source_used`` برچسب می‌خورد.
-
-    Returns:
-        همیشه ``None`` (تا زمانی که تبدیل API کندل بدهد).
-    """
+    """دریافت کندل — ❌ در دسترس نیست (fallback به صرافی دیگر)"""
     logger.debug(
         f"[Tabdeal] {ticker}/{tf_name}: کندل در دسترس نیست "
         f"(API عمومی OHLCV ندارد) — fallback به صرافی دیگر"
@@ -247,19 +175,69 @@ def fetch_tabdeal_candles(
 
 
 # ═══════════════════════════════════════════════════════════
-# قیمت لحظه‌ای — ✅ از depth
+# قیمت لحظه‌ای — ✅ اول WebSocket، بعد REST
+# ═══════════════════════════════════════════════════════════
+def fetch_tabdeal_ticker(ticker: str) -> Optional[dict]:
+    """
+    قیمت لحظه‌ای — اول از WebSocket (سریع و زنده)، بعد fallback به REST.
+    """
+    # 🔴 فاز ۱۶.۴ — اول WebSocket
+    try:
+        from core.tabdeal_ws import get_tabdeal_price
+
+        ws_data = get_tabdeal_price(ticker)
+        if ws_data and ws_data.get("price"):
+            return {
+                "price": ws_data["price"],
+                "change_24h": 0.0,  # WebSocket تغییر ۲۴س نداره
+                "best_bid": ws_data["best_bid"],
+                "best_ask": ws_data["best_ask"],
+                "spread_pct": ws_data.get("spread_pct", 0.0),
+                "volume": ws_data.get("total_volume", 0.0),
+            }
+    except Exception as e:
+        logger.debug(f"[Tabdeal] WS fallback: {e}")
+
+    # ─── fallback به REST ───
+    depth = fetch_tabdeal_depth(ticker, limit=1)
+    if not depth:
+        return None
+
+    try:
+        bids = depth.get("bids") or []
+        asks = depth.get("asks") or []
+        if not bids or not asks:
+            return None
+
+        best_bid = parse_number(bids[0][0])
+        best_ask = parse_number(asks[0][0])
+
+        if not best_bid or not best_ask or best_bid <= 0 or best_ask <= 0:
+            return None
+
+        mid = (best_bid + best_ask) / 2
+        spread_pct = (best_ask - best_bid) / mid * 100 if mid else 0.0
+
+        return {
+            "price": mid,
+            "change_24h": 0.0,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread_pct": spread_pct,
+        }
+    except Exception as e:
+        logger.warning(f"[Tabdeal] parse ticker {ticker}: {e}")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════
+# عمق بازار (REST)
 # ═══════════════════════════════════════════════════════════
 def fetch_tabdeal_depth(
     ticker: str,
-    limit: int = 20,
+    limit: int = 100,  # 🔴 از 20 به 100
 ) -> Optional[dict]:
-    """
-    عمق بازار خام.
-
-    Returns:
-        ``{"asks": [[price, qty], ...], "bids": [[price, qty], ...]}``
-        یا ``None``.
-    """
+    """عمق بازار خام"""
     symbol = map_symbol_to_tabdeal(ticker)
     if not symbol:
         return None
@@ -284,65 +262,11 @@ def fetch_tabdeal_depth(
     return data
 
 
-def fetch_tabdeal_ticker(ticker: str) -> Optional[dict]:
-    """
-    قیمت لحظه‌ای — از **عمق بازار** (نه آخرین معامله).
-
-    چرا میانه‌ی بهترین bid/ask:
-        آخرین معامله ممکن است دقایق قبل باشد (خصوصاً نماد
-        کم‌معامله)، ولی عمق بازار همیشه زنده است. میانه‌ی
-        best_bid و best_ask بهترین تخمین «قیمت منصفانه‌ی فعلی»
-        است و اسپرد را هم می‌دهد.
-
-    Returns:
-        ``{"price", "change_24h", "best_bid", "best_ask", "spread_pct"}``
-        یا ``None``.
-    """
-    depth = fetch_tabdeal_depth(ticker, limit=1)
-    if not depth:
-        return None
-
-    try:
-        bids = depth.get("bids") or []
-        asks = depth.get("asks") or []
-        if not bids or not asks:
-            return None
-
-        best_bid = parse_number(bids[0][0])
-        best_ask = parse_number(asks[0][0])
-
-        if not best_bid or not best_ask or best_bid <= 0 or best_ask <= 0:
-            return None
-
-        mid = (best_bid + best_ask) / 2
-        spread_pct = (best_ask - best_bid) / mid * 100 if mid else 0.0
-
-        return {
-            "price": mid,
-            # ⚠️ تبدیل endpoint تغییر ۲۴ ساعته ندارد
-            "change_24h": 0.0,
-            "best_bid": best_bid,
-            "best_ask": best_ask,
-            "spread_pct": spread_pct,
-        }
-    except Exception as e:
-        logger.warning(f"[Tabdeal] parse ticker {ticker}: {e}")
-        return None
-
-
 # ═══════════════════════════════════════════════════════════
-# معاملات اخیر — ✅ (برای CVD دقیق‌تر در فاز ۶.۵)
+# معاملات اخیر
 # ═══════════════════════════════════════════════════════════
 def fetch_tabdeal_trades(ticker: str, limit: int = 100) -> Optional[list]:
-    """
-    معاملات اخیر — برای محاسبه‌ی جریان سفارش (order flow).
-
-    هر آیتم::
-
-        {"price": float, "qty": float, "time": int(ms), "buyer_maker": bool}
-
-    ⚠️ ``buyer_maker=False`` یعنی خریدار aggressor بوده (فشار خرید).
-    """
+    """معاملات اخیر — برای order flow"""
     symbol = map_symbol_to_tabdeal(ticker)
     if not symbol:
         return None
@@ -355,7 +279,6 @@ def fetch_tabdeal_trades(ticker: str, limit: int = 100) -> Optional[list]:
             timeout=TIMEOUT,
         )
         if r.status_code != 200:
-            logger.debug(f"[Tabdeal] trades {symbol}: HTTP {r.status_code}")
             return None
         data = r.json()
     except Exception as e:
@@ -373,7 +296,6 @@ def fetch_tabdeal_trades(ticker: str, limit: int = 100) -> Optional[list]:
                     "price": parse_number(t.get("price")) or 0.0,
                     "qty": parse_number(t.get("qty")) or 0.0,
                     "time": int(t.get("time") or 0),
-                    # ⚠️ isBuyerMaker=True → فروشنده aggressor
                     "buyer_maker": bool(t.get("isBuyerMaker")),
                 }
             )
@@ -383,27 +305,10 @@ def fetch_tabdeal_trades(ticker: str, limit: int = 100) -> Optional[list]:
 
 
 # ═══════════════════════════════════════════════════════════
-# Order Book — ✅ (قرارداد فاز ۶.۵)
+# Order Book — نرمال‌شده
 # ═══════════════════════════════════════════════════════════
 def fetch_tabdeal_orderbook(ticker: str, depth: int = 20) -> Optional[dict]:
-    """
-    عمق بازار نرمال‌شده — آماده برای فاز ۶.۵.
-
-    Returns::
-
-        {
-          "ticker": "BTC-IRT",
-          "source": "tabdeal",
-          "bids": [{"price": ..., "quantity": ...}, ...],
-          "asks": [...],
-          "best_bid": ..., "best_ask": ...,
-          "spread": ..., "spread_pct": ...,
-          "imbalance": ...,   # 0..1
-        }
-
-    ⚠️ ``imbalance`` = حجم bids / (حجم bids + حجم asks).
-       بالای ۰.۵ → فشار خرید، زیر ۰.۵ → فشار فروش.
-    """
+    """عمق بازار نرمال‌شده"""
     raw = fetch_tabdeal_depth(ticker, limit=depth)
     if not raw:
         return None

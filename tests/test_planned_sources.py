@@ -135,7 +135,7 @@ class TestSourceInfo:
 
     def test_get_all_sources_info(self):
         items = get_all_sources_info()
-        assert len(items) == 9  # ۵ فعال + ۴ برنامه‌ریزی‌شده
+        assert len(items) == 10  # 🔴 ۶ فعال + ۴ برنامه‌ریزی‌شده
 
         # ─── global نباید باشد ───
         assert not any(i["value"] == "global" for i in items)
@@ -145,7 +145,7 @@ class TestSourceInfo:
 
         active = [i for i in items if i["active"]]
         planned = [i for i in items if i["planned"]]
-        assert len(active) == 5
+        assert len(active) == 6  # 🔴 xaus اضافه شد
         assert len(planned) == 4
 
         # ─── هر آیتم کلیدهای لازم را دارد ───

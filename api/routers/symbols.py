@@ -172,6 +172,32 @@ async def list_sources():
 
 
 # ═══════════════════════════════════════════════════════════
+# 🔴 فاز ۱۶.۴ — نمادهای پرمعامله بورس تهران
+# ═══════════════════════════════════════════════════════════
+@router.get("/iran-stocks")
+async def iran_stocks():
+    """
+    لیست نمادهای پرمعامله بورس تهران — برای تب جداگانه.
+    ⚠️ این نمادها باید با market_lists هماهنگ باشن.
+    """
+    popular_stocks = [
+        {"ticker": "فولاد", "name": "فولاد مبارکه", "source": "tsetmc"},
+        {"ticker": "فملی", "name": "ملی صنایع مس", "source": "tsetmc"},
+        {"ticker": "شپنا", "name": "پالایش نفت اصفهان", "source": "tsetmc"},
+        {"ticker": "وبصادر", "name": "بانک صادرات", "source": "tsetmc"},
+        {"ticker": "وتجارت", "name": "بانک تجارت", "source": "tsetmc"},
+        {"ticker": "خودرو", "name": "ایران خودرو", "source": "tsetmc"},
+        {"ticker": "خساپا", "name": "سایپا", "source": "tsetmc"},
+        {"ticker": "فارس", "name": "پتروشیمی فارس", "source": "tsetmc"},
+        {"ticker": "شتران", "name": "پالایش نفت تهران", "source": "tsetmc"},
+        {"ticker": "طلا", "name": "صندوق طلا (پارسیان)", "source": "tsetmc"},
+        {"ticker": "عیار", "name": "صندوق عیار", "source": "tsetmc"},
+        {"ticker": "شاخص", "name": "شاخص کل", "source": "tsetmc"},
+    ]
+    return {"ok": True, "total": len(popular_stocks), "items": popular_stocks}
+
+
+# ═══════════════════════════════════════════════════════════
 # GET /symbols/iran-prices — قیمت‌های ایران
 # ═══════════════════════════════════════════════════════════
 @router.get("/iran-prices")

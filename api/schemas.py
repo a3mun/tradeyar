@@ -25,7 +25,9 @@ class AnalyzeRequest(BaseModel):
     """بدنه درخواست POST /analyze"""
 
     ticker: str = Field(..., min_length=1, max_length=50)
-    source: Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"] = "nobitex"
+    source: Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"] = (
+        "nobitex"
+    )
     timeframe: Literal[
         "۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"
     ] = "۵ دقیقه"

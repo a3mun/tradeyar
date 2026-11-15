@@ -68,6 +68,15 @@ async def lifespan(app: FastAPI):
     # اجرا در پس‌زمینه، بدون await
     asyncio.create_task(_safe_prewarm_async())
 
+    # 🔴 فاز ۱۶.۴ — شروع WebSocket تبدیل
+    try:
+        from core.tabdeal_ws import start_tabdeal_ws
+
+        start_tabdeal_ws()
+        logger.info("✅ Tabdeal WebSocket started")
+    except Exception as e:
+        logger.warning(f"[TabdealWS] failed: {e}")
+
     yield
     logger.info("👋 خداحافظ")
 

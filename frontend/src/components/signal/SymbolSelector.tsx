@@ -9,17 +9,33 @@ import { useAppStore } from "@/store/useAppStore";
 import type { SymbolItem } from "@/lib/types";
 import { CryptoIcon } from "@/components/ui/crypto-icon";
 
-const POPULAR_FALLBACK: SymbolItem[] = [
+const POPULAR_CRYPTO: SymbolItem[] = [
   { ticker: "USDT-IRT", name: "تتر (تومان)", source: "nobitex" },
   { ticker: "BTC-USD", name: "بیت‌کوین", source: "nobitex" },
   { ticker: "BTC-IRT", name: "بیت‌کوین (تومان)", source: "nobitex" },
   { ticker: "XAUT-USD", name: "تتر گلد", source: "nobitex" },
-  { ticker: "XAUT-IRT", name: "تتر گلد (تومان)", source: "nobitex" },
   { ticker: "PAXG-USD", name: "پکس گلد", source: "nobitex" },
   { ticker: "SOL-USD", name: "سولانا", source: "nobitex" },
   { ticker: "XRP-USD", name: "ریپل", source: "nobitex" },
   { ticker: "DOGE-USD", name: "دوج‌کوین", source: "nobitex" },
   { ticker: "ETH-USD", name: "اتریوم", source: "nobitex" },
+  { ticker: "BNB-USD", name: "بایننس", source: "nobitex" },
+];
+
+const POPULAR_FOREX: SymbolItem[] = [
+  { ticker: "XAU-USD", name: "انس طلا", source: "xaus" },
+];
+
+// 🔴 فاز ۱۶.۴ — ۸ نماد پرمعامله بورس تهران (به ترتیب درخواست)
+const POPULAR_IRAN_STOCKS: SymbolItem[] = [
+  { ticker: "فولاد", name: "فولاد", source: "tsetmc" },
+  { ticker: "فارس", name: "پتروشیمی فارس", source: "tsetmc" },
+  { ticker: "وتجارت", name: "بانک تجارت", source: "tsetmc" },
+  { ticker: "خساپا", name: "سایپا", source: "tsetmc" },
+  { ticker: "خودرو", name: "ایران خودرو", source: "tsetmc" },  // 🔴 جایگزین شاخص
+  { ticker: "طلا", name: "صندوق طلا", source: "tsetmc" },
+  { ticker: "نقرابی", name: "صندوق نقره", source: "tsetmc" },
+  { ticker: "عیار", name: "صندوق عیار", source: "tsetmc" },
 ];
 
 function normalize(text: string): string {
@@ -32,31 +48,37 @@ function normalize(text: string): string {
     .toLowerCase();
 }
 
+type TabType = "crypto" | "forex" | "iran_stocks";
+
 export function SymbolSelector() {
   const {
     ticker,
-    setTicker,
     source,
     watchlist,
     addToWatchlist,
     removeFromWatchlist,
     selectSymbol,
   } = useAppStore();
-  const [popular, setPopular] = useState<SymbolItem[]>(POPULAR_FALLBACK);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SymbolItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>(
+    source === "xaus" ? "forex" : source === "tsetmc" ? "iran_stocks" : "crypto"
+  );
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const currentList = 
+    activeTab === "crypto" ? POPULAR_CRYPTO : 
+    activeTab === "forex" ? POPULAR_FOREX : 
+    POPULAR_IRAN_STOCKS;
+
+  // 🔴 فاز ۱۶.۴ — همگام‌سازی تب با source
   useEffect(() => {
-    api
-      .get("/symbols/popular")
-      .then((res) => {
-        if (res.data.items?.length > 0) setPopular(res.data.items);
-      })
-      .catch(() => {});
-  }, []);
+    if (source === "xaus") setActiveTab("forex");
+    else if (source === "tsetmc") setActiveTab("iran_stocks");
+    else setActiveTab("crypto");
+  }, [source]);
 
   // ═══ Live search ═══
   useEffect(() => {
@@ -102,7 +124,15 @@ export function SymbolSelector() {
 
   const handleSelect = (item: SymbolItem) => {
     const isIranianStock = !item.ticker[0]?.match(/[A-Za-z]/);
-    const finalSource = isIranianStock ? "tsetmc" : source;
+    const finalSource = isIranianStock ? "tsetmc" : item.source;
+
+    if (item.source === "xaus") {
+      setActiveTab("forex");
+    } else if (item.source === "tsetmc") {
+      setActiveTab("iran_stocks");
+    } else {
+      setActiveTab("crypto");
+    }
 
     selectSymbol(item.ticker, item.name, finalSource as never);
     setQuery("");
@@ -110,17 +140,18 @@ export function SymbolSelector() {
     setShowDropdown(false);
   };
 
-  useEffect(() => {
-    if (source === "tsetmc" && /^[A-Z]/.test(ticker)) {
-      setTicker("فولاد", "فولاد مبارکه");
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    if (tab === "forex") {
+      selectSymbol("XAU-USD", "انس طلا", "xaus");
+    } else if (tab === "crypto") {
+      selectSymbol("BTC-USD", "بیت‌کوین", "nobitex");
+    } else if (tab === "iran_stocks") {
+      if (POPULAR_IRAN_STOCKS.length > 0) {
+        selectSymbol(POPULAR_IRAN_STOCKS[0].ticker, POPULAR_IRAN_STOCKS[0].name, "tsetmc");
+      }
     }
-    if (
-      ["nobitex", "bitpin", "wallex", "tabdeal"].includes(source) &&
-      !/^[A-Z]/.test(ticker)
-    ) {
-      setTicker("BTC-USD", "بیت‌کوین (USDT)");
-    }
-  }, [source, ticker, setTicker]);
+  };
 
   const handleManualSubmit = () => {
     if (!query.trim()) return;
@@ -146,7 +177,7 @@ export function SymbolSelector() {
               <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             )}
             <Input
-              placeholder="جستجو: BTC، فولاد، PAXG..."
+              placeholder="جستجو: BTC، فولاد، XAU..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
@@ -207,28 +238,82 @@ export function SymbolSelector() {
         )}
       </div>
 
-      {/* ═══ Popular — ۱۰ نماد، شیشه‌ای ═══ */}
-      <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
-        {POPULAR_FALLBACK.map((item) => {
-          const isActive = ticker === item.ticker;
-          return (
-            <button
-              key={item.ticker}
-              onClick={() => handleSelect(item)}
-              className={`group relative flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border px-1 py-2 text-center text-[11px] font-medium leading-tight transition-all duration-300
-                ${
-                  isActive
-                    ? "border-primary/50 bg-primary/20 text-primary shadow-[0_0_15px_rgba(var(--primary),0.3)] backdrop-blur-md"
-                    : "border-white/10 bg-white/5 text-foreground/80 backdrop-blur-sm hover:border-white/20 hover:bg-white/10 hover:text-foreground hover:shadow-lg"
-                }
-              `}
-            >
-              <div className="absolute inset-0 -z-10 bg-gradient-to-br from-white/10 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-              <CryptoIcon ticker={item.ticker} size="sm" className="transition-transform duration-300 group-hover:scale-110" />
-              <span className="w-full truncate text-[10px]">{item.name}</span>
-            </button>
-          );
-        })}
+      {/* ═══ بخش نمادها ═══ */}
+      <div className="rounded-xl border border-white/5 bg-[#0a101a]/50 backdrop-blur-md overflow-hidden shadow-sm">
+        {/* سربرگ تب‌ها */}
+        <div className="flex p-1 gap-1 border-b border-white/5 bg-white/5">
+          <button
+            onClick={() => handleTabChange("crypto")}
+            className={`relative flex-1 rounded-lg py-1.5 text-[11px] transition-all duration-300 font-display ${
+              activeTab === "crypto"
+                ? "bg-gradient-to-b from-[#d6ad60] to-[#b88e45] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)] font-bold"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            }`}
+          >
+            کریپتو
+          </button>
+          <button
+            onClick={() => handleTabChange("forex")}
+            className={`relative flex-1 rounded-lg py-1.5 text-[11px] transition-all duration-300 font-display ${
+              activeTab === "forex"
+                ? "bg-gradient-to-b from-[#d6ad60] to-[#b88e45] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)] font-bold"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            }`}
+          >
+            فارکس
+          </button>
+          <button
+            onClick={() => handleTabChange("iran_stocks")}
+            className={`relative flex-1 rounded-lg py-1.5 text-[11px] transition-all duration-300 font-display ${
+              activeTab === "iran_stocks"
+                ? "bg-gradient-to-b from-[#d6ad60] to-[#b88e45] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)] font-bold"
+                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            }`}
+          >
+            بورس
+          </button>
+        </div>
+
+        {/* گرید نمادها */}
+        <div className="p-2">
+          <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
+            {currentList.map((item) => {
+              const isActive = ticker === item.ticker;
+              return (
+                <button
+                  key={item.ticker}
+                  onClick={() => handleSelect(item)}
+                  className={`group relative flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border px-1 py-2 text-center transition-all duration-300
+                    ${
+                      isActive
+                        ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#d6ad60]/20 to-transparent text-[#d6ad60] shadow-[0_0_15px_rgba(214,173,96,0.15)] ring-1 ring-[#d6ad60]/30"
+                        : "border-white/5 bg-white/5 text-foreground/70 hover:border-white/20 hover:bg-white/10 hover:text-foreground hover:shadow-lg"
+                    }
+                  `}
+                >
+                  <div className="absolute inset-0 -z-10 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                  
+                  {isActive && (
+                    <div className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#d6ad60] shadow-[0_0_8px_#d6ad60] animate-pulse" />
+                  )}
+
+                  {/* 🔴 فاز ۱۶.۴ — آیکون فقط برای کریپتو و فارکس، نه بورس */}
+                  {activeTab !== "iran_stocks" && (
+                    <CryptoIcon 
+                      ticker={item.ticker} 
+                      size="sm" 
+                      className={`transition-transform duration-300 ${isActive ? "scale-110" : "group-hover:scale-110"}`} 
+                    />
+                  )}
+                  
+                  <span className={`w-full truncate text-[10px] leading-tight ${isActive ? 'font-bold' : 'font-medium'}`}>
+                    {item.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

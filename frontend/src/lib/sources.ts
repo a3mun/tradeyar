@@ -2,12 +2,6 @@
  * lib/sources.ts
  * متادیتای صرافی‌ها — تنها منبع حقیقت فرانت
  * ============================================================
- * چرا این فایل:
- *   پیش‌تر هر کامپوننت لیست صرافی‌های خودش را داشت
- *   (`SOURCES` در PriceComparison، `SOURCE_BADGE` در SignalCard،
- *   `SOURCES` در SettingsPanel و Scanner). با اضافه شدن صرافی
- *   جدید باید چهار جا ویرایش می‌شد و ناهماهنگی پیش می‌آمد.
- *
  * ⚠️ منبع حقیقت نهایی **بک‌اند** است
  *    (`GET /symbols/sources`). این فایل فقط برای رندر سریع
  *    بدون درخواست شبکه است و باید با `core/sources.py` هم‌خوان بماند.
@@ -38,6 +32,8 @@ export interface SourceMeta {
   unsupportedTfs?: string[];
   /** نکته‌ی نمایشی */
   note?: string;
+  /** 🔴 آیا این منبع فقط برای فارکس/کالا است؟ */
+  isForex?: boolean;
 }
 
 /** صرافی‌ها و منابع فعال — به ترتیب اولویت نمایش */
@@ -66,22 +62,19 @@ export const SOURCE_META: SourceMeta[] = [
     hasUsdt: true,
     hasIrt: true,
   },
-{
-  value: "wallex",
-  label: "والکس",
-  icon: "🔵",
-  logo: "/logos/wallex.png",
-  badgeClass: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-  active: true,
-  planned: false,
-  hasOhlcv: true,
-  hasUsdt: true,
-  hasIrt: true,
-  // ⚠️ والکس res=5 و res=15 کد 200 می‌ده ولی **کندل ۱ دقیقه**
-  //    برمی‌گردونه — یعنی عملاً ندارد. تنها TFهای واقعی:
-  //    «۱ ساعت» و «روزانه». بقیه fallback می‌شوند.
-unsupportedTfs: ["۳۰ دقیقه"],
-},
+  {
+    value: "wallex",
+    label: "والکس",
+    icon: "🔵",
+    logo: "/logos/wallex.png",
+    badgeClass: "bg-blue-500/15 text-blue-400 border-blue-500/30",
+    active: true,
+    planned: false,
+    hasOhlcv: true,
+    hasUsdt: true,
+    hasIrt: true,
+    unsupportedTfs: ["۳۰ دقیقه"],
+  },
   {
     value: "tabdeal",
     label: "تبدیل",
@@ -93,9 +86,9 @@ unsupportedTfs: ["۳۰ دقیقه"],
     hasOhlcv: false,
     hasUsdt: true,
     hasIrt: true,
-    note: "فقط قیمت و عمق بازار — تحلیل ندارد",  // 🔴 آپدیت
+    note: "فقط قیمت و عمق بازار — تحلیل ندارد",
   },
-{
+  {
     value: "tsetmc",
     label: "بورس",
     icon: "🇮🇷",
@@ -106,25 +99,28 @@ unsupportedTfs: ["۳۰ دقیقه"],
     hasOhlcv: true,
     hasUsdt: false,
     hasIrt: false,
-    unsupportedTfs: [ "۳۰ دقیقه"],
+    unsupportedTfs: ["۳۰ دقیقه"],
     note: "فقط روزانه",
+  },
+  // 🔴 فاز ۱۶.۴ — فارکس و کالا (طلا/نقره)
+  {
+    value: "xaus",
+    label: "طلا (فارکس)",
+    icon: "🥇",
+    logo: "/logos/xaus.png",
+    badgeClass: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+    active: true,
+    planned: false,
+    hasOhlcv: true,
+    hasUsdt: true,  // (دلاری — برای نمایش در مقایسه قیمت)
+    hasIrt: false,
+    note: "طلا و نقره جهانی — بدون محدودیت",
+    isForex: true,
   },
 ];
 
-/**
- * 🚫 منابع **حذف‌شده** — فقط برای یادآوری.
- *
- * 🔴 چرا نگه داشته می‌شوند:
- *   تا کسی (از جمله خودمان در آینده) دوباره سراغشان نرود.
- *   آبان‌تتر حذف شد چون: فقط قیمت تومانی داشت، کندل نداشت،
- *   عمق بازار نداشت و با بقیه‌ی صرافی‌ها ناهماهنگ بود.
- *
- * ⚠️ اعضای این فهرست **دیگر عضو ``Source`` نیستند** — پس
- *    نمی‌توانند به‌اشتباه انتخاب شوند. ``value`` عمداً
- *    ``string`` است تا از union خارج بماند.
- */
+/** منابع حذف‌شده */
 export interface RemovedSourceMeta {
-  /** ⚠️ عمداً string، نه Source — تا قابل انتخاب نباشد */
   value: string;
   label: string;
   icon: string;
@@ -209,15 +205,10 @@ export const SOURCE_BY_KEY: Record<string, SourceMeta> = Object.fromEntries(
 
 /**
  * صرافی‌هایی که در **جدول مقایسه قیمت** پرسیده می‌شوند.
- *
- * 🔴 چرا جدا از ``SOURCE_META``:
- *   ``tsetmc`` (بورس تهران) قیمت کریپتو ندارد. پرسیدنش برای
- *   ``BTC-USD`` همیشه ۴۰۴ می‌داد و Console را آلوده می‌کرد.
- *   پس از این لیست حذف شد — و فیلتر دوم ``sourceSupportsPair``
- *   است که برای هر نماد دوباره چک می‌کند.
+ * 🔴 tsetmc و xaus از این لیست خارج می‌شوند (فقط برای کریپتو).
  */
 export const QUOTE_SOURCE_META: SourceMeta[] = SOURCE_META.filter(
-  (s) => s.value !== "tsetmc"
+  (s) => s.value !== "tsetmc" && s.value !== "xaus"
 );
 
 /** چک: آیا این صرافی تحلیل (OHLCV) خودش را دارد؟ */
@@ -237,39 +228,33 @@ export function isActiveSource(source: string): boolean {
 
 /**
  * آیا این صرافی برای این جفت‌ارز بازار دارد؟
- *
- * ⚠️ فقط محدودیت **ساختاری** را چک می‌کند (بدون درخواست شبکه).
- *    برای موجود بودن نماد خاص باید quote گرفت.
- *
- * ⚠️ صرافی‌های placeholder همیشه ``false`` می‌گیرند.
- *
- * 🔴 نسخه ۱.۹ — هم‌خوانی دوطرفه:
- *    پیش‌تر فقط سمت **نماد** چک می‌شد، نه سمت **صرافی**. اگر
- *    کاربر `source=tsetmc` با `ticker=BTC-USD` داشت (وضعیت
- *    ناهماهنگ پس از switch)، هنوز درخواست می‌رفت و ۴۰۴
- *    می‌گرفت. الان ناهماهنگی در هر دو جهت رد می‌شود.
  */
 export function sourceSupportsPair(source: string, ticker: string): boolean {
   const meta = SOURCE_BY_KEY[source];
   if (!meta || meta.planned) return false;
   if (!ticker) return false;
-  // 🔴 فاز ۱۴.۹.۵ — tabdeal تحلیل ندارد (فقط quote)
-  // این چک برای sourceSupportsPair در کامپوننت‌های تحلیل استفاده می‌شود
-  // در fetch_quote، از QUOTE_SOURCE_META استفاده می‌شود که tabdeal دارد.
 
   const upper = ticker.toUpperCase();
+
+  // 🔴 فاز ۱۶.۴ — XAUS فقط طلا (نقره فعلاً پشتیبانی نمی‌شود)
+  if (source === "xaus") {
+    return upper === "XAU-USD";
+  }
+  
   const isUsdt = upper.endsWith("-USD") || upper.endsWith("-USDT");
   const isIrt = upper.endsWith("-IRT") || upper.endsWith("-RLS");
-  // ─── نماد بورس تهران: شروع با حرف غیرلاتین ───
   const isIranianStock = !/^[A-Za-z0-9]/.test(ticker);
 
-  // ─── 🔴 ناهماهنگی دوطرفه ───
+  // ─── ناهماهنگی دوطرفه ───
   if (source === "tsetmc") {
-    // بورس فقط سهام داخلی
     return isIranianStock;
   }
   if (isIranianStock) {
-    // سهام داخلی روی صرافی کریپتو نیست
+    return false;
+  }
+
+  // 🔴 اگه نماد فارکس (XAU-USD/XAG-USD) بود ولی صرافی xaus نبود → false
+  if (upper === "XAU-USD" || upper === "XAG-USD") {
     return false;
   }
 
@@ -278,12 +263,7 @@ export function sourceSupportsPair(source: string, ticker: string): boolean {
   return true;
 }
 
-/**
- * آیا جفت (source, ticker) **هماهنگ** است؟
- *
- * برای مخفی کردن کامپوننت‌هایی که داده‌ی تحلیل می‌خواهند
- * وقتی حالت ناهماهنگ است (مثلاً بعد از switch صرافی).
- */
+/** آیا جفت (source, ticker) **هماهنگ** است؟ */
 export function isPairCoherent(source: string, ticker: string): boolean {
   return sourceSupportsPair(source, ticker);
 }

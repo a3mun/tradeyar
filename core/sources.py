@@ -1,11 +1,6 @@
 """
 core/sources.py
-سوییچ خودکار بین منابع — نسخه ۳.۱ (فقط صرافی‌های ایرانی)
-============================================================
-🔴 تغییرات نسخه ۳.۱ (فاز ۱۴.۹.۵):
-  • supports_analysis در get_source_info
-  • source_supports_analysis() helper
-  • tabdeal → supports_analysis=False
+سوییچ خودکار بین منابع — نسخه ۳.۲ (اضافه شد xaus)
 """
 
 import logging
@@ -30,6 +25,10 @@ def detect_source_for_ticker(ticker: str) -> str:
     if not ticker[0].isascii():
         return "tsetmc"
 
+    # 🔴 فارکس و کالا (طلا، نقره)
+    if upper in ("XAU-USD", "XAG-USD"):
+        return "xaus"
+
     # ─── کریپتو تومانی/تتری ───
     if "-IRT" in upper or "-RLS" in upper:
         return "nobitex"
@@ -47,32 +46,37 @@ def resolve_symbol_and_source(
     ticker: str,
     source: str,
 ) -> tuple[str, str, str]:
-    """
-    تعیین نماد و منبع نهایی.
-    ─── صرافی کریپتو انتخاب‌شده همیشه حفظ می‌شه ───
-    ─── فقط TSETMC با کریپتو قاطی نمی‌شه ───
-    """
+    """تعیین نماد و منبع نهایی"""
     if not ticker:
         return ticker, source, ""
 
     is_crypto = ticker[0].isascii() if ticker else True
     is_iranian_stock = not is_crypto
+    upper = ticker.upper()
+
+    # 🔴 فارکس/کالا → همیشه xaus
+    if upper in ("XAU-USD", "XAG-USD"):
+        return ticker, "xaus", "🥇 سوییچ به فارکس"
 
     # ═══ اگه نماد بورسی هست ولی صرافی کریپتو انتخاب شده ═══
-    if is_iranian_stock and source in ("nobitex", "bitpin", "wallex", "tabdeal"):
+    if is_iranian_stock and source in (
+        "nobitex",
+        "bitpin",
+        "wallex",
+        "tabdeal",
+        "xaus",
+    ):
         return ticker, "tsetmc", "🇮🇷 سوییچ به بورس تهران"
 
-    # ═══ اگه نماد کریپتو هست ولی صرافی بورس انتخاب شده ═══
-    if is_crypto and source == "tsetmc":
+    # ═══ اگه نماد کریپتو هست ولی صرافی بورس/فارکس انتخاب شده ═══
+    if is_crypto and source in ("tsetmc", "xaus"):
         return ticker, "nobitex", "🔄 سوییچ به نوبیتکس"
 
-    # ═══ اگه کاربر global خواسته (منسوخ) ═══
     if source == "global":
         if is_iranian_stock:
             return ticker, "tsetmc", "🌍 → بورس تهران"
         return ticker, "nobitex", "🌍 → نوبیتکس"
 
-    # ═══ در همه موارد دیگه، صرافی کاربر حفظ می‌شه ═══
     return ticker, source, ""
 
 
@@ -80,58 +84,40 @@ def resolve_symbol_and_source(
 # حل منبع
 # ═══════════════════════════════════════════════════════════
 def resolve_source(source: str) -> str:
-    """
-    نرمال‌سازی منبع.
-
-    ⚠️ صرافی‌های placeholder (رمزینکس، توبیت، بینگ‌ایکس)
-       هنوز fetcher ندارند. اگر کسی آن‌ها را صدا بزند، به
-       نوبیتکس fallback می‌شوند — همان رفتار قبلی برای منبع
-       ناشناخته. این‌طوری کد جدید کرش نمی‌کند.
-    """
-    active = ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"]
+    active = ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"]
     if source in active:
         return source
 
     if is_planned_source(source):
-        logger.warning(
-            f"[Sources] «{source}» هنوز پیاده‌سازی نشده (فاز ۷) "
-            f"— استفاده از نوبیتکس"
-        )
+        logger.warning(f"[Sources] «{source}» هنوز پیاده‌سازی نشده")
         return "nobitex"
 
     return "nobitex"
 
 
 def is_symbol_available_in_source(ticker: str, source: str) -> bool:
-    """چک می‌کنه نماد در منبع موجوده یا نه"""
     if not ticker:
         return False
     detected = detect_source_for_ticker(ticker)
     if detected == "tsetmc":
         return source == "tsetmc"
+    if detected == "xaus":
+        return source == "xaus"
     return source in ("nobitex", "bitpin", "wallex", "tabdeal")
 
 
 def get_default_symbol_for_source(source: str) -> str:
-    """نماد پیش‌فرض هر منبع"""
     return {
         "nobitex": "BTC-USD",
         "bitpin": "BTC-USD",
         "wallex": "BTC-USD",
         "tabdeal": "BTC-USD",
         "tsetmc": "فولاد",
+        "xaus": "XAU-USD",
     }.get(source, "BTC-USD")
 
 
 def get_source_info(source: str) -> dict:
-    """
-    اطلاعات منبع — شامل وضعیت «به‌زودی» و پشتیبانی تحلیل.
-
-    🔴 فاز ۱۴.۹.۵:
-      • supports_analysis — آیا OHLCV دارد (قابل تحلیل)؟
-        → tabdeal: False (فقط قیمت + عمق بازار)
-        → بقیه: True
-    """
     if is_planned_source(source):
         return {
             "icon": "⏳",
@@ -178,42 +164,34 @@ def get_source_info(source: str) -> dict:
             "full_name": "بورس تهران",
             "supports_analysis": True,
         },
+        # 🔴 جدید
+        "xaus": {
+            "icon": "🥇",
+            "short_name": "طلا (فارکس)",
+            "full_name": "XAUS.com — طلا و نقره",
+            "supports_analysis": True,
+        },
     }.get(
         source,
-        {
-            "icon": "•",
-            "short_name": "—",
-            "full_name": "—",
-            "supports_analysis": False,
-        },
+        {"icon": "•", "short_name": "—", "full_name": "—", "supports_analysis": False},
     )
 
     info.setdefault("planned", False)
     info.setdefault("active", True)
-    info.setdefault("supports_analysis", False)
     return info
 
 
 def source_supports_analysis(source: str) -> bool:
-    """
-    🔴 فاز ۱۴.۹.۵ — آیا این صرافی OHLCV دارد (قابل تحلیل)؟
-    """
     return bool(get_source_info(source).get("supports_analysis", False))
 
 
 def get_all_sources_info() -> list[dict]:
-    """
-    لیست همه‌ی منابع با وضعیتشان — برای پر کردن SettingsPanel.
-
-    Returns:
-        list از ``{"value", "icon", "label", "planned", "active", "supports_analysis"}``
-    """
     from .contracts import DataSource
 
     items = []
     for value in DataSource.all():
         if value == "global":
-            continue  # ─── منسوخ ───
+            continue
         info = get_source_info(value)
         items.append(
             {
@@ -223,7 +201,7 @@ def get_all_sources_info() -> list[dict]:
                 "full_name": info["full_name"],
                 "planned": info["planned"],
                 "active": info["active"],
-                "supports_analysis": info["supports_analysis"],  # 🔴 جدید
+                "supports_analysis": info["supports_analysis"],
             }
         )
     return items

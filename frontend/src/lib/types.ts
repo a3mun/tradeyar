@@ -8,17 +8,20 @@ export type Source =
   | "wallex"
   | "tabdeal"
   | "tsetmc"
+  | "xaus"  // 🔴 فاز ۱۶.۴ — طلا و کالا
   | "ramzinex"
   | "toobit"
   | "bingx"
   | "bit24";
 
+  
 export type ActiveSource =
   | "nobitex"
   | "bitpin"
   | "wallex"
   | "tabdeal"
-  | "tsetmc";
+  | "tsetmc"
+  | "xaus";  // 🔴 فاز ۱۶.۴
 
 export type PlannedSource = "ramzinex" | "toobit" | "bingx" | "bit24";
 

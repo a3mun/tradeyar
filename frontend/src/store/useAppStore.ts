@@ -14,7 +14,6 @@ interface WatchlistItem {
   source: string;
 }
 
-// ═══ 🔴 فاز ۸ — سیگنال WS ═══
 interface WsSignal {
   ticker: string;
   timeframe: string;
@@ -23,10 +22,8 @@ interface WsSignal {
   receivedAt: number;
 }
 
-// 🔴 فاز C — استراتژی
 export type Strategy = "scalp" | "swing" | "position";
 
-// 🔴 فاز ۱۴.۷.۲ — cache مشترک برای TF
 interface TfCacheEntry {
   data: AnalyzeResponse;
   fetchedAt: number;
@@ -56,17 +53,14 @@ interface AppState {
   strategy: Strategy;
   watchlist: WatchlistItem[];
 
-  // ─── سیگنال WS ───
   wsSignal: WsSignal | null;
   setWsSignal: (sig: WsSignal | null) => void;
 
-  // 🔴 فاز ۱۴.۷.۲ — cache مشترک TF
   tfDataCache: Record<string, TfCacheEntry>;
   setTfData: (tf: string, data: AnalyzeResponse) => void;
   getTfData: (tf: string) => AnalyzeResponse | null;
   invalidateTfCache: () => void;
 
-  // 🔴 فاز ۱۰.۲ — bottom sheet موبایل
   mobileSheet: "settings" | "help" | "account" | null;
   setMobileSheet: (s: "settings" | "help" | "account" | null) => void;
 
@@ -86,7 +80,7 @@ const DEFAULTS = {
   source: "nobitex" as Source,
   ticker: "BTC-USD",
   tickerName: "بیت‌کوین (USDT)",
-  timeframe: "۱۵ دقیقه" as Timeframe,  // 🔴 فاز ۱۴.۷.۴ — از ۵د به ۱۵د
+  timeframe: "۱۵ دقیقه" as Timeframe,
   marketType: "futures" as MarketType,
   riskProfile: "aggressive" as RiskProfile,
   strategy: "swing" as Strategy,
@@ -96,7 +90,6 @@ const DEFAULTS = {
   mobileSheet: null as "settings" | "help" | "account" | null,
 };
 
-// 🔴 فاز ۱۰.۲ — تشخیص نماد بورس (کد کاراکتر > ۱۲۷)
 function isTsetmcTicker(ticker: string): boolean {
   return Boolean(ticker) && ticker.charCodeAt(0) > 127;
 }
@@ -106,65 +99,65 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       ...DEFAULTS,
 
-      // ─── 🔴 فاز ۱۴.۷.۲ — cache مشترک TF ───
+      // ─── cache ───
       setTfData: (tf, data) => {
         const state = get();
-        const key = buildCacheKey(
-          state.ticker,
-          state.source,
-          tf,
-          state.marketType,
-          state.riskProfile,
-          state.strategy
-        );
-        set((prev) => ({
-          tfDataCache: {
-            ...prev.tfDataCache,
-            [tf]: { data, fetchedAt: Date.now(), key },
-          },
-        }));
+        const key = buildCacheKey(state.ticker, state.source, tf, state.marketType, state.riskProfile, state.strategy);
+        set((prev) => ({ tfDataCache: { ...prev.tfDataCache, [tf]: { data, fetchedAt: Date.now(), key } } }));
       },
-
       getTfData: (tf) => {
         const state = get();
         const entry = state.tfDataCache[tf];
         if (!entry) return null;
-
-        const expectedKey = buildCacheKey(
-          state.ticker,
-          state.source,
-          tf,
-          state.marketType,
-          state.riskProfile,
-          state.strategy
-        );
-        if (entry.key !== expectedKey) {
-          return null;
-        }
-
-        if (Date.now() - entry.fetchedAt > TF_CACHE_TTL_MS) {
-          return null;
-        }
-
+        const expectedKey = buildCacheKey(state.ticker, state.source, tf, state.marketType, state.riskProfile, state.strategy);
+        if (entry.key !== expectedKey) return null;
+        if (Date.now() - entry.fetchedAt > TF_CACHE_TTL_MS) return null;
         return entry.data;
       },
-
       invalidateTfCache: () => set({ tfDataCache: {} }),
 
+      // ─── Source ───
       setSource: (source) => {
+        // 🔴 استفاده از as string برای رفع خطای TypeScript
+        const currentSource = get().source as string;
+        const newSource = source as string;
+
+        // اگر xaus انتخاب شد، خودکار برو روی طلا
+        if (newSource === "xaus") {
+          set({
+            source,
+            ticker: "XAU-USD",
+            tickerName: "🥇 انس طلا",
+            marketType: "spot" as MarketType,
+            timeframe: "۱ ساعت" as Timeframe,
+            strategy: "swing" as Strategy,
+            riskProfile: "aggressive" as RiskProfile,
+          });
+          get().invalidateTfCache();
+          return;
+        }
+        
+        // اگر از xaus به صرافی دیگه رفتیم، نماد بره روی بیت‌کوین
+        if (currentSource === "xaus" && newSource !== "xaus") {
+           set({ 
+             source, 
+             ticker: "BTC-USD", 
+             tickerName: "بیت‌کوین (USDT)",
+             timeframe: "۱۵ دقیقه" as Timeframe 
+           });
+           get().invalidateTfCache();
+           return;
+        }
+
         set({ source });
         get().invalidateTfCache();
       },
 
       setTicker: (ticker, tickerName) => {
         if (isTsetmcTicker(ticker)) {
-          set({
-            ticker,
-            tickerName: tickerName || ticker,
-            source: "tsetmc" as Source,
-            marketType: "spot" as MarketType,
-            timeframe: "روزانه" as Timeframe,
-          });
+          set({ ticker, tickerName: tickerName || ticker, source: "tsetmc" as Source, marketType: "spot" as MarketType, timeframe: "روزانه" as Timeframe });
+        } else if (ticker === "XAU-USD") {
+          set({ ticker, tickerName: tickerName || "🥇 انس طلا", source: "xaus" as Source, marketType: "spot" as MarketType, timeframe: "۱ ساعت" as Timeframe });
         } else {
           set({ ticker, tickerName: tickerName || ticker });
         }
@@ -173,141 +166,75 @@ export const useAppStore = create<AppState>()(
 
       selectSymbol: (ticker, tickerName, source) => {
         if (isTsetmcTicker(ticker)) {
-          set({
-            ticker,
-            tickerName,
-            source: "tsetmc" as Source,
-            marketType: "spot" as MarketType,
-            timeframe: "روزانه" as Timeframe,
-          });
+          set({ ticker, tickerName, source: "tsetmc" as Source, marketType: "spot" as MarketType, timeframe: "روزانه" as Timeframe });
+        } else if (ticker === "XAU-USD") {
+          set({ ticker, tickerName, source: "xaus" as Source, marketType: "spot" as MarketType, timeframe: "۱ ساعت" as Timeframe, strategy: "swing" as Strategy });
         } else {
           set({ ticker, tickerName, source });
         }
         get().invalidateTfCache();
       },
 
-      // 🔴 فاز C — تداخل‌زدایی TF
+      // ─── تنظیمات ───
       setTimeframe: (timeframe) => {
         const updates: Partial<AppState> = { timeframe };
         const currentStrategy = get().strategy;
 
-        // 🔴 اسکالپ: فقط ۱د و ۵د
-        if (
-          currentStrategy === "scalp" &&
-          !["۱ دقیقه", "۵ دقیقه"].includes(timeframe)
-        ) {
-          updates.strategy = "swing";
-        }
-
-        // 🔴 فاز ۱۴.۷.۴ — پوزیشن: ۳۰د، ۱س، روزانه (قبلاً فقط روزانه)
-        if (
-          currentStrategy === "position" &&
-          !["۳۰ دقیقه", "۱ ساعت", "روزانه"].includes(timeframe)
-        ) {
-          updates.strategy = "swing";
-        }
+        if (currentStrategy === "scalp" && !["۱ دقیقه", "۵ دقیقه"].includes(timeframe)) updates.strategy = "swing";
+        if (currentStrategy === "position" && !["۳۰ دقیقه", "۱ ساعت", "روزانه"].includes(timeframe)) updates.strategy = "swing";
 
         set(updates);
-
-        if (updates.strategy && updates.strategy !== currentStrategy) {
-          get().invalidateTfCache();
-        }
+        if (updates.strategy && updates.strategy !== currentStrategy) get().invalidateTfCache();
       },
 
-      // 🔴 فاز C — تداخل‌زدایی بازار
       setMarketType: (marketType) => {
         const updates: Partial<AppState> = { marketType };
         const currentStrategy = get().strategy;
-
-        // اسکالپ + اسپات → ناسازگار (اسکالپ فقط futures)
-        if (marketType === "spot" && currentStrategy === "scalp") {
-          updates.strategy = "swing";
-        }
-
-        // 🔴 فاز ۱۴.۷.۴ — position + futures معنی‌دار شد (پوزیشن می‌تونه SHORT داشته باشه)
-        // پس position + futures → position می‌مونه (نه swing)
-
+        if (marketType === "spot" && currentStrategy === "scalp") updates.strategy = "swing";
         set(updates);
         get().invalidateTfCache();
       },
 
-      // 🔴 فاز C — تداخل‌زدایی پروفایل
       setRiskProfile: (riskProfile) => {
         const updates: Partial<AppState> = { riskProfile };
         const currentStrategy = get().strategy;
-
-        if (riskProfile === "conservative" && currentStrategy === "scalp") {
-          updates.strategy = "swing";
-        }
-
+        if (riskProfile === "conservative" && currentStrategy === "scalp") updates.strategy = "swing";
         set(updates);
         get().invalidateTfCache();
       },
 
-      // 🔴 فاز ۱۴.۷.۴ — تنظیم استراتژی + تنظیمات همراه
       setStrategy: (strategy) => {
-        const updates: Partial<AppState> = {
-          strategy,
-          wsSignal: null,
-        };
-
+        const updates: Partial<AppState> = { strategy, wsSignal: null };
         const currentTf = get().timeframe;
 
         if (strategy === "scalp") {
-          // ═══ اسکالپ: futures + aggressive + TF پایین (اجباری) ═══
           updates.marketType = "futures";
           updates.riskProfile = "aggressive";
-          if (!["۱ دقیقه", "۵ دقیقه"].includes(currentTf)) {
-            updates.timeframe = "۵ دقیقه";
-          }
+          if (!["۱ دقیقه", "۵ دقیقه"].includes(currentTf)) updates.timeframe = "۵ دقیقه";
         } else if (strategy === "position") {
-          // ═══ پوزیشن: فقط TF اجبار (اگر مجاز نبود)، بازار/ریسک آزاد ═══
-          if (!["۳۰ دقیقه", "۱ ساعت", "روزانه"].includes(currentTf)) {
-            updates.timeframe = "روزانه";
-          }
-          // marketType و riskProfile رو تغییر نده
+          if (!["۳۰ دقیقه", "۱ ساعت", "روزانه"].includes(currentTf)) updates.timeframe = "روزانه";
         }
-        // ═══ سوئینگ: هیچ اجباری ═══
-
         set(updates);
         get().invalidateTfCache();
       },
 
-      // ─── 🔴 فاز ۸ — سیگنال WS ───
       setWsSignal: (wsSignal) => set({ wsSignal }),
-
-      // ─── 🔴 فاز ۱۰.۲ — mobile sheet ───
       setMobileSheet: (mobileSheet) => set({ mobileSheet }),
 
       addToWatchlist: (ticker, name, source) => {
         const current = get().watchlist;
-        if (current.some((w) => w.ticker === ticker)) return;
-        if (current.length >= 20) return;
+        if (current.some((w) => w.ticker === ticker) || current.length >= 20) return;
         set({ watchlist: [...current, { ticker, name, source }] });
       },
-
-      removeFromWatchlist: (ticker) => {
-        set({ watchlist: get().watchlist.filter((w) => w.ticker !== ticker) });
-      },
-
+      removeFromWatchlist: (ticker) => set({ watchlist: get().watchlist.filter((w) => w.ticker !== ticker) }),
       reset: () => set(DEFAULTS),
     }),
     {
       name: "trademun-store",
-      version: 7,  // 🔴 فاز ۱۴.۷.۴ — از 6 به 7
-      migrate: (persistedState: unknown, version: number) => {
-        if (version < 7) {
-          const old = (persistedState ?? {}) as Record<string, unknown>;
-          return {
-            source: (old.source as Source) ?? "nobitex",
-            ticker: (old.ticker as string) ?? "BTC-USD",
-            tickerName: (old.tickerName as string) ?? "بیت‌کوین (USDT)",
-            timeframe: (old.timeframe as Timeframe) ?? "۱۵ دقیقه",
-            marketType: (old.marketType as MarketType) ?? "futures",
-            riskProfile: (old.riskProfile as RiskProfile) ?? "aggressive",
-            strategy: (old.strategy as Strategy) ?? "swing",
-            watchlist: Array.isArray(old.watchlist) ? old.watchlist : [],
-          };
+      version: 9,
+      migrate: (persistedState: any, version: number) => {
+        if (version < 9) {
+          return { ...DEFAULTS, ...persistedState };
         }
         return persistedState;
       },

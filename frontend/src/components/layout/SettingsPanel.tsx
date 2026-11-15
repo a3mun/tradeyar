@@ -22,12 +22,14 @@ import { useIsTouchDevice } from "@/lib/hooks/useDeviceType";
 import { InfoToast } from "@/components/ui/info-toast";
 import type { Timeframe, Source } from "@/lib/types";
 
+// 🔴 فاز ۱۶.۴ — اضافه شدن xaus
 const EXCHANGES_MAJOR: { name: string; logo: string; value: Source }[] = [
   { name: "نوبیتکس", logo: "/logos/nobitex.png", value: "nobitex" },
   { name: "بیت‌پین", logo: "/logos/bitpin.png", value: "bitpin" },
   { name: "والکس", logo: "/logos/wallex.png", value: "wallex" },
   { name: "تبدیل", logo: "/logos/tabdeal.png", value: "tabdeal" },
   { name: "بورس تهران", logo: "/logos/tsetmc.png", value: "tsetmc" },
+  { name: "طلا (فارکس)", logo: "/logos/xaus.png", value: "xaus" },
 ];
 
 const EXCHANGES_COMING_SOON = [
@@ -101,40 +103,34 @@ export function SettingsPanel() {
   const [toast, setToast] = useState<string | null>(null);
 
   const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
+  const isForex = ticker.toUpperCase().startsWith("XAU") || ticker.toUpperCase().startsWith("XAG");
+  
   const selectedMeta = SOURCE_BY_KEY[source];
   const isWallex = selectedMeta?.value === "wallex";
+  const isXaus = selectedMeta?.value === "xaus";
+  
   const allowedTfs = TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
 
   // ═══════════════════════════════════════════════════════════════
-  // 🔴 قفل‌ها (استراتژی هرگز قفل نمی‌شه — فقط بقیه)
+  // 🔴 قفل‌ها
   // ═══════════════════════════════════════════════════════════════
-  
-  // 🔴 استراتژی: فقط برای tsetmc قفل (اسکالپ بی‌معنی)
-  const isScalpLocked = isTsetmc;
-  
-  // 🔴 بازار: اگر اسکالپ فعاله → اسپات قفل
+  const isScalpLocked = isTsetmc || isForex; 
   const isSpotLocked = strategy === "scalp";
-  
-  // 🔴 ریسک: اگر اسکالپ فعاله → محتاطانه قفل
   const isConservativeLocked = strategy === "scalp";
 
-  // کلیک روی استراتژی
   const handleStrategyClick = (
     key: "scalp" | "swing" | "position",
     tooltip: string
   ) => {
-    // 🔴 فقط اسکالپ برای tsetmc قفل
-    if (isTsetmc && key === "scalp") {
-      if (isTouch) setToast("بورس تهران: اسکالپ معنی ندارد — سوئینگ یا پوزیشن");
+    if ((isTsetmc || isForex) && key === "scalp") {
+      if (isTouch) setToast(isForex ? "طلا: اسکالپ معنی ندارد — سوئینگ یا پوزیشن" : "بورس تهران: اسکالپ معنی ندارد — سوئینگ یا پوزیشن");
       return;
     }
     setStrategy(key);
     if (isTouch) setToast(tooltip);
   };
 
-  // Status badge
-  const strategyLabel =
-    STRATEGIES.find((s) => s.key === strategy)?.label || "";
+  const strategyLabel = STRATEGIES.find((s) => s.key === strategy)?.label || "";
   const marketLabel = marketType === "spot" ? "اسپات" : "فیوچرز";
   const riskLabel = riskProfile === "aggressive" ? "جسورانه" : "محتاطانه";
 
@@ -143,12 +139,11 @@ export function SettingsPanel() {
       <InfoToast message={toast} onClose={() => setToast(null)} />
 
       <Card className="text-sm border-white/10 bg-[#0d1b2d]">
-        <CardHeader className="px-3 py-1">
+        <CardHeader className="px-3 py-1 pb-1.5">
           <CardTitle className="flex items-center gap-2 text-sm font-display">
             <Settings className="h-4 w-4 text-[#d6ad60]" />
             تنظیمات
           </CardTitle>
-          {/* 🔴 وضعیت فعلی */}
           <div className="mt-1 flex flex-wrap items-center gap-1">
             <span className="rounded border border-[#d6ad60]/30 bg-[#d6ad60]/10 px-1.5 py-0.5 text-[7px] font-extrabold text-[#d6ad60]">
               {strategyLabel}
@@ -320,18 +315,23 @@ export function SettingsPanel() {
               ⚠️ والکس: فقط ۱ ساعت و روزانه
             </p>
           )}
-          {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && (
+          {isXaus && (
+            <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-400">
+              ℹ️ طلا (فارکس): فقط XAU-USD و XAG-USD
+            </p>
+          )}
+          {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && !isXaus && (
             <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-0.5 text-[8px] text-sky-400">
               ℹ️ {selectedMeta.label}: کندل ندارد — تحلیل از صرافی دیگر
             </p>
           )}
-          {!isTsetmc && selectedMeta?.unsupportedTfs?.length && !isWallex && (
+          {!isTsetmc && selectedMeta?.unsupportedTfs?.length && !isWallex && !isXaus && (
             <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-500">
               ℹ️ بدون {selectedMeta.unsupportedTfs.join("، ")}
             </p>
           )}
 
-          {/* ═══ ۴. استراتژی (اول) ═══ */}
+          {/* ═══ ۴. استراتژی ═══ */}
           <div className="space-y-1">
             <label className="flex items-center justify-between text-[10px] font-medium text-muted-foreground">
               <span>📊 استراتژی</span>
@@ -342,7 +342,7 @@ export function SettingsPanel() {
             <div className="grid grid-cols-3 gap-1">
               {STRATEGIES.map((s) => {
                 const isActive = strategy === s.key;
-                const isLocked = isTsetmc && s.key === "scalp";
+                const isLocked = (isTsetmc || isForex) && s.key === "scalp";
                 const Icon = s.icon;
 
                 return (
