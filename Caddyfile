@@ -1,4 +1,12 @@
 api.trademun.ir {
+    # 🔴 WebSocket (باید قبل از reverse_proxy عمومی باشه)
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @websocket api:7860
+
+    # بقیه درخواست‌ها (HTTP معمولی)
     reverse_proxy api:7860
     encode gzip
     log {

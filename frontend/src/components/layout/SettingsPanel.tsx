@@ -29,7 +29,7 @@ const EXCHANGES_MAJOR: { name: string; logo: string; value: Source }[] = [
   { name: "والکس", logo: "/logos/wallex.png", value: "wallex" },
   { name: "تبدیل", logo: "/logos/tabdeal.png", value: "tabdeal" },
   { name: "بورس تهران", logo: "/logos/tsetmc.png", value: "tsetmc" },
-  { name: "طلا (فارکس)", logo: "/logos/xaus.png", value: "xaus" },
+  { name: "xaus.com", logo: "/logos/xaus.png", value: "xaus" },
 ];
 
 const EXCHANGES_COMING_SOON = [
@@ -317,7 +317,7 @@ export function SettingsPanel() {
           )}
           {isXaus && (
             <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-400">
-              ℹ️ طلا (فارکس): فقط XAU-USD و XAG-USD
+              ℹ️ طلا : فقط XAU-USD
             </p>
           )}
           {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && !isXaus && (

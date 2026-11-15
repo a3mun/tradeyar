@@ -8,6 +8,8 @@ import type {
   Timeframe,
 } from "@/lib/types";
 
+import { sourceSupportsPair } from "@/lib/sources";
+
 interface WatchlistItem {
   ticker: string;
   name: string;
@@ -185,24 +187,30 @@ export const useAppStore = create<AppState>()(
             timeframe: "۱ ساعت" as Timeframe, 
             strategy: "swing" as Strategy,
           });
-        } else {
-          // 🔴 کریپتو: فیوچرز + ۱۵ دقیقه + سوئینگ (پیش‌فرض)
-          const currentSource = get().source as string;
-          const wasSpecialSource = currentSource === "tsetmc" || currentSource === "xaus";
+
+          } else {
+            // 🔴 کریپتو: فیوچرز + ۱۵ دقیقه + سوئینگ (پیش‌فرض)
+            const currentSource = get().source as string;
+            const wasSpecialSource = currentSource === "tsetmc" || currentSource === "xaus";
+            
+            // 🔴 اگه source فعلی از ticker جدید پشتیبانی می‌کنه، نگهش دار
+            const keepCurrentSource = sourceSupportsPair(currentSource, ticker);
+            const finalSource = keepCurrentSource ? currentSource : source;
+            
+            set({ 
+              ticker, 
+              tickerName, 
+              source: finalSource as Source,
+              ...(wasSpecialSource ? {
+                marketType: "futures" as MarketType,
+                timeframe: "۱۵ دقیقه" as Timeframe,
+                strategy: "swing" as Strategy,
+              } : {}),
+            });
+          }
           
-          set({ 
-            ticker, 
-            tickerName, 
-            source,
-            // اگه از بورس یا فارکس برگشتیم، market_type و strategy رو ریست کن
-            ...(wasSpecialSource ? {
-              marketType: "futures" as MarketType,
-              timeframe: "۱۵ دقیقه" as Timeframe,
-              strategy: "swing" as Strategy,
-            } : {}),
-          });
-        }
-        get().invalidateTfCache();
+
+          get().invalidateTfCache();
       },
       
       // ─── تنظیمات ───

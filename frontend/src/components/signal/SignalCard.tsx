@@ -1,13 +1,12 @@
 "use client";
 
 /**
- * SignalCard — کارت سیگنال (نسخه ۱۴.۹.۱ · رفع باگ پرش)
+ * SignalCard — کارت سیگنال (نسخه ۱۴.۹.۲ · فاز ۱۶.۵)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۴.۹.۱:
- *   • رفع باگ پرش: در useEffect اول، فوراً setData(null)
- *   • رفع ناهماهنگی SignalCard/TFTable: fetch یکسان
- *   • کلید استراتژی در fetch برای جلوگیری از race
- *   • حذف setData(cached) تکراری (فقط در صورت تازه بودن)
+ * 🔴 تغییرات نسخه ۱۴.۹.۲:
+ *   • polling قیمت از ۳ ثانیه به ۳۰ ثانیه افزایش یافت (fallback برای قطعی WebSocket)
+ *   • اولویت livePrice: WebSocket → polling → entryPrice (بدون تغییر)
+ *   • بقیه‌ی منطق و UI دست‌نخورده
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -53,7 +52,6 @@ import { CopyableNumber } from "@/components/ui/copyable-number";
 
 import {
   getConfidenceLevel,
-  getStrategyMinConf,
   isSignalActive,
   type ConfidenceLevel,
 } from "@/lib/thresholds";
@@ -360,7 +358,7 @@ const GOLDEN_STYLES = `
 `;
 
 export function SignalCard() {
-    const {
+  const {
     ticker,
     tickerName,
     source,
@@ -377,6 +375,42 @@ export function SignalCard() {
 
   const capability = useAnalysisCapability(source);
   const { quote, status: wsStatus } = useWebSocket();
+
+  // 🔴 فاز ۱۶.۵ — Polling قیمت به عنوان fallback
+  // interval از ۳ ثانیه به ۳۰ ثانیه (فشار کمتر روی سرور)
+  const [polledPrice, setPolledPrice] = useState<number>(0);
+
+  useEffect(() => {
+    if (!ticker || !source) return;
+    if (capability.planned || !sourceSupportsPair(source, ticker)) {
+      setPolledPrice(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchQuote = async () => {
+      try {
+        const res = await api.get("/analyze/quote", {
+          params: { ticker, source },
+        });
+        if (cancelled) return;
+        if (res.data?.price) {
+          setPolledPrice(res.data.price);
+        }
+      } catch {
+        // نادیده
+      }
+    };
+
+    fetchQuote();
+    const id = setInterval(fetchQuote, 30000); // 🔴 ۳۰ ثانیه
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [ticker, source, capability.planned]);
 
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -413,10 +447,8 @@ export function SignalCard() {
     return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
   })();
 
-  // 🔴 فاز ۱۴.۹.۱ — reset فوری روی تغییر تنظیمات (رفع باگ پرش)
-  // مهم: اول reset، بعد cache
+  // 🔴 reset فوری روی تغییر تنظیمات (رفع باگ پرش)
   useEffect(() => {
-    // ۱. reset کامل (پاک کردن داده قبلی قبل از fetch)
     setData(null);
     setError(null);
     setSparklineSeries([]);
@@ -426,19 +458,16 @@ export function SignalCard() {
     setAnimPrice(0);
     lastGoldenKeyRef.current = "";
 
-    // ۲. cache تازه؟ → فوری نشون بده، بدون fetch
     const cached = getTfData(timeframe);
     if (cached) {
       setData(cached);
       setLoading(false);
       return;
     }
-
-    // ۳. cache نیست → fetch (useEffect بعدی)
     setLoading(true);
   }, [strategy, ticker, timeframe, marketType, riskProfile, getTfData]);
 
-  // 🔴 فاز ۱۴.۹.۱ — fetch (فقط اگه cache نبود)
+  // 🔴 fetch تحلیل
   useEffect(() => {
     if (!ticker) return;
     if (capability.planned || !sourceSupportsPair(source, ticker)) {
@@ -454,7 +483,6 @@ export function SignalCard() {
       };
     }
 
-    // اگر cache تازه هست → skip fetch (چون useEffect بالا setData کرد)
     const cached = getTfData(timeframe);
     if (cached) return;
 
@@ -463,40 +491,39 @@ export function SignalCard() {
       if (cancelled) return;
       setLoading(true);
       setError(null);
-      
+
       (async () => {
-    try {
-        const res = await api.post<AnalyzeResponse>("/analyze", {
-          ticker,
-          source,
-          timeframe,
-          market_type: marketType,
-          risk_profile: riskProfile,
-          strategy,
-          ticker_name: tickerName,
-        });
-        if (cancelled) return;
-        setData(res.data);
-        setError(null);
-        // sync با TFTable
-        setTfData(timeframe, res.data);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        const detail = (err as { response?: { data?: { detail?: unknown } } })
-          ?.response?.data?.detail;
-        let msg = "تحلیل ناموفق بود";
-        if (typeof detail === "string") msg = detail;
-        else if (Array.isArray(detail) && detail.length > 0) {
-          const first = detail[0] as { msg?: string } | undefined;
-          msg = first?.msg || msg;
+        try {
+          const res = await api.post<AnalyzeResponse>("/analyze", {
+            ticker,
+            source,
+            timeframe,
+            market_type: marketType,
+            risk_profile: riskProfile,
+            strategy,
+            ticker_name: tickerName,
+          });
+          if (cancelled) return;
+          setData(res.data);
+          setError(null);
+          setTfData(timeframe, res.data);
+        } catch (err: unknown) {
+          if (cancelled) return;
+          const detail = (err as { response?: { data?: { detail?: unknown } } })
+            ?.response?.data?.detail;
+          let msg = "تحلیل ناموفق بود";
+          if (typeof detail === "string") msg = detail;
+          else if (Array.isArray(detail) && detail.length > 0) {
+            const first = detail[0] as { msg?: string } | undefined;
+            msg = first?.msg || msg;
+          }
+          setError(msg);
+          setData(null);
+        } finally {
+          if (!cancelled) setLoading(false);
         }
-        setError(msg);
-        setData(null);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    }, 1000); // پایان setTimeout
+      })();
+    }, 1000);
 
     return () => {
       cancelled = true;
@@ -515,6 +542,7 @@ export function SignalCard() {
     setTfData,
   ]);
 
+  // 🔴 fetch sparkline
   useEffect(() => {
     if (!ticker) {
       setSparklineSeries([]);
@@ -558,7 +586,41 @@ export function SignalCard() {
   }, [ticker, source, timeframe, strategy, capability.planned]);
 
   const entryPrice = data?.price ?? 0;
-  const livePrice = quote?.price ?? entryPrice ?? 0;
+  // 🔴 اولویت: WebSocket (زنده‌ترین) → Polling (fallback) → entryPrice
+  const livePrice = quote?.price || polledPrice || entryPrice || 0;
+
+    // 🔴 گام B: به‌روزرسانی آخرین نقطه‌ی Sparkline با livePrice
+  // interval بر اساس تایم‌فریم: ۱ دقیقه → ۶۰s، ۵ دقیقه → ۳۰۰s، ...
+  useEffect(() => {
+    if (!livePrice || livePrice <= 0) return;
+
+    const TF_TO_MS: Record<string, number> = {
+      "۱ دقیقه": 60_000,
+      "۵ دقیقه": 300_000,
+      "۱۵ دقیقه": 900_000,
+      "۳۰ دقیقه": 1_800_000,
+      "۱ ساعت": 3_600_000,
+      "روزانه": 86_400_000,
+    };
+
+    const intervalMs = TF_TO_MS[timeframe] || 60_000;
+
+    const updateSparkline = () => {
+      setSparklineSeries((prev) => {
+        if (!prev || prev.length < 2) return prev;
+        const next = [...prev];
+        next[next.length - 1] = livePrice;
+        return next;
+      });
+    };
+
+    // بار اول اجرا کن
+    updateSparkline();
+
+    // بعد هر intervalMs
+    const id = setInterval(updateSparkline, intervalMs);
+    return () => clearInterval(id);
+  }, [livePrice, timeframe]);
 
   useEffect(() => {
     if (!livePrice || livePrice <= 0) return;
@@ -625,28 +687,30 @@ export function SignalCard() {
     if (!cardRef.current || sharing || !data) return;
     setSharing(true);
     try {
-      // ۱. گرفتن کپشن از بک‌اند
       let captionText = `تحلیل ${data.name || data.ticker} از Trademun\n🔗 trademun.ir`;
       try {
-        const captionRes = await api.post<{ ok: boolean; caption: string }>("/share/caption", {
-          ticker: data.ticker,
-          name: data.name,
-          source: data.source_used || data.source,
-          tf: data.timeframe,
-          signal: data.signal,
-          direction: data.direction,
-          confidence: data.confidence,
-          strategy: data.strategy,
-          market_type: data.market_type,
-          risk_profile: data.risk_profile,
-          price: data.price,
-          sl: data.sl,
-          tp: data.tp,
-          rr: data.rr,
-          rr_net: data.rr_net,
-          tp_levels: data.tp_levels,
-          traps: data.traps,
-        });
+        const captionRes = await api.post<{ ok: boolean; caption: string }>(
+          "/share/caption",
+          {
+            ticker: data.ticker,
+            name: data.name,
+            source: data.source_used || data.source,
+            tf: data.timeframe,
+            signal: data.signal,
+            direction: data.direction,
+            confidence: data.confidence,
+            strategy: data.strategy,
+            market_type: data.market_type,
+            risk_profile: data.risk_profile,
+            price: data.price,
+            sl: data.sl,
+            tp: data.tp,
+            rr: data.rr,
+            rr_net: data.rr_net,
+            tp_levels: data.tp_levels,
+            traps: data.traps,
+          }
+        );
         if (captionRes.data.ok && captionRes.data.caption) {
           captionText = captionRes.data.caption;
         }
@@ -654,7 +718,6 @@ export function SignalCard() {
         console.warn("خطا در گرفتن کپشن، از متن پیش‌فرض استفاده میشه", e);
       }
 
-      // ۲. گرفتن عکس کارت
       const { toBlob } = await import("html-to-image");
       const blob = await toBlob(cardRef.current, {
         backgroundColor: "#0a0e1a",
@@ -668,8 +731,7 @@ export function SignalCard() {
       const nav = navigator as Navigator & {
         canShare?: (d: { files: File[]; text?: string }) => boolean;
       };
-      
-      // ۳. اشتراک‌گذاری با کپشن (اگه موبایل بود)
+
       if (
         isMobile &&
         typeof nav.share === "function" &&
@@ -687,8 +749,7 @@ export function SignalCard() {
           if ((err as Error)?.name === "AbortError") return;
         }
       }
-      
-      // ۴. دانلود عکس + کپی متن توی کلیپ‌بورد (دسکتاپ)
+
       const link = document.createElement("a");
       link.download = fileName;
       const url = URL.createObjectURL(blob);
@@ -697,8 +758,7 @@ export function SignalCard() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
-      // کپی کپشن توی کلیپ‌بورد
+
       try {
         await navigator.clipboard.writeText(captionText);
       } catch (clipErr) {
@@ -710,7 +770,7 @@ export function SignalCard() {
       setSharing(false);
     }
   };
-  
+
   if (capability.planned) {
     return (
       <AnalysisUnavailable
@@ -1159,21 +1219,30 @@ export function SignalCard() {
                 <div
                   className="mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1"
                   style={{
-                    background: isActiveSignal ? pillStyle.bg : "rgba(100,116,139,0.08)",
-                    borderColor: isActiveSignal ? pillStyle.border : "rgba(100,116,139,0.25)",
+                    background: isActiveSignal
+                      ? pillStyle.bg
+                      : "rgba(100,116,139,0.08)",
+                    borderColor: isActiveSignal
+                      ? pillStyle.border
+                      : "rgba(100,116,139,0.25)",
                     color: isActiveSignal ? pillStyle.color : "#94a3b8",
                     boxShadow: isActiveSignal ? pillStyle.boxShadow : "none",
                     textShadow: isActiveSignal ? pillStyle.textShadow : "none",
                     opacity: isActiveSignal ? pillStyle.opacity : 0.6,
                     borderWidth:
-                      isActiveSignal && confidenceLevel === "golden" ? "2px" : "1px",
+                      isActiveSignal && confidenceLevel === "golden"
+                        ? "2px"
+                        : "1px",
                   }}
                 >
                   <SignalIcon
                     className="h-3.5 w-3.5 shrink-0"
                     style={
                       isActiveSignal && confidenceLevel === "golden"
-                        ? { animation: "golden-icon-glow 1.5s ease-in-out infinite" }
+                        ? {
+                            animation:
+                              "golden-icon-glow 1.5s ease-in-out infinite",
+                          }
                         : undefined
                     }
                   />

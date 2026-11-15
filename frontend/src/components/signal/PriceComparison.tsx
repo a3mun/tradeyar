@@ -30,7 +30,7 @@ import {
   sourceSupportsPair,
 } from "@/lib/sources";
 
-const POLL_MS = 10000;
+const POLL_MS = 15000;
 
 interface QuoteRow {
   source: string;

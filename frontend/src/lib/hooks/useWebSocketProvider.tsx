@@ -3,13 +3,11 @@
 /**
  * useWebSocketProvider — اتصال WebSocket مرکزی
  * ============================================================
- * نسخه ۲.۰ · فاز ۱۴.۷.۲
+ * نسخه ۲.۱ · فاز ۱۶.۵
  *
- * 🔴 تغییرات نسخه ۲.۰:
- *   • حذف signal از context (جایگزین: tfDataCache در useAppStore)
- *   • فقط quote + orderbook + status
- *   • filter ticker (بدون تغییر)
- *   • رفع باگ «signal با strategy اشتباه»
+ * 🔴 تغییرات نسخه ۲.۱:
+ *   • رفع باگ closure در sendSubscribe (استفاده از useRef)
+ *   • استفاده از NEXT_PUBLIC_WS_URL در صورت وجود
  */
 
 import {
@@ -65,7 +63,6 @@ interface WSContextValue {
   quote: QuoteData | null;
   orderbook: OrderBookData | null;
   status: WSStatus;
-  // ❌ signal حذف شد — از tfDataCache استفاده کن
 }
 
 const WSContext = createContext<WSContextValue>({
@@ -80,6 +77,11 @@ const PING_INTERVAL = 25_000;
 
 // ═══ WS URL ═══
 function buildWsUrl(): string {
+  // اگر متغیر NEXT_PUBLIC_WS_URL تنظیم شده باشد، از آن استفاده کن
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+  // در غیر این صورت از NEXT_PUBLIC_API_URL بساز
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const wsBase = apiUrl.replace(/^http/, "ws");
   return `${wsBase}/api/ws/live`;
@@ -125,6 +127,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [ticker, source, timeframe, marketType, riskProfile, tickerName]
   );
 
+  // 🔴 رفع باگ: نگهداری آخرین نسخه از sendSubscribe در یک Ref
+  const sendSubscribeRef = useRef(sendSubscribe);
+  useEffect(() => {
+    sendSubscribeRef.current = sendSubscribe;
+  }, [sendSubscribe]);
+
   // ─── اتصال ───
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -151,7 +159,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       backoffIdxRef.current = 0;
       setStatus("connected");
 
-      sendSubscribe(ws);
+      // 🔴 استفاده از آخرین نسخه sendSubscribe از Ref
+      sendSubscribeRef.current(ws);
 
       if (pingTimerRef.current) clearInterval(pingTimerRef.current);
       pingTimerRef.current = setInterval(() => {
@@ -174,7 +183,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           if (msg.data?.ticker && msg.data.ticker !== currentTicker) return;
           setOrderbook(msg.data);
         }
-        // ❌ signal حذف شد — از tfDataCache استفاده کن
       } catch {
         // JSON نامعتبر → نادیده
       }
@@ -209,7 +217,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         }, delay);
       }
     };
-  }, [sendSubscribe]);
+  }, []); // 🔴 connect دیگر به sendSubscribe وابسته نیست
 
   // ═══ mount: باز کردن اتصال ═══
   useEffect(() => {
@@ -229,20 +237,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         wsRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [connect]);
 
-  // ═══ تغییر نماد: پاک کردن + subscribe جدید ═══
+  // ═══ تغییر تنظیمات: پاک کردن + subscribe جدید ═══
   useEffect(() => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     setQuote(null);
     setOrderbook(null);
-    // ❌ setSignal حذف شد
 
-    sendSubscribe(ws);
-  }, [sendSubscribe]);
+    // 🔴 ارسال subscribe جدید با نسخه به‌روز از sendSubscribe
+    sendSubscribeRef.current(ws);
+  }, [sendSubscribe]); // این useEffect با تغییر تنظیمات اجرا می‌شود
 
   return (
     <WSContext.Provider value={{ quote, orderbook, status }}>

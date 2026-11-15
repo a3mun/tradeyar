@@ -35,11 +35,8 @@ NOBITEX_BASE = "https://apiv2.nobitex.ir"
 NOBITEX_TIMEOUT = 3  # 🔴 فاز ۱۴.۹.۵ — از 15 به 3 (سریع‌تر fallback)
 
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
+    # 🔴 نوبیتکس فقط User-Agent از نوع TraderBot/... رو قبول می‌کنه
+    "User-Agent": "TraderBot/Trademun-1.0.0",
     "Accept": "application/json",
 }
 

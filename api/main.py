@@ -77,6 +77,34 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[TabdealWS] failed: {e}")
 
+    # 🔴 فاز ۱۶.۵ — شروع WebSocket نوبیتکس (قیمت لحظه‌ای)
+    try:
+        from core.nobitex_ws import start_nobitex_ws
+
+        start_nobitex_ws()
+        logger.info("✅ Nobitex WebSocket started")
+    except Exception as e:
+        logger.warning(f"[NobitexWS] failed: {e}")
+
+    # 🔴 فاز ۱۶.۵ — شروع WebSocket بیت‌پین
+    try:
+        from core.bitpin_ws import start_bitpin_ws
+
+        start_bitpin_ws()
+        logger.info("✅ Bitpin WebSocket started")
+    except Exception as e:
+        logger.warning(f"[BitpinWS] failed: {e}")
+
+
+    # 🔴 فاز ۱۶.۵ — شروع WebSocket والکس
+    try:
+        from core.wallex_ws import start_wallex_ws
+
+        start_wallex_ws()
+        logger.info("✅ Wallex WebSocket started")
+    except Exception as e:
+        logger.warning(f"[WallexWS] failed: {e}")
+
     yield
     logger.info("👋 خداحافظ")
 

@@ -443,26 +443,9 @@ def fetch_history_by_source(
 
     # ═══ تبدیل (Tabdeal) ═══
     if source == "tabdeal":
-        # 🔴 فاز ۱۶.۴ — از کندل‌های ساخته‌شده از WebSocket استفاده کن
-        try:
-            from core.candle_builder import get_candles
-
-            candles = get_candles("tabdeal", ticker, tf_name, limit=200)
-            if candles and len(candles) >= 20:
-                df = pd.DataFrame(candles)
-                df["time"] = pd.to_datetime(df["timestamp"], utc=True)
-                df.set_index("time", inplace=True)
-                df = df[["open", "high", "low", "close", "volume"]]
-                df.sort_index(inplace=True)
-                return _tag_source(df, "tabdeal")
-
-            logger.debug(
-                f"[Fetcher] {ticker}: تبدیل کندل کافی ندارد "
-                f"({len(candles) if candles else 0} از ۲۰) — fallback به نوبیتکس"
-            )
-        except Exception as e:
-            logger.warning(f"[Fetcher] tabdeal candles {ticker}: {e}")
-
+        # 🔴 تبدیل OHLCV عمومی ندارد — کندل‌سازی از WebSocket ناقصه
+        # پس مستقیم به نوبیتکس fallback می‌کنیم (کندل کامل)
+        logger.debug(f"[Fetcher] tabdeal {ticker}: OHLCV ندارد — fallback به نوبیتکس")
         return None
 
     # ═══ بورس تهران ═══

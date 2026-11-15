@@ -20,6 +20,7 @@ python-dotenv>=1.0.0
 
 # ─── WebSocket ───
 websockets>=13.0
+centrifuge-python>=0.2.0
 
 # ─── Database ───
 sqlmodel>=0.0.22

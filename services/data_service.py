@@ -7,6 +7,10 @@ services/data_service.py
 🔴 تغییرات نسخه ۱.۷:
   • تابع `_validate_ohlcv` برای حذف کندل‌های تکراری، OHLC اشتباه و مرتب‌سازی زمانی.
   • اعتبارسنجی **قبل از** ذخیره در کش انجام می‌شود تا `single-flight` سالم بماند.
+
+🔴 تغییرات نسخه ۱.۸ (فاز ۱۶.۵):
+  • رفع باگ `/10` مضاعف در `fetch_quote`
+  • اولویت: WebSocket نوبیتکس → REST نوبیتکس → بقیه صرافی‌ها
 """
 
 import logging
@@ -327,8 +331,102 @@ def _fetch_ohlcv_uncached(
 # ═══════════════════════════════════════════════════════════
 def fetch_quote(ticker, source="nobitex"):
     """
-    قیمت لحظه‌ای — **مستقل از هر صرافی**.
+    قیمت لحظه‌ای.
+
+    🔴 فاز ۱۶.۵ — اولویت:
+      ۱. WebSocket نوبیتکس (اگر source=nobitex) — سریع‌ترین
+      ۲. REST صرافی (بقیه صرافی‌ها یا fallback)
+
+    ⚠️ WebSocket نوبیتکس قیمت `-IRT` رو قبلاً `/10` کرده (ریال → تومان).
+       پس این تابع **نباید دوباره `/10`** کنه.
     """
+    # 🔴 فاز ۱۶.۵ — اول از WebSocket نوبیتکس (اگه source=nobitex)
+    if source == "nobitex":
+        try:
+            from core.nobitex_ws import get_nobitex_price, get_nobitex_stats
+
+            price = get_nobitex_price(ticker)
+            if price is not None and price > 0:
+                # `price` از orderbook (سریع) — قبلاً تومانی شده
+                # `change_pct` از market-stats (دقیق) — ممکنه چند ثانیه قدیمی‌تر باشه
+                stats = get_nobitex_stats(ticker) or {}
+                try:
+                    change_pct = float(stats.get("dayChange", 0) or 0)
+                except (TypeError, ValueError):
+                    change_pct = 0.0
+
+                return {
+                    "ticker": ticker,
+                    "price": price,
+                    "change_pct": change_pct,
+                    "source": "nobitex",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] WS nobitex: {e!r}")
+
+    # 🔴 فاز ۱۶.۵ — WebSocket بیت‌پین
+    if source == "bitpin":
+        try:
+            from core.bitpin_ws import get_bitpin_price, get_bitpin_stats
+
+            price = get_bitpin_price(ticker)
+            if price is not None and price > 0:
+                # قیمت از candle_update (هر ۱۰ ثانیه)
+                # change_pct از REST (چون candle_update نداره)
+                stats = get_bitpin_stats(ticker) or {}
+                try:
+                    change_pct = float(stats.get("change", 0) or 0)
+                except (TypeError, ValueError):
+                    change_pct = 0.0
+
+                return {
+                    "ticker": ticker,
+                    "price": price,
+                    "change_pct": change_pct,
+                    "source": "bitpin",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] WS bitpin: {e!r}")
+
+    # 🔴 فاز ۱۶.۵ — WebSocket تبدیل
+    if source == "tabdeal":
+        try:
+            from core.tabdeal_ws import get_tabdeal_price
+
+            ws_data = get_tabdeal_price(ticker)
+            if ws_data and ws_data.get("price"):
+                return {
+                    "ticker": ticker,
+                    "price": float(ws_data["price"]),
+                    "change_pct": 0.0,  # WebSocket تغییر ۲۴س نداره
+                    "source": "tabdeal",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] WS tabdeal: {e!r}")
+
+    # 🔴 فاز ۱۶.۵ — WebSocket والکس
+    if source == "wallex":
+        try:
+            from core.wallex_ws import get_wallex_price, get_wallex_stats
+
+            price = get_wallex_price(ticker)
+            if price is not None and price > 0:
+                stats = get_wallex_stats(ticker) or {}
+                try:
+                    change_pct = float(stats.get("24h_ch", 0) or 0)
+                except (TypeError, ValueError):
+                    change_pct = 0.0
+
+                return {
+                    "ticker": ticker,
+                    "price": price,
+                    "change_pct": change_pct,
+                    "source": "wallex",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] WS wallex: {e!r}")
+
+    # ─── fallback به REST (برای بقیه صرافی‌ها) ───
     cache_key = f"quote:{ticker}:{source}"
     cached = quote_cache.get(cache_key)
     if cached is not None:
@@ -341,7 +439,7 @@ def fetch_quote(ticker, source="nobitex"):
         result = None
 
     if result:
-        quote_cache.set(cache_key, result, 5)
+        quote_cache.set(cache_key, result, 1)
     return result
 
 
