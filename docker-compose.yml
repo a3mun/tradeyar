@@ -30,6 +30,8 @@ services:
         max-file: "2"
 
   api:
+    # 🔴 فاز ۱۶.۴ — اسم ثابت برای image مشترک با scheduler
+    image: trademun-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -59,9 +61,8 @@ services:
         max-file: "3"
 
   scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # 🔴 فاز ۱۶.۴ — از همون image مشترک استفاده می‌کنه (بدون build)
+    image: trademun-backend:latest
     container_name: trademun-scheduler
     restart: unless-stopped
     command: ["python", "-m", "api.scheduler_worker"]
@@ -82,6 +83,8 @@ services:
         max-file: "3"
 
   frontend:
+    # 🔴 فاز ۱۶.۴ — اسم ثابت برای image فرانت
+    image: trademun-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile

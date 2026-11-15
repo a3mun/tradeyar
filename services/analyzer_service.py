@@ -582,11 +582,11 @@ def analyze(
     return output
 
 
-# 🔴 فاز ۱۴.۹.۵ — pre-warm cache برای نمادهای پرمعامله
+# 🔴 فاز ۱۶.۴ — pre-warm cache (فقط ۲ نماد پرمعامله برای کاهش بار سرور)
+# ⚠️ بقیه نمادها و TFها اولین بار ۵-۷ ثانیه صبر می‌کنن، بعدش کش می‌شن.
 _PREWARM_SYMBOLS = [
-    ("BTC-USD", "nobitex", "futures"),
-    ("ETH-USD", "nobitex", "futures"),
-    ("BTC-IRT", "nobitex", "spot"),
+    ("BTC-USD", "nobitex", "futures"),  # بیت‌کوین (دلاری)
+    ("XAUT-USD", "nobitex", "futures"),  # تتر گلد (دلاری)
 ]
 
 
@@ -596,7 +596,8 @@ def prewarm_cache():
 
     def _warm_one(ticker, source, market_type):
         try:
-            for tf in ["۵ دقیقه", "۱۵ دقیقه", "۱ ساعت"]:
+            # 🔴 فاز ۱۶.۴ — فقط ۲ TF (۵ دقیقه و ۱ ساعت)
+            for tf in ["۵ دقیقه", "۱ ساعت"]:
                 analyze(
                     ticker=ticker,
                     source=source,

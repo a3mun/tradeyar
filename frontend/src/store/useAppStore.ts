@@ -166,15 +166,45 @@ export const useAppStore = create<AppState>()(
 
       selectSymbol: (ticker, tickerName, source) => {
         if (isTsetmcTicker(ticker)) {
-          set({ ticker, tickerName, source: "tsetmc" as Source, marketType: "spot" as MarketType, timeframe: "روزانه" as Timeframe });
+          // 🔴 بورس تهران: اسپات + روزانه + سوئینگ
+          set({ 
+            ticker, 
+            tickerName, 
+            source: "tsetmc" as Source, 
+            marketType: "spot" as MarketType, 
+            timeframe: "روزانه" as Timeframe,
+            strategy: "swing" as Strategy,  // 🔴 اضافه شد
+          });
         } else if (ticker === "XAU-USD") {
-          set({ ticker, tickerName, source: "xaus" as Source, marketType: "spot" as MarketType, timeframe: "۱ ساعت" as Timeframe, strategy: "swing" as Strategy });
+          // 🔴 طلا: اسپات + ۱ ساعت + سوئینگ
+          set({ 
+            ticker, 
+            tickerName, 
+            source: "xaus" as Source, 
+            marketType: "spot" as MarketType, 
+            timeframe: "۱ ساعت" as Timeframe, 
+            strategy: "swing" as Strategy,
+          });
         } else {
-          set({ ticker, tickerName, source });
+          // 🔴 کریپتو: فیوچرز + ۱۵ دقیقه + سوئینگ (پیش‌فرض)
+          const currentSource = get().source as string;
+          const wasSpecialSource = currentSource === "tsetmc" || currentSource === "xaus";
+          
+          set({ 
+            ticker, 
+            tickerName, 
+            source,
+            // اگه از بورس یا فارکس برگشتیم، market_type و strategy رو ریست کن
+            ...(wasSpecialSource ? {
+              marketType: "futures" as MarketType,
+              timeframe: "۱۵ دقیقه" as Timeframe,
+              strategy: "swing" as Strategy,
+            } : {}),
+          });
         }
         get().invalidateTfCache();
       },
-
+      
       // ─── تنظیمات ───
       setTimeframe: (timeframe) => {
         const updates: Partial<AppState> = { timeframe };
