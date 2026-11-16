@@ -382,16 +382,16 @@ def fetch_history_by_source(
         )
         return _next("nobitex", "bitpin", "wallex")
 
-    # ═══ XAUS.com (برای طلا/نقره) ═══
-    if source == "xaus":
+    # ═══ فارکس (Biquote) ═══
+    if source == "forex":
         try:
-            from core.xaus_fetcher import fetch_xaus_candles
+            from core.forex_fetcher import fetch_forex_candles
 
-            df = fetch_xaus_candles(ticker, tf_name)
+            df = fetch_forex_candles(ticker, tf_name)
             if df is not None and not df.empty:
-                return _tag_source(df, "xaus")
+                return _tag_source(df, "forex")
         except Exception as e:
-            logger.warning(f"[Fetcher] xaus {ticker}: {e}")
+            logger.warning(f"[Fetcher] forex {ticker}: {e}")
         return None
 
     # ═══ نوبیتکس ═══
@@ -502,21 +502,16 @@ def fetch_quote_by_source(ticker: str, source: str = "nobitex") -> dict | None:
     is_usdt_pair = normalized.endswith("-USD") or normalized.endswith("-USDT")
     is_irt_pair = normalized.endswith("-IRT") or normalized.endswith("-RLS")
 
-    # ═══ XAUS.com (برای طلا/نقره) ═══
-    if source == "xaus":
+    # ═══ فارکس (Biquote) ═══
+    if source == "forex":
         try:
-            from core.xaus_fetcher import fetch_xaus_ticker
+            from core.forex_fetcher import fetch_forex_ticker
 
-            t = fetch_xaus_ticker(normalized)
+            t = fetch_forex_ticker(normalized)
             if t and t.get("price"):
-                return {
-                    "ticker": normalized,
-                    "price": float(t["price"]),
-                    "change_pct": float(t.get("change_24h") or 0),
-                    "source": "xaus",
-                }
+                return t
         except Exception as e:
-            logger.warning(f"[Quote] xaus {normalized}: {e}")
+            logger.warning(f"[Quote] forex {normalized}: {e}")
         return None
 
     # ═══ نوبیتکس ═══
@@ -676,9 +671,20 @@ def source_has_market(ticker: str, source: str) -> bool:
 
     source = source.lower()
 
-    # ─── XAUS.com فقط طلا و نقره ───
-    if source == "xaus":
-        return ticker.upper() == "XAU-USD"
+    # ─── فارکس/کالا/شاخص: همه نمادهای forex ───
+    if source == "forex":
+        return ticker.upper() in (
+            "XAU-USD",
+            "XAG-USD",
+            "USOIL-USD",
+            "UKOIL-USD",
+            "DXY-USD",
+            "US500-USD",
+            "US30-USD",
+            "USTEC-USD",
+            "EUR-USD",
+            "DE30-USD",
+        )
 
     # ─── TSETMC فقط سهام بورس (نماد غیر-ASCII) ───
     if source == "tsetmc":

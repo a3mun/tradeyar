@@ -426,6 +426,38 @@ def fetch_quote(ticker, source="nobitex"):
         except Exception as e:
             logger.debug(f"[Quote] WS wallex: {e!r}")
 
+    # 🔴 فاز ۱۶.۵ — WebSocket فارکس (Biquote)
+    if source == "forex":
+        try:
+            from core.forex_ws import get_forex_price, get_forex_stats
+
+            price = get_forex_price(ticker)
+            if price is not None and price > 0:
+                stats = get_forex_stats(ticker) or {}
+                try:
+                    change_pct = float(stats.get("dayDiffPercent", 0) or 0)
+                except (TypeError, ValueError):
+                    change_pct = 0.0
+
+                return {
+                    "ticker": ticker,
+                    "price": price,
+                    "change_pct": change_pct,
+                    "source": "forex",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] WS forex: {e!r}")
+
+        # ─── fallback به REST (Biquote) ───
+        try:
+            from core.forex_fetcher import fetch_forex_ticker
+
+            t = fetch_forex_ticker(ticker)
+            if t and t.get("price"):
+                return t
+        except Exception as e:
+            logger.debug(f"[Quote] REST forex: {e!r}")
+
     # ─── fallback به REST (برای بقیه صرافی‌ها) ───
     cache_key = f"quote:{ticker}:{source}"
     cached = quote_cache.get(cache_key)

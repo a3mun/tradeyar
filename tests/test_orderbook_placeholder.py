@@ -279,7 +279,7 @@ class TestSourcesEndpoint:
 
         items = r.json()["items"]
         active = {i["value"] for i in items if i["active"]}
-        assert active == {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"}
+        assert active == {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"}
 
     @pytest.mark.anyio
     async def test_abantether_not_present(self, client):

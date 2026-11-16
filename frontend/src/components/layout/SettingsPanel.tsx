@@ -29,7 +29,7 @@ const EXCHANGES_MAJOR: { name: string; logo: string; value: Source }[] = [
   { name: "والکس", logo: "/logos/wallex.png", value: "wallex" },
   { name: "تبدیل", logo: "/logos/tabdeal.png", value: "tabdeal" },
   { name: "بورس تهران", logo: "/logos/tsetmc.png", value: "tsetmc" },
-  { name: "xaus.com", logo: "/logos/xaus.png", value: "xaus" },
+  { name: "فارکس", logo: "/logos/biquote.png", value: "forex" },
 ];
 
 const EXCHANGES_COMING_SOON = [
@@ -103,18 +103,19 @@ export function SettingsPanel() {
   const [toast, setToast] = useState<string | null>(null);
 
   const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
-  const isForex = ticker.toUpperCase().startsWith("XAU") || ticker.toUpperCase().startsWith("XAG");
+  const isForex = SOURCE_BY_KEY[source]?.isForex === true;
   
   const selectedMeta = SOURCE_BY_KEY[source];
   const isWallex = selectedMeta?.value === "wallex";
-  const isXaus = selectedMeta?.value === "xaus";
+
   
   const allowedTfs = TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
 
   // ═══════════════════════════════════════════════════════════════
   // 🔴 قفل‌ها
   // ═══════════════════════════════════════════════════════════════
-  const isScalpLocked = isTsetmc || isForex; 
+  // 🔴 فقط بورس تهران: اسکالپ قفل (فارکس آزاد)
+  const isScalpLocked = isTsetmc;
   const isSpotLocked = strategy === "scalp";
   const isConservativeLocked = strategy === "scalp";
 
@@ -122,8 +123,8 @@ export function SettingsPanel() {
     key: "scalp" | "swing" | "position",
     tooltip: string
   ) => {
-    if ((isTsetmc || isForex) && key === "scalp") {
-      if (isTouch) setToast(isForex ? "طلا: اسکالپ معنی ندارد — سوئینگ یا پوزیشن" : "بورس تهران: اسکالپ معنی ندارد — سوئینگ یا پوزیشن");
+    if (isTsetmc && key === "scalp") {
+      if (isTouch) setToast("بورس تهران: اسکالپ معنی ندارد — سوئینگ یا پوزیشن");
       return;
     }
     setStrategy(key);
@@ -315,17 +316,12 @@ export function SettingsPanel() {
               ⚠️ والکس: فقط ۱ ساعت و روزانه
             </p>
           )}
-          {isXaus && (
-            <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-400">
-              ℹ️ طلا : فقط XAU-USD
-            </p>
-          )}
-          {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && !isXaus && (
+          {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && (
             <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-0.5 text-[8px] text-sky-400">
               ℹ️ {selectedMeta.label}: کندل ندارد — تحلیل از صرافی دیگر
             </p>
           )}
-          {!isTsetmc && selectedMeta?.unsupportedTfs?.length && !isWallex && !isXaus && (
+          {!isTsetmc && selectedMeta?.unsupportedTfs?.length && !isWallex && (
             <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-500">
               ℹ️ بدون {selectedMeta.unsupportedTfs.join("، ")}
             </p>

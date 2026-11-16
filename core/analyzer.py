@@ -339,8 +339,34 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
             df["bb_lower"] = df["bb_mid"] = df["bb_upper"] = df["close"]
             df["bb_width_pct"] = 0.0
 
-        if "volume" in df.columns and df["volume"].sum() > 0 and n >= 20:
+        # 🔴 فاز ۱۶.۵ — اگه volume صفره (فارکس/CFD)، از range ساختگی بساز
+        has_volume = "volume" in df.columns and df["volume"].sum() > 0
+        if (
+            not has_volume
+            and "high" in df.columns
+            and "low" in df.columns
+            and "close" in df.columns
+        ):
+            df["volume"] = (
+                (df["high"] - df["low"]) / df["close"].replace(0, np.nan) * 1000
+            )
+            df["volume"] = df["volume"].fillna(0)
+            has_volume = df["volume"].sum() > 0
+
+            # 🔴 فاز ۱۶.۵ — اگه ستون‌های obv/vol_ma/cmf/mfi نیستن، compute_indicators رو صدا بزن
+            if has_volume and "obv" not in df.columns:
+                try:
+                    from .analyzer import compute_indicators
+
+                    df = compute_indicators(df)
+                except Exception as e:
+                    logger.warning(
+                        f"[Analyzer] _analyze_volume: compute_indicators failed: {e!r}"
+                    )
+
+        if has_volume and n >= 20:
             df["obv"] = ta.obv(df["close"], df["volume"])
+
             df["vol_ma"] = df["volume"].rolling(20).mean()
             try:
                 df["cmf"] = ta.cmf(
@@ -868,157 +894,167 @@ def _analyze_volume(
     orderbook: dict = None,
     regime: str = "range",
 ) -> dict:
-    reasons, signals = [], []
-    last = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) > 1 else last
-    price = safe_num(last["close"])
-    ob_details = {}
-    if orderbook and orderbook.get("imbalance") is not None:
-        from .orderbook import imbalance_vote
+    """تحلیل گروه حجم — نسخه ۲.۰ (فارکس/CFD بدون volume)."""
+    try:
+        reasons, signals = [], []
+        last = df.iloc[-1]
+        prev = df.iloc[-2] if len(df) > 1 else last
+        price = safe_num(last["close"])
+        ob_details = {}
 
-        imb = float(orderbook["imbalance"])
-        ob_vote, ob_score = imbalance_vote(imb)
-        pressure = orderbook.get("pressure_fa", "")
-        ob_details = {
-            "imbalance": imb,
-            "spread_pct": orderbook.get("spread_pct"),
-            "pressure_fa": pressure,
-            "best_bid": orderbook.get("best_bid"),
-            "best_ask": orderbook.get("best_ask"),
-            "wall": orderbook.get("wall"),
-        }
-        if ob_vote != 0:
-            signals.append((ob_score * 0.8, 0.4))
-            reasons.append(f"عمق بازار: {pressure} (imbalance={imb:.2f})")
-        wall = orderbook.get("wall")
-        if wall:
-            side_fa = "خرید" if wall["side"] == "bid" else "فروش"
-            reasons.append(
-                f"🧱 دیوار سفارش {side_fa} در {wall['price']:,.2f} ({wall['ratio']:.1f}x)"
-            )
-        sp = orderbook.get("spread_pct") or 0
-        if sp > 0.5:
-            reasons.append(f"⚠️ اسپرد {sp:.2f}٪ — نقدینگی ضعیف")
-    has_volume = "volume" in df.columns and df["volume"].sum() > 0
-    if not has_volume:
+        # ─── orderbook (اگه موجود) ───
+        if orderbook and orderbook.get("imbalance") is not None:
+            try:
+                from .orderbook import imbalance_vote
+
+                imb = float(orderbook["imbalance"])
+                ob_vote, ob_score = imbalance_vote(imb)
+                pressure = orderbook.get("pressure_fa", "")
+                ob_details = {
+                    "imbalance": imb,
+                    "spread_pct": orderbook.get("spread_pct"),
+                    "pressure_fa": pressure,
+                    "best_bid": orderbook.get("best_bid"),
+                    "best_ask": orderbook.get("best_ask"),
+                    "wall": orderbook.get("wall"),
+                }
+                if ob_vote != 0:
+                    signals.append((ob_score * 0.8, 0.4))
+                    reasons.append(f"عمق بازار: {pressure} (imbalance={imb:.2f})")
+                wall = orderbook.get("wall")
+                if wall:
+                    side_fa = "خرید" if wall["side"] == "bid" else "فروش"
+                    reasons.append(
+                        f"🧱 دیوار سفارش {side_fa} در {wall['price']:,.2f} ({wall['ratio']:.1f}x)"
+                    )
+                sp = orderbook.get("spread_pct") or 0
+                if sp > 0.5:
+                    reasons.append(f"⚠️ اسپرد {sp:.2f}٪ — نقدینگی ضعیف")
+            except Exception:
+                pass
+
+        # ─── بررسی volume ───
+        has_volume = "volume" in df.columns and df["volume"].sum() > 0
+        if not has_volume:
+            # volume ساختگی از range کندل (برای فارکس/CFD)
+            if "high" in df.columns and "low" in df.columns and "close" in df.columns:
+                tmp = df.copy()
+                tmp["volume"] = (
+                    (tmp["high"] - tmp["low"])
+                    / tmp["close"].replace(0, float("nan"))
+                    * 1000
+                )
+                tmp["volume"] = tmp["volume"].fillna(0)
+                if tmp["volume"].sum() > 0:
+                    df = tmp
+                    has_volume = True
+
+        if not has_volume:
+            total_w = sum(w for _, w in signals)
+            score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
+            o_thr = _thresholds[2] if _thresholds else 0.25
+            vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
+            return {
+                "vote": vote,
+                "score": round(score, 3),
+                "reasons": reasons or ["حجم در دسترس نیست"],
+                "details": {**ob_details, "has_volume": False},
+                "weight": 1.0,
+            }
+
+        # ─── از اینجا: volume داریم ───
+        vol = safe_num(last.get("volume"), 0)
+        vol_ma = safe_num(last.get("vol_ma"), 0)
+        if vol_ma <= 0:
+            vol_ma = vol if vol > 0 else 1.0  # 🔴 fallback
+
+        # OBV — اگه ستون وجود نداره، 0
+        obv_last = safe_num(last.get("obv"), 0)
+        obv_prev = safe_num(prev.get("obv"), 0)
+        if obv_last > obv_prev:
+            signals.append((+0.5, 0.9))
+            reasons.append("OBV صعودی")
+        elif obv_last < obv_prev:
+            signals.append((-0.5, 0.9))
+            reasons.append("OBV نزولی")
+
+        # حجم نسبت به میانگین
+        vol_ratio = vol / vol_ma if vol_ma > 0 else 1.0
+        if vol_ma > 0:
+            if vol_ratio > 1.5:
+                reasons.append(f"حجم بالا ({vol_ratio:.1f}x)")
+                close_last = safe_num(last["close"])
+                close_prev = safe_num(prev["close"])
+                if close_last > close_prev:
+                    signals.append((+0.6, 0.8))
+                else:
+                    signals.append((-0.6, 0.8))
+            elif vol_ratio < 0.5:
+                reasons.append(f"حجم کم ({vol_ratio:.1f}x)")
+
+        # CMF
+        cmf = safe_num(last.get("cmf"), 0)
+        if cmf > 0.1:
+            signals.append((+0.7, 1.0))
+            reasons.append(f"CMF={cmf:.2f} ورودی")
+        elif cmf < -0.1:
+            signals.append((-0.7, 1.0))
+            reasons.append(f"CMF={cmf:.2f} خروجی")
+
+        # MFI
+        mfi = safe_num(last.get("mfi"), 50)
+        if mfi < 20:
+            signals.append((+0.8, 1.0))
+            reasons.append(f"MFI={mfi:.0f} اشباع فروش")
+        elif mfi > 80:
+            signals.append((-0.8, 1.0))
+            reasons.append(f"MFI={mfi:.0f} اشباع خرید")
+
+        # CVD
+        if "cvd" in df.columns:
+            cvd_last = safe_num(last.get("cvd"))
+            cvd_prev = safe_num(prev.get("cvd"))
+            delta_last = safe_num(last.get("delta"))
+            if cvd_last > cvd_prev:
+                signals.append((+0.5, 0.9))
+                reasons.append("CVD صعودی")
+            elif cvd_last < cvd_prev:
+                signals.append((-0.5, 0.9))
+                reasons.append("CVD نزولی")
+            if delta_last > 0:
+                signals.append((+0.4, 0.8))
+            elif delta_last < 0:
+                signals.append((-0.4, 0.8))
+
         total_w = sum(w for _, w in signals)
         score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
         o_thr = _thresholds[2] if _thresholds else 0.25
         vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
+
         return {
             "vote": vote,
             "score": round(score, 3),
-            "reasons": reasons or ["حجم در دسترس نیست"],
-            "details": {**ob_details, "has_volume": False},
+            "reasons": reasons,
+            "details": {
+                "obv": obv_last,
+                "vol_ratio": vol_ratio,
+                "cmf": cmf,
+                "mfi": mfi,
+                "cvd": safe_num(last.get("cvd")),
+                "delta": safe_num(last.get("delta")),
+                **ob_details,
+            },
             "weight": 1.0,
         }
-    obv_last = safe_num(last.get("obv"))
-    obv_prev = safe_num(prev.get("obv"))
-    if obv_last > obv_prev:
-        signals.append((+0.5, 0.9))
-        reasons.append("OBV صعودی")
-    elif obv_last < obv_prev:
-        signals.append((-0.5, 0.9))
-        reasons.append("OBV نزولی")
-    vol = safe_num(last.get("volume"))
-    vol_ma = safe_num(last.get("vol_ma"))
-    vol_ratio = vol / vol_ma if vol_ma > 0 else 1.0
-    if vol_ma > 0:
-        if vol_ratio > 1.5:
-            reasons.append(f"حجم بالا ({vol_ratio:.1f}x)")
-            close_last = safe_num(last["close"])
-            close_prev = safe_num(prev["close"])
-            if close_last > close_prev:
-                signals.append((+0.6, 0.8))
-            else:
-                signals.append((-0.6, 0.8))
-        elif vol_ratio < 0.5:
-            reasons.append(f"حجم کم ({vol_ratio:.1f}x)")
-    cmf = safe_num(last.get("cmf"), 0)
-    if "cvd" in df.columns:
-        cvd_last = safe_num(last.get("cvd"))
-        cvd_prev = safe_num(prev.get("cvd"))
-        delta_last = safe_num(last.get("delta"))
-        if cvd_last > cvd_prev:
-            signals.append((+0.5, 0.9))
-            reasons.append("CVD صعودی")
-        elif cvd_last < cvd_prev:
-            signals.append((-0.5, 0.9))
-            reasons.append("CVD نزولی")
-        if delta_last > 0:
-            signals.append((+0.4, 0.8))
-        elif delta_last < 0:
-            signals.append((-0.4, 0.8))
-        cvd_z = safe_num(last.get("cvd_zscore"), 0)
-        if regime == "trend":
-            if cvd_z > 2.5:
-                signals.append((-0.5, 0.7))
-                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع خرید")
-            elif cvd_z < -2.5:
-                signals.append((+0.5, 0.7))
-                reasons.append(f"CVD Z-Score={cvd_z:.1f} اشباع فروش")
-        else:
-            if cvd_z > 3.0:
-                signals.append((-0.3, 0.5))
-            elif cvd_z < -3.0:
-                signals.append((+0.3, 0.5))
-    if cmf > 0.1:
-        signals.append((+0.7, 1.0))
-        reasons.append(f"CMF={cmf:.2f} ورودی")
-    elif cmf < -0.1:
-        signals.append((-0.7, 1.0))
-        reasons.append(f"CMF={cmf:.2f} خروجی")
-    mfi = safe_num(last.get("mfi"), 50)
-    if mfi < 20:
-        signals.append((+0.8, 1.0))
-        reasons.append(f"MFI={mfi:.0f} اشباع فروش")
-    elif mfi > 80:
-        signals.append((-0.8, 1.0))
-        reasons.append(f"MFI={mfi:.0f} اشباع خرید")
-    if "vwap" in df.columns:
-        vwap = safe_num(last.get("vwap"))
-        if vwap > 0:
-            if price > vwap * 1.02:
-                signals.append((-0.4, 0.7))
-                reasons.append("قیمت بالای VWAP")
-            elif price < vwap * 0.98:
-                signals.append((+0.4, 0.7))
-                reasons.append("قیمت زیر VWAP")
-    if "volume" in df.columns and vol_ma > 0:
-        candle_range = safe_num(last["high"]) - safe_num(last["low"])
-        if candle_range > 0:
-            upper_wick = safe_num(last["high"]) - max(
-                safe_num(last["close"]), safe_num(last["open"])
-            )
-            lower_wick = min(
-                safe_num(last["close"]), safe_num(last["open"])
-            ) - safe_num(last["low"])
-            vol_spike = vol > vol_ma * 1.5
-            if vol_spike and lower_wick / candle_range > 0.66:
-                signals.append((+0.9, 1.3))
-                reasons.append("Absorption صعودی")
-            elif vol_spike and upper_wick / candle_range > 0.66:
-                signals.append((-0.9, 1.3))
-                reasons.append("Absorption نزولی")
-    total_w = sum(w for _, w in signals)
-    score = sum(s * w for s, w in signals) / total_w if total_w > 0 else 0.0
-    o_thr = _thresholds[2] if _thresholds else 0.25
-    vote = +1 if score > o_thr else (-1 if score < -o_thr else 0)
-    return {
-        "vote": vote,
-        "score": round(score, 3),
-        "reasons": reasons,
-        "details": {
-            "obv": obv_last,
-            "vol_ratio": vol_ratio,
-            "cmf": cmf,
-            "mfi": mfi,
-            "cvd": safe_num(last.get("cvd")),
-            "delta": safe_num(last.get("delta")),
-            **ob_details,
-        },
-        "weight": 1.0,
-    }
+    except Exception as e:
+        logger.error(f"[Analyzer] _analyze_volume: {e!r}", exc_info=True)
+        return {
+            "vote": 0,
+            "score": 0.0,
+            "reasons": [f"خطا: {e!r}"],
+            "details": {},
+            "weight": 1.0,
+        }
 
 
 def _analyze_structure(df: pd.DataFrame, _thresholds: tuple = None) -> dict:
@@ -1548,6 +1584,9 @@ def _aggregate_votes(
             "strength": strength_key,
             "strength_fa": strength_fa,
             "reasons": result.get("reasons", []),
+            "details": result.get(
+                "details", {}
+            ),  # 🔴 فاز ۱۶.۵ — details برای _analyze_volume
         }
 
     final_score = weighted_sum / total_weight if total_weight > 0 else 0.0

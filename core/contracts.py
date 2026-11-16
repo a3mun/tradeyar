@@ -41,7 +41,7 @@ class DataSource(str, Enum):
     WALLEX = "wallex"
     TABDEAL = "tabdeal"
     TSETMC = "tsetmc"
-    XAUS = "xaus"  # 🔴 طلا و نقره (فارکس/کالا)
+    FOREX = "forex"  # 🔴 فارکس، کالا، شاخص‌ها (Biquote)
 
     # ─── placeholder فاز ۷ ───
     RAMZINEX = "ramzinex"
@@ -56,7 +56,7 @@ class DataSource(str, Enum):
     @classmethod
     def active(cls) -> list[str]:
         """منابعی که **واقعاً** کار می‌کنند (بدون placeholder)"""
-        return ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"]
+        return ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"]
 
     @classmethod
     def planned(cls) -> list[str]:
@@ -72,7 +72,7 @@ class DataSource(str, Enum):
             "wallex": "🔵 والکس",
             "tabdeal": "🟠 تبدیل",
             "tsetmc": "🇮🇷 بورس تهران",
-            "xaus": "🥇 طلا (فارکس)",  # 🔴 جدید
+            "forex": "🌍 فارکس (Biquote)",  # 🔴 جدید
             # ─── به‌زودی ───
             "ramzinex": "🟡 رمزینکس (به‌زودی)",
             "toobit": "🟤 توبیت (به‌زودی)",
@@ -86,7 +86,7 @@ PLANNED_SOURCES: frozenset[str] = frozenset({"ramzinex", "toobit", "bingx", "bit
 
 # ─── صرافی‌های فعال ───
 ACTIVE_SOURCES: frozenset[str] = frozenset(
-    {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"}
+    {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"}
 )
 
 
@@ -419,8 +419,8 @@ def is_ohlcv_supported(tf_name: str, source: str) -> bool:
     if not tf_name or source not in TIMEFRAME_SOURCES:
         return False
 
-    # ─── XAUS.com: همه TF ها پشتیبانی می‌شن ───
-    if source == "xaus":
+    # ─── forex (Biquote): همه TFها پشتیبانی می‌شن ───
+    if source == "forex":
         return True
 
     # ─── TSETMC: فقط روزانه ───
@@ -442,7 +442,7 @@ def is_ohlcv_supported(tf_name: str, source: str) -> bool:
 
 # ─── منابع شناخته‌شده ───
 TIMEFRAME_SOURCES = frozenset(
-    {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"}
+    {"nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"}
 )
 
 
@@ -587,10 +587,10 @@ EXCHANGE_FEES: dict[str, dict] = {
         "spot_irt": {"maker": 0.0012, "taker": 0.0012},
         "futures": {"maker": 0.0012, "taker": 0.0012},
     },
-    # 🔴 فاز ۱۶.۴ — XAUS.com (طلا و نقره)
+    # 🔴 فاز ۱۶.۵ — Biquote (فارکس، کالا، شاخص)
     # ⚠️ کارمزد صرافی نیست، ولی برای محاسبه R:R لازمه.
     # 0.15% تخمینی برای اسپرد/کمیسیون بروکرهای فارکس.
-    "xaus": {
+    "forex": {
         "spot_usdt": {"maker": 0.0015, "taker": 0.0015},
         "spot_irt": {"maker": 0.0015, "taker": 0.0015},
         "futures": {"maker": 0.0015, "taker": 0.0015},

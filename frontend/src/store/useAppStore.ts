@@ -124,13 +124,13 @@ export const useAppStore = create<AppState>()(
         const currentSource = get().source as string;
         const newSource = source as string;
 
-        // اگر xaus انتخاب شد، خودکار برو روی طلا
-        if (newSource === "xaus") {
+        // اگر forex انتخاب شد، خودکار برو روی طلا
+        if (newSource === "forex") {
           set({
             source,
             ticker: "XAU-USD",
             tickerName: "🥇 انس طلا",
-            marketType: "spot" as MarketType,
+            marketType: "futures" as MarketType,  // 🔴 فیوچرز (مثل کریپتو)
             timeframe: "۱ ساعت" as Timeframe,
             strategy: "swing" as Strategy,
             riskProfile: "aggressive" as RiskProfile,
@@ -139,17 +139,18 @@ export const useAppStore = create<AppState>()(
           return;
         }
         
-        // اگر از xaus به صرافی دیگه رفتیم، نماد بره روی بیت‌کوین
-        if (currentSource === "xaus" && newSource !== "xaus") {
-           set({ 
-             source, 
-             ticker: "BTC-USD", 
-             tickerName: "بیت‌کوین (USDT)",
-             timeframe: "۱۵ دقیقه" as Timeframe 
-           });
-           get().invalidateTfCache();
-           return;
+        // اگر از forex به صرافی دیگه رفتیم، نماد بره روی بیت‌کوین
+        if (currentSource === "forex" && newSource !== "forex") {
+          set({
+            source,
+            ticker: "BTC-USD",
+            tickerName: "بیت‌کوین (USDT)",
+            timeframe: "۱۵ دقیقه" as Timeframe,
+          });
+          get().invalidateTfCache();
+          return;
         }
+        
 
         set({ source });
         get().invalidateTfCache();
@@ -158,9 +159,18 @@ export const useAppStore = create<AppState>()(
       setTicker: (ticker, tickerName) => {
         if (isTsetmcTicker(ticker)) {
           set({ ticker, tickerName: tickerName || ticker, source: "tsetmc" as Source, marketType: "spot" as MarketType, timeframe: "روزانه" as Timeframe });
-        } else if (ticker === "XAU-USD") {
-          set({ ticker, tickerName: tickerName || "🥇 انس طلا", source: "xaus" as Source, marketType: "spot" as MarketType, timeframe: "۱ ساعت" as Timeframe });
-        } else {
+
+        } else if (ticker === "XAU-USD" || ticker === "XAG-USD" || ticker === "USOIL-USD" || ticker === "UKOIL-USD" || ticker === "DXY-USD" || ticker === "US500-USD" || ticker === "US30-USD" || ticker === "USTEC-USD" || ticker === "EUR-USD" || ticker === "DE30-USD") {
+          set({
+            ticker,
+            tickerName: tickerName || ticker,
+            source: "forex" as Source,
+            marketType: "futures" as MarketType,
+            timeframe: "۱ ساعت" as Timeframe,
+            strategy: "swing" as Strategy,
+          });
+        }          
+          else {
           set({ ticker, tickerName: tickerName || ticker });
         }
         get().invalidateTfCache();
@@ -177,16 +187,16 @@ export const useAppStore = create<AppState>()(
             timeframe: "روزانه" as Timeframe,
             strategy: "swing" as Strategy,  // 🔴 اضافه شد
           });
-        } else if (ticker === "XAU-USD") {
-          // 🔴 طلا: اسپات + ۱ ساعت + سوئینگ
-          set({ 
-            ticker, 
-            tickerName, 
-            source: "xaus" as Source, 
-            marketType: "spot" as MarketType, 
-            timeframe: "۱ ساعت" as Timeframe, 
+
+        } else if (ticker === "XAU-USD" || ticker === "XAG-USD" || ticker === "USOIL-USD" || ticker === "UKOIL-USD" || ticker === "DXY-USD" || ticker === "US500-USD" || ticker === "US30-USD" || ticker === "USTEC-USD" || ticker === "EUR-USD" || ticker === "DE30-USD") {
+          set({
+            ticker,
+            tickerName: tickerName || ticker,
+            source: "forex" as Source,
+            marketType: "futures" as MarketType,
+            timeframe: "۱ ساعت" as Timeframe,
             strategy: "swing" as Strategy,
-          });
+          });          
 
           } else {
             // 🔴 کریپتو: فیوچرز + ۱۵ دقیقه + سوئینگ (پیش‌فرض)

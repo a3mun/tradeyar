@@ -25,9 +25,20 @@ def detect_source_for_ticker(ticker: str) -> str:
     if not ticker[0].isascii():
         return "tsetmc"
 
-    # 🔴 فارکس و کالا (طلا، نقره)
-    if upper in ("XAU-USD", "XAG-USD"):
-        return "xaus"
+    # 🔴 فارکس، کالا، شاخص (Biquote)
+    if upper in (
+        "XAU-USD",
+        "XAG-USD",
+        "USOIL-USD",
+        "UKOIL-USD",
+        "DXY-USD",
+        "US500-USD",
+        "US30-USD",
+        "USTEC-USD",
+        "EUR-USD",
+        "DE30-USD",
+    ):
+        return "forex"
 
     # ─── کریپتو تومانی/تتری ───
     if "-IRT" in upper or "-RLS" in upper:
@@ -54,22 +65,33 @@ def resolve_symbol_and_source(
     is_iranian_stock = not is_crypto
     upper = ticker.upper()
 
-    # 🔴 فارکس/کالا → همیشه xaus
-    if upper in ("XAU-USD", "XAG-USD"):
-        return ticker, "xaus", "🥇 سوییچ به فارکس"
+    # 🔴 فارکس/کالا/شاخص → همیشه forex
+    if upper in (
+        "XAU-USD",
+        "XAG-USD",
+        "USOIL-USD",
+        "UKOIL-USD",
+        "DXY-USD",
+        "US500-USD",
+        "US30-USD",
+        "USTEC-USD",
+        "EUR-USD",
+        "DE30-USD",
+    ):
+        return ticker, "forex", "🌍 سوییچ به فارکس"
 
-    # ═══ اگه نماد بورسی هست ولی صرافی کریپتو انتخاب شده ═══
+    # ═══ اگه نماد بورسی هست ولی صرافی کریپتو/فارکس انتخاب شده ═══
     if is_iranian_stock and source in (
         "nobitex",
         "bitpin",
         "wallex",
         "tabdeal",
-        "xaus",
+        "forex",
     ):
         return ticker, "tsetmc", "🇮🇷 سوییچ به بورس تهران"
 
     # ═══ اگه نماد کریپتو هست ولی صرافی بورس/فارکس انتخاب شده ═══
-    if is_crypto and source in ("tsetmc", "xaus"):
+    if is_crypto and source in ("tsetmc", "forex"):
         return ticker, "nobitex", "🔄 سوییچ به نوبیتکس"
 
     if source == "global":
@@ -84,7 +106,7 @@ def resolve_symbol_and_source(
 # حل منبع
 # ═══════════════════════════════════════════════════════════
 def resolve_source(source: str) -> str:
-    active = ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"]
+    active = ["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"]
     if source in active:
         return source
 
@@ -101,8 +123,8 @@ def is_symbol_available_in_source(ticker: str, source: str) -> bool:
     detected = detect_source_for_ticker(ticker)
     if detected == "tsetmc":
         return source == "tsetmc"
-    if detected == "xaus":
-        return source == "xaus"
+    if detected == "forex":
+        return source == "forex"
     return source in ("nobitex", "bitpin", "wallex", "tabdeal")
 
 
@@ -113,7 +135,7 @@ def get_default_symbol_for_source(source: str) -> str:
         "wallex": "BTC-USD",
         "tabdeal": "BTC-USD",
         "tsetmc": "فولاد",
-        "xaus": "XAU-USD",
+        "forex": "XAU-USD",
     }.get(source, "BTC-USD")
 
 
@@ -165,10 +187,10 @@ def get_source_info(source: str) -> dict:
             "supports_analysis": True,
         },
         # 🔴 جدید
-        "xaus": {
-            "icon": "🥇",
-            "short_name": "طلا (فارکس)",
-            "full_name": "XAUS.com — طلا و نقره",
+        "forex": {
+            "icon": "🌍",
+            "short_name": "فارکس",
+            "full_name": "Biquote — فارکس، کالا، شاخص‌ها",
             "supports_analysis": True,
         },
     }.get(

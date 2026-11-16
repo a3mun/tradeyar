@@ -25,7 +25,7 @@ class AnalyzeRequest(BaseModel):
     """بدنه درخواست POST /analyze"""
 
     ticker: str = Field(..., min_length=1, max_length=50)
-    source: Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus"] = (
+    source: Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "forex"] = (
         "nobitex"
     )
     timeframe: Literal[
@@ -184,7 +184,9 @@ class SymbolsResponse(BaseModel):
 # ۵. اسکنر
 # ═══════════════════════════════════════════════════════════
 class ScanRequest(BaseModel):
-    source: Optional[Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc"]] = None
+    source: Optional[
+        Literal["nobitex", "bitpin", "wallex", "tabdeal", "tsetmc", "xaus", "forex"]
+    ] = None
     category: Literal[
         "crypto", "forex", "us_stocks", "commodities", "indices", "iran_stocks"
     ] = "crypto"

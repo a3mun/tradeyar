@@ -95,7 +95,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"[BitpinWS] failed: {e}")
 
-
     # 🔴 فاز ۱۶.۵ — شروع WebSocket والکس
     try:
         from core.wallex_ws import start_wallex_ws
@@ -104,6 +103,15 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Wallex WebSocket started")
     except Exception as e:
         logger.warning(f"[WallexWS] failed: {e}")
+
+    # 🔴 فاز ۱۶.۵ — شروع WebSocket فارکس (Biquote)
+    try:
+        from core.forex_ws import start_forex_ws
+
+        start_forex_ws()
+        logger.info("✅ Forex WebSocket started")
+    except Exception as e:
+        logger.warning(f"[ForexWS] failed: {e}")
 
     yield
     logger.info("👋 خداحافظ")

@@ -8,7 +8,7 @@ export type Source =
   | "wallex"
   | "tabdeal"
   | "tsetmc"
-  | "xaus"  // 🔴 فاز ۱۶.۴ — طلا و کالا
+  | "forex"  // 🔴 فاز ۱۶.۵ — فارکس، کالا، شاخص (Biquote)
   | "ramzinex"
   | "toobit"
   | "bingx"
@@ -21,8 +21,8 @@ export type ActiveSource =
   | "wallex"
   | "tabdeal"
   | "tsetmc"
-  | "xaus";  // 🔴 فاز ۱۶.۴
-
+  | "forex";  // 🔴 فاز ۱۶.۵
+  
 export type PlannedSource = "ramzinex" | "toobit" | "bingx" | "bit24";
 
 export type MarketType = "spot" | "futures";
@@ -215,6 +215,7 @@ export interface SymbolItem {
   name: string;
   source: string;
   emoji?: string;
+  type?: string;  // 🔴 جدید
 }
 
 export interface SymbolsResponse {

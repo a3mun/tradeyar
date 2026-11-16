@@ -22,8 +22,18 @@ const POPULAR_CRYPTO: SymbolItem[] = [
   { ticker: "BNB-USD", name: "بایننس", source: "nobitex" },
 ];
 
+// 🔴 فاز ۱۶.۵ — فارکس (Biquote): ۱۰ نماد + BTC-USD برای مقایسه
 const POPULAR_FOREX: SymbolItem[] = [
-  { ticker: "XAU-USD", name: "انس طلا", source: "xaus" },
+  { ticker: "XAU-USD", name: "انس طلا", source: "forex", type: "کالا" },
+  { ticker: "XAG-USD", name: "انس نقره", source: "forex", type: "کالا" },
+  { ticker: "USOIL-USD", name: "نفت WTI", source: "forex", type: "کالا" },
+  { ticker: "UKOIL-USD", name: "نفت برنت", source: "forex", type: "کالا" },
+  { ticker: "DXY-USD", name: "شاخص دلار", source: "forex", type: "شاخص" },
+  { ticker: "US500-USD", name: "S&P 500", source: "forex", type: "شاخص" },
+  { ticker: "US30-USD", name: "داوجونز", source: "forex", type: "شاخص" },
+  { ticker: "USTEC-USD", name: "نزدک ۱۰۰", source: "forex", type: "شاخص" },
+  { ticker: "EUR-USD", name: "یورو/دلار", source: "forex", type: "فارکس" },
+  { ticker: "BTC-USD", name: "بیت‌کوین (جهانی)", source: "forex", type: "کریپتو" },
 ];
 
 // 🔴 فاز ۱۶.۴ — ۸ نماد پرمعامله بورس تهران (به ترتیب درخواست)
@@ -32,7 +42,7 @@ const POPULAR_IRAN_STOCKS: SymbolItem[] = [
   { ticker: "فارس", name: "پتروشیمی فارس", source: "tsetmc" },
   { ticker: "وتجارت", name: "بانک تجارت", source: "tsetmc" },
   { ticker: "خساپا", name: "سایپا", source: "tsetmc" },
-  { ticker: "خودرو", name: "ایران خودرو", source: "tsetmc" },  // 🔴 جایگزین شاخص
+  { ticker: "خودرو", name: "ایران خودرو", source: "tsetmc" },
   { ticker: "طلا", name: "صندوق طلا", source: "tsetmc" },
   { ticker: "نقرابی", name: "صندوق نقره", source: "tsetmc" },
   { ticker: "عیار", name: "صندوق عیار", source: "tsetmc" },
@@ -64,7 +74,7 @@ export function SymbolSelector() {
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>(
-    source === "xaus" ? "forex" : source === "tsetmc" ? "iran_stocks" : "crypto"
+    source === "forex" ? "forex" : source === "tsetmc" ? "iran_stocks" : "crypto"
   );
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -73,9 +83,9 @@ export function SymbolSelector() {
     activeTab === "forex" ? POPULAR_FOREX : 
     POPULAR_IRAN_STOCKS;
 
-  // 🔴 فاز ۱۶.۴ — همگام‌سازی تب با source
+  // 🔴 فاز ۱۶.۵ — همگام‌سازی تب با source
   useEffect(() => {
-    if (source === "xaus") setActiveTab("forex");
+    if (source === "forex") setActiveTab("forex");
     else if (source === "tsetmc") setActiveTab("iran_stocks");
     else setActiveTab("crypto");
   }, [source]);
@@ -126,7 +136,7 @@ export function SymbolSelector() {
     const isIranianStock = !item.ticker[0]?.match(/[A-Za-z]/);
     const finalSource = isIranianStock ? "tsetmc" : item.source;
 
-    if (item.source === "xaus") {
+    if (item.source === "forex") {
       setActiveTab("forex");
     } else if (item.source === "tsetmc") {
       setActiveTab("iran_stocks");
@@ -143,7 +153,7 @@ export function SymbolSelector() {
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     if (tab === "forex") {
-      selectSymbol("XAU-USD", "انس طلا", "xaus");
+      selectSymbol("XAU-USD", "انس طلا", "forex");
     } else if (tab === "crypto") {
       selectSymbol("BTC-USD", "بیت‌کوین", "nobitex");
     } else if (tab === "iran_stocks") {
@@ -295,6 +305,25 @@ export function SymbolSelector() {
                   
                   {isActive && (
                     <div className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#d6ad60] shadow-[0_0_8px_#d6ad60] animate-pulse" />
+                  )}
+
+                  {/* 🔴 فاز ۱۶.۵ — بج نوع (بالا-چپ) */}
+                  {item.type && (
+                    <span
+                      className={`absolute top-0.5 left-0.5 rounded px-1 py-0 text-[7px] font-bold ${
+                        item.type === "کالا"
+                          ? "bg-yellow-500/20 text-yellow-400"
+                          : item.type === "شاخص"
+                            ? "bg-purple-500/20 text-purple-400"
+                            : item.type === "فارکس"
+                              ? "bg-cyan-500/20 text-cyan-400"
+                              : item.type === "کریپتو"
+                                ? "bg-orange-500/20 text-orange-400"
+                                : "bg-muted/30 text-muted-foreground"
+                      }`}
+                    >
+                      {item.type}
+                    </span>
                   )}
 
                   {/* 🔴 فاز ۱۶.۴ — آیکون فقط برای کریپتو و فارکس، نه بورس */}

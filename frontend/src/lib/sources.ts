@@ -103,18 +103,19 @@ export const SOURCE_META: SourceMeta[] = [
     note: "فقط روزانه",
   },
   // 🔴 فاز ۱۶.۴ — فارکس و کالا (طلا/نقره)
+
   {
-    value: "xaus",
-    label: "طلا (فارکس)",
-    icon: "🥇",
-    logo: "/logos/xaus.png",
-    badgeClass: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+    value: "forex",
+    label: "فارکس",
+    icon: "🌍",
+    logo: "/logos/biquote.png",
+    badgeClass: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
     active: true,
     planned: false,
     hasOhlcv: true,
-    hasUsdt: true,  // (دلاری — برای نمایش در مقایسه قیمت)
+    hasUsdt: true,
     hasIrt: false,
-    note: "طلا و نقره جهانی — بدون محدودیت",
+    note: "فارکس، کالا، شاخص‌ها — Biquote",
     isForex: true,
   },
 ];
@@ -205,10 +206,10 @@ export const SOURCE_BY_KEY: Record<string, SourceMeta> = Object.fromEntries(
 
 /**
  * صرافی‌هایی که در **جدول مقایسه قیمت** پرسیده می‌شوند.
- * 🔴 tsetmc و xaus از این لیست خارج می‌شوند (فقط برای کریپتو).
+ * 🔴 tsetmc و  از این لیست خارج می‌شوند (فقط برای کریپتو).
  */
 export const QUOTE_SOURCE_META: SourceMeta[] = SOURCE_META.filter(
-  (s) => s.value !== "tsetmc" && s.value !== "xaus"
+  (s) => s.value !== "tsetmc"
 );
 
 /** چک: آیا این صرافی تحلیل (OHLCV) خودش را دارد؟ */
@@ -236,9 +237,22 @@ export function sourceSupportsPair(source: string, ticker: string): boolean {
 
   const upper = ticker.toUpperCase();
 
-  // 🔴 فاز ۱۶.۴ — XAUS فقط طلا (نقره فعلاً پشتیبانی نمی‌شود)
-  if (source === "xaus") {
-    return upper === "XAU-USD";
+  // 🔴 فاز ۱۶.۵ — فارکس (Biquote): کالا، شاخص، جفت‌ارز
+  if (source === "forex") {
+    return (
+      upper === "XAU-USD" ||
+      upper === "XAG-USD" ||
+      upper === "USOIL-USD" ||
+      upper === "UKOIL-USD" ||
+      upper === "DXY-USD" ||
+      upper === "US500-USD" ||
+      upper === "US30-USD" ||
+      upper === "USTEC-USD" ||
+      upper === "EUR-USD" ||
+      upper === "DE30-USD" ||
+      // 🟢 BTC-USD: برای مقایسه قیمت جهانی
+      (upper === "BTC-USD" && meta.hasUsdt)
+    );
   }
   
   const isUsdt = upper.endsWith("-USD") || upper.endsWith("-USDT");
