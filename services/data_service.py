@@ -389,6 +389,8 @@ def fetch_quote(ticker, source="nobitex"):
             logger.debug(f"[Quote] WS bitpin: {e!r}")
 
     # 🔴 فاز ۱۶.۵ — WebSocket تبدیل
+
+    # 🔴 فاز ۱۶.۵ — WebSocket تبدیل
     if source == "tabdeal":
         try:
             from core.tabdeal_ws import get_tabdeal_price
@@ -398,11 +400,26 @@ def fetch_quote(ticker, source="nobitex"):
                 return {
                     "ticker": ticker,
                     "price": float(ws_data["price"]),
-                    "change_pct": 0.0,  # WebSocket تغییر ۲۴س نداره
+                    "change_pct": 0.0,
                     "source": "tabdeal",
                 }
         except Exception as e:
             logger.debug(f"[Quote] WS tabdeal: {e!r}")
+
+        # 🔴 مسیر جدید: اگر WebSocket نداد، مستقیم از REST خود تبدیل بگیر
+        try:
+            from core.tabdeal_fetcher import fetch_tabdeal_ticker
+
+            t = fetch_tabdeal_ticker(ticker)
+            if t and t.get("price"):
+                return {
+                    "ticker": ticker,
+                    "price": float(t["price"]),
+                    "change_pct": float(t.get("change_24h", 0) or 0),
+                    "source": "tabdeal",
+                }
+        except Exception as e:
+            logger.debug(f"[Quote] REST tabdeal: {e!r}")
 
     # 🔴 فاز ۱۶.۵ — WebSocket والکس
     if source == "wallex":

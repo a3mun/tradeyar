@@ -1,15 +1,10 @@
 """
 api/routers/symbols.py
-Endpointهای نمادها
+Endpointهای نمادها — نسخه ۱۶.۹
 ============================================================
-- GET /symbols              → لیست همه نمادها
-- GET /symbols/popular      → نمادهای محبوب
-- GET /symbols/search       → جستجوی هوشمند
-- GET /symbols/iran-prices  → قیمت‌های ایران
-
-باگ ۶ (نسخه ۱.۵): ``get_iran_prices`` دو درخواست HTTP اسکرپینگ
-(AlanChand + TGJU) می‌زند و ``search_symbols`` ممکن است
-``NOBITEX_SYMBOLS`` را بارگذاری کند — هر دو sync. پس threadpool.
+🔴 تغییرات:
+  • افزودن جستجوی فارکس (XAU-USD, XAG-USD, ...)
+  • فیلتر GC=F و نمادهای Yahoo
 """
 
 import logging
@@ -26,43 +21,76 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/symbols", tags=["Symbols"])
 
 
+# ═══════════════════════════════════════════════════════════════
+# 🔴 لیست ثابت فارکس — همون ۱۰ نماد تب فارکس فرانت
+# ═══════════════════════════════════════════════════════════════
+FOREX_SYMBOLS = [
+    {"ticker": "XAU-USD", "name": "انس طلا", "source": "forex", "type": "کالا"},
+    {"ticker": "XAG-USD", "name": "انس نقره", "source": "forex", "type": "کالا"},
+    {"ticker": "USOIL-USD", "name": "نفت WTI", "source": "forex", "type": "کالا"},
+    {"ticker": "UKOIL-USD", "name": "نفت برنت", "source": "forex", "type": "کالا"},
+    {"ticker": "DXY-USD", "name": "شاخص دلار", "source": "forex", "type": "شاخص"},
+    {"ticker": "US500-USD", "name": "S&P 500", "source": "forex", "type": "شاخص"},
+    {"ticker": "US30-USD", "name": "داوجونز", "source": "forex", "type": "شاخص"},
+    {"ticker": "USTEC-USD", "name": "نزدک ۱۰۰", "source": "forex", "type": "شاخص"},
+    {"ticker": "EUR-USD", "name": "یورو/دلار", "source": "forex", "type": "فارکس"},
+    {
+        "ticker": "BTC-USD",
+        "name": "بیت‌کوین (جهانی)",
+        "source": "forex",
+        "type": "کریپتو",
+    },
+]
+
+
+def _is_bad_symbol(ticker: str) -> bool:
+    if not ticker:
+        return True
+    return "=" in ticker or ticker.startswith("^")
+
+
+def _normalize(s: str) -> str:
+    return (
+        (s or "")
+        .strip()
+        .replace("\u200c", "")
+        .replace("ي", "ی")
+        .replace("ك", "ک")
+        .replace(" ", "")
+        .lower()
+    )
+
+
 # ═══════════════════════════════════════════════════════════
 # GET /symbols — همه نمادها
 # ═══════════════════════════════════════════════════════════
 @router.get("", response_model=SymbolsResponse)
 async def list_symbols(source: str = ""):
-    """لیست همه نمادهای شناخته‌شده"""
     items = []
 
     for ticker, name in SYMBOLS.items():
-        # ─── فیلتر بر اساس منبع ───
+        if _is_bad_symbol(ticker):
+            continue
         if source:
             if source == "nobitex" and "-IRT" not in ticker and "-USD" not in ticker:
                 continue
             if source == "global" and any(x in ticker for x in ["-IRT", "TSETMC"]):
                 continue
-
-        # ─── تشخیص منبع ───
-        if "-IRT" in ticker:
-            src = "nobitex"
-        elif ticker.endswith("=F") or ticker.startswith("^"):
-            src = "global"
-        else:
-            src = "global"
-
+        src = "nobitex" if "-IRT" in ticker else "global"
         items.append(SymbolItem(ticker=ticker, name=name, source=src))
 
     return SymbolsResponse(total=len(items), items=items)
 
 
 # ═══════════════════════════════════════════════════════════
-# GET /symbols/popular — محبوب‌ها
+# GET /symbols/popular
 # ═══════════════════════════════════════════════════════════
 @router.get("/popular", response_model=SymbolsResponse)
 async def popular_symbols():
-    """۶ نماد محبوب پیش‌فرض"""
     items = []
     for ticker, name, source in POPULAR_SYMBOLS:
+        if _is_bad_symbol(ticker):
+            continue
         items.append(
             SymbolItem(
                 ticker=ticker,
@@ -75,49 +103,61 @@ async def popular_symbols():
 
 
 # ═══════════════════════════════════════════════════════════
-# GET /symbols/search — جستجوی هوشمند
+# GET /symbols/search — جستجو (کریپتو + بورس + فارکس)
 # ═══════════════════════════════════════════════════════════
 @router.get("/search")
 async def search_symbols(
     request: Request,
     q: str = "",
-    limit: int = Query(default=10, ge=1, le=50),
+    limit: int = Query(default=15, ge=1, le=50),
 ):
-    """
-    جستجوی نماد در همه منابع.
-    - انگلیسی: BTC, ETH, PAXG
-    - فارسی: بیت‌کوین, فولاد, تتر
-    """
     if not q or len(q.strip()) < 2:
         return {"ok": True, "total": 0, "items": []}
 
     rate_limit_for(request, "symbols_search", limit=120, window_sec=60)
 
-    # ─── جستجو در thread جدا (ممکن است بارگذاری JSON و لاگ کند باشد) ───
-    return await run_in_threadpool(_search_sync, q, limit)
+    try:
+        return await run_in_threadpool(_search_sync, q, limit)
+    except Exception as e:
+        logger.error(f"[Symbols] search crashed: {e!r}", exc_info=True)
+        return {"ok": False, "total": 0, "items": []}
 
 
 def _search_sync(q: str, limit: int) -> dict:
-    """بدنه‌ی sync جستجو — در threadpool اجرا می‌شود"""
-    query = q.strip().lower()
+    query = _normalize(q)
     results: list[dict] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
 
-    def _add(ticker: str, name: str, source: str):
-        if ticker in seen:
+    def _add(ticker, name, source, item_type=None):
+        if _is_bad_symbol(ticker):
             return
-        seen.add(ticker)
-        results.append({"ticker": ticker, "name": name, "source": source})
+        key = (ticker, source)
+        if key in seen:
+            return
+        seen.add(key)
+        item = {"ticker": ticker, "name": name, "source": source}
+        if item_type:
+            item["type"] = item_type
+        results.append(item)
 
-    # ═══ ۱. SYMBOLS (دیکشنری contracts) ═══
+    # ═══ ۱. فارکس (لیست ثابت) — اولویت اول ═══
+    for it in FOREX_SYMBOLS:
+        if len(results) >= limit:
+            break
+        if query in _normalize(it["name"]) or query in _normalize(it["ticker"]):
+            _add(it["ticker"], it["name"], "forex", it.get("type"))
+
+    # ═══ ۲. SYMBOLS ═══
     for ticker, name in SYMBOLS.items():
         if len(results) >= limit:
             break
-        if query in ticker.lower() or query in name.lower():
+        if _is_bad_symbol(ticker):
+            continue
+        if query in _normalize(ticker) or query in _normalize(name):
             src = "nobitex" if ("-USD" in ticker or "-IRT" in ticker) else "global"
             _add(ticker, name, src)
 
-    # ═══ ۲. TSETMC (بورس تهران) ═══
+    # ═══ ۳. TSETMC ═══
     if len(results) < limit:
         try:
             from core.market_lists import get_iran_stock_map
@@ -125,12 +165,12 @@ def _search_sync(q: str, limit: int) -> dict:
             for symbol, name in get_iran_stock_map().items():
                 if len(results) >= limit:
                     break
-                if query in symbol.lower() or query in name.lower():
+                if query in _normalize(symbol) or query in _normalize(name):
                     _add(symbol, f"{symbol} — {name}", "tsetmc")
         except Exception:
-            logger.warning("[Symbols] جستجوی TSETMC ناموفق", exc_info=True)
+            logger.warning("[Symbols] TSETMC search failed", exc_info=True)
 
-    # ═══ ۳. نوبیتکس (نمادهای اضافی) ═══
+    # ═══ ۴. نوبیتکس ═══
     if len(results) < limit:
         try:
             from core.nobitex_fetcher import NOBITEX_SYMBOLS
@@ -138,48 +178,30 @@ def _search_sync(q: str, limit: int) -> dict:
             for ticker, nb_sym in NOBITEX_SYMBOLS.items():
                 if len(results) >= limit:
                     break
-                if query in ticker.lower() or query in nb_sym.lower():
+                if _is_bad_symbol(ticker):
+                    continue
+                if query in _normalize(ticker) or query in _normalize(nb_sym):
                     display = ticker.replace("-IRT", "/تومان").replace("-USD", "/USDT")
                     _add(ticker, display, "nobitex")
         except Exception:
-            logger.warning("[Symbols] جستجوی نوبیتکس ناموفق", exc_info=True)
+            logger.warning("[Symbols] Nobitex search failed", exc_info=True)
 
     return {"ok": True, "total": len(results), "items": results}
 
 
 # ═══════════════════════════════════════════════════════════
-# GET /symbols/sources — لیست صرافی‌ها با وضعیت
+# GET /symbols/forex — لیست کامل فارکس
 # ═══════════════════════════════════════════════════════════
-@router.get("/sources")
-async def list_sources():
-    """
-    لیست همه‌ی صرافی‌ها — فعال و برنامه‌ریزی‌شده.
-
-    برای پر کردن SettingsPanel استفاده می‌شود. صرافی‌های
-    ``planned=True`` باید در فرانت غیرفعال با بج «به‌زودی»
-    نمایش داده شوند.
-    """
-    from core.sources import get_all_sources_info
-
-    items = get_all_sources_info()
-    return {
-        "ok": True,
-        "total": len(items),
-        "items": items,
-        "active_count": sum(1 for i in items if i["active"]),
-        "planned_count": sum(1 for i in items if i["planned"]),
-    }
+@router.get("/forex")
+async def list_forex():
+    return {"ok": True, "total": len(FOREX_SYMBOLS), "items": FOREX_SYMBOLS}
 
 
 # ═══════════════════════════════════════════════════════════
-# 🔴 فاز ۱۶.۴ — نمادهای پرمعامله بورس تهران
+# GET /symbols/iran-stocks
 # ═══════════════════════════════════════════════════════════
 @router.get("/iran-stocks")
 async def iran_stocks():
-    """
-    لیست نمادهای پرمعامله بورس تهران — برای تب جداگانه.
-    ⚠️ این نمادها باید با market_lists هماهنگ باشن.
-    """
     popular_stocks = [
         {"ticker": "فولاد", "name": "فولاد مبارکه", "source": "tsetmc"},
         {"ticker": "فملی", "name": "ملی صنایع مس", "source": "tsetmc"},
@@ -198,15 +220,26 @@ async def iran_stocks():
 
 
 # ═══════════════════════════════════════════════════════════
-# GET /symbols/iran-prices — قیمت‌های ایران
+# GET /symbols/sources
+# ═══════════════════════════════════════════════════════════
+@router.get("/sources")
+async def list_sources():
+    from core.sources import get_all_sources_info
+
+    items = get_all_sources_info()
+    return {
+        "ok": True,
+        "total": len(items),
+        "items": items,
+        "active_count": sum(1 for i in items if i["active"]),
+        "planned_count": sum(1 for i in items if i["planned"]),
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# GET /symbols/iran-prices
 # ═══════════════════════════════════════════════════════════
 @router.get("/iran-prices")
 async def iran_prices(request: Request):
-    """
-    قیمت‌های لحظه‌ای ایران (AlanChand/TGJU).
-
-    ⚠️ این تابع تا ۲ درخواست HTTP اسکرپینگ با timeout=20 می‌زند.
-       در event loop یعنی قفل تا ۴۰ ثانیه. پس threadpool.
-    """
     rate_limit_for(request, "iran_prices", limit=30, window_sec=60)
     return await run_in_threadpool(get_iran_prices)

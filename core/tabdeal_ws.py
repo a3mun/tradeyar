@@ -22,6 +22,10 @@ _tabdeal_depths: dict[str, dict] = {}
 # لیست نمادهای پرمعامله برای subscribe (مثل FIXED_SYMBOLS)
 # ═══════════════════════════════════════════════════════════
 _TABDEAL_SUBSCRIBE_SYMBOLS = [
+    # 🔴 فاز ۱۶.۶ — تتر (خیلی مهم، پر معامله‌ترین نماد)
+    "usdtirt",
+    "usdtusdt",  # معادل USDT-USD
+    # بقیه نمادها
     "btcirt",
     "btcusdt",
     "ethirt",
@@ -124,20 +128,7 @@ async def _listen_tabdeal():
                                     "ask_volume": ask_vol,
                                     "total_volume": total_vol,
                                 }
-
-                                # 🔴 فاز ۱۶.۴ — به‌روزرسانی کندل‌ها
-                                try:
-                                    from core.candle_builder import update_candle
-
-                                    ticker_std = _tabdeal_to_standard(symbol)
-                                    if ticker_std:
-                                        update_candle(
-                                            "tabdeal", ticker_std, mid, total_vol
-                                        )
-                                except Exception as e:
-                                    logger.debug(
-                                        f"[TabdealWS] candle update error: {e}"
-                                    )
+                                # 🔴 بلاک candle_builder حذف شد (فاز ۱۶.۶)
 
                     except Exception as e:
                         logger.debug(f"[TabdealWS] parse error: {e}")

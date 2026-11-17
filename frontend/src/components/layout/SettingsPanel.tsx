@@ -22,7 +22,6 @@ import { useIsTouchDevice } from "@/lib/hooks/useDeviceType";
 import { InfoToast } from "@/components/ui/info-toast";
 import type { Timeframe, Source } from "@/lib/types";
 
-// 🔴 فاز ۱۶.۴ — اضافه شدن xaus
 const EXCHANGES_MAJOR: { name: string; logo: string; value: Source }[] = [
   { name: "نوبیتکس", logo: "/logos/nobitex.png", value: "nobitex" },
   { name: "بیت‌پین", logo: "/logos/bitpin.png", value: "bitpin" },
@@ -103,18 +102,11 @@ export function SettingsPanel() {
   const [toast, setToast] = useState<string | null>(null);
 
   const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
-  const isForex = SOURCE_BY_KEY[source]?.isForex === true;
-  
   const selectedMeta = SOURCE_BY_KEY[source];
   const isWallex = selectedMeta?.value === "wallex";
 
-  
   const allowedTfs = TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
 
-  // ═══════════════════════════════════════════════════════════════
-  // 🔴 قفل‌ها
-  // ═══════════════════════════════════════════════════════════════
-  // 🔴 فقط بورس تهران: اسکالپ قفل (فارکس آزاد)
   const isScalpLocked = isTsetmc;
   const isSpotLocked = strategy === "scalp";
   const isConservativeLocked = strategy === "scalp";
@@ -133,7 +125,7 @@ export function SettingsPanel() {
 
   const strategyLabel = STRATEGIES.find((s) => s.key === strategy)?.label || "";
   const marketLabel = marketType === "spot" ? "اسپات" : "فیوچرز";
-  const riskLabel = riskProfile === "aggressive" ? "جسورانه" : "محتاطانه";
+  const riskLabel = riskProfile === "aggressive" ? "جسورانه" : "محافظانه";
 
   return (
     <>
@@ -338,7 +330,7 @@ export function SettingsPanel() {
             <div className="grid grid-cols-3 gap-1">
               {STRATEGIES.map((s) => {
                 const isActive = strategy === s.key;
-                const isLocked = (isTsetmc || isForex) && s.key === "scalp";
+                const isLocked = isTsetmc && s.key === "scalp";
                 const Icon = s.icon;
 
                 return (
@@ -346,9 +338,7 @@ export function SettingsPanel() {
                     <TooltipTrigger
                       render={
                         <button
-                          onClick={() =>
-                            handleStrategyClick(s.key, s.tooltip)
-                          }
+                          onClick={() => handleStrategyClick(s.key, s.tooltip)}
                           className={`relative rounded-lg border py-1.5 px-1 transition-all active:scale-95 ${
                             isActive
                               ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.4)]"

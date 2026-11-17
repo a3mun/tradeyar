@@ -74,6 +74,7 @@ export const SOURCE_META: SourceMeta[] = [
     hasUsdt: true,
     hasIrt: true,
     unsupportedTfs: ["۳۰ دقیقه"],
+    note: "فقط تایم فریم یک ساعت و روزانه معتبر است",
   },
   {
     value: "tabdeal",

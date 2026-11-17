@@ -27,6 +27,9 @@ import { SupportResistance } from "@/components/signal/SupportResistance";
 import { AIAnalysis } from "@/components/signal/AIAnalysis";
 import { EconomicCalendarPlaceholder } from "@/components/signal/EconomicCalendarPlaceholder";
 import { PositionSizeCalculatorPlaceholder } from "@/components/signal/PositionSizeCalculatorPlaceholder";
+// 👇 بخش جدید فاندامنتال
+import { FundamentalAnalysisPlaceholder } from "@/components/signal/FundamentalAnalysisPlaceholder"; 
+
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
@@ -74,7 +77,6 @@ export default function HomePage() {
           if (sub.plan && sub.plan !== "free") {
             setPlan("pro");
           }
-          // 🔴 ذخیره در localStorage برای ProOverlay
           localStorage.setItem("trademun_subscription", JSON.stringify(sub));
         } else {
           setHasAccess(false);
@@ -158,139 +160,140 @@ export default function HomePage() {
           <SymbolSelector />
           <WatchlistCard />
 
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-2 xl:items-start">
-            <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
-              <div className="order-1 xl:order-none min-h-[500px]">
+          {/* ═══════════════════════════════════════════════════════════════
+              گرید اصلی — دو ستون کاملاً تراز در دسکتاپ
+              ═══════════════════════════════════════════════════════════════ */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4 items-start">
+            
+            {/* ───────────── ستون چپ ───────────── */}
+            <div className="flex flex-col gap-3 sm:gap-4">
+              <div className="min-h-[500px]">
                 <SignalCard key={[ticker, source, timeframe, marketType, riskProfile, strategy].join("-")} />
               </div>
-              <div className="order-3 xl:order-none"><OrderBookPanel /></div>
+              <OrderBookPanel />
 
               {/* 🔒 مشاور هوشمند */}
-              <div className="order-5 xl:order-none">
-                <CollapsibleSection
-                  id="ai-analysis"
-                  title="مشاور هوشمند"
-                  icon="🧠"
-                  subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
-                  accentColor="#a78bfa"
-                  isLocked={!isPro}
-                >
-                  <ProOverlay feature="مشاور هوشمند">
-                    <AIAnalysis />
-                  </ProOverlay>
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="ai-analysis"
+                title="مشاور هوشمند"
+                icon="🧠"
+                subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
+                accentColor="#a78bfa"
+                isLocked={!isPro}
+              >
+                <ProOverlay feature="مشاور هوشمند">
+                  <AIAnalysis />
+                </ProOverlay>
+              </CollapsibleSection>
 
               {/* ✅ تحلیل تکنیکال */}
-              <div className="order-7 xl:order-none">
-                <CollapsibleSection
-                  id="deep-analysis"
-                  title="تحلیل تکنیکال"
-                  icon="💬"
-                  subtitle="بررسی عمیق سیگنال — کلیک کن تا باز بشه"
-                  accentColor="#60a5fa"
-                >
-                  <DeepAnalysis />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="deep-analysis"
+                title="تحلیل تکنیکال"
+                icon="💬"
+                subtitle="بررسی عمیق سیگنال — کلیک کن تا باز بشه"
+                accentColor="#60a5fa"
+              >
+                <DeepAnalysis />
+              </CollapsibleSection>
+
+              {/* 🟢 بخش جدید: تحلیل بنیادین (فاندامنتال) */}
+              <CollapsibleSection
+                id="fundamental-analysis"
+                title="تحلیل بنیادین (فاندامنتال)"
+                icon="🏛️"
+                subtitle="بررسی بنیادین بازار — به زودی"
+                accentColor="#10b981"
+              >
+                <FundamentalAnalysisPlaceholder />
+              </CollapsibleSection>
 
               {/* 🔒 اسکنر فرصت‌ها */}
-              <div className="order-9 xl:order-none">
-                {coherent ? (
-                  <CollapsibleSection
-                    id="scanner"
-                    title="اسکنر فرصت‌ها"
-                    icon="🔍"
-                    subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
-                    accentColor="#d6ad60"
-                    isLocked={!isPro}
-                  >
-                    <ProOverlay feature="اسکنر فرصت‌ها">
-                      <Scanner />
-                    </ProOverlay>
-                  </CollapsibleSection>
-                ) : (
-                  <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
-                    ⚠️ اسکنر برای این جفت (صرافی، نماد) فعال نیست.
-                  </div>
-                )}
-              </div>
+              {coherent ? (
+                <CollapsibleSection
+                  id="scanner"
+                  title="اسکنر فرصت‌ها"
+                  icon="🔍"
+                  subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
+                  accentColor="#d6ad60"
+                  isLocked={!isPro}
+                >
+                  <ProOverlay feature="اسکنر فرصت‌ها">
+                    <Scanner />
+                  </ProOverlay>
+                </CollapsibleSection>
+              ) : (
+                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
+                  ⚠️ اسکنر برای این جفت (صرافی، نماد) فعال نیست.
+                </div>
+              )}
             </div>
 
-            <div className="contents xl:flex xl:flex-col xl:gap-3 sm:xl:gap-4">
-              <div className="order-2 xl:order-none"><TFTable /></div>
-              <div className="order-4 xl:order-none">
-                <div className="grid grid-cols-2 gap-3 min-h-[180px]">
-                  <FearGreed />
-                  <SupportResistance />
-                </div>
+            {/* ───────────── ستون راست ───────────── */}
+            <div className="flex flex-col gap-3 sm:gap-4">
+              <TFTable />
+              
+              <div className="grid grid-cols-2 gap-3 min-h-[180px]">
+                <FearGreed />
+                <SupportResistance />
               </div>
 
               {/* ✅ چک‌لیست */}
-              <div className="order-6 xl:order-none">
-                <CollapsibleSection
-                  id="checklist"
-                  title="چک‌لیست اندیکاتورها"
-                  icon="✅"
-                  subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
-                  accentColor="#22c55e"
-                >
-                  <Checklist data={data?.checklist} />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="checklist"
+                title="چک‌لیست اندیکاتورها"
+                icon="✅"
+                subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
+                accentColor="#22c55e"
+              >
+                <Checklist data={data?.checklist} />
+              </CollapsibleSection>
 
               {/* ✅ مقایسه قیمت */}
-              <div className="order-8 xl:order-none">
-                <CollapsibleSection
-                  id="price-comparison"
-                  title="مقایسه قیمت صرافی‌ها"
-                  icon="💰"
-                  subtitle="قیمت لحظه‌ای ۴ صرافی — کلیک کن تا باز بشه"
-                  accentColor="#d6ad60"
-                >
-                  <PriceComparison />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="price-comparison"
+                title="مقایسه قیمت صرافی‌ها"
+                icon="💰"
+                subtitle="قیمت لحظه‌ای ۴ صرافی — کلیک کن تا باز بشه"
+                accentColor="#d6ad60"
+              >
+                <PriceComparison />
+              </CollapsibleSection>
 
               {/* ✅ ماشین‌حساب (به زودی) */}
-              <div className="order-9 xl:order-none">
-                <CollapsibleSection
-                  id="position-calculator"
-                  title="ماشین‌حساب سود و ضرر"
-                  icon="🧮"
-                  subtitle="محاسبه حجم پوزیشن — به زودی"
-                  accentColor="#a78bfa"
-                >
-                  <PositionSizeCalculatorPlaceholder />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="position-calculator"
+                title="ماشین‌حساب سود و ضرر"
+                icon="🧮"
+                subtitle="محاسبه حجم پوزیشن — به زودی"
+                accentColor="#a78bfa"
+              >
+                <PositionSizeCalculatorPlaceholder />
+              </CollapsibleSection>
 
               {/* ✅ تقویم اقتصادی (به زودی) */}
-              <div className="order-10 xl:order-none">
-                <CollapsibleSection
-                  id="economic-calendar"
-                  title="تقویم اقتصادی فارکس"
-                  icon="📅"
-                  subtitle="رویدادهای مهم اقتصادی — به زودی"
-                  accentColor="#f59e0b"
-                >
-                  <EconomicCalendarPlaceholder />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="economic-calendar"
+                title="تقویم اقتصادی فارکس"
+                icon="📅"
+                subtitle="رویدادهای مهم اقتصادی — به زودی"
+                accentColor="#f59e0b"
+              >
+                <EconomicCalendarPlaceholder />
+              </CollapsibleSection>
 
               {/* ✅ آمار عملکرد */}
-              <div className="order-11 xl:order-none">
-                <CollapsibleSection
-                  id="statistics"
-                  title="آمار عملکرد"
-                  icon="📊"
-                  subtitle="خلاصه‌ی عملکرد و دقت پیش‌بینی — کلیک کن تا باز بشه"
-                  accentColor="#f59e0b"
-                >
-                  <StatisticsBox />
-                </CollapsibleSection>
-              </div>
+              <CollapsibleSection
+                id="statistics"
+                title="آمار عملکرد"
+                icon="📊"
+                subtitle="خلاصه‌ی عملکرد و دقت پیش‌بینی — کلیک کن تا باز بشه"
+                accentColor="#f59e0b"
+              >
+                <StatisticsBox />
+              </CollapsibleSection>
             </div>
+            
           </div>
         </main>
       </div>
