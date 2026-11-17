@@ -782,16 +782,62 @@ export function SignalCard() {
     );
   }
 
-  if (loading && !data) {
-    return (
-      <Card>
-        <CardContent className="space-y-2 p-3">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-20 w-full" />
+
+if (loading && !data) {
+  return (
+    <div className="relative overflow-hidden">
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          backgroundImage: "url('/icon-192.png')",
+          backgroundSize: "55%",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          opacity: 0.04,
+        }}
+      />
+
+      <Card className="relative z-10 border border-border">
+        <CardContent className="space-y-3 p-3">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="space-y-1">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+            </div>
+            <Skeleton className="h-7 w-24 rounded-full" />
+          </div>
+
+          {/* Signal information */}
+          <div className="grid grid-cols-2 gap-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+
+          {/* Chart */}
+          <Skeleton className="h-[60px] w-full rounded-md" />
+
+          {/* SL / TP / RR */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+
+          {/* Additional information */}
+          <Skeleton className="h-10 w-full rounded-md" />
+          <Skeleton className="h-8 w-full rounded-md" />
         </CardContent>
       </Card>
-    );
-  }
+    </div>
+  );
+}
+
+  
+
 
   if (error) {
     return (

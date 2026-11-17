@@ -1,18 +1,10 @@
 "use client";
 
-/**
- * OrderBookPanel — عمق بازار (نسخه ۳.۰ — فشرده)
- * ============================================================
- * • فشرده‌سازی همه‌ی بخش‌ها
- * • ارتفاع ~۴۰٪ کمتر
- */
-
 import { useEffect, useState } from "react";
 import { Activity, TrendingUp, TrendingDown, Layers } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
-import { formatNumber } from "@/lib/display";
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
 import { api } from "@/lib/api";
 
@@ -26,12 +18,6 @@ interface OBData {
     side: "bid" | "ask";
     price: number;
     ratio: number;
-  } | null;
-  execution_cost?: {
-    fee_pct: number;
-    spread_cost_pct: number;
-    slippage_pct: number;
-    total_pct: number;
   } | null;
 }
 
@@ -49,7 +35,6 @@ export function OrderBookPanel() {
       return;
     }
     let cancelled = false;
-    // 🔴 فاز ۸.۵ — استفاده از endpoint صحیح
     api
       .get(`/orderbook/${ticker}`, { params: { source, depth: 20 } })
       .then((res) => {
@@ -68,20 +53,21 @@ export function OrderBookPanel() {
     if (wsData) setData(wsData as OBData);
   }, [wsData]);
 
-  if (!supported) return null;
-
-  if (!data) {
+  // 🔴 ارتفاع ثابت برای حالت لودینگ یا عدم پشتیبانی — h-[160px]
+  if (!supported || !data) {
     return (
-      <Card>
+      <Card className="h-[160px] flex flex-col">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-1.5 text-sm">
             <Layers className="h-4 w-4" />
             عمق بازار
           </CardTitle>
         </CardHeader>
-        <CardContent className="pb-3">
+        <CardContent className="flex-1 flex items-center justify-center pb-3">
           <p className="text-center text-[10px] text-muted-foreground">
-            در حال دریافت…
+            {!supported
+              ? "عمق بازار برای این صرافی در دسترس نیست"
+              : "در حال دریافت اطلاعات..."}
           </p>
         </CardContent>
       </Card>
@@ -92,12 +78,10 @@ export function OrderBookPanel() {
   const isBuy = imb > 0.55;
   const isSell = imb < 0.45;
   const imbPct = Math.round(imb * 100);
-  const cost = data.execution_cost;
 
   const cssColor = isBuy ? "#22c55e" : isSell ? "#ef4444" : "#94a3b8";
   const label = isBuy ? "فشار خرید" : isSell ? "فشار فروش" : "تعادل";
 
-  // ─── نقدینگی ───
   const liq =
     data.spread_pct < 0.1
       ? "عالی"
@@ -108,7 +92,7 @@ export function OrderBookPanel() {
           : "ضعیف";
 
   return (
-    <Card>
+    <Card className="h-[160px] flex flex-col">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-1.5 text-sm">
@@ -135,8 +119,7 @@ export function OrderBookPanel() {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-2 pb-3">
-        {/* ═══ ردیف ۱: عدد + نوار imbalance ═══ */}
+      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
         <div className="flex items-center gap-3">
           <span
             className="num shrink-0 text-2xl font-bold leading-none"
@@ -160,14 +143,12 @@ export function OrderBookPanel() {
           </div>
         </div>
 
-        {/* ═══ ردیف ۲: برچسب‌ها ═══ */}
         <div className="flex justify-between text-[8px] text-muted-foreground">
           <span className="text-red-500">🔴 فروش</span>
           <span>تعادل ۵۰٪</span>
           <span className="text-green-500">🟢 خرید</span>
         </div>
 
-        {/* ═══ ردیف ۳: اسپرد + نقدینگی + دیوار (فشرده) ═══ */}
         <div className="grid grid-cols-3 gap-1.5 text-[9px]">
           <div className="rounded border border-border/40 bg-muted/20 px-1.5 py-1 text-center">
             <p className="text-muted-foreground">اسپرد</p>
@@ -188,18 +169,6 @@ export function OrderBookPanel() {
             </p>
           </div>
         </div>
-
-        {/* ═══ ردیف ۴: هزینه‌ی معامله (فشرده) ═══ */}
-        {cost && (
-          <div className="flex items-center justify-between rounded border border-border/40 bg-muted/20 px-2 py-1 text-[9px]">
-            <span className="text-muted-foreground">
-              هزینه‌ی معامله
-            </span>
-            <span className="num font-bold text-orange-400">
-              {cost.total_pct.toFixed(2)}%
-            </span>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

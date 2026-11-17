@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * FearGreed — شاخص ترس و طمع (نسخه ۱.۰ — اصلی)
- * ============================================================
- * • میله‌ی خاکستری که با عدد شاخص پر می‌شه
- * • توضیح یک‌خطی
- */
-
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,20 +47,41 @@ export function FearGreed() {
     };
   }, [ticker, source, coherent]);
 
+  // 🔴 ارتفاع ثابت برای حالت لودینگ — h-[160px]
   if (loading) {
     return (
-      <Card>
+      <Card className="h-[160px] flex flex-col">
         <CardHeader className="pb-2">
-          <Skeleton className="h-5 w-32" />
+          <CardTitle className="flex items-center gap-1.5 text-sm">
+            😐 ترس و طمع
+          </CardTitle>
         </CardHeader>
-        <CardContent className="pb-3">
-          <Skeleton className="h-12 w-full" />
+        <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-2.5 w-full" />
+          <Skeleton className="h-6 w-full" />
         </CardContent>
       </Card>
     );
   }
 
-  if (!data) return null;
+  // 🔴 اگر دیتا نیست، ارتفاع ثابت با پیام
+  if (!data) {
+    return (
+      <Card className="h-[160px] flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-1.5 text-sm">
+            😐 ترس و طمع
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center pb-3">
+          <p className="text-center text-[10px] text-muted-foreground">
+            در دسترس نیست
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const cssColor = (() => {
     if (data.value <= 20) return "#dc2626";
@@ -81,14 +95,13 @@ export function FearGreed() {
   const hint = fearGreedHint(data.value);
 
   return (
-    <Card>
+    <Card className="h-[160px] flex flex-col">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-1.5 text-sm">
           {hint.icon} ترس و طمع
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 pb-3">
-        {/* ═══ عدد + نوار خاکستری ═══ */}
+      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
         <div className="flex items-center gap-3">
           <span
             className="num shrink-0 text-2xl font-bold leading-none"
@@ -97,7 +110,6 @@ export function FearGreed() {
             {data.value.toFixed(0)}
           </span>
           <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-            {/* پر شدن از راست با رنگ شاخص */}
             <div
               className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
               style={{
@@ -108,14 +120,12 @@ export function FearGreed() {
           </div>
         </div>
 
-        {/* ═══ برچسب‌ها ═══ */}
         <div className="flex justify-between text-[8px] text-muted-foreground">
           <span>😱 ترس</span>
           <span>😐 خنثی</span>
           <span>🚀 طمع</span>
         </div>
 
-        {/* ═══ تحلیل یک‌خطی ═══ */}
         <div
           className="rounded-md border px-2 py-1 text-center text-[10px] font-bold"
           style={{

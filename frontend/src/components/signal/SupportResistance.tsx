@@ -7,7 +7,23 @@ import { formatNumber } from "@/lib/display";
 export function SupportResistance() {
   const { data } = useSignalData();
 
-  if (!data) return null;
+  // 🔴 ارتفاع ثابت برای هر دو حالت (لودینگ و دیتا) — h-[160px]
+  if (!data) {
+    return (
+      <Card className="h-[160px] flex flex-col">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-1.5 text-sm">
+            🎯 حمایت و مقاومت
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 flex items-center justify-center pb-3">
+          <p className="text-center text-[10px] text-muted-foreground">
+            در حال دریافت اطلاعات...
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const price = data.price || 0;
   let support = data.support || 0;
@@ -15,8 +31,7 @@ export function SupportResistance() {
 
   const pivots = (data.pivots || {}) as Record<string, number>;
 
-  // ═══ 🔴 fallback هوشمند برای support ═══
-  // support باید **زیر** price باشه
+  // ═══ fallback هوشمند برای support ═══
   if (support <= 0 || support >= price) {
     if (pivots.s1 > 0 && pivots.s1 < price) {
       support = pivots.s1;
@@ -25,13 +40,11 @@ export function SupportResistance() {
     } else if (pivots.s3 > 0 && pivots.s3 < price) {
       support = pivots.s3;
     } else {
-      // آخرین راه: -۲٪ از price
       support = price * 0.98;
     }
   }
 
-  // ═══ 🔴 fallback هوشمند برای resistance ═══
-  // resistance باید **بالای** price باشه
+  // ═══ fallback هوشمند برای resistance ═══
   if (resistance <= 0 || resistance <= price) {
     if (pivots.r1 > 0 && pivots.r1 > price) {
       resistance = pivots.r1;
@@ -40,7 +53,6 @@ export function SupportResistance() {
     } else if (pivots.r3 > 0 && pivots.r3 > price) {
       resistance = pivots.r3;
     } else {
-      // آخرین راه: +۲٪ از price
       resistance = price * 1.02;
     }
   }
@@ -81,13 +93,13 @@ export function SupportResistance() {
   }
 
   return (
-    <Card>
+    <Card className="h-[160px] flex flex-col">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-1.5 text-sm">
           🎯 حمایت و مقاومت
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2 pb-3">
+      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
         {hasData ? (
           <>
             <div className="flex items-center gap-3">

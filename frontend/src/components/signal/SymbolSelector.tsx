@@ -151,16 +151,30 @@ export function SymbolSelector() {
   // 🔴 انتخاب — همیشه source صریح ست می‌شه
   const handleSelect = (item: SymbolItem) => {
     const isIranianStock = !item.ticker[0]?.match(/[A-Za-z]/);
-    const finalSource: Source = isIranianStock
-      ? "tsetmc"
-      : (item.source as Source);
+    
+    // 🔴 فیکس خطای تایپ: type-cast به Source
+    const finalSource = (isIranianStock ? "tsetmc" : item.source) as Source;
 
+    // 🔴 برای نمادهای کریپتو، اگر صرافی فعلی از این نماد پشتیبانی می‌کند، آن را نگه دار
+    if (item.source === "nobitex" || item.source === "bitpin" || item.source === "wallex" || item.source === "tabdeal") {
+      const currentSource = useAppStore.getState().source;
+      // اگر در تب کریپتو هستیم و صرافی فعلی هم کریپتوست، همان را نگه دار
+      if (currentSource !== "forex" && currentSource !== "tsetmc") {
+        forceSelectSymbol(item.ticker, item.name, currentSource);
+        setQuery("");
+        setResults([]);
+        setShowDropdown(false);
+        return;
+      }
+    }
+
+    // برای فارکس و بورس، همیشه source آیتم را ست کن
     forceSelectSymbol(item.ticker, item.name, finalSource);
-
     setQuery("");
     setResults([]);
     setShowDropdown(false);
   };
+  
 
   const handleTabChange = (tab: TabType) => {
     if (tab === "forex") {
