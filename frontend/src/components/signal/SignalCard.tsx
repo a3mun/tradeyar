@@ -1,258 +1,66 @@
 "use client";
 
-/**
- * SignalCard — کارت سیگنال (نسخه ۱۴.۹.۲ · فاز ۱۶.۵)
- * ============================================================
- * 🔴 تغییرات نسخه ۱۴.۹.۲:
- *   • polling قیمت از ۳ ثانیه به ۳۰ ثانیه افزایش یافت (fallback برای قطعی WebSocket)
- *   • اولویت livePrice: WebSocket → polling → entryPrice (بدون تغییر)
- *   • بقیه‌ی منطق و UI دست‌نخورده
- */
-
 import { useEffect, useRef, useState } from "react";
 import {
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Target,
-  Shield,
-  Percent,
-  Star,
-  ArrowRightLeft,
-  AlertTriangle,
-  Share2,
-  Loader2,
-  Info,
-  Wifi,
-  WifiOff,
-  Crosshair,
+  TrendingUp, TrendingDown, Minus, Target, Shield, Percent, Star,
+  ArrowRightLeft, AlertTriangle, Share2, Loader2, Info, Wifi, WifiOff, Crosshair,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { useAnalysisCapability } from "@/lib/hooks/useAnalysisCapability";
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
-import {
-  SOURCE_BY_KEY,
-  sourceBadgeClass,
-  sourceSupportsPair,
-} from "@/lib/sources";
+import { SOURCE_BY_KEY, sourceBadgeClass, sourceSupportsPair } from "@/lib/sources";
 import { AnalysisUnavailable } from "@/components/signal/AnalysisUnavailable";
 import { Sparkline } from "@/components/ui/sparkline";
 import { CryptoIcon } from "@/components/ui/crypto-icon";
 import type { AnalyzeResponse } from "@/lib/types";
 import { CopyableNumber } from "@/components/ui/copyable-number";
+import { getConfidenceLevel, isSignalActive, type ConfidenceLevel } from "@/lib/thresholds";
+import { regimeIcon, regimeFullFa, consensusFa, consensusColor, signalBg, formatNumber } from "@/lib/display";
 
-import {
-  getConfidenceLevel,
-  isSignalActive,
-  type ConfidenceLevel,
-} from "@/lib/thresholds";
-
-import {
-  regimeIcon,
-  regimeFullFa,
-  consensusFa,
-  consensusColor,
-  signalBg,
-  formatNumber,
-} from "@/lib/display";
-
-const LEVEL_STYLES: Record<
-  ConfidenceLevel,
-  { bg: string; border: string; text: string; icon: string; label: string }
-> = {
-  golden: {
-    bg: "rgba(250,204,21,0.15)",
-    border: "rgba(250,204,21,0.6)",
-    text: "#facc15",
-    icon: "💎",
-    label: "طلایی",
-  },
-  strong: {
-    bg: "rgba(34,197,94,0.15)",
-    border: "rgba(34,197,94,0.5)",
-    text: "#22c55e",
-    icon: "🟢",
-    label: "قوی",
-  },
-  normal: {
-    bg: "rgba(59,130,246,0.12)",
-    border: "rgba(59,130,246,0.4)",
-    text: "#3b82f6",
-    icon: "🟡",
-    label: "معمولی",
-  },
-  weak: {
-    bg: "rgba(249,115,22,0.12)",
-    border: "rgba(249,115,22,0.4)",
-    text: "#f97316",
-    icon: "🟠",
-    label: "ضعیف",
-  },
-  neutral: {
-    bg: "rgba(100,116,139,0.08)",
-    border: "rgba(100,116,139,0.25)",
-    text: "#94a3b8",
-    icon: "⚪",
-    label: "خنثی",
-  },
+const LEVEL_STYLES: Record<ConfidenceLevel, { bg: string; border: string; text: string; icon: string; label: string }> = {
+  golden: { bg: "rgba(250,204,21,0.15)", border: "rgba(250,204,21,0.6)", text: "#facc15", icon: "💎", label: "طلایی" },
+  strong: { bg: "rgba(34,197,94,0.15)", border: "rgba(34,197,94,0.5)", text: "#22c55e", icon: "🟢", label: "قوی" },
+  normal: { bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.4)", text: "#3b82f6", icon: "🟡", label: "معمولی" },
+  weak: { bg: "rgba(249,115,22,0.12)", border: "rgba(249,115,22,0.4)", text: "#f97316", icon: "🟠", label: "ضعیف" },
+  neutral: { bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.25)", text: "#94a3b8", icon: "⚪", label: "خنثی" },
 };
 
 interface SignalPillStyle {
-  bg: string;
-  border: string;
-  color: string;
-  boxShadow: string;
-  textShadow: string;
-  opacity: number;
+  bg: string; border: string; color: string; boxShadow: string; textShadow: string; opacity: number;
 }
 
-const SIGNAL_PILL_STYLE: Record<
-  "long" | "short" | "neutral",
-  Record<ConfidenceLevel, SignalPillStyle>
-> = {
+const SIGNAL_PILL_STYLE: Record<"long" | "short" | "neutral", Record<ConfidenceLevel, SignalPillStyle>> = {
   long: {
-    golden: {
-      bg: "rgba(34,197,94,0.30)",
-      border: "#22c55e",
-      color: "#4ade80",
-      boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(34,197,94,0.8)",
-      textShadow: "0 0 8px rgba(34,197,94,0.9)",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(34,197,94,0.22)",
-      border: "#22c55e",
-      color: "#4ade80",
-      boxShadow: "0 0 10px rgba(34,197,94,0.6)",
-      textShadow: "0 0 5px rgba(34,197,94,0.7)",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(34,197,94,0.12)",
-      border: "rgba(34,197,94,0.6)",
-      color: "#4ade80",
-      boxShadow: "0 0 4px rgba(34,197,94,0.25)",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    weak: {
-      bg: "rgba(34,197,94,0.06)",
-      border: "rgba(34,197,94,0.4)",
-      color: "rgba(74,222,128,0.7)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.72,
-    },
-    neutral: {
-      bg: "rgba(34,197,94,0.03)",
-      border: "rgba(34,197,94,0.2)",
-      color: "rgba(74,222,128,0.5)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
+    golden: { bg: "rgba(34,197,94,0.30)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(34,197,94,0.8)", textShadow: "0 0 8px rgba(34,197,94,0.9)", opacity: 1 },
+    strong: { bg: "rgba(34,197,94,0.22)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.6)", textShadow: "0 0 5px rgba(34,197,94,0.7)", opacity: 1 },
+    normal: { bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.6)", color: "#4ade80", boxShadow: "0 0 4px rgba(34,197,94,0.25)", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.4)", color: "rgba(74,222,128,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.72 },
+    neutral: { bg: "rgba(34,197,94,0.03)", border: "rgba(34,197,94,0.2)", color: "rgba(74,222,128,0.5)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   short: {
-    golden: {
-      bg: "rgba(239,68,68,0.30)",
-      border: "#ef4444",
-      color: "#f87171",
-      boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(239,68,68,0.8)",
-      textShadow: "0 0 8px rgba(239,68,68,0.9)",
-      opacity: 1,
-    },
-    strong: {
-      bg: "rgba(239,68,68,0.22)",
-      border: "#ef4444",
-      color: "#f87171",
-      boxShadow: "0 0 10px rgba(239,68,68,0.6)",
-      textShadow: "0 0 5px rgba(239,68,68,0.7)",
-      opacity: 1,
-    },
-    normal: {
-      bg: "rgba(239,68,68,0.12)",
-      border: "rgba(239,68,68,0.6)",
-      color: "#f87171",
-      boxShadow: "0 0 4px rgba(239,68,68,0.25)",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    weak: {
-      bg: "rgba(239,68,68,0.06)",
-      border: "rgba(239,68,68,0.4)",
-      color: "rgba(248,113,113,0.7)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.72,
-    },
-    neutral: {
-      bg: "rgba(239,68,68,0.03)",
-      border: "rgba(239,68,68,0.2)",
-      color: "rgba(248,113,113,0.5)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.5,
-    },
+    golden: { bg: "rgba(239,68,68,0.30)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(239,68,68,0.8)", textShadow: "0 0 8px rgba(239,68,68,0.9)", opacity: 1 },
+    strong: { bg: "rgba(239,68,68,0.22)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 10px rgba(239,68,68,0.6)", textShadow: "0 0 5px rgba(239,68,68,0.7)", opacity: 1 },
+    normal: { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.6)", color: "#f87171", boxShadow: "0 0 4px rgba(239,68,68,0.25)", textShadow: "none", opacity: 0.9 },
+    weak: { bg: "rgba(239,68,68,0.06)", border: "rgba(239,68,68,0.4)", color: "rgba(248,113,113,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.72 },
+    neutral: { bg: "rgba(239,68,68,0.03)", border: "rgba(239,68,68,0.2)", color: "rgba(248,113,113,0.5)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
   },
   neutral: {
-    golden: {
-      bg: "rgba(100,116,139,0.10)",
-      border: "rgba(100,116,139,0.45)",
-      color: "#94a3b8",
-      boxShadow: "0 0 4px rgba(100,116,139,0.2)",
-      textShadow: "none",
-      opacity: 0.9,
-    },
-    strong: {
-      bg: "rgba(100,116,139,0.08)",
-      border: "rgba(100,116,139,0.35)",
-      color: "#94a3b8",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.85,
-    },
-    normal: {
-      bg: "rgba(100,116,139,0.06)",
-      border: "rgba(100,116,139,0.25)",
-      color: "#94a3b8",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.75,
-    },
-    weak: {
-      bg: "rgba(100,116,139,0.04)",
-      border: "rgba(100,116,139,0.2)",
-      color: "rgba(148,163,184,0.7)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.65,
-    },
-    neutral: {
-      bg: "rgba(100,116,139,0.03)",
-      border: "rgba(100,116,139,0.15)",
-      color: "rgba(148,163,184,0.6)",
-      boxShadow: "none",
-      textShadow: "none",
-      opacity: 0.55,
-    },
+    golden: { bg: "rgba(100,116,139,0.10)", border: "rgba(100,116,139,0.45)", color: "#94a3b8", boxShadow: "0 0 4px rgba(100,116,139,0.2)", textShadow: "none", opacity: 0.9 },
+    strong: { bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.35)", color: "#94a3b8", boxShadow: "none", textShadow: "none", opacity: 0.85 },
+    normal: { bg: "rgba(100,116,139,0.06)", border: "rgba(100,116,139,0.25)", color: "#94a3b8", boxShadow: "none", textShadow: "none", opacity: 0.75 },
+    weak: { bg: "rgba(100,116,139,0.04)", border: "rgba(100,116,139,0.2)", color: "rgba(148,163,184,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.65 },
+    neutral: { bg: "rgba(100,116,139,0.03)", border: "rgba(100,116,139,0.15)", color: "rgba(148,163,184,0.6)", boxShadow: "none", textShadow: "none", opacity: 0.55 },
   },
 };
 
 function playGoldenBeep() {
   try {
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext;
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     const now = ctx.currentTime;
@@ -277,153 +85,54 @@ function playGoldenBeep() {
   }
 }
 
-const TRAP_LABELS: Record<string, string> = {
-  bull_trap: "تله صعودی",
-  bear_trap: "تله نزولی",
-  fake_breakout: "شکست جعلی",
-  exhaustion: "خستگی روند",
-};
-
+const TRAP_LABELS: Record<string, string> = { bull_trap: "تله صعودی", bear_trap: "تله نزولی", fake_breakout: "شکست جعلی", exhaustion: "خستگی روند" };
 const MARKET_LABELS: Record<string, { fa: string; cls: string }> = {
-  spot: {
-    fa: "💵 اسپات",
-    cls: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  },
-  futures: {
-    fa: "📈 فیوچرز",
-    cls: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-  },
+  spot: { fa: "💵 اسپات", cls: "bg-sky-500/15 text-sky-400 border-sky-500/30" },
+  futures: { fa: "📈 فیوچرز", cls: "bg-purple-500/15 text-purple-400 border-purple-500/30" },
 };
-
 const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
-  aggressive: {
-    fa: "🚀 جسورانه",
-    cls: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  },
-  conservative: {
-    fa: "🛡 محتاطانه",
-    cls: "bg-green-500/15 text-green-400 border-green-500/30",
-  },
+  aggressive: { fa: "🚀 جسورانه", cls: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
+  conservative: { fa: "🛡 محتاطانه", cls: "bg-green-500/15 text-green-400 border-green-500/30" },
 };
-
 const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
-  scalp: {
-    fa: "⚡ اسکالپ",
-    cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-  },
-  swing: {
-    fa: "🌊 سوئینگ",
-    cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
-  },
-  position: {
-    fa: "🏛 پوزیشن",
-    cls: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  },
+  scalp: { fa: "⚡ اسکالپ", cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30" },
+  swing: { fa: "🌊 سوئینگ", cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
+  position: { fa: "🏛 پوزیشن", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
 };
-
-const TF_TO_SHORT: Record<string, string> = {
-  "۱ دقیقه": "1m",
-  "۵ دقیقه": "5m",
-  "۱۵ دقیقه": "15m",
-  "۳۰ دقیقه": "30m",
-  "۱ ساعت": "1h",
-  "روزانه": "1d",
-};
-
-function tfShort(tf: string): string {
-  return TF_TO_SHORT[tf] || tf;
-}
+const TF_TO_SHORT: Record<string, string> = { "۱ دقیقه": "1m", "۵ دقیقه": "5m", "۱۵ دقیقه": "15m", "۳۰ دقیقه": "30m", "۱ ساعت": "1h", "روزانه": "1d" };
+function tfShort(tf: string): string { return TF_TO_SHORT[tf] || tf; }
 
 const GOLDEN_STYLES = `
 @keyframes golden-pulse {
-  0%, 100% {
-    box-shadow: 0 0 8px rgba(250,204,21,0.5), 0 0 20px rgba(250,204,21,0.3);
-    border-color: rgba(250,204,21,0.6);
-  }
-  50% {
-    box-shadow: 0 0 16px rgba(250,204,21,0.9), 0 0 32px rgba(250,204,21,0.5);
-    border-color: rgba(250,204,21,1);
-  }
+  0%, 100% { box-shadow: 0 0 8px rgba(250,204,21,0.5), 0 0 20px rgba(250,204,21,0.3); border-color: rgba(250,204,21,0.6); }
+  50% { box-shadow: 0 0 16px rgba(250,204,21,0.9), 0 0 32px rgba(250,204,21,0.5); border-color: rgba(250,204,21,1); }
 }
 @keyframes golden-icon-glow {
-  0%, 100% {
-    filter: drop-shadow(0 0 4px rgba(250,204,21,0.8));
-    transform: scale(1);
-  }
-  50% {
-    filter: drop-shadow(0 0 12px rgba(250,204,21,1));
-    transform: scale(1.15);
-  }
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(250,204,21,0.8)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 12px rgba(250,204,21,1)); transform: scale(1.15); }
 }
 `;
 
 export function SignalCard() {
   const {
-    ticker,
-    tickerName,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    strategy,
-    watchlist,
-    addToWatchlist,
-    removeFromWatchlist,
-    getTfData,
-    setTfData,
+    ticker, tickerName, source, timeframe, marketType, riskProfile, strategy,
+    watchlist, addToWatchlist, removeFromWatchlist, tfDataCache,
   } = useAppStore();
 
   const capability = useAnalysisCapability(source);
   const { quote, status: wsStatus } = useWebSocket();
+  
+  // 🔴 فاز ۱۶.۵ — خواندن مستقیم از کش مشترک (useDataLoop آن را پر می‌کند)
+  const data = useAppStore((s) => s.getTfData(s.timeframe));
 
-  // 🔴 فاز ۱۶.۵ — Polling قیمت به عنوان fallback
-  // interval از ۳ ثانیه به ۳۰ ثانیه (فشار کمتر روی سرور)
   const [polledPrice, setPolledPrice] = useState<number>(0);
-
-  useEffect(() => {
-    if (!ticker || !source) return;
-    if (capability.planned || !sourceSupportsPair(source, ticker)) {
-      setPolledPrice(0);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchQuote = async () => {
-      try {
-        const res = await api.get("/analyze/quote", {
-          params: { ticker, source },
-        });
-        if (cancelled) return;
-        if (res.data?.price) {
-          setPolledPrice(res.data.price);
-        }
-      } catch {
-        // نادیده
-      }
-    };
-
-    fetchQuote();
-    const id = setInterval(fetchQuote, 30000); // 🔴 ۳۰ ثانیه
-
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [ticker, source, capability.planned]);
-
-  const [data, setData] = useState<AnalyzeResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
   const [animPrice, setAnimPrice] = useState<number>(0);
   const [dotPulse, setDotPulse] = useState(false);
   const prevPriceRef = useRef<number | null>(null);
   const animRef = useRef<number>(0);
   const cardRef = useRef<HTMLDivElement>(null);
-
   const lastGoldenKeyRef = useRef<string>("");
 
   const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
@@ -438,128 +147,44 @@ export function SignalCard() {
   const session = (() => {
     const utcHour = now.getUTCHours();
     const utcDay = now.getUTCDay();
-    if (utcDay === 0 || utcDay === 6)
-      return { label: "📅 آخر هفته", color: "text-orange-400" };
-    if (utcHour >= 0 && utcHour < 6)
-      return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
-    if (utcHour >= 12 && utcHour < 16)
-      return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
+    if (utcDay === 0 || utcDay === 6) return { label: "📅 آخر هفته", color: "text-orange-400" };
+    if (utcHour >= 0 && utcHour < 6) return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
+    if (utcHour >= 12 && utcHour < 16) return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
     return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
   })();
 
-  // 🔴 reset فوری روی تغییر تنظیمات (رفع باگ پرش)
+  // 🔴 Polling قیمت (فقط برای fallback در صورت قطعی WebSocket)
   useEffect(() => {
-    setData(null);
-    setError(null);
+    if (!ticker || !source) return;
+    if (capability.planned || !sourceSupportsPair(source, ticker)) { setPolledPrice(0); return; }
+    let cancelled = false;
+    const fetchQuote = async () => {
+      try {
+        const res = await api.get("/analyze/quote", { params: { ticker, source } });
+        if (!cancelled && res.data?.price) setPolledPrice(res.data.price);
+      } catch {}
+    };
+    fetchQuote();
+    const id = setInterval(fetchQuote, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ticker, source, capability.planned]);
+
+  // 🔴 Reset مقادیر انیمیشن هنگام تغییر تنظیمات
+  useEffect(() => {
     setSparklineSeries([]);
     setSparklinePrice(0);
     prevPriceRef.current = null;
     animRef.current = 0;
     setAnimPrice(0);
     lastGoldenKeyRef.current = "";
+  }, [strategy, ticker, timeframe, marketType, riskProfile]);
 
-    const cached = getTfData(timeframe);
-    if (cached) {
-      setData(cached);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-  }, [strategy, ticker, timeframe, marketType, riskProfile, getTfData]);
-
-  // 🔴 fetch تحلیل
+  // 🔴 Sparkline
   useEffect(() => {
-    if (!ticker) return;
-    if (capability.planned || !sourceSupportsPair(source, ticker)) {
-      let cancelled = false;
-      queueMicrotask(() => {
-        if (cancelled) return;
-        setData(null);
-        setError(null);
-        setLoading(false);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const cached = getTfData(timeframe);
-    if (cached) return;
-
+    if (!ticker) { setSparklineSeries([]); setSparklinePrice(0); return; }
+    if (capability.planned || !sourceSupportsPair(source, ticker)) { setSparklineSeries([]); setSparklinePrice(0); return; }
     let cancelled = false;
-    const timer = setTimeout(() => {
-      if (cancelled) return;
-      setLoading(true);
-      setError(null);
-
-      (async () => {
-        try {
-          const res = await api.post<AnalyzeResponse>("/analyze", {
-            ticker,
-            source,
-            timeframe,
-            market_type: marketType,
-            risk_profile: riskProfile,
-            strategy,
-            ticker_name: tickerName,
-          });
-          if (cancelled) return;
-          setData(res.data);
-          setError(null);
-          setTfData(timeframe, res.data);
-        } catch (err: unknown) {
-          if (cancelled) return;
-          const detail = (err as { response?: { data?: { detail?: unknown } } })
-            ?.response?.data?.detail;
-          let msg = "تحلیل ناموفق بود";
-          if (typeof detail === "string") msg = detail;
-          else if (Array.isArray(detail) && detail.length > 0) {
-            const first = detail[0] as { msg?: string } | undefined;
-            msg = first?.msg || msg;
-          }
-          setError(msg);
-          setData(null);
-        } finally {
-          if (!cancelled) setLoading(false);
-        }
-      })();
-    }, 1000);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [
-    ticker,
-    tickerName,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    strategy,
-    capability.planned,
-    getTfData,
-    setTfData,
-  ]);
-
-  // 🔴 fetch sparkline
-  useEffect(() => {
-    if (!ticker) {
-      setSparklineSeries([]);
-      setSparklinePrice(0);
-      return;
-    }
-    if (capability.planned || !sourceSupportsPair(source, ticker)) {
-      setSparklineSeries([]);
-      setSparklinePrice(0);
-      return;
-    }
-    let cancelled = false;
-    api
-      .get<{ ok: boolean; close_series: number[]; price: number }>(
-        "/analyze/sparkline",
-        { params: { ticker, source, timeframe } }
-      )
+    api.get<{ ok: boolean; close_series: number[]; price: number }>("/analyze/sparkline", { params: { ticker, source, timeframe } })
       .then((res) => {
         if (cancelled) return;
         setSparklineSeries(res.data.close_series || []);
@@ -567,44 +192,21 @@ export function SignalCard() {
         if (res.data.price && res.data.price > 0) {
           if (prevPriceRef.current === null) {
             prevPriceRef.current = res.data.price;
-            if (animRef.current === 0) {
-              setAnimPrice(res.data.price);
-              animRef.current = res.data.price;
-            }
+            if (animRef.current === 0) { setAnimPrice(res.data.price); animRef.current = res.data.price; }
           }
         }
       })
-      .catch(() => {
-        if (!cancelled) {
-          setSparklineSeries([]);
-          setSparklinePrice(0);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+      .catch(() => { if (!cancelled) { setSparklineSeries([]); setSparklinePrice(0); } });
+    return () => { cancelled = true; };
   }, [ticker, source, timeframe, strategy, capability.planned]);
 
   const entryPrice = data?.price ?? 0;
-  // 🔴 اولویت: WebSocket (زنده‌ترین) → Polling (fallback) → entryPrice
   const livePrice = quote?.price || polledPrice || entryPrice || 0;
 
-    // 🔴 گام B: به‌روزرسانی آخرین نقطه‌ی Sparkline با livePrice
-  // interval بر اساس تایم‌فریم: ۱ دقیقه → ۶۰s، ۵ دقیقه → ۳۰۰s، ...
   useEffect(() => {
     if (!livePrice || livePrice <= 0) return;
-
-    const TF_TO_MS: Record<string, number> = {
-      "۱ دقیقه": 60_000,
-      "۵ دقیقه": 300_000,
-      "۱۵ دقیقه": 900_000,
-      "۳۰ دقیقه": 1_800_000,
-      "۱ ساعت": 3_600_000,
-      "روزانه": 86_400_000,
-    };
-
+    const TF_TO_MS: Record<string, number> = { "۱ دقیقه": 60_000, "۵ دقیقه": 300_000, "۱۵ دقیقه": 900_000, "۳۰ دقیقه": 1_800_000, "۱ ساعت": 3_600_000, "روزانه": 86_400_000 };
     const intervalMs = TF_TO_MS[timeframe] || 60_000;
-
     const updateSparkline = () => {
       setSparklineSeries((prev) => {
         if (!prev || prev.length < 2) return prev;
@@ -613,11 +215,7 @@ export function SignalCard() {
         return next;
       });
     };
-
-    // بار اول اجرا کن
     updateSparkline();
-
-    // بعد هر intervalMs
     const id = setInterval(updateSparkline, intervalMs);
     return () => clearInterval(id);
   }, [livePrice, timeframe]);
@@ -641,41 +239,25 @@ export function SignalCard() {
         const val = from + (to - from) * eased;
         setAnimPrice(val);
         animRef.current = val;
-        if (progress < 1) {
-          rafId = requestAnimationFrame(tick);
-        } else {
-          setAnimPrice(to);
-          animRef.current = to;
-        }
+        if (progress < 1) rafId = requestAnimationFrame(tick);
+        else { setAnimPrice(to); animRef.current = to; }
       };
       rafId = requestAnimationFrame(tick);
       const flashTimer = setTimeout(() => setPriceFlash(null), 400);
       const pulseTimer = setTimeout(() => setDotPulse(false), 700);
       prevPriceRef.current = livePrice;
-      return () => {
-        clearTimeout(flashTimer);
-        clearTimeout(pulseTimer);
-        cancelAnimationFrame(rafId);
-      };
+      return () => { clearTimeout(flashTimer); clearTimeout(pulseTimer); cancelAnimationFrame(rafId); };
     } else {
       prevPriceRef.current = livePrice;
-      if (animRef.current === 0) {
-        setAnimPrice(livePrice);
-        animRef.current = livePrice;
-      }
+      if (animRef.current === 0) { setAnimPrice(livePrice); animRef.current = livePrice; }
     }
   }, [livePrice]);
 
-  const isDirForBeep =
-    data?.direction === "long" || data?.direction === "short";
-  const confLevelForBeep = getConfidenceLevel(
-    data?.confidence || 0,
-    isDirForBeep
-  );
+  const isDirForBeep = data?.direction === "long" || data?.direction === "short";
+  const confLevelForBeep = getConfidenceLevel(data?.confidence || 0, isDirForBeep);
 
   useEffect(() => {
-    if (confLevelForBeep !== "golden") return;
-    if (!data) return;
+    if (confLevelForBeep !== "golden" || !data) return;
     const goldenKey = `${data.ticker}|${data.timeframe}|${data.signal}|${data.confidence}`;
     if (lastGoldenKeyRef.current === goldenKey) return;
     lastGoldenKeyRef.current = goldenKey;
@@ -689,252 +271,93 @@ export function SignalCard() {
     try {
       let captionText = `تحلیل ${data.name || data.ticker} از Trademun\n🔗 trademun.ir`;
       try {
-        const captionRes = await api.post<{ ok: boolean; caption: string }>(
-          "/share/caption",
-          {
-            ticker: data.ticker,
-            name: data.name,
-            source: data.source_used || data.source,
-            tf: data.timeframe,
-            signal: data.signal,
-            direction: data.direction,
-            confidence: data.confidence,
-            strategy: data.strategy,
-            market_type: data.market_type,
-            risk_profile: data.risk_profile,
-            price: data.price,
-            sl: data.sl,
-            tp: data.tp,
-            rr: data.rr,
-            rr_net: data.rr_net,
-            tp_levels: data.tp_levels,
-            traps: data.traps,
-          }
-        );
-        if (captionRes.data.ok && captionRes.data.caption) {
-          captionText = captionRes.data.caption;
-        }
-      } catch (e) {
-        console.warn("خطا در گرفتن کپشن، از متن پیش‌فرض استفاده میشه", e);
-      }
+        const captionRes = await api.post<{ ok: boolean; caption: string }>("/share/caption", {
+          ticker: data.ticker, name: data.name, source: data.source_used || data.source,
+          tf: data.timeframe, signal: data.signal, direction: data.direction,
+          confidence: data.confidence, strategy: data.strategy, market_type: data.market_type,
+          risk_profile: data.risk_profile, price: data.price, sl: data.sl, tp: data.tp,
+          rr: data.rr, rr_net: data.rr_net, tp_levels: data.tp_levels, traps: data.traps,
+        });
+        if (captionRes.data.ok && captionRes.data.caption) captionText = captionRes.data.caption;
+      } catch (e) { console.warn("خطا در گرفتن کپشن", e); }
 
       const { toBlob } = await import("html-to-image");
-      const blob = await toBlob(cardRef.current, {
-        backgroundColor: "#0a0e1a",
-        pixelRatio: 2,
-        cacheBust: true,
-      });
+      const blob = await toBlob(cardRef.current, { backgroundColor: "#0a0e1a", pixelRatio: 2, cacheBust: true });
       if (!blob) throw new Error("toBlob failed");
       const fileName = `trademun-${data.ticker}-${Date.now()}.png`;
       const file = new File([blob], fileName, { type: "image/png" });
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-      const nav = navigator as Navigator & {
-        canShare?: (d: { files: File[]; text?: string }) => boolean;
-      };
-
-      if (
-        isMobile &&
-        typeof nav.share === "function" &&
-        typeof nav.canShare === "function" &&
-        nav.canShare({ files: [file], text: captionText })
-      ) {
-        try {
-          await nav.share({
-            files: [file],
-            title: `سیگنال ${data.ticker}`,
-            text: captionText,
-          });
-          return;
-        } catch (err) {
-          if ((err as Error)?.name === "AbortError") return;
-        }
+      const nav = navigator as Navigator & { canShare?: (d: { files: File[]; text?: string }) => boolean };
+      if (isMobile && typeof nav.share === "function" && typeof nav.canShare === "function" && nav.canShare({ files: [file], text: captionText })) {
+        try { await nav.share({ files: [file], title: `سیگنال ${data.ticker}`, text: captionText }); return; }
+        catch (err) { if ((err as Error)?.name === "AbortError") return; }
       }
-
       const link = document.createElement("a");
       link.download = fileName;
       const url = URL.createObjectURL(blob);
-      link.href = url;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      try {
-        await navigator.clipboard.writeText(captionText);
-      } catch (clipErr) {
-        console.warn("کپی کپشن به کلیپ‌بورد ناموفق بود", clipErr);
-      }
-    } catch (err) {
-      console.error("[Share] خطا:", err);
-    } finally {
-      setSharing(false);
-    }
+      link.href = url; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
+      try { await navigator.clipboard.writeText(captionText); } catch (clipErr) { console.warn(clipErr); }
+    } catch (err) { console.error("[Share] خطا:", err); }
+    finally { setSharing(false); }
   };
 
-  if (capability.planned) {
+  if (capability.planned) return <AnalysisUnavailable message={capability.message} suggestion={capability.suggestion} alternatives={[]} variant="planned" />;
+
+  if (!data) {
     return (
-      <AnalysisUnavailable
-        message={capability.message}
-        suggestion={capability.suggestion}
-        alternatives={[]}
-        variant="planned"
-      />
-    );
-  }
-
-
-if (loading && !data) {
-  return (
-    <div className="relative overflow-hidden">
-      <div
-        className="pointer-events-none absolute inset-0 z-0"
-        style={{
-          backgroundImage: "url('/icon-192.png')",
-          backgroundSize: "55%",
-          backgroundPosition: "center",
-          backgroundRepeat: "no-repeat",
-          opacity: 0.04,
-        }}
-      />
-
-      <Card className="relative z-10 border border-border">
-        <CardContent className="space-y-3 p-3">
-          {/* Header */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-8 w-8 rounded-full" />
-              <div className="space-y-1">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-3 w-16" />
-              </div>
+      <div className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 z-0" style={{ backgroundImage: "url('/icon-192.png')", backgroundSize: "55%", backgroundPosition: "center", backgroundRepeat: "no-repeat", opacity: 0.04 }} />
+        <Card className="relative z-10 border border-border">
+          <CardContent className="space-y-3 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2"><Skeleton className="h-8 w-8 rounded-full" /><div className="space-y-1"><Skeleton className="h-4 w-24" /><Skeleton className="h-3 w-16" /></div></div>
+              <Skeleton className="h-7 w-24 rounded-full" />
             </div>
-            <Skeleton className="h-7 w-24 rounded-full" />
-          </div>
-
-          {/* Signal information */}
-          <div className="grid grid-cols-2 gap-2">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-
-          {/* Chart */}
-          <Skeleton className="h-[60px] w-full rounded-md" />
-
-          {/* SL / TP / RR */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-
-          {/* Additional information */}
-          <Skeleton className="h-10 w-full rounded-md" />
-          <Skeleton className="h-8 w-full rounded-md" />
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-  
-
-
-  if (error) {
-    return (
-      <AnalysisUnavailable
-        message="تحلیل برای این نماد در دسترس نیست"
-        suggestion={error}
-        variant="no-data"
-      />
+            <div className="grid grid-cols-2 gap-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+            <Skeleton className="h-[60px] w-full rounded-md" />
+            <div className="grid grid-cols-3 gap-1.5"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+            <Skeleton className="h-10 w-full rounded-md" /><Skeleton className="h-8 w-full rounded-md" />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
-
-  if (!data) return null;
 
   const sl = data.sl;
   const tp = data.tp;
   const rr = data.rr;
-
   const displayChange = quote != null ? quote.change_pct : null;
-
   const _entryForPct = data.suggested_entry ?? data.price;
   const _fee = data.fee_pct ?? 0;
   const _dirMult = data.direction === "short" ? -1 : 1;
 
-  const slNetPct = (() => {
-    if (sl == null || sl <= 0 || !_entryForPct || _entryForPct <= 0) return null;
-    const gross = ((sl - _entryForPct) / _entryForPct) * 100 * _dirMult;
-    return gross - _fee;
-  })();
-
-  const tp3NetPct = (() => {
-    if (tp == null || tp <= 0 || !_entryForPct || _entryForPct <= 0) return null;
-    const gross = ((tp - _entryForPct) / _entryForPct) * 100 * _dirMult;
-    return gross - _fee;
-  })();
-
-  const isDirectional =
-    data.direction === "long" || data.direction === "short";
-
-  const confidenceLevel = getConfidenceLevel(
-    data.confidence || 0,
-    isDirectional
-  );
-
-  const isActiveSignal = isSignalActive(
-    data.confidence || 0,
-    data.direction || "neutral",
-    data.signal || "",
-    strategy,
-    riskProfile
-  );
-
+  const slNetPct = (() => { if (sl == null || sl <= 0 || !_entryForPct || _entryForPct <= 0) return null; const gross = ((sl - _entryForPct) / _entryForPct) * 100 * _dirMult; return gross - _fee; })();
+  const tp3NetPct = (() => { if (tp == null || tp <= 0 || !_entryForPct || _entryForPct <= 0) return null; const gross = ((tp - _entryForPct) / _entryForPct) * 100 * _dirMult; return gross - _fee; })();
+  const isDirectional = data.direction === "long" || data.direction === "short";
+  const confidenceLevel = getConfidenceLevel(data.confidence || 0, isDirectional);
+  const isActiveSignal = isSignalActive(data.confidence || 0, data.direction || "neutral", data.signal || "", strategy, riskProfile);
   const levelStyle = LEVEL_STYLES[confidenceLevel];
-
-  const dirKey: "long" | "short" | "neutral" =
-    data.direction === "long"
-      ? "long"
-      : data.direction === "short"
-        ? "short"
-        : "neutral";
+  const dirKey: "long" | "short" | "neutral" = data.direction === "long" ? "long" : data.direction === "short" ? "short" : "neutral";
   const pillStyle = SIGNAL_PILL_STYLE[dirKey][confidenceLevel];
-
-  const SignalIcon =
-    data.direction === "long"
-      ? TrendingUp
-      : data.direction === "short"
-        ? TrendingDown
-        : Minus;
-
+  const SignalIcon = data.direction === "long" ? TrendingUp : data.direction === "short" ? TrendingDown : Minus;
   const requestedMeta = SOURCE_BY_KEY[source];
   const usedSource = data.source_used ?? source;
   const usedMeta = SOURCE_BY_KEY[usedSource] ?? requestedMeta;
   const isFallback = Boolean(data.is_fallback) && usedSource !== source;
-
   const inWatchlist = watchlist.some((w) => w.ticker === ticker);
-
+  
   const activeTraps: string[] = [];
   const trapReasons: string[] = [];
   const traps = data.traps || {};
   for (const [key, val] of Object.entries(traps)) {
     const v = val as { active?: boolean; reason?: string } | null;
-    if (v && v.active) {
-      activeTraps.push(key);
-      if (v.reason) trapReasons.push(v.reason);
-    }
+    if (v && v.active) { activeTraps.push(key); if (v.reason) trapReasons.push(v.reason); }
   }
   const trapLabel = activeTraps.map((k) => TRAP_LABELS[k] || k).join(" · ");
+  const marketLabel = MARKET_LABELS[data.market_type || marketType] || MARKET_LABELS.spot;
+  const profileLabel = PROFILE_LABELS[data.risk_profile || riskProfile] || PROFILE_LABELS.aggressive;
 
-  const marketLabel =
-    MARKET_LABELS[data.market_type || marketType] || MARKET_LABELS.spot;
-  const profileLabel =
-    PROFILE_LABELS[data.risk_profile || riskProfile] ||
-    PROFILE_LABELS.aggressive;
-
-  const totalVotes =
-    (data.votes_long || 0) +
-      (data.votes_neutral || 0) +
-      (data.votes_short || 0) || 1;
+  const totalVotes = (data.votes_long || 0) + (data.votes_neutral || 0) + (data.votes_short || 0) || 1;
   const longPct = ((data.votes_long || 0) / totalVotes) * 100;
   const neutralPct = ((data.votes_neutral || 0) / totalVotes) * 100;
   const shortPct = ((data.votes_short || 0) / totalVotes) * 100;
@@ -944,103 +367,32 @@ if (loading && !data) {
       <p className="font-bold">💸 اقتصاد معامله</p>
       {data.fee_pct != null && (
         <div>
-          <p>
-            کارمزد رفت‌وبرگشتی:{" "}
-            <span className="num font-bold">{data.fee_pct.toFixed(2)}%</span>
-          </p>
+          <p>کارمزد رفت‌وبرگشتی: <span className="num font-bold">{data.fee_pct.toFixed(2)}%</span></p>
           {data.execution_cost && (
             <>
-              <p className="text-muted-foreground">
-                • کارمزد خالص:{" "}
-                <span className="num">
-                  {data.execution_cost.fee_pct.toFixed(2)}%
-                </span>
-              </p>
-              <p className="text-muted-foreground">
-                • اسپرد:{" "}
-                <span className="num">
-                  {data.execution_cost.spread_cost_pct.toFixed(2)}%
-                </span>
-              </p>
-              <p className="text-muted-foreground">
-                • اسلیپیج:{" "}
-                <span className="num">
-                  {data.execution_cost.slippage_pct.toFixed(2)}%
-                </span>
-              </p>
-              <p className="mt-1">
-                مجموع:{" "}
-                <span className="num font-bold">
-                  {data.execution_cost.total_pct.toFixed(2)}%
-                </span>
-              </p>
+              <p className="text-muted-foreground">• کارمزد خالص: <span className="num">{data.execution_cost.fee_pct.toFixed(2)}%</span></p>
+              <p className="text-muted-foreground">• اسپرد: <span className="num">{data.execution_cost.spread_cost_pct.toFixed(2)}%</span></p>
+              <p className="text-muted-foreground">• اسلیپیج: <span className="num">{data.execution_cost.slippage_pct.toFixed(2)}%</span></p>
+              <p className="mt-1">مجموع: <span className="num font-bold">{data.execution_cost.total_pct.toFixed(2)}%</span></p>
             </>
           )}
         </div>
       )}
-      {data.breakeven_pct != null && (
-        <p>
-          نقطه سربه‌سر:{" "}
-          <span className="num font-bold">
-            {data.breakeven_pct.toFixed(2)}%
-          </span>
-        </p>
-      )}
-      {data.rr_gross != null && data.rr_net != null && (
-        <p>
-          R:R خام <span className="num">{data.rr_gross.toFixed(2)}</span> →
-          خالص <span className="num">{data.rr_net.toFixed(2)}</span>
-        </p>
-      )}
-      {data.rr_decay_pct != null && data.rr_decay_pct > 0 && (
-        <p className="text-orange-400">
-          افت R:R:{" "}
-          <span className="num font-bold">{data.rr_decay_pct.toFixed(0)}%</span>
-        </p>
-      )}
-      {data.sl_tp_scaled && data.scale_reason && (
-        <p className="text-yellow-500">🔧 {data.scale_reason}</p>
-      )}
+      {data.breakeven_pct != null && <p>نقطه سربه‌سر: <span className="num font-bold">{data.breakeven_pct.toFixed(2)}%</span></p>}
+      {data.rr_gross != null && data.rr_net != null && <p>R:R خام <span className="num">{data.rr_gross.toFixed(2)}</span> → خالص <span className="num">{data.rr_net.toFixed(2)}</span></p>}
+      {data.rr_decay_pct != null && data.rr_decay_pct > 0 && <p className="text-orange-400">افت R:R: <span className="num font-bold">{data.rr_decay_pct.toFixed(0)}%</span></p>}
+      {data.sl_tp_scaled && data.scale_reason && <p className="text-yellow-500">🔧 {data.scale_reason}</p>}
     </div>
   );
 
   const wsConnected = wsStatus === "connected";
-
-  const series =
-    sparklineSeries.length >= 2
-      ? sparklineSeries
-      : data.close_series && data.close_series.length >= 2
-        ? data.close_series
-        : null;
+  const series = sparklineSeries.length >= 2 ? sparklineSeries : data.close_series && data.close_series.length >= 2 ? data.close_series : null;
 
   return (
     <div ref={cardRef} data-signal-card className="relative overflow-hidden">
       <style jsx global>{GOLDEN_STYLES}</style>
-
-      <div
-        className="pointer-events-none absolute inset-0 z-0"
-        style={{
-          backgroundImage: "url('/icon-192.png')",
-          backgroundSize: "55%",
-          backgroundPosition: "center",
-          backgroundRepeat: "no-repeat",
-          opacity: 0.04,
-        }}
-      />
-
-      <Card
-        className={`relative z-10 border ${
-          confidenceLevel === "golden" ? "" : signalBg(data.signal)
-        }`}
-        style={
-          confidenceLevel === "golden"
-            ? {
-                animation: "golden-pulse 2s ease-in-out infinite",
-                borderColor: "rgba(250,204,21,0.6)",
-              }
-            : undefined
-        }
-      >
+      <div className="pointer-events-none absolute inset-0 z-0" style={{ backgroundImage: "url('/icon-192.png')", backgroundSize: "55%", backgroundPosition: "center", backgroundRepeat: "no-repeat", opacity: 0.04 }} />
+      <Card className={`relative z-10 border ${confidenceLevel === "golden" ? "" : signalBg(data.signal)}`} style={confidenceLevel === "golden" ? { animation: "golden-pulse 2s ease-in-out infinite", borderColor: "rgba(250,204,21,0.6)" } : undefined}>
         <div className="space-y-0 px-3 pt-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -1050,99 +402,37 @@ if (loading && !data) {
             <div className="flex shrink-0 items-center gap-0.5">
               <Tooltip>
                 <TooltipTrigger>
-                  <span
-                    className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] ${
-                      wsConnected ? "text-green-500" : "text-orange-400"
-                    }`}
-                  >
-                    {wsConnected ? (
-                      <Wifi className="h-3 w-3" />
-                    ) : (
-                      <WifiOff className="h-3 w-3" />
-                    )}
+                  <span className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] ${wsConnected ? "text-green-500" : "text-orange-400"}`}>
+                    {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-[10px]">
-                    {wsConnected
-                      ? "اتصال زنده فعال"
-                      : wsStatus === "reconnecting"
-                        ? "در حال اتصال مجدد…"
-                        : "اتصال زنده قطع است"}
-                  </p>
-                </TooltipContent>
+                <TooltipContent><p className="text-[10px]">{wsConnected ? "اتصال زنده فعال" : wsStatus === "reconnecting" ? "در حال اتصال مجدد…" : "اتصال زنده قطع است"}</p></TooltipContent>
               </Tooltip>
-              <button
-                onClick={handleShare}
-                disabled={sharing}
-                className="rounded-md p-1 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
-                aria-label="اشتراک‌گذاری کارت"
-              >
-                {sharing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Share2 className="h-3.5 w-3.5" />
-                )}
+              <button onClick={handleShare} disabled={sharing} className="rounded-md p-1 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50" aria-label="اشتراک‌گذاری کارت">
+                {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
               </button>
-              <button
-                onClick={() =>
-                  inWatchlist
-                    ? removeFromWatchlist(ticker)
-                    : addToWatchlist(ticker, tickerName || ticker, source)
-                }
-                className={`rounded-md p-1 transition-colors ${
-                  inWatchlist
-                    ? "text-yellow-500"
-                    : "text-muted-foreground hover:text-yellow-500"
-                }`}
-                aria-pressed={inWatchlist}
-              >
-                <Star
-                  className={`h-3.5 w-3.5 ${inWatchlist ? "fill-current" : ""}`}
-                />
+              <button onClick={() => inWatchlist ? removeFromWatchlist(ticker) : addToWatchlist(ticker, tickerName || ticker, source)} className={`rounded-md p-1 transition-colors ${inWatchlist ? "text-yellow-500" : "text-muted-foreground hover:text-yellow-500"}`} aria-pressed={inWatchlist}>
+                <Star className={`h-3.5 w-3.5 ${inWatchlist ? "fill-current" : ""}`} />
               </button>
             </div>
           </div>
 
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1">
-              <span className="num text-[10px] font-medium text-muted-foreground">
-                {data.ticker}
-              </span>
-              <span
-                className="num text-[10px] font-bold text-orange-400"
-                style={{ letterSpacing: "0.3px" }}
-              >
-                · {tfShort(data.timeframe)}
-              </span>
-              <Badge className={`border py-0 text-[8px] ${marketLabel.cls}`}>
-                {marketLabel.fa}
-              </Badge>
-              <Badge className={`border py-0 text-[8px] ${profileLabel.cls}`}>
-                {profileLabel.fa}
-              </Badge>
-
+              <span className="num text-[10px] font-medium text-muted-foreground">{data.ticker}</span>
+              <span className="num text-[10px] font-bold text-orange-400" style={{ letterSpacing: "0.3px" }}>· {tfShort(data.timeframe)}</span>
+              <Badge className={`border py-0 text-[8px] ${marketLabel.cls}`}>{marketLabel.fa}</Badge>
+              <Badge className={`border py-0 text-[8px] ${profileLabel.cls}`}>{profileLabel.fa}</Badge>
               {data.strategy && (
                 <Tooltip>
                   <TooltipTrigger>
-                    <Badge
-                      className={`border py-0 text-[8px] cursor-help ${
-                        STRATEGY_LABELS[data.strategy]?.cls ||
-                        STRATEGY_LABELS.swing.cls
-                      }`}
-                    >
-                      {STRATEGY_LABELS[data.strategy]?.fa ||
-                        STRATEGY_LABELS.swing.fa}
-                    </Badge>
+                    <Badge className={`border py-0 text-[8px] cursor-help ${STRATEGY_LABELS[data.strategy]?.cls || STRATEGY_LABELS.swing.cls}`}>{STRATEGY_LABELS[data.strategy]?.fa || STRATEGY_LABELS.swing.fa}</Badge>
                   </TooltipTrigger>
                   <TooltipContent>
                     <p className="text-[10px]">
-                      {data.strategy === "scalp" &&
-                        "⚡ اسکالپ: معاملات سریع فیوچرز — TP تنگ، Timeout کوتاه"}
-                      {data.strategy === "swing" &&
-                        "🌊 سوئینگ: معاملات میان‌مدت — TP/SL متعادل"}
-                      {data.strategy === "position" &&
-                        "🏛 پوزیشن: سرمایه‌گذاری بلندمدت — TP باز، SL بازتر"}
+                      {data.strategy === "scalp" && "⚡ اسکالپ: معاملات سریع فیوچرز — TP تنگ، Timeout کوتاه"}
+                      {data.strategy === "swing" && "🌊 سوئینگ: معاملات میان‌مدت — TP/SL متعادل"}
+                      {data.strategy === "position" && "🏛 پوزیشن: سرمایه‌گذاری بلندمدت — TP باز، SL بازتر"}
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -1151,196 +441,60 @@ if (loading && !data) {
             <div className="flex shrink-0 items-center gap-1">
               {isFallback ? (
                 <Tooltip>
-                  <TooltipTrigger>
-                    <Badge
-                      className={`gap-0.5 border py-0 text-[8px] ${sourceBadgeClass(usedSource)}`}
-                    >
-                      <ArrowRightLeft className="h-2 w-2" />
-                      {usedMeta?.label}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-[11px]">
-                      درخواست روی <b>{requestedMeta?.label}</b> بود ولی این
-                      نماد/تایم‌فریم آنجا نبود — داده از{" "}
-                      <b>{usedMeta?.label}</b> گرفته شد.
-                    </p>
-                  </TooltipContent>
+                  <TooltipTrigger><Badge className={`gap-0.5 border py-0 text-[8px] ${sourceBadgeClass(usedSource)}`}><ArrowRightLeft className="h-2 w-2" />{usedMeta?.label}</Badge></TooltipTrigger>
+                  <TooltipContent><p className="text-[11px]">درخواست روی <b>{requestedMeta?.label}</b> بود ولی این نماد/تایم‌فریم آنجا نبود — داده از <b>{usedMeta?.label}</b> گرفته شد.</p></TooltipContent>
                 </Tooltip>
               ) : (
-                <Badge
-                  className={`border py-0 text-[8px] ${sourceBadgeClass(source)}`}
-                >
-                  {requestedMeta?.icon} {requestedMeta?.label}
-                </Badge>
+                <Badge className={`border py-0 text-[8px] ${sourceBadgeClass(source)}`}>{requestedMeta?.icon} {requestedMeta?.label}</Badge>
               )}
             </div>
           </div>
         </div>
 
         <CardContent className="space-y-1 px-3 pb-2 pt-0">
-          {isFallback && (
-            <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400">
-              ℹ️ {requestedMeta?.label} این نماد را در {data.timeframe} ندارد
-              — داده از {usedMeta?.label}
-            </p>
-          )}
-
+          {isFallback && <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400">ℹ️ {requestedMeta?.label} این نماد را در {data.timeframe} ندارد — داده از {usedMeta?.label}</p>}
           {activeTraps.length > 0 && (
             <Tooltip>
               <TooltipTrigger>
                 <div className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1">
                   <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
-                  <span className="text-[9px] font-bold text-red-500 shrink-0">
-                    احتمال {trapLabel}
-                  </span>
-                  {trapReasons[0] && (
-                    <>
-                      <span className="text-red-500/40">·</span>
-                      <span className="truncate text-[9px] text-red-400/80">
-                        {trapReasons[0].length > 45
-                          ? trapReasons[0].slice(0, 45) + "…"
-                          : trapReasons[0]}
-                      </span>
-                    </>
-                  )}
+                  <span className="text-[9px] font-bold text-red-500 shrink-0">احتمال {trapLabel}</span>
+                  {trapReasons[0] && (<><span className="text-red-500/40">·</span><span className="truncate text-[9px] text-red-400/80">{trapReasons[0].length > 45 ? trapReasons[0].slice(0, 45) + "…" : trapReasons[0]}</span></>)}
                 </div>
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                <p className="text-[10px] leading-relaxed">
-                  {trapReasons.join(" | ")}
-                </p>
-              </TooltipContent>
+              <TooltipContent className="max-w-xs"><p className="text-[10px] leading-relaxed">{trapReasons.join(" | ")}</p></TooltipContent>
             </Tooltip>
           )}
-
           <div className="rounded-lg bg-muted/40 px-2.5 py-2">
             <div className="flex items-center justify-between gap-2">
               <div className="shrink-0 flex flex-col items-start gap-0.5 min-w-[80px]">
-                <span
-                  className={`text-[10px] font-bold ${
-                    data.direction === "long"
-                      ? "text-green-500"
-                      : data.direction === "short"
-                        ? "text-red-500"
-                        : "text-muted-foreground"
-                  }`}
-                >
-                  {data.direction === "long"
-                    ? "▲ صعودی"
-                    : data.direction === "short"
-                      ? "▼ نزولی"
-                      : "● خنثی"}
+                <span className={`text-[10px] font-bold ${data.direction === "long" ? "text-green-500" : data.direction === "short" ? "text-red-500" : "text-muted-foreground"}`}>
+                  {data.direction === "long" ? "▲ صعودی" : data.direction === "short" ? "▼ نزولی" : "● خنثی"}
                 </span>
-
-                {displayChange != null && displayChange !== 0 ? (
-                  <span
-                    className={`num text-[9px] font-medium ${
-                      displayChange >= 0 ? "text-green-500" : "text-red-500"
-                    }`}
-                  >
-                    {displayChange >= 0 ? "▲" : "▼"}{" "}
-                    {Math.abs(displayChange).toFixed(2)}%
-                  </span>
-                ) : (
-                  <span className="num text-[9px] text-muted-foreground/50">
-                    —
-                  </span>
-                )}
+                {displayChange != null && displayChange !== 0 ? (<span className={`num text-[9px] font-medium ${displayChange >= 0 ? "text-green-500" : "text-red-500"}`}>{displayChange >= 0 ? "▲" : "▼"} {Math.abs(displayChange).toFixed(2)}%</span>) : (<span className="num text-[9px] text-muted-foreground/50">—</span>)}
               </div>
-
-              <p
-                className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${
-                  priceFlash === "up"
-                    ? "text-green-500"
-                    : priceFlash === "down"
-                      ? "text-red-500"
-                      : "text-foreground"
-                }`}
-              >
+              <p className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${priceFlash === "up" ? "text-green-500" : priceFlash === "down" ? "text-red-500" : "text-foreground"}`}>
                 {formatNumber(animPrice || livePrice)}
               </p>
-
               <div className="shrink-0 text-center min-w-[80px]">
-                <div
-                  className="mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1"
-                  style={{
-                    background: isActiveSignal
-                      ? pillStyle.bg
-                      : "rgba(100,116,139,0.08)",
-                    borderColor: isActiveSignal
-                      ? pillStyle.border
-                      : "rgba(100,116,139,0.25)",
-                    color: isActiveSignal ? pillStyle.color : "#94a3b8",
-                    boxShadow: isActiveSignal ? pillStyle.boxShadow : "none",
-                    textShadow: isActiveSignal ? pillStyle.textShadow : "none",
-                    opacity: isActiveSignal ? pillStyle.opacity : 0.6,
-                    borderWidth:
-                      isActiveSignal && confidenceLevel === "golden"
-                        ? "2px"
-                        : "1px",
-                  }}
-                >
-                  <SignalIcon
-                    className="h-3.5 w-3.5 shrink-0"
-                    style={
-                      isActiveSignal && confidenceLevel === "golden"
-                        ? {
-                            animation:
-                              "golden-icon-glow 1.5s ease-in-out infinite",
-                          }
-                        : undefined
-                    }
-                  />
+                <div className="mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1" style={{ background: isActiveSignal ? pillStyle.bg : "rgba(100,116,139,0.08)", borderColor: isActiveSignal ? pillStyle.border : "rgba(100,116,139,0.25)", color: isActiveSignal ? pillStyle.color : "#94a3b8", boxShadow: isActiveSignal ? pillStyle.boxShadow : "none", textShadow: isActiveSignal ? pillStyle.textShadow : "none", opacity: isActiveSignal ? pillStyle.opacity : 0.6, borderWidth: isActiveSignal && confidenceLevel === "golden" ? "2px" : "1px" }}>
+                  <SignalIcon className="h-3.5 w-3.5 shrink-0" style={isActiveSignal && confidenceLevel === "golden" ? { animation: "golden-icon-glow 1.5s ease-in-out infinite" } : undefined} />
                   <p className="text-[12px] font-bold leading-none whitespace-nowrap">
                     {isActiveSignal && confidenceLevel === "golden" && "💎 "}
-                    {isActiveSignal
-                      ? data.signal
-                      : data.signal?.includes("در حال تشکیل")
-                        ? "در حال تشکیل"
-                        : data.signal?.includes("دور")
-                          ? "دور"
-                          : "خنثی"}
+                    {isActiveSignal ? data.signal : data.signal?.includes("در حال تشکیل") ? "در حال تشکیل" : data.signal?.includes("دور") ? "دور" : "خنثی"}
                   </p>
                 </div>
-                <p
-                  className="num mt-1 text-[11px] font-bold"
-                  style={{ color: levelStyle.text }}
-                >
-                  {data.confidence}%
-                </p>
+                <p className="num mt-1 text-[11px] font-bold" style={{ color: levelStyle.text }}>{data.confidence}%</p>
               </div>
             </div>
           </div>
 
           {series ? (
-            <Sparkline
-              data={series}
-              height={60}
-              showArea
-              showDot
-              sl={sl}
-              tp={tp}
-              entry={entryPrice}
-              color={
-                data.signal.includes("LONG") || data.signal.includes("صعودی")
-                  ? "green"
-                  : data.signal.includes("SHORT") ||
-                      data.signal.includes("نزولی")
-                    ? "red"
-                    : "neutral"
-              }
-            />
+            <Sparkline data={series} height={60} showArea showDot sl={sl} tp={tp} entry={entryPrice} color={data.signal.includes("LONG") || data.signal.includes("صعودی") ? "green" : data.signal.includes("SHORT") || data.signal.includes("نزولی") ? "red" : "neutral"} />
           ) : (
-            <div
-              className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10"
-              style={{ height: 60 }}
-            >
+            <div className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10" style={{ height: 60 }}>
               <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-              <div className="relative flex items-center gap-2 text-[10px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>در حال پردازش نمودار…</span>
-              </div>
+              <div className="relative flex items-center gap-2 text-[10px] text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /><span>در حال پردازش نمودار…</span></div>
             </div>
           )}
 
@@ -1348,323 +502,110 @@ if (loading && !data) {
             {sl != null && tp != null ? (
               <>
                 <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
-                    <Shield className="h-2.5 w-2.5" />
-                    حد ضرر
-                  </div>
-                  <div className="mt-0.5 text-[10px] font-bold text-red-500">
-                    <CopyableNumber value={sl} />
-                  </div>
-                  {slNetPct != null && (
-                    <p className="num text-[8px] text-red-500/80">
-                      {slNetPct >= 0 ? "+" : "−"}
-                      {Math.abs(slNetPct).toFixed(2)}%
-                    </p>
-                  )}
+                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Shield className="h-2.5 w-2.5" />حد ضرر</div>
+                  <div className="mt-0.5 text-[10px] font-bold text-red-500"><CopyableNumber value={sl} /></div>
+                  {slNetPct != null && <p className="num text-[8px] text-red-500/80">{slNetPct >= 0 ? "+" : "−"}{Math.abs(slNetPct).toFixed(2)}%</p>}
                 </div>
-
                 <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
-                    <Percent className="h-2.5 w-2.5" />
-                    R:R
-                  </div>
-                  <p className="num mt-0.5 text-[11px] font-bold text-blue-500">
-                    {data.rr_net != null
-                      ? data.rr_net.toFixed(2)
-                      : rr != null
-                        ? rr.toFixed(2)
-                        : "—"}
-                  </p>
-                  {data.rr_gross != null && data.rr_net != null && (
-                    <p className="num text-[8px] text-muted-foreground">
-                      خام {data.rr_gross.toFixed(2)}
-                    </p>
-                  )}
+                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Percent className="h-2.5 w-2.5" />R:R</div>
+                  <p className="num mt-0.5 text-[11px] font-bold text-blue-500">{data.rr_net != null ? data.rr_net.toFixed(2) : rr != null ? rr.toFixed(2) : "—"}</p>
+                  {data.rr_gross != null && data.rr_net != null && <p className="num text-[8px] text-muted-foreground">خام {data.rr_gross.toFixed(2)}</p>}
                 </div>
-
                 <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground">
-                    <Target className="h-2.5 w-2.5" />
-                    هدف نهایی
-                  </div>
-                  <div className="mt-0.5 text-[10px] font-bold text-green-500">
-                    <CopyableNumber value={tp} />
-                  </div>
-                  {tp3NetPct != null && (
-                    <p className="num text-[8px] text-green-500/80">
-                      {tp3NetPct >= 0 ? "+" : "−"}
-                      {Math.abs(tp3NetPct).toFixed(2)}%
-                    </p>
-                  )}
+                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Target className="h-2.5 w-2.5" />هدف نهایی</div>
+                  <div className="mt-0.5 text-[10px] font-bold text-green-500"><CopyableNumber value={tp} /></div>
+                  {tp3NetPct != null && <p className="num text-[8px] text-green-500/80">{tp3NetPct >= 0 ? "+" : "−"}{Math.abs(tp3NetPct).toFixed(2)}%</p>}
                 </div>
               </>
             ) : (
               <>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50">
-                    <Shield className="h-2.5 w-2.5" />
-                    حد ضرر
-                  </div>
-                  <p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">
-                    —
-                  </p>
-                </div>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50">
-                    <Percent className="h-2.5 w-2.5" />
-                    R:R
-                  </div>
-                  <p className="num mt-0.5 text-[11px] font-bold text-muted-foreground/40">
-                    —
-                  </p>
-                </div>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50">
-                    <Target className="h-2.5 w-2.5" />
-                    هدف نهایی
-                  </div>
-                  <p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">
-                    —
-                  </p>
-                </div>
+                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center"><div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Shield className="h-2.5 w-2.5" />حد ضرر</div><p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">—</p></div>
+                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center"><div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Percent className="h-2.5 w-2.5" />R:R</div><p className="num mt-0.5 text-[11px] font-bold text-muted-foreground/40">—</p></div>
+                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center"><div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Target className="h-2.5 w-2.5" />هدف نهایی</div><p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">—</p></div>
               </>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-1.5">
             {data.suggested_entry && data.direction !== "neutral" ? (
-              <div
-                className={`flex flex-col justify-center rounded-md border-2 px-2 py-1.5 ${
-                  data.direction === "long"
-                    ? "border-green-500/40 bg-green-500/5"
-                    : "border-red-500/40 bg-red-500/5"
-                }`}
-              >
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <Crosshair className="h-3 w-3 text-cyan-400" />
-                  <span className="text-[9px] font-bold text-cyan-400">
-                    🎯 نقطه ورود پیشنهادی
-                  </span>
-                </div>
-                <div className="text-[16px] font-bold text-foreground leading-none text-center">
-                  <CopyableNumber value={data.suggested_entry} />
-                </div>
-                <div className="text-[8px] text-muted-foreground text-right mt-1.5">
-                  نحوه محاسبه:{" "}
-                  <span className="text-cyan-400 font-medium">
-                    {data.suggested_entry_method === "structural" &&
-                      "📍 سطح ساختاری Swing"}
-                    {data.suggested_entry_method === "atr_pullback" &&
-                      "📊 پولبک ATR"}
-                    {data.suggested_entry_method === "fib_0382" &&
-                      "🌀 فیبوناچی 0.382"}
-                  </span>
-                </div>
+              <div className={`flex flex-col justify-center rounded-md border-2 px-2 py-1.5 ${data.direction === "long" ? "border-green-500/40 bg-green-500/5" : "border-red-500/40 bg-red-500/5"}`}>
+                <div className="flex items-center justify-center gap-1 mb-1"><Crosshair className="h-3 w-3 text-cyan-400" /><span className="text-[9px] font-bold text-cyan-400">🎯 نقطه ورود پیشنهادی</span></div>
+                <div className="text-[16px] font-bold text-foreground leading-none text-center"><CopyableNumber value={data.suggested_entry} /></div>
+                <div className="text-[8px] text-muted-foreground text-right mt-1.5">نحوه محاسبه: <span className="text-cyan-400 font-medium">{data.suggested_entry_method === "structural" && "📍 سطح ساختاری Swing"}{data.suggested_entry_method === "atr_pullback" && "📊 پولبک ATR"}{data.suggested_entry_method === "fib_0382" && "🌀 فیبوناچی 0.382"}</span></div>
               </div>
-            ) : (
-              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
-                <p className="text-[9px] text-muted-foreground/50">
-                  بدون نقطه ورود
-                </p>
-              </div>
-            )}
+            ) : (<div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2"><p className="text-[9px] text-muted-foreground/50">بدون نقطه ورود</p></div>)}
 
             {data.tp_levels && data.tp_levels.tp1 != null ? (
               <div className="flex flex-col justify-center rounded-md border border-emerald-500/25 bg-emerald-500/5 px-2 py-1.5">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-[9px] font-bold text-emerald-400">
-                    🎯 خروج پله‌ای
-                  </span>
-                </div>
+                <div className="flex items-center justify-center gap-1 mb-1"><span className="text-[9px] font-bold text-emerald-400">🎯 خروج پله‌ای</span></div>
                 <div className="grid grid-cols-4 gap-0.5 text-[7px] text-muted-foreground/70 font-bold mb-0.5 pb-0.5 border-b border-emerald-500/20">
-                  <div className="text-center">خالص</div>
-                  <div className="text-center">خام</div>
-                  <div className="text-center">قیمت</div>
-                  <div className="text-center">پله</div>
+                  <div className="text-center">خالص</div><div className="text-center">خام</div><div className="text-center">قیمت</div><div className="text-center">پله</div>
                 </div>
                 <div className="space-y-0.5">
-                  {[
-                    { label: "TP1", value: data.tp_levels.tp1 },
-                    { label: "TP2", value: data.tp_levels.tp2 },
-                    { label: "TP3", value: data.tp_levels.tp3 },
-                  ].map(({ label, value }) => {
+                  {[{ label: "TP1", value: data.tp_levels.tp1 }, { label: "TP2", value: data.tp_levels.tp2 }, { label: "TP3", value: data.tp_levels.tp3 }].map(({ label, value }) => {
                     const entry = data.suggested_entry ?? data.price;
                     const feeRoundTrip = data.fee_pct ?? 0;
-
-                    const grossPct =
-                      entry > 0
-                        ? ((value - entry) / entry) *
-                          100 *
-                          (data.direction === "short" ? -1 : 1)
-                        : null;
-                    const netPct =
-                      grossPct != null ? grossPct - feeRoundTrip : null;
-
+                    const grossPct = entry > 0 ? ((value - entry) / entry) * 100 * (data.direction === "short" ? -1 : 1) : null;
+                    const netPct = grossPct != null ? grossPct - feeRoundTrip : null;
                     return (
-                      <div
-                        key={label}
-                        className="grid grid-cols-4 gap-0.5 items-center"
-                      >
-                        <div className="text-center num font-bold text-emerald-400 text-[8px]">
-                          {netPct != null
-                            ? `${netPct >= 0 ? "+" : ""}${netPct.toFixed(1)}٪`
-                            : "—"}
-                        </div>
-                        <div className="text-center num text-emerald-400/60 text-[7px]">
-                          {grossPct != null
-                            ? `${grossPct >= 0 ? "+" : ""}${grossPct.toFixed(1)}٪`
-                            : "—"}
-                        </div>
-                        <div className="text-center num font-bold text-emerald-300 text-[10px]">
-                          <CopyableNumber value={value} />
-                        </div>
-                        <div className="text-center font-bold text-emerald-300/70 text-[8px]">
-                          {label}
-                        </div>
+                      <div key={label} className="grid grid-cols-4 gap-0.5 items-center">
+                        <div className="text-center num font-bold text-emerald-400 text-[8px]">{netPct != null ? `${netPct >= 0 ? "+" : ""}${netPct.toFixed(1)}٪` : "—"}</div>
+                        <div className="text-center num text-emerald-400/60 text-[7px]">{grossPct != null ? `${grossPct >= 0 ? "+" : ""}${grossPct.toFixed(1)}٪` : "—"}</div>
+                        <div className="text-center num font-bold text-emerald-300 text-[10px]"><CopyableNumber value={value} /></div>
+                        <div className="text-center font-bold text-emerald-300/70 text-[8px]">{label}</div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
-                <p className="text-[9px] text-muted-foreground/50">بدون TP</p>
-              </div>
-            )}
+            ) : (<div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2"><p className="text-[9px] text-muted-foreground/50">بدون TP</p></div>)}
           </div>
 
           {data.fee_pct != null && (
-            <div
-              className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[9px] ${
-                data.timeframe_viable === false ||
-                data.is_worthwhile === false
-                  ? "border border-orange-500/25 bg-orange-500/5 text-orange-400"
-                  : "bg-muted/20 text-muted-foreground"
-              }`}
-            >
+            <div className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[9px] ${data.timeframe_viable === false || data.is_worthwhile === false ? "border border-orange-500/25 bg-orange-500/5 text-orange-400" : "bg-muted/20 text-muted-foreground"}`}>
               <span className="flex items-center gap-1">
-                {data.timeframe_viable === false ||
-                data.is_worthwhile === false
-                  ? "⚠️ "
-                  : "ℹ️ "}
-                هزینه{" "}
-                <span className="num font-medium">
-                  {data.fee_pct.toFixed(2)}%
-                </span>
-                {data.rr_decay_pct != null && data.rr_decay_pct > 0 && (
-                  <>
-                    {" "}
-                    · افت R:R{" "}
-                    <span className="num">
-                      {data.rr_decay_pct.toFixed(0)}%
-                    </span>
-                  </>
-                )}
+                {data.timeframe_viable === false || data.is_worthwhile === false ? "⚠️ " : "ℹ️ "}هزینه <span className="num font-medium">{data.fee_pct.toFixed(2)}%</span>
+                {data.rr_decay_pct != null && data.rr_decay_pct > 0 && (<> · افت R:R <span className="num">{data.rr_decay_pct.toFixed(0)}%</span></>)}
                 <Tooltip>
-                  <TooltipTrigger>
-                    <span className="ml-0.5 inline-flex items-center text-muted-foreground/70 transition-colors hover:text-foreground">
-                      <Info className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs border-border bg-popover text-popover-foreground">
-                    {feeTooltipContent}
-                  </TooltipContent>
+                  <TooltipTrigger><span className="ml-0.5 inline-flex items-center text-muted-foreground/70 transition-colors hover:text-foreground"><Info className="h-3 w-3" /></span></TooltipTrigger>
+                  <TooltipContent className="max-w-xs border-border bg-popover text-popover-foreground">{feeTooltipContent}</TooltipContent>
                 </Tooltip>
               </span>
-              {data.rr_net != null && (
-                <span className="num font-medium">
-                  خالص {data.rr_net.toFixed(2)}
-                </span>
-              )}
+              {data.rr_net != null && <span className="num font-medium">خالص {data.rr_net.toFixed(2)}</span>}
             </div>
           )}
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
-              <span>
-                {regimeIcon(data.regime)} {regimeFullFa(data.regime)}
-              </span>
-              <span className={consensusColor(data.consensus)}>
-                {consensusFa(data.consensus)}
-              </span>
+              <span>{regimeIcon(data.regime)} {regimeFullFa(data.regime)}</span>
+              <span className={consensusColor(data.consensus)}>{consensusFa(data.consensus)}</span>
             </div>
-
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40">
-              {longPct > 0 && (
-                <div
-                  className="bg-green-500 transition-all duration-300"
-                  style={{ width: `${longPct}%` }}
-                  title={`صعودی ${data.votes_long}`}
-                />
-              )}
-              {neutralPct > 0 && (
-                <div
-                  className="bg-yellow-500 transition-all duration-300"
-                  style={{ width: `${neutralPct}%` }}
-                  title={`خنثی ${data.votes_neutral}`}
-                />
-              )}
-              {shortPct > 0 && (
-                <div
-                  className="bg-red-500 transition-all duration-300"
-                  style={{ width: `${shortPct}%` }}
-                  title={`نزولی ${data.votes_short}`}
-                />
-              )}
+              {longPct > 0 && <div className="bg-green-500 transition-all duration-300" style={{ width: `${longPct}%` }} title={`صعودی ${data.votes_long}`} />}
+              {neutralPct > 0 && <div className="bg-yellow-500 transition-all duration-300" style={{ width: `${neutralPct}%` }} title={`خنثی ${data.votes_neutral}`} />}
+              {shortPct > 0 && <div className="bg-red-500 transition-all duration-300" style={{ width: `${shortPct}%` }} title={`نزولی ${data.votes_short}`} />}
             </div>
-
             <div className="flex items-center justify-between text-[8px] text-muted-foreground">
-              <span className="text-green-500">
-                ▲ {data.votes_long} صعودی
-              </span>
-              <span className="text-yellow-500">
-                ● {data.votes_neutral} خنثی
-              </span>
-              <span className="text-red-500">
-                ▼ {data.votes_short} نزولی
-              </span>
+              <span className="text-green-500">▲ {data.votes_long} صعودی</span>
+              <span className="text-yellow-500">● {data.votes_neutral} خنثی</span>
+              <span className="text-red-500">▼ {data.votes_short} نزولی</span>
             </div>
           </div>
         </CardContent>
 
         <div className="flex items-center justify-between border-t border-border/20 px-3 py-0 text-[9px]">
-          <span
-            className="shrink-0 text-muted-foreground/50"
-            style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}
-          >
-            trademun.ir
-          </span>
-
-          <span
-            className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}
-          >
-            {session.label}
-          </span>
-
-          <span
-            className="num flex shrink-0 items-center gap-1 text-muted-foreground/60"
-            style={{ fontFamily: "monospace" }}
-          >
+          <span className="shrink-0 text-muted-foreground/50" style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}>trademun.ir</span>
+          <span className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}>{session.label}</span>
+          <span className="num flex shrink-0 items-center gap-1 text-muted-foreground/60" style={{ fontFamily: "monospace" }}>
             <span>
               {(() => {
-                const parts = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
-                  year: "numeric",
-                  month: "2-digit",
-                  day: "2-digit",
-                  timeZone: "Asia/Tehran",
-                }).formatToParts(now);
+                const parts = new Intl.DateTimeFormat("fa-IR-u-nu-latn", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Tehran" }).formatToParts(now);
                 return parts.map((p) => p.value).join("");
               })()}
             </span>
             <span className="text-muted-foreground/30">·</span>
             <span className="text-muted-foreground/80">
-              {new Intl.DateTimeFormat("en-GB", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: false,
-                timeZone: "Asia/Tehran",
-              }).format(now)}
+              {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Asia/Tehran" }).format(now)}
             </span>
           </span>
         </div>

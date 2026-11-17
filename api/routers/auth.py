@@ -166,7 +166,14 @@ async def login_with_password(
 
 
 @router.get("/me")
-async def me(user: User = Depends(get_current_user)):
+async def me(
+    user: User = Depends(get_current_user), session: Session = Depends(get_session)
+):
+    # 🔴 آپدیت last_seen_at در هر درخواست
+    user.last_seen_at = datetime.now(timezone.utc)
+    session.add(user)
+    session.commit()
+
     return {
         "ok": True,
         "user": {
@@ -177,7 +184,10 @@ async def me(user: User = Depends(get_current_user)):
             "is_active": user.is_active,
             "is_admin": user.is_admin,
             "created_at": user.created_at.isoformat(),
-            "has_password": bool(user.hashed_password),  # 🔴 برگردوندن وضعیت رمز
+            "has_password": bool(user.hashed_password),
+            "last_seen_at": (
+                user.last_seen_at.isoformat() if user.last_seen_at else None
+            ),
         },
     }
 

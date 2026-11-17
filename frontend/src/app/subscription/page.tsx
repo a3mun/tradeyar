@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
   CheckCircle2, Copy, ShieldCheck, 
-  Zap, Gift, Check, CreditCard, Wallet, Sparkles, Clock, Info, LayoutDashboard, ArrowRight
+  Zap, Gift, Check, CreditCard, Wallet, Sparkles, Clock, Info, LayoutDashboard
 } from "lucide-react";
 import { Header } from "@/components/layout/Header";
 import { PublicFooter } from "@/components/layout/PublicFooter";
@@ -26,33 +26,14 @@ const PRO_PLANS = [
 
 const PENDING_KEY = "trademun_pending_request";
 
-// 🔴 SEO Hidden Content
 const SEO_KEYWORDS = [
-  "تحلیل تکنیکال کریپتو",
-  "سیگنال هوش مصنوعی کریپتو",
-  "مقایسه صرافی‌های ایرانی",
-  "تحلیل انس طلا XAU USD",
-  "سیگنال انس طلا",
-  "دریا گلد",
-  "آلفا گلد",
-  "تحلیل نوبیتکس",
-  "تحلیل بیت‌پین",
-  "تحلیل والکس",
-  "تحلیل تبدیل",
-  "بورس تهران تحلیل تکنیکال",
-  "اسکنر فرصت‌های کریپتو",
-  "عمق بازار کریپتو",
-  "شاخص ترس و طمع",
-  "چک‌لیست معاملاتی",
-  "مدیریت ریسک کریپتو",
-  "پروفایل ریسک",
-  "افزونه کروم ترید",
-  "تایم‌فریم تحلیل",
-  "RSI MACD تحلیل",
-  "سناریوهای پیش‌بینی بازار",
-  "راستی‌آزمایی سیگنال",
-  "تاریخچه معاملات",
-  "تریدمون",
+  "تحلیل تکنیکال کریپتو", "سیگنال هوش مصنوعی کریپتو", "مقایسه صرافی‌های ایرانی",
+  "تحلیل انس طلا XAU USD", "سیگنال انس طلا", "دریا گلد", "آلفا گلد",
+  "تحلیل نوبیتکس", "تحلیل بیت‌پین", "تحلیل والکس", "تحلیل تبدیل",
+  "بورس تهران تحلیل تکنیکال", "اسکنر فرصت‌های کریپتو", "عمق بازار کریپتو",
+  "شاخص ترس و طمع", "چک‌لیست معاملاتی", "مدیریت ریسک کریپتو", "پروفایل ریسک",
+  "افزونه کروم ترید", "تایم‌فریم تحلیل", "RSI MACD تحلیل", "سناریوهای پیش‌بینی بازار",
+  "راستی‌آزمایی سیگنال", "تاریخچه معاملات", "تریدمون",
 ];
 
 export default function SubscriptionPage() {
@@ -97,7 +78,7 @@ export default function SubscriptionPage() {
           receipt_note: note, 
           payment_time: paymentTime,
           payment_method: paymentMethod,
-          amount: selectedPlanData?.price  // 🔴 ارسال مبلغ برای کارت‌به‌کارت
+          amount: selectedPlanData?.price
         }),
       });
       const data = await res.json();
@@ -116,7 +97,7 @@ export default function SubscriptionPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
-      {/* 🔴 SEO — Hidden H1 & keywords */}
+      {/* SEO */}
       <div className="sr-only" aria-hidden="true">
         <h1>خرید اشتراک حرفه‌ای تریدمون | تحلیل تکنیکال کریپتو، سیگنال هوش مصنوعی و تحلیل انس طلا</h1>
         <h2>پلن‌های اشتراک تریدمون — از ۳ روز رایگان تا یک ساله</h2>
@@ -134,159 +115,173 @@ export default function SubscriptionPage() {
       <Header />
       <main className="flex-1 container mx-auto p-4 py-6 max-w-5xl">
         
-        {/* ═══════ مقایسه رایگان و پرو ═══════ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8 mt-2 items-stretch">
-          
-          <motion.div 
-            initial={{ opacity: 0, y: 16 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-5 flex flex-col h-full"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-slate-500/10 p-2.5 rounded-xl border border-slate-500/20">
-                <Gift className="h-5 w-5 text-slate-300" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-white">پلن آشنایی رایگان</h2>
-                <p className="text-[10px] text-green-400 font-bold bg-green-400/10 px-2 py-0.5 rounded-full inline-block mt-1 border border-green-400/20">
-                  ۳ روز رایگان
-                </p>
-              </div>
+        {/* ═══════ بنر دوره آزمایشی رایگان ═══════ */}
+        <motion.div 
+          initial={{ opacity: 0, y: 16 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          className="rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] to-[#0a1526] p-4 sm:p-5 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-[#d6ad60]/5"
+        >
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="bg-[#d6ad60]/15 p-2.5 rounded-xl border border-[#d6ad60]/30 shrink-0">
+              <Gift className="h-6 w-6 text-[#d6ad60]" />
             </div>
-            <p className="text-xs text-gray-400 leading-relaxed mb-4">
-              برای آشنایی اولیه با سیستم و مشاهده بخشی از تحلیل‌ها. بدون نیاز به پرداخت.
-            </p>
-            <div className="space-y-2.5 mb-4 bg-black/30 p-4 rounded-xl border border-white/5 flex-1">
-              <p className="text-[10px] text-gray-400 mb-2 font-bold">امکانات این پلن:</p>
-              {[
-                "مشاهده کارت سیگنال",
-                "جدول تایم‌فریم‌ها",
-                "عمق بازار",
-                "شاخص ترس و طمع",
-                "تحلیل تکنیکال ",
-                "سناریوهای پیش رو",
-                "نقاط حمایت و مقاومت",
-                "چک‌لیست اندیکاتور ها",
-                "جدول مقایسه قیمت",
-                "تقویم اقتصادی فارکس",
-               " ماشین حساب سود و ضرر",
-               " آمار عملکرد سیگنال ها",
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs text-gray-300">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  <span>{item}</span>
-                </div>
-              ))}
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                دوره آشنایی با تریدمون
+                <span className="text-[10px] text-green-400 font-bold bg-green-400/10 px-2 py-0.5 rounded-full border border-green-400/20">۳ روز رایگان</span>
+              </h2>
+              {/* 🔴 متن پرانتزی حذف شد */}
+              <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                همه امکانات تحلیل و سیگنال‌دهی را بدون محدودیت امتحان کنید.
+              </p>
             </div>
-          </motion.div>
+          </div>
+          <Link href="/dashboard" className="w-full sm:w-auto shrink-0">
+            <Button className="w-full h-9 bg-white/10 hover:bg-white/20 text-white border border-white/10 text-xs font-bold gap-1.5">
+              شروع دوره رایگان
+            </Button>
+          </Link>
+        </motion.div>
 
-          <motion.div 
-            initial={{ opacity: 0, y: 16 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            transition={{ delay: 0.08 }} 
-            className="rounded-2xl border-2 border-[#d6ad60]/60 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-5 flex flex-col relative overflow-hidden h-full"
-          >
-            <div className="absolute top-3 left-3 bg-[#d6ad60] text-[#07111f] text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-lg shadow-[#d6ad60]/30">
-              <Sparkles className="h-3 w-3" /> پیشنهاد ویژه
-            </div>
-            <div className="flex items-center gap-3 mb-4 mt-2">
-              <div className="bg-[#d6ad60]/15 p-2.5 rounded-xl border border-[#d6ad60]/30">
-                <Zap className="h-5 w-5 text-[#d6ad60]" />
+        {/* ═══════ بخش امکانات دوره آشنایی (همیشه باز در موبایل و دسکتاپ) ═══════ */}
+        <motion.div 
+          initial={{ opacity: 0, y: 16 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ delay: 0.08 }} 
+          className="rounded-2xl border border-white/5 bg-[#0d1b2d] p-4 sm:p-5 mb-6"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Gift className="h-4 w-4 text-slate-400" />
+            <h3 className="text-sm font-bold text-white">امکاناتی که در ۳ روز رایگان می‌بینید:</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2.5 bg-black/20 p-4 rounded-xl">
+            {[
+              "تحلیل تکنیکال کریپتو (۴ صرافی)",
+              "تحلیل تکنیکال فارکس (طلا، نفت، شاخص‌ها)",
+              "تحلیل تکنیکال بورس تهران",
+              "کارت سیگنال + جدول تایم‌فریم",
+              "عمق بازار",
+              "شاخص ترس و طمع",
+              "سیگنال‌های زنده",
+              "سناریوهای پیش رو",
+              "نقاط حمایت و مقاومت",
+              "چک‌لیست اندیکاتورها",
+              "مقایسه قیمت صرافی‌ها",
+              "آمار عملکرد سیگنال‌ها",
+              "تحلیل بنیادین (به‌زودی)",
+              "تقویم اقتصادی (به‌زودی)",
+              "ماشین‌حساب سود و ضرر (به‌زودی)",
+            ].map((item, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-gray-300">
+                <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                <span>{item}</span>
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-[#d6ad60]">اشتراک حرفه‌ای (Pro)</h2>
-                <p className="text-[10px] text-gray-400">دسترسی کامل و بدون محدودیت</p>
-              </div>
-            </div>
-            <p className="text-xs text-gray-300 leading-relaxed mb-4">
-              آزادی عمل کامل در تحلیل، حذف تمام محدودیت‌ها و دسترسی به افزونه اختصاصی انس طلا.
-            </p>
-            <div className="space-y-2.5 bg-[#d6ad60]/5 p-4 rounded-xl border border-[#d6ad60]/20 flex-1">
-              <p className="text-[10px] text-[#d6ad60] mb-2 font-bold">امکانات این پلن:</p>
-              <div className="flex items-center gap-2 text-xs text-gray-200 font-bold">
-                <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /> 
-                <span>همه امکانات پلن آشنایی +</span>
-              </div>
-              {[
-                "اسکنر فرصت‌ها",
-                "مشاوره هوش مصنوعی با کلید API شخصی",
-                "کپی داده های خام",
-                "تحلیل دریا گلد و آلفا گلد",
-                "دانلود افزونه اختصاصی کروم",
-                "درخواست افزونه سفارشی",
-              ].map((item, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs text-gray-200">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
+            ))}
+          </div>
+        </motion.div>
 
-        {/* ═══════ انتخاب پلن ═══════ */}
+        {/* ═══════ کارت اصلی (Pro) ═══════ */}
         <motion.div 
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.16 }} 
-          className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-5 mb-8"
+          className="rounded-2xl border-2 border-[#d6ad60]/60 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-5 sm:p-6 relative overflow-hidden mb-8"
         >
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Zap className="h-4 w-4 text-[#d6ad60]" /> انتخاب مدت زمان اشتراک حرفه‌ای
-            </h3>
-            <span className="text-[10px] text-gray-500 bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
-              ۴ پلن موجود
-            </span>
+          <div className="absolute top-4 left-4 bg-[#d6ad60] text-[#07111f] text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-lg shadow-[#d6ad60]/30">
+            <Sparkles className="h-3 w-3" /> پیشنهاد ویژه
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {PRO_PLANS.map((plan) => {
-              const isSelected = selectedPlan === plan.id;
-              return (
-                <button
-                  key={plan.id}
-                  onClick={() => setSelectedPlan(plan.id)}
-                  className={`relative p-4 rounded-xl text-right transition-all duration-200 ${
-                    isSelected
-                      ? "bg-[#d6ad60]/10 border-2 border-[#d6ad60] ring-1 ring-[#d6ad60]/30"
-                      : "bg-black/30 border border-white/10 hover:border-[#d6ad60]/40 hover:bg-white/5"
-                  }`}
-                >
-                  {plan.popular && (
-                    <span className="absolute -top-2.5 right-3 bg-[#d6ad60] text-[#07111f] text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md shadow-[#d6ad60]/30">
-                      <Sparkles className="h-2.5 w-2.5" /> پرفروش
-                    </span>
-                  )}
-                  
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-sm text-white">{plan.title}</span>
-                    {plan.discount > 0 && (
-                      <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded font-bold border border-green-500/20">
-                        {plan.discount}٪
+          <div className="flex items-center gap-3 mb-4 mt-6 sm:mt-2">
+            <div className="bg-[#d6ad60]/15 p-2.5 rounded-xl border border-[#d6ad60]/30">
+              <Zap className="h-5 w-5 text-[#d6ad60]" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-[#d6ad60]">اشتراک حرفه‌ای (Pro)</h2>
+              <p className="text-[10px] text-gray-400">دسترسی کامل و همیشگی به همه امکانات</p>
+            </div>
+          </div>
+          
+          <div className="space-y-2.5 bg-[#d6ad60]/5 p-4 rounded-xl border border-[#d6ad60]/20 mb-5">
+            <p className="text-[10px] text-[#d6ad60] mb-2 font-bold">امکانات اختصاصی این پلن:</p>
+            <div className="flex items-center gap-2 text-xs text-gray-200 font-bold">
+              <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /> 
+              <span>همه امکانات دوره آشنایی +</span>
+            </div>
+            {[
+              { label: "اسکنر فرصت‌ها" },
+              { label: "مشاوره هوش مصنوعی با کلید API شخصی", sub: "به‌زودی با اتصال مستقیم به موتور AI" },
+              { label: "کپی داده های خام" },
+              { label: "دانلود افزونه اختصاصی کروم (دریا گلد و آلفا گلد)" },
+              { label: "درخواست افزونه سفارشی" },
+            ].map((item, i) => (
+              <div key={i} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 text-xs text-gray-200">
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  <span>{item.label}</span>
+                </div>
+                {item.sub && (
+                  <span className="text-[9px] text-[#d6ad60]/80 mr-5 mt-0.5">{item.sub}</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* انتخاب پلن‌ها - داخل کارت پرو */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                <Zap className="h-3 w-3 text-[#d6ad60]" /> انتخاب مدت زمان اشتراک
+              </h3>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+              {PRO_PLANS.map((plan) => {
+                const isSelected = selectedPlan === plan.id;
+                return (
+                  <button
+                    key={plan.id}
+                    onClick={() => setSelectedPlan(plan.id)}
+                    className={`relative p-3 sm:p-4 rounded-xl text-right transition-all duration-200 ${
+                      isSelected
+                        ? "bg-[#d6ad60]/10 border-2 border-[#d6ad60] ring-1 ring-[#d6ad60]/30"
+                        : "bg-black/30 border border-white/10 hover:border-[#d6ad60]/40 hover:bg-white/5"
+                    }`}
+                  >
+                    {plan.popular && (
+                      <span className="absolute -top-2.5 right-3 bg-[#d6ad60] text-[#07111f] text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-md shadow-[#d6ad60]/30">
+                        <Sparkles className="h-2.5 w-2.5" /> پرفروش
                       </span>
                     )}
-                  </div>
-                  
-                  <div className="flex items-baseline gap-1">
-                    <span className="font-bold text-base text-white">{plan.price.toLocaleString("fa-IR")}</span>
-                    <span className="text-[10px] text-gray-400">تومان</span>
-                  </div>
-                  
-                  {plan.oldPrice > 0 && (
-                    <div className="text-[10px] text-gray-500 line-through mt-1">
-                      {plan.oldPrice.toLocaleString("fa-IR")} تومان
+                    
+                    <div className="flex justify-between items-center mb-1 sm:mb-2">
+                      <span className="font-bold text-xs sm:text-sm text-white">{plan.title}</span>
+                      {plan.discount > 0 && (
+                        <span className="text-[9px] sm:text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded font-bold border border-green-500/20">
+                          {plan.discount}٪
+                        </span>
+                      )}
                     </div>
-                  )}
-                  
-                  {isSelected && (
-                    <div className="absolute bottom-2 left-2 w-4 h-4 rounded-full bg-[#d6ad60] flex items-center justify-center">
-                      <Check className="h-2.5 w-2.5 text-[#07111f]" strokeWidth={3} />
+                    
+                    <div className="flex items-baseline gap-1 mt-1 sm:mt-0">
+                      <span className="font-bold text-sm sm:text-base text-white">{plan.price.toLocaleString("fa-IR")}</span>
+                      <span className="text-[9px] text-gray-400">تومان</span>
                     </div>
-                  )}
-                </button>
-              );
-            })}
+                    
+                    {plan.oldPrice > 0 && (
+                      <div className="text-[9px] text-gray-500 line-through mt-0.5">
+                        {plan.oldPrice.toLocaleString("fa-IR")}
+                      </div>
+                    )}
+                    
+                    {isSelected && (
+                      <div className="absolute bottom-2 left-2 w-4 h-4 rounded-full bg-[#d6ad60] flex items-center justify-center">
+                        <Check className="h-2.5 w-2.5 text-[#07111f]" strokeWidth={3} />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </motion.div>
 
@@ -386,7 +381,6 @@ export default function SubscriptionPage() {
               {paymentMethod === "card" && (
                 <div className="animate-in fade-in slide-in-from-top-2 duration-300 bg-black/30 p-4 rounded-xl border border-white/10">
                   
-                  {/* هشدار هماهنگی */}
                   <div className="mb-4 flex items-start gap-2 bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-2.5">
                     <Info className="h-4 w-4 text-yellow-400 shrink-0 mt-0.5" />
                     <p className="text-[10px] text-yellow-400/90 leading-relaxed">
@@ -394,7 +388,6 @@ export default function SubscriptionPage() {
                     </p>
                   </div>
 
-                  {/* 🔴 مبلغ دقیق قابل پرداخت */}
                   <div className="mb-4 p-3 rounded-xl bg-[#d6ad60]/10 border-2 border-[#d6ad60]/40 text-center">
                     <p className="text-[10px] text-[#d6ad60] mb-1 font-bold">مبلغ دقیق قابل پرداخت:</p>
                     <p className="text-2xl font-bold text-white" dir="ltr">
@@ -403,7 +396,6 @@ export default function SubscriptionPage() {
                     </p>
                   </div>
                   
-                  {/* شماره کارت */}
                   <div className="text-center mb-5">
                     <div className="text-[10px] text-[#d6ad60] mb-1.5 font-bold">شماره کارت:</div>
                     <div className="font-mono text-lg md:text-xl font-bold dir-ltr tracking-widest text-white mb-1">{CARD_NUMBER}</div>

@@ -16,7 +16,12 @@ from api.routers import ws as ws_router
 from api.routers import extension
 from api.routers import analyze, backtest, orderbook, scan, symbols, share
 from contextlib import asynccontextmanager
-
+from fastapi import Request
+from sqlmodel import Session
+from api.database import engine
+from api.models import User
+from sqlalchemy import update
+from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -133,6 +138,37 @@ app = FastAPI(
     description="دستیار هوشمند تحلیل و مانیتورینگ بازار — Trademun",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def update_last_seen(request: Request, call_next):
+    # 🔴 آپدیت last_seen_at در هر درخواستی که توکن داره
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            from api.auth import decode_token
+            from api.models import User
+            from sqlalchemy import update
+            from datetime import datetime, timezone
+
+            token = auth_header.split(" ")[1]
+            payload = decode_token(token)
+            if payload and "sub" in payload:
+                phone = payload["sub"]
+                with Session(engine) as session:
+                    session.exec(
+                        update(User)
+                        .where(User.phone == phone)
+                        .values(last_seen_at=datetime.now(timezone.utc))
+                    )
+                    session.commit()
+        except Exception as e:
+            # 🔴 این خط رو موقتاً نگه دار تا اگه خطایی بود ببینیم
+            print(f"Middleware error: {e}")
+
+    response = await call_next(request)
+    return response
+
 
 # ⬅️ سرو کردن فایل‌های تیکت
 _tickets_dir = Path("data/tickets")

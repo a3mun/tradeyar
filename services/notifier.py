@@ -1,14 +1,17 @@
 """
 services/notifier.py
-ارسال سیگنال به تلگرام و بله — نسخه ۵.۰ (فاز ۱۶.۱)
+ارسال سیگنال به تلگرام و بله — نسخه ۵.۲ (فاز ۱۶.۵)
 ============================================================
-🔴 تغییرات نسخه ۵.۰:
-  • فیلتر کیفیت جدید برای ارسال به کانال:
-    - آستانه اطمینان بالاتر از سایت (اسکالپ ۴۵، سوئینگ ۵۵، پوزیشن ۶۵)
-    - سیگنال «ضعیف» فقط اگه اطمینان < ۵۰٪ رد بشه (لب مرز خوبه)
-    - تله پرخطر (severity ≥ 7) + اطمینان < ۸۰٪ → رد
-  • حفظ فیلترهای قبلی (جهت‌دار، Bypass، Cooldown)
-  • لاگ بهتر برای دلیل رد
+🔴 تغییرات نسخه ۵.۲:
+  • فرمت جدید پیام (مطابق درخواست کاربر):
+    - هدر: ticker بالا / اسم فارسی زیرش
+    - خط جهت: «🟢خرید (Long)» جدا
+    - خط اطمینان جدا
+    - خط استراتژی/صرافی جدا (بدون چسبیدن)
+    - قیمت‌ها بدون emoji
+    - فوتر ساده: trademun.ir - @trademun
+  • اضافه شدن #trademun به هشتگ‌ها
+  • بقیه (فیلترها، آستانه‌ها، cooldown) دست‌نخورده
 """
 
 import json
@@ -27,19 +30,16 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
 # ═══════════════════════════════════════════════════════════
-# آستانه‌های پویا (بر اساس ماتریس ۵ سطح)
+# آستانه‌های پویا (فاز ۱۶.۵ — نرم‌تر)
 # ═══════════════════════════════════════════════════════════
 def _get_min_confidence_telegram(strategy: str) -> int:
-    """🔴 فاز ۱۶.۱ — آستانه‌ی اطمینان برای ارسال به کانال (سخت‌گیرانه‌تر از سایت)"""
-    return {"scalp": 45, "swing": 55, "position": 65}.get(strategy, 55)
+    return {"scalp": 40, "swing": 50, "position": 60}.get(strategy, 50)
 
 
 def _get_strong_bypass(strategy: str) -> int:
-    """آستانه‌ی Bypass (سیگنال قوی که از is_worthwhile عبور می‌کنه)"""
-    return {"scalp": 60, "swing": 70, "position": 75}.get(strategy, 70)
+    return {"scalp": 55, "swing": 65, "position": 70}.get(strategy, 65)
 
 
-# Cooldown پویا بر اساس تایم‌فریم (برای اسکالپ کوتاه‌تر)
 _TF_COOLDOWN_SEC = {
     "۱ دقیقه": 60,
     "۵ دقیقه": 180,
@@ -50,7 +50,6 @@ _TF_COOLDOWN_SEC = {
 }
 _DEFAULT_COOLDOWN = 300
 
-# 🔴 لیست‌های جداگانه برای هر کانال
 _last_sent: dict[str, dict[str, float]] = {"telegram": {}, "bale": {}}
 
 
@@ -59,10 +58,8 @@ def _is_recent_duplicate(signal: dict, channel: str) -> bool:
     tf = signal.get("tf", "")
     strategy = signal.get("strategy", "swing")
     key = f"{ticker}|{tf}|{strategy}"
-
     cooldown = _TF_COOLDOWN_SEC.get(tf, _DEFAULT_COOLDOWN)
     now = time.time()
-
     channel_dict = _last_sent.get(channel, {})
     if key in channel_dict and now - channel_dict[key] < cooldown:
         logger.info(
@@ -75,16 +72,6 @@ def _is_recent_duplicate(signal: dict, channel: str) -> bool:
 
 
 def _should_skip(signal: dict, channel: str) -> bool:
-    """
-    🔴 فاز ۱۶.۱ — فیلتر کیفیت سیگنال برای ارسال به کانال.
-    منطق:
-      ۱. فقط جهت‌دار
-      ۲. آستانه اطمینان بالاتر از سایت (اسکالپ ۴۵، سوئینگ ۵۵، پوزیشن ۶۵)
-      ۳. سیگنال «ضعیف» فقط اگه اطمینان < ۵۰٪ رد بشه (لب مرز خوبه)
-      ۴. تله پرخطر (severity ≥ 7) + اطمینان < ۸۰٪ → رد
-      ۵. Bypass برای سیگنال‌های خیلی قوی
-      ۶. R:R برای پوزیشن (اسکالپ و سوئینگ نادیده گرفته می‌شن)
-    """
     ticker = signal.get("ticker", "?")
     tf = signal.get("tf", "?")
     strategy = signal.get("strategy", "swing")
@@ -92,12 +79,10 @@ def _should_skip(signal: dict, channel: str) -> bool:
     confidence = signal.get("confidence", 0)
     signal_text = signal.get("signal", "")
 
-    # ۱. فقط جهت‌دار
     if direction not in ("long", "short"):
         logger.debug(f"[Notifier/{channel}] ⏭ {ticker} {tf}: جهت {direction} خنثی")
         return True
 
-    # ۲. حداقل اطمینان (سخت‌گیرانه‌تر از سایت)
     min_conf = _get_min_confidence_telegram(strategy)
     if confidence < min_conf:
         logger.debug(
@@ -106,15 +91,13 @@ def _should_skip(signal: dict, channel: str) -> bool:
         )
         return True
 
-    # ۳. سیگنال «ضعیف» — فقط اگه اطمینان پایین باشه
-    if "ضعیف" in signal_text and confidence < 50:
+    if "ضعیف" in signal_text and confidence < 45:
         logger.debug(
             f"[Notifier/{channel}] ⏭ {ticker} {tf}: "
-            f"سیگنال ضعیف با اطمینان {confidence}% < 50%"
+            f"سیگنال ضعیف با اطمینان {confidence}% < 45%"
         )
         return True
 
-    # ۴. تله پرخطر (severity ≥ 7) + اطمینان < 80% → رد
     traps_summary = signal.get("traps_summary") or {}
     if traps_summary.get("has_high_risk"):
         max_sev = traps_summary.get("max_severity", 0)
@@ -125,14 +108,12 @@ def _should_skip(signal: dict, channel: str) -> bool:
             )
             return True
 
-    # ۵. Bypass برای سیگنال‌های خیلی قوی
     if confidence >= _get_strong_bypass(strategy):
         logger.info(
             f"[Notifier/{channel}] ⚡ قوی (bypass): {ticker} {tf} conf={confidence}%"
         )
         return False
 
-    # ۶. R:R برای پوزیشن چک می‌شه (اسکالپ/سوئینگ نادیده)
     if strategy in ("scalp", "swing"):
         return False
 
@@ -176,30 +157,81 @@ def _get_strategy_label(strategy: str) -> tuple[str, str]:
     }.get(strategy, ("🌊", "سوئینگ"))
 
 
+# 🔴 فاز ۱۶.۵ — ۱۰ هشتگ رندوم هفتگی
+RANDOM_HASHTAGS = [
+    "#سیگنال_فارکس",
+    "#تحلیل_تکنیکال",
+    "#معامله_گری",
+    "#ترید_روزانه",
+    "#بازار_مالی",
+    "#ارز_دیجیتال",
+    "#تحلیل_بازار",
+    "#سرمایه_گذاری",
+    "#تریدر_حرفه_ای",
+    "#نوسان_گیری",
+]
+
+
+def _get_random_hashtag() -> str:
+    """
+    🔴 فاز ۱۶.۵ — انتخاب هشتگ رندوم بر اساس شماره هفته سال.
+    یعنی هر هفته یک هشتگ ثابت از لیست ۱۰ تایی.
+    """
+    from datetime import datetime
+
+    try:
+        week_num = datetime.now().isocalendar()[1]  # 1-53
+        idx = week_num % len(RANDOM_HASHTAGS)
+        return RANDOM_HASHTAGS[idx]
+    except Exception:
+        return RANDOM_HASHTAGS[0]
+
+
+# 🔴 فاز ۱۶.۵ — ۲۰ هشتگ رندوم روزانه
+RANDOM_HASHTAGS = [
+    "#سیگنال_فارکس",
+    "#سیگنال_کریپتو",
+    "#سیگنال_طلا",
+    "#تحلیل_تکنیکال",
+    "#تحلیل_بازار",
+    "#مقایسه_صرافی",
+    "#صرافی_ایرانی",
+    "#نوبیتکس",
+    "#بیت‌پین",
+    "#والکس",
+    "#طلا_و_دلار",
+    "#انس_طلا",
+    "#ارز_دیجیتال",
+    "#بورس_ایران",
+    "#معامله_گری",
+    "#ترید_روزانه",
+    "#سرمایه_گذاری",
+    "#نوسان_گیری",
+    "#تریدر_حرفه_ای",
+    "#آموزش_ترید",
+]
+
+
+def _get_random_hashtags_daily(count: int = 4) -> list[str]:
+    """انتخاب ۴ هشتگ تصادفی که در طول یک روز ثابت می‌مونن"""
+    import random
+    from datetime import datetime
+
+    try:
+        day_of_year = datetime.now().timetuple().tm_yday
+        rng = random.Random(day_of_year)
+        return rng.sample(RANDOM_HASHTAGS, min(count, len(RANDOM_HASHTAGS)))
+    except Exception:
+        return RANDOM_HASHTAGS[:count]
+
+
 def _get_hashtags(signal: dict) -> str:
-    tags = ["#تریدمون_نشه"]
-    ticker = (
-        (signal.get("ticker") or "").replace("-", "").replace("_", "").replace("/", "")
-    )
-    ticker = "".join(c for c in ticker if c.isalnum())
-    if ticker:
-        tags.append(f"#{ticker}")
-    strategy = signal.get("strategy", "swing")
-    strategy_tag = {"scalp": "#اسکالپ", "swing": "#سوئینگ", "position": "#پوزیشن"}.get(
-        strategy
-    )
-    if strategy_tag:
-        tags.append(strategy_tag)
-    source = signal.get("source", "")
-    source_map = {
-        "nobitex": "#نوبیتکس",
-        "bitpin": "#بیت‌پین",
-        "wallex": "#والکس",
-        "tabdeal": "#تبدیل",
-        "tsetmc": "#بورس",
-    }
-    if source in source_map:
-        tags.append(source_map[source])
+    """۵ هشتگ: #تریدمون + ۴ تای رندوم روزانه"""
+    tags = ["#تریدمون"]
+    daily = _get_random_hashtags_daily(4)
+    for h in daily:
+        if h not in tags:
+            tags.append(h)
     return " ".join(tags[:5])
 
 
@@ -230,21 +262,35 @@ def _confidence_label(confidence: int, strategy: str) -> tuple[str, str]:
 
 
 def _build_message(signal: dict, is_telegram: bool = True) -> str:
+    """🔴 فاز ۱۶.۵ — فرمت نهایی (قیمت‌ها + خروج پله‌ای توی blockquote)"""
     direction = signal.get("direction", "neutral")
     confidence = signal.get("confidence", 0)
     market_type = signal.get("market_type", "spot")
     risk_profile = signal.get("risk_profile", "aggressive")
     strategy = signal.get("strategy", "swing")
 
-    icon = "🟢" if direction == "long" else ("🔴" if direction == "short" else "🟡")
-    dir_fa = (
+    # آیکون و متن جهت
+    direction_icon = (
+        "🟢" if direction == "long" else ("🔴" if direction == "short" else "🟡")
+    )
+    direction_fa = (
         "خرید" if direction == "long" else ("فروش" if direction == "short" else "خنثی")
     )
+    direction_en = (
+        "Long"
+        if direction == "long"
+        else ("Short" if direction == "short" else "Neutral")
+    )
+
+    # اطمینان
     conf_icon, conf_fa = _confidence_label(confidence, strategy)
+
+    # استراتژی
     strategy_icon, strategy_fa = _get_strategy_label(strategy)
     market_fa = "فیوچرز" if market_type == "futures" else "اسپات"
     risk_fa = "جسورانه" if risk_profile == "aggressive" else "محتاطانه"
 
+    # صرافی
     source = signal.get("source", "")
     source_map = {
         "nobitex": "🟣Nobitex",
@@ -252,9 +298,11 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
         "wallex": "🔵Wallex",
         "tabdeal": "🟠Tabdeal",
         "tsetmc": "🇮🇷TSETMC",
+        "forex": "🌍 فارکس",
     }
     source_fa = source_map.get(source, source)
 
+    # TF کوتاه
     tf_short = {
         "۱ دقیقه": "1m",
         "۵ دقیقه": "5m",
@@ -264,6 +312,7 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
         "روزانه": "1d",
     }.get(signal.get("tf", ""), signal.get("tf", ""))
 
+    # قیمت‌ها
     rr_val = signal.get("rr_net") or signal.get("rr", 0) or 0
     rr_str = f"{rr_val:.2f}"
     price_str = _format_price(signal.get("price", 0))
@@ -298,51 +347,81 @@ def _build_message(signal: dict, is_telegram: bool = True) -> str:
                 f"• TP3: {tp3_s}"
             )
 
+    # تله
     trap_text = _get_trap_status(signal)
-    trap_line = f" | ⚠️ {trap_text}" if trap_text else ""
+    trap_line = f"\n⚠️ {trap_text}" if trap_text else ""
 
+    # تاریخ
     date_str = _format_shamsi_date()
     hashtags = _get_hashtags(signal)
+
+    # ticker و name
     ticker = signal.get("ticker", "")
+    name = signal.get("name", "")
+
+    # ═══ ساخت هدر ═══
     golden_mark = "💎 " if confidence >= 85 else ""
 
+    # ═══ ساخت blockquote (قیمت‌ها + خروج پله‌ای) ═══
     if is_telegram:
-        header_line = f"     {golden_mark}{ticker} / <b>TF: {tf_short}</b>"
-        direction_line = f"| <b>{dir_fa}</b> | {conf_icon} {conf_fa} ({confidence}%)"
+        # تلگرام: HTML داخل blockquote
+        prices_body = (
+            f"ورود: <code>{price_str}</code>\n"
+            f"حد سود: <code>{tp_str}</code>\n"
+            f"حد ضرر: <code>{sl_str}</code>\n"
+            f"ریسک به ریوارد: <b>{rr_str}</b>"
+        )
+        if tp_ladder:
+            # tp_ladder رو داخل blockquote قرار می‌دیم (بدون \n\n اضافی)
+            tp_ladder_inner = tp_ladder.replace("\n\n📊 ", "\n\n📊 ")
+            prices_block = f"<blockquote>{prices_body}{tp_ladder_inner}</blockquote>"
+        else:
+            prices_block = f"<blockquote>{prices_body}</blockquote>"
+    else:
+        # بله: HTML ساپورت نمی‌کنه، فقط متن
+        prices_body = (
+            f"ورود: {price_str}\n"
+            f"حد سود: {tp_str}\n"
+            f"حد ضرر: {sl_str}\n"
+            f"ریسک به ریوارد: {rr_str}"
+        )
+        if tp_ladder:
+            prices_block = f"{prices_body}{tp_ladder}"
+        else:
+            prices_block = prices_body
+
+    # ═══ ساخت header ═══
+    if is_telegram:
+        header_line = f"     {golden_mark}<code>{ticker}</code> / <b>TF: {tf_short}</b>"
+        if name and name.strip() != ticker.strip():
+            header_line += f"\n{name}"
+        direction_line = f" {direction_icon}<b>{direction_fa}</b> ({direction_en})"
+        conf_line = f"{conf_icon} {conf_fa} ({confidence}%)"
         strategy_line = (
             f"{strategy_icon} <b>{strategy_fa}</b> | {market_fa} | {risk_fa}"
         )
-        prices_block = (
-            f"<blockquote>"
-            f"💰 ورود: <code>{price_str}</code>\n"
-            f"🎯 حد سود: <code>{tp_str}</code>\n"
-            f"🛡️ حد ضرر: <code>{sl_str}</code>\n"
-            f"ریسک به ریوارد (خالص): <b>{rr_str}</b>"
-            f"</blockquote>"
-        )
     else:
         header_line = f"     {golden_mark}{ticker} / TF: {tf_short}"
-        direction_line = f"| {dir_fa} | {conf_icon} {conf_fa} ({confidence}%)"
+        if name and name.strip() != ticker.strip():
+            header_line += f"\n{name}"
+        direction_line = f" {direction_icon}{direction_fa} ({direction_en})"
+        conf_line = f"{conf_icon} {conf_fa} ({confidence}%)"
         strategy_line = f"{strategy_icon} {strategy_fa} | {market_fa} | {risk_fa}"
-        prices_block = (
-            f"💰 ورود: {price_str}\n"
-            f"🎯 حد سود: {tp_str}\n"
-            f"🛡️ حد ضرر: {sl_str}\n"
-            f"ریسک به ریوارد (خالص): {rr_str}"
-        )
 
+    # ═══ ساخت نهایی ═══
     return (
-        f"━━━━━{icon}━━━━━\n"
+        f"━━━━━{direction_icon}━━━━━\n"
         f"{header_line}\n\n"
         f"{direction_line}\n"
-        f"{strategy_line}{source_fa}{trap_line}\n\n"
-        f"{prices_block}"
-        f"{tp_ladder}\n\n"
-        f"━━━━━{icon}━━━━━\n"
+        f"{conf_line}\n"
+        f"{strategy_line}\n"
+        f"{source_fa}"
+        f"{trap_line}\n\n"
+        f"{prices_block}\n\n"  # ← حالا کل block (قیمت + tp_ladder) داخل blockquote
+        f"━━━━━{direction_icon}━━━━━\n"
         f"{date_str}\n\n\n"
         f"🌠 تحلیل بازارهای مالی با تریدمون\n"
-        f"🔗 سایت: trademun.ir\n"
-        f"📢 کانال: @trademun\n\n"
+        f"trademun.ir - @trademun\n\n"
         f"{hashtags}"
     )
 

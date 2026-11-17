@@ -52,6 +52,7 @@ class Subscription:
     risk_profile: str = "aggressive"
     timeframe: str = "۵ دقیقه"
     ticker_name: str = ""
+    strategy: str = "swing"  # 🔴 فاز ۱۶.۵ — هم‌خوان با TFTable
 
     last_signal_fingerprint: str = ""
     consecutive_errors: int = 0
@@ -64,6 +65,7 @@ class Subscription:
             "risk_profile": self.risk_profile,
             "timeframe": self.timeframe,
             "ticker_name": self.ticker_name,
+            "strategy": self.strategy,  # 🔴
         }
 
     @property
@@ -176,13 +178,10 @@ class WSManager:
                     try:
                         q = await run_in_threadpool(quote, ticker, source)
                         if q:
-                            _shared_quotes[key] = {
-                                **q,
-                                "_updated_at": time.time(),
-                            }
-                            logger.info(f"[WS/shared] quote {key} = {q.get('price')}")
+                            _shared_quotes[key] = {**q, "_updated_at": time.time()}
+                            logger.debug(f"[WS/shared] quote {key} = {q.get('price')}")
                         else:
-                            logger.warning(f"[WS/shared] quote {key} → None")
+                            logger.debug(f"[WS/shared] quote {key} → None")
                     except Exception as e:
                         logger.warning(f"[WS/shared] quote {key} error: {e!r}")
 
@@ -298,9 +297,9 @@ class WSManager:
                 if q:
                     data = {k: v for k, v in q.items() if not k.startswith("_")}
                     await conn.send_json({"type": "quote", "data": data})
-                logger.info(
+                logger.debug(
                     f"[WS] quote push → {conn.id} {conn.sub.key} = {data.get('price')}"
-                )  # ← اضافه
+                )
 
             except asyncio.CancelledError:
                 return
@@ -333,6 +332,9 @@ class WSManager:
 
                 from services.analyzer_service import analyze
 
+                # 🔴 فاز ۱۶.۵ — پاس دادن strategy به analyze
+                # دلیل: بدون این، بک‌اند همیشه با "swing" پیش‌فرض تحلیل می‌کنه
+                # ولی TFTable با strategy جاری → دو cache key متفاوت → تناقض
                 data = await run_in_threadpool(
                     analyze,
                     conn.sub.ticker,
@@ -341,6 +343,10 @@ class WSManager:
                     conn.sub.market_type,
                     conn.sub.risk_profile,
                     conn.sub.ticker_name,
+                    True,  # include_extras
+                    True,  # use_cache
+                    False,  # skip_record
+                    conn.sub.strategy,  # 🔴 این خط جدید
                 )
                 if not data:
                     continue
@@ -381,9 +387,11 @@ class WSManager:
                 risk_profile=msg.get("risk_profile", "aggressive"),
                 timeframe=msg.get("timeframe", "۵ دقیقه"),
                 ticker_name=msg.get("ticker_name", ""),
+                strategy=msg.get("strategy", "swing"),  # 🔴 فاز ۱۶.۵
             )
             logger.info(
-                f"[WS] {conn.id} subscribe → {conn.sub.ticker} @ {conn.sub.source}"
+                f"[WS] {conn.id} subscribe → {conn.sub.ticker} @ {conn.sub.source} "
+                f"({conn.sub.strategy})"
             )
             await self.start_producers(conn)
             await conn.send_json({"type": "subscribed", "data": conn.sub.to_dict()})

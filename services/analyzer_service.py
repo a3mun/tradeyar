@@ -2,11 +2,11 @@
 services/analyzer_service.py
 لایه تحلیل — با کش + fingerprint + analyzer_version
 ============================================================
-نسخه ۵.۱ · فاز ۱۴.۷.۲
+نسخه ۵.۲ · فاز ۱۶.۵.۱
 🔴 تغییرات:
-  • analyze_multi_tf با include_extras=True (cache مشترک با /analyze)
-  • _compute_timeout_planned_min (ATR-based)
-  • پاس دادن strategy/tp_levels/timeout_planned_min به record_signal
+  • single-flight lock برای analyze_multi_tf (۱۰۰ کاربر → ۱ محاسبه)
+  • single-flight lock برای analyze (prevent thundering herd)
+  • بقیه دست‌نخورده
 """
 
 import logging
@@ -26,7 +26,12 @@ from core.analyzer import (
 )
 from core.contracts import TF_NAMES, get_signal_timeout
 
-from services.cache import analysis_cache, get_ttl, make_fingerprint
+from services.cache import (
+    analysis_cache,
+    get_ttl,
+    make_fingerprint,
+    key_lock,  # 🔴 فاز ۱۶.۵.۱ — single-flight
+)
 from services.data_service import fetch_ohlcv, fetch_quote
 from core.data_fetcher import get_data_source
 from core.strategies import get_strategy  # 🔴 فاز ۱۴.۷.۳ — TF filter
@@ -328,6 +333,45 @@ def analyze(
             return None
         source = "tsetmc"
 
+    # 🔴 فاز ۱۶.۵.۱ — single-flight lock
+    # جلوگیری از محاسبه‌ی تکراری وقتی چند کاربر هم‌زمان cache miss می‌خورن
+    cache_key = _make_cache_key(
+        ticker, source, tf_name, market_type, risk_profile, strategy
+    )
+
+    with key_lock(cache_key):
+        return _analyze_impl(
+            ticker=ticker,
+            source=source,
+            tf_name=tf_name,
+            market_type=market_type,
+            risk_profile=risk_profile,
+            ticker_name=ticker_name,
+            include_extras=include_extras,
+            use_cache=use_cache,
+            skip_record=skip_record,
+            strategy=strategy,
+            is_iranian_stock=is_iranian_stock,
+        )
+
+
+def _analyze_impl(
+    ticker: str,
+    source: str,
+    tf_name: str,
+    market_type: str,
+    risk_profile: str,
+    ticker_name: str,
+    include_extras: bool,
+    use_cache: bool,
+    skip_record: bool,
+    strategy: str,
+    is_iranian_stock: bool,
+) -> Optional[dict]:
+    """
+    پیاده‌سازی واقعی analyze — بعد از گرفتن lock.
+    این تابع فقط از طریق analyze() صدا زده می‌شه.
+    """
     df = fetch_ohlcv(ticker, tf_name, source, use_cache=use_cache)
     if df is None or df.empty:
         return None
@@ -583,10 +627,9 @@ def analyze(
 
 
 # 🔴 فاز ۱۶.۴ — pre-warm cache (فقط ۲ نماد پرمعامله برای کاهش بار سرور)
-# ⚠️ بقیه نمادها و TFها اولین بار ۵-۷ ثانیه صبر می‌کنن، بعدش کش می‌شن.
 _PREWARM_SYMBOLS = [
-    ("BTC-USD", "nobitex", "futures"),  # بیت‌کوین (دلاری)
-    ("XAUT-USD", "nobitex", "futures"),  # تتر گلد (دلاری)
+    ("BTC-USD", "nobitex", "futures"),
+    ("XAUT-USD", "nobitex", "futures"),
 ]
 
 
@@ -596,7 +639,6 @@ def prewarm_cache():
 
     def _warm_one(ticker, source, market_type):
         try:
-            # 🔴 فاز ۱۶.۴ — فقط ۲ TF (۵ دقیقه و ۱ ساعت)
             for tf in ["۵ دقیقه", "۱ ساعت"]:
                 analyze(
                     ticker=ticker,
@@ -607,7 +649,7 @@ def prewarm_cache():
                     strategy="swing",
                     include_extras=False,
                     use_cache=True,
-                    skip_record=True,  # 🔴 در DB ثبت نکن
+                    skip_record=True,
                 )
         except Exception as e:
             logger.debug(f"[Prewarm] {ticker} {tf}: {e!r}")
@@ -652,16 +694,57 @@ def analyze_multi_tf(
     _key = _make_multi_cache_key(ticker, source, market_type, risk_profile, strategy)
     _now = _time.time()
 
+    # 🔴 فاز ۱۶.۵.۱ — single-flight: سریع cache HIT چک کن
     with _multi_cache_lock:
         _entry = _multi_cache.get(_key)
         if _entry and (_now - _entry["at"]) < _MULTI_CACHE_TTL:
             logger.debug(f"[AnalyzeMulti] cache HIT: {_key}")
             return _entry["data"]
-    """
-    🔴 فاز ۱۴.۷.۳ — فیلتر TF بر اساس recommended_tfs استراتژی.
-    فقط TFهایی که برای استراتژی معنی دارن fetch می‌شن.
-    """
 
+    # 🔴 فاز ۱۶.۵.۱ — single-flight: اگه cache miss، فقط یک نفر محاسبه کنه
+    # بقیه منتظر قفل می‌مونن، بعد cache HIT می‌خورن
+    with key_lock(f"multi:{_key}"):
+        # دوباره چک کن — شاید یکی دیگه هم‌زمان محاسبه کرده
+        _now2 = _time.time()
+        with _multi_cache_lock:
+            _entry = _multi_cache.get(_key)
+            if _entry and (_now2 - _entry["at"]) < _MULTI_CACHE_TTL:
+                logger.debug(f"[AnalyzeMulti] cache HIT after lock: {_key}")
+                return _entry["data"]
+
+        # محاسبه واقعی
+        result = _compute_multi_tf(
+            ticker=ticker,
+            source=source,
+            tf_list=tf_list,
+            market_type=market_type,
+            risk_profile=risk_profile,
+            ticker_name=ticker_name,
+            strategy=strategy,
+        )
+
+        # ذخیره در cache
+        with _multi_cache_lock:
+            _multi_cache[_key] = {"data": result, "at": _time.time()}
+            if len(_multi_cache) > 100:
+                oldest = min(_multi_cache.items(), key=lambda kv: kv[1]["at"])
+                _multi_cache.pop(oldest[0], None)
+
+        return result
+
+
+def _compute_multi_tf(
+    ticker: str,
+    source: str,
+    tf_list: list[str] = None,
+    market_type: str = "spot",
+    risk_profile: str = "aggressive",
+    ticker_name: str = "",
+    strategy: str = "swing",
+) -> dict:
+    """
+    محاسبه‌ی واقعی analyze_multi_tf — فقط از طریق analyze_multi_tf صدا زده می‌شه.
+    """
     # 🔴 فاز ۱۴.۷.۳ — تشخیص: tf_list صریح یا پیش‌فرض؟
     _is_explicit_tf_list = tf_list is not None
 
@@ -671,15 +754,7 @@ def analyze_multi_tf(
     if not ticker or not tf_list:
         return {}
 
-    # ═══════════════════════════════════════════════════════════════
-    # 🔴 فاز ۱۴.۷.۳ — فیلتر TF بر اساس recommended_tfs استراتژی
-    # ═══════════════════════════════════════════════════════════════
-    # فقط وقتی فیلتر اعمال می‌شه که tf_list صریحاً پاس داده نشده باشه
-    # (یعنی کاربر از /analyze/multi با TF پیش‌فرض استفاده می‌کنه)
-    #
-    # چرا؟ اگر کاربر مستقیماً TF می‌خواد (مثل تست یا API)، باید بدون
-    # فیلتر اجرا بشه. فیلتر فقط برای «همه TFهای استراتژی» هست.
-    # ═══════════════════════════════════════════════════════════════
+    # فیلتر TF بر اساس recommended_tfs استراتژی
     if not _is_explicit_tf_list:
         _strategy_cfg = get_strategy(strategy)
         _recommended = _strategy_cfg.get("recommended_tfs", [])
@@ -699,7 +774,6 @@ def analyze_multi_tf(
                 return {}
 
     if len(tf_list) == 1:
-
         tf = tf_list[0]
         try:
             r = analyze(
@@ -710,7 +784,7 @@ def analyze_multi_tf(
                 risk_profile=risk_profile,
                 strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=True,  # 🔴 cache مشترک
+                include_extras=True,
             )
             return {tf: r} if r else {}
         except Exception:
@@ -726,7 +800,7 @@ def analyze_multi_tf(
                 risk_profile=risk_profile,
                 strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=True,  # 🔴 cache مشترک
+                include_extras=True,
             )
         except Exception:
             return None
@@ -753,14 +827,6 @@ def analyze_multi_tf(
             if "close_series" not in r or not r["close_series"]:
                 r["close_series"] = []
             results[tf] = r
-
-    # 🔴 فاز ۱۴.۹.۵ — ذخیره در cache
-    with _multi_cache_lock:
-        _multi_cache[_key] = {"data": results, "at": _time.time()}
-        # پاکسازی خودکار (نگه داشتن حداکثر ۱۰۰ ورودی)
-        if len(_multi_cache) > 100:
-            oldest = min(_multi_cache.items(), key=lambda kv: kv[1]["at"])
-            _multi_cache.pop(oldest[0], None)
 
     return results
 

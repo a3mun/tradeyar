@@ -36,10 +36,18 @@ def calculate_new_end_date(
 
 
 PLANS = {
+    # 🔴 پلن رایگان ۳ روزه (برای ادمین)
+    "free": {
+        "id": "free",
+        "title": "دوره آشنایی (۳ روز رایگان)",
+        "price": 0,
+        "old_price": 0,
+        "days": 3,
+    },
     "1_month": {
         "id": "1_month",
         "title": "اشتراک یک ماهه",
-        "price": 390000,  # ⬅️ قیمت جدید (تخفیف‌خورده)
+        "price": 390000,
         "old_price": 590000,
         "days": 30,
     },

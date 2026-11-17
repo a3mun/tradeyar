@@ -158,6 +158,37 @@ type TabKey =
   | "refunds"
   | "verification";
 
+// 🔴 تابع تشخیص دستگاه و مرورگر
+const parseUserAgent = (ua: string) => {
+  if (!ua || ua === "نامشخص") return { device: "نامشخص", browser: "نامشخص" };
+  
+  let device = "💻 دسکتاپ";
+  let os = "ویندوز";
+  if (/iPhone|iPad|iPod/i.test(ua)) { device = "📱 موبایل"; os = "iOS"; }
+  else if (/Android/i.test(ua)) { device = "📱 موبایل"; os = "Android"; }
+  else if (/Mac OS X/i.test(ua)) { device = "💻 مک"; os = "macOS"; }
+  else if (/Linux/i.test(ua)) { device = "💻 لینوکس"; os = "لینوکس"; }
+  else if (/Windows NT 10/i.test(ua)) { device = "💻 ویندوز"; os = "ویندوز ۱۰"; }
+  else if (/Windows NT/i.test(ua)) { device = "💻 ویندوز"; os = "ویندوز"; }
+
+  let browser = "نامشخص";
+  if (/Chrome/i.test(ua) && !/Edge|OPR/i.test(ua)) browser = "Chrome";
+  else if (/Firefox/i.test(ua)) browser = "Firefox";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  else if (/Edge/i.test(ua)) browser = "Edge";
+
+  return { device, browser: `${browser} (${os})` };
+};
+
+// 🔴 تابع تشخیص آنلاین بودن (کمتر از ۵ دقیقه)
+const isUserOnline = (lastSeen: string | null) => {
+  if (!lastSeen) return false;
+  const last = new Date(lastSeen).getTime();
+  const now = new Date().getTime();
+  return (now - last) < 5 * 60 * 1000;
+};
+
+
 export default function AdminPage() {
   const router = useRouter();
   const [user, setUserData] = useState<any>(null);
@@ -1427,8 +1458,18 @@ const deleteOverride = async (key: string) => {
                           key={u.id}
                           className="transition-colors hover:bg-white/5"
                         >
-                          <td className="dir-ltr px-3 py-3 font-mono text-xs font-bold text-white">
-                            {u.phone}
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`h-2 w-2 rounded-full ${
+                                  isUserOnline(u.last_seen_at) ? "bg-green-500 shadow-[0_0_5px_#22c55e]" : "bg-gray-500"
+                                }`}
+                                title={isUserOnline(u.last_seen_at) ? "آنلاین" : "آفلاین"}
+                              />
+                              <span className="dir-ltr font-mono text-xs font-bold text-white">
+                                {u.phone}
+                              </span>
+                            </div>
                           </td>
                           <td className="px-3 py-3 text-xs text-gray-300">
                             {u.full_name}
@@ -2218,35 +2259,67 @@ const deleteOverride = async (key: string) => {
           </DialogHeader>
           {userDetails ? (
             <div className="space-y-6 py-4">
-              <div className="grid grid-cols-1 gap-4 rounded-xl border border-white/5 bg-black/20 p-4 text-sm sm:grid-cols-2">
-                <div>
-                  <span className="text-gray-400">نام:</span>{" "}
-                  {userDetails.user.full_name || "نامشخص"}
-                </div>
-                <div>
-                  <span className="text-gray-400">تاریخ عضویت:</span>{" "}
-                  {formatFaDate(userDetails.user.created_at)}
-                </div>
-                <div>
-                  <span className="text-gray-400">آخرین ورود:</span>{" "}
-                  {formatFaDateTime(userDetails.user.last_login)}
-                </div>
-                <div>
-                  <span className="text-gray-400">آخرین IP:</span>{" "}
-                  <span className="dir-ltr font-mono text-gray-300">
-                    {userDetails.user.last_ip}
-                  </span>
-                </div>
-                <div className="sm:col-span-2">
-                  <span className="text-gray-400">مرورگر:</span>{" "}
-                  <span
-                    className="text-xs text-gray-300"
-                    title={userDetails.user.last_user_agent}
-                  >
-                    {userDetails.user.last_user_agent}
-                  </span>
-                </div>
+            <div className="grid grid-cols-1 gap-4 rounded-xl border border-white/5 bg-black/20 p-4 text-sm sm:grid-cols-2">
+              <div>
+                <span className="text-gray-400">نام:</span>{" "}
+                {userDetails.user.full_name || "نامشخص"}
               </div>
+              <div>
+                <span className="text-gray-400">تاریخ عضویت:</span>{" "}
+                {formatFaDate(userDetails.user.created_at)}
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-gray-400">وضعیت:</span>{" "}
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                  isUserOnline(userDetails.user.last_seen_at)
+                    ? "bg-green-500/10 text-green-400"
+                    : "bg-gray-500/10 text-gray-400"
+                }`}>
+                  <span className={`h-2 w-2 rounded-full ${
+                    isUserOnline(userDetails.user.last_seen_at) ? "bg-green-500 animate-pulse" : "bg-gray-500"
+                  }`} />
+                  {isUserOnline(userDetails.user.last_seen_at) ? "آنلاین" : "آفلاین"}
+                  {userDetails.user.last_seen_at && (
+                    <span className="text-gray-500 font-normal mr-1">
+                      ({formatFaDateTime(userDetails.user.last_seen_at)})
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-400">آخرین ورود:</span>{" "}
+                {formatFaDateTime(userDetails.user.last_login)}
+              </div>
+              <div>
+                <span className="text-gray-400">دستگاه:</span>{" "}
+                {(() => {
+                  const { device } = parseUserAgent(userDetails.user.last_user_agent);
+                  return device;
+                })()}
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-gray-400">مرورگر:</span>{" "}
+                {(() => {
+                  const { browser } = parseUserAgent(userDetails.user.last_user_agent);
+                  return browser;
+                })()}
+              </div>
+              <div className="sm:col-span-2 flex items-center gap-2">
+                <span className="text-gray-400">آی‌پی:</span>{" "}
+                <span className="dir-ltr font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">
+                  {userDetails.user.last_ip || "نامشخص"}
+                </span>
+                {userDetails.user.last_ip && (
+                  <button
+                    onClick={() => navigator.clipboard.writeText(userDetails.user.last_ip)}
+                    className="text-[10px] text-[#d6ad60] hover:text-white transition-colors"
+                    title="کپی آی‌پی"
+                  >
+                    کپی
+                  </button>
+                )}
+              </div>
+            </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-3">
@@ -2307,6 +2380,16 @@ const deleteOverride = async (key: string) => {
                   تغییر دستی پلن اشتراک:
                 </h4>
                 <div className="flex flex-wrap gap-2">
+                  {/* 🔴 گزینه پلن رایگان ۳ روزه */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-green-500/30 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+                    onClick={() => handleChangePlan("free")}
+                  >
+                    دوره رایگان (۳ روز)
+                  </Button>
+
                   {["1_month", "3_months", "6_months", "12_months"].map(
                     (plan) => (
                       <Button

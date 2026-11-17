@@ -438,18 +438,17 @@ class TestNoEarlyReturnInAnalyzer:
         assert 'if source == "abantether"' not in src
         assert 'if source == "tabdeal"' not in src
 
-
-# ═══════════════════════════════════════════════════════════
-# ۷. source_used در response
-# ═══════════════════════════════════════════════════════════
-class TestSourceUsedField:
+    # ═══════════════════════════════════════════════════════════
+    # ۷. source_used در response
+    # ═══════════════════════════════════════════════════════════
     def test_source_used_present_in_output(self):
         """🔴 فرانت باید بداند دیتا از کجا آمده"""
         import inspect
 
         from services import analyzer_service as svc
 
-        src = inspect.getsource(svc.analyze)
+        # 🔴 فاز ۱۶.۵ — کد به analyze + _analyze_impl تقسیم شد
+        src = inspect.getsource(svc.analyze) + inspect.getsource(svc._analyze_impl)
         assert '"source_used"' in src
         assert '"source_requested"' in src
         assert '"is_fallback"' in src

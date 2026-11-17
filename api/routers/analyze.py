@@ -71,7 +71,7 @@ async def analyze_endpoint(req: AnalyzeRequest, request: Request):
 @router.post("/multi")
 async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
     """تحلیل نماد در همه تایم‌فریم‌ها (برای جدول TF)."""
-    rate_limit_for(request, "analyze_multi", limit=60, window_sec=60)
+    rate_limit_for(request, "analyze_multi", limit=500, window_sec=60)
 
     tfs = await run_in_threadpool(
         analyze_multi_tf,

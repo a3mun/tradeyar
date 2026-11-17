@@ -494,6 +494,7 @@ async def list_users(
                 "is_active_sub": is_active,
                 "extension_downloaded": has_downloaded,  # 🔴 فیلد جدید
                 "is_active": u.is_active,
+                "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
             }
         )
 
@@ -569,6 +570,9 @@ async def get_user_details(
             "last_ip": user.last_ip,
             "last_user_agent": user.last_user_agent,
             "is_active": user.is_active,  # 🔴 این خط حتماً باشه
+            "last_seen_at": (
+                user.last_seen_at.isoformat() if user.last_seen_at else None
+            ),
         },
         "subscriptions": subs_list,
         "payments": pay_list,

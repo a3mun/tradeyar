@@ -268,8 +268,16 @@ export const useAppStore = create<AppState>()(
 
       // 🔴 جدید: انتخاب اجباری — همیشه source صریح رو ست می‌کنه
       // برای کلیک روی آیتم‌های لیست و تغییر تب استفاده می‌شه
+      // 🔴 جدید: انتخاب اجباری — همیشه source صریح رو ست می‌کنه
+      // برای کلیک روی آیتم‌های لیست و تغییر تب استفاده می‌شه
       forceSelectSymbol: (ticker, tickerName, source) => {
-        if (isTsetmcTicker(ticker)) {
+        const currentSource = get().source as string;
+        const wasForex = currentSource === "forex";
+        const wasTsetmc = currentSource === "tsetmc";
+        const willBeForex = isForexTicker(ticker) || source === "forex";
+        const willBeTsetmc = isTsetmcTicker(ticker) || source === "tsetmc";
+
+        if (willBeTsetmc) {
           set({
             ticker,
             tickerName,
@@ -279,31 +287,58 @@ export const useAppStore = create<AppState>()(
             strategy: "swing" as Strategy,
             wsSignal: null,
           });
-        } else if (isForexTicker(ticker)) {
-          set({
-            ticker,
-            tickerName: tickerName || ticker,
-            source: "forex" as Source,
-            marketType: "futures" as MarketType,
-            timeframe: "۱ ساعت" as Timeframe,
-            strategy: "swing" as Strategy,
-            wsSignal: null,
-          });
+        } else if (willBeForex) {
+          // 🔴 فاز ۱۶.۵ — اگه کاربر از قبل توی فارکس بود، TF/استراتژی رو نگه دار
+          if (wasForex) {
+            set({
+              ticker,
+              tickerName: tickerName || ticker,
+              source: "forex" as Source,
+              marketType: "futures" as MarketType,
+              // ⚠️ timeframe و strategy رو عوض نکن
+              wsSignal: null,
+            });
+          } else {
+            // کاربر تازه وارد فارکس شده — TF/استراتژی پیش‌فرض
+            set({
+              ticker,
+              tickerName: tickerName || ticker,
+              source: "forex" as Source,
+              marketType: "futures" as MarketType,
+              timeframe: "۱ ساعت" as Timeframe,
+              strategy: "swing" as Strategy,
+              wsSignal: null,
+            });
+          }
         } else {
-          // کریپتو: source صریح رو ست کن (بدون keepCurrentSource)
-          set({
-            ticker,
-            tickerName,
-            source,
-            marketType: "futures" as MarketType,
-            timeframe: "۱۵ دقیقه" as Timeframe,
-            strategy: "swing" as Strategy,
-            wsSignal: null,
-          });
+          // کریپتو (nobitex/bitpin/wallex/tabdeal)
+          // 🔴 فاز ۱۶.۵ — اگه کاربر از قبل توی کریپتو بود، TF/استراتژی رو نگه دار
+          const wasCrypto = !wasForex && !wasTsetmc;
+          if (wasCrypto) {
+            set({
+              ticker,
+              tickerName,
+              source,
+              marketType: "futures" as MarketType,
+              // ⚠️ timeframe و strategy رو عوض نکن
+              wsSignal: null,
+            });
+          } else {
+            // کاربر تازه وارد کریپتو شده
+            set({
+              ticker,
+              tickerName,
+              source,
+              marketType: "futures" as MarketType,
+              timeframe: "۱۵ دقیقه" as Timeframe,
+              strategy: "swing" as Strategy,
+              wsSignal: null,
+            });
+          }
         }
         get().invalidateTfCache();
       },
-
+      
       // ─── تنظیمات ───
       setTimeframe: (timeframe) => {
         const updates: Partial<AppState> = { timeframe };

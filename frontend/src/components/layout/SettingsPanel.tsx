@@ -96,8 +96,9 @@ export function SettingsPanel() {
     setMarketType,
     setRiskProfile,
     setStrategy,
+    forceSelectSymbol,  // 🔴 فاز ۱۶.۵
   } = useAppStore();
-
+  
   const isTouch = useIsTouchDevice();
   const [toast, setToast] = useState<string | null>(null);
 
@@ -122,6 +123,30 @@ export function SettingsPanel() {
     setStrategy(key);
     if (isTouch) setToast(tooltip);
   };
+
+  // 🔴 فاز ۱۶.۵ — تغییر صرافی هوشمند (ticker پیش‌فرض اگه لازم باشه)
+  const handleSourceChange = (newSource: Source) => {
+    const currentSource = source;
+    
+    if (newSource === "tsetmc") {
+      // 🔴 بورس تهران → همیشه «فولاد»
+      forceSelectSymbol("فولاد", "فولاد", "tsetmc");
+    } else if (newSource === "forex") {
+      // 🔴 فارکس → همیشه «انس طلا»
+      forceSelectSymbol("XAU-USD", "انس طلا", "forex");
+    } else {
+      // کریپتو (nobitex, bitpin, wallex, tabdeal)
+      const wasSpecial = currentSource === "tsetmc" || currentSource === "forex";
+      if (wasSpecial) {
+        // از tsetmc/forex به کریپتو → ticker پیش‌فرض
+        forceSelectSymbol("BTC-USD", "بیت‌کوین", newSource);
+      } else {
+        // از قبل کریپتو بود → فقط source عوض بشه
+        setSource(newSource);
+      }
+    }
+  };
+
 
   const strategyLabel = STRATEGIES.find((s) => s.key === strategy)?.label || "";
   const marketLabel = marketType === "spot" ? "اسپات" : "فیوچرز";
@@ -197,9 +222,10 @@ export function SettingsPanel() {
                   return (
                     <button
                       key={s.value}
-                      onClick={() => setSource(s.value)}
+                      onClick={() => handleSourceChange(s.value)}
                       className={btnClass}
-                    >
+                    >                    
+                    
                       {inner}
                     </button>
                   );
@@ -210,7 +236,7 @@ export function SettingsPanel() {
                     <TooltipTrigger
                       render={
                         <button
-                          onClick={() => setSource(s.value)}
+                          onClick={() => handleSourceChange(s.value)}
                           className={btnClass}
                         />
                       }

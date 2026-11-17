@@ -332,6 +332,7 @@ class UserRead(BaseModel):
     is_admin: bool
     created_at: datetime
     has_password: bool = False
+    last_seen_at: Optional[datetime] = None
 
 
 class TokenResponse(BaseModel):

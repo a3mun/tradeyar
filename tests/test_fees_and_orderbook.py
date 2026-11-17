@@ -373,7 +373,8 @@ class TestAnalyzerFeeIntegration:
 
         from services import analyzer_service as svc
 
-        src = inspect.getsource(svc.analyze)
+        # 🔴 فاز ۱۶.۵ — کد به analyze + _analyze_impl تقسیم شد
+        src = inspect.getsource(svc.analyze) + inspect.getsource(svc._analyze_impl)
         for field in ("rr_net", "fee_pct", "is_worthwhile", "timeframe_viable"):
             assert field in src, f"{field} در خروجی نیست"
 

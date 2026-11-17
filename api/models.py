@@ -104,6 +104,7 @@ class User(SQLModel, table=True):
     last_login: Optional[datetime] = None
     last_ip: Optional[str] = None
     last_user_agent: Optional[str] = None
+    last_seen_at: Optional[datetime] = None  # 🔴 فیلد جدید برای آنلاین بودن
 
 
 class OTPCode(SQLModel, table=True):

@@ -127,6 +127,22 @@ def _add_missing_columns_sqlite(inspector, conn):
         ("timeout_planned_min", "INTEGER"),
     ]
 
+    # 🔴 فاز ۱۶.۵ — ستون‌های جدول users در SQLite
+    if "users" in inspector.get_table_names():
+        existing_user_cols = {col["name"] for col in inspector.get_columns("users")}
+        user_new_columns = [
+            ("last_seen_at", "TIMESTAMP"),
+        ]
+        for col_name, col_type in user_new_columns:
+            if col_name not in existing_user_cols:
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                    )
+                    logger.info(f"  + ستون users.{col_name} اضافه شد")
+                except Exception as e:
+                    logger.debug(f"  - ستون users.{col_name}: {e}")
+
     for col_name, col_type in new_columns:
         if col_name not in existing_cols:
             try:
@@ -194,6 +210,7 @@ def _add_missing_columns_postgres(inspector, conn):
         for col_name, col_type in [
             ("email", "VARCHAR"),
             ("hashed_password", "VARCHAR"),
+            ("last_seen_at", "TIMESTAMP"),  # ✅ اضافه شد
         ]:
             if col_name not in cols:
                 try:

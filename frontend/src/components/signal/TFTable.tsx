@@ -1,49 +1,24 @@
 "use client";
 
-/**
- * TFTable — تحلیل بر اساس تایم‌فریم (نسخه ۱۸.۲ · فاز ۱۵)
- * ============================================================
- * 🔴 تغییرات نسخه ۱۸.۲:
- *   • بج‌های نماد/صرافی/استراتژی در موبایل کوچیک‌تر شدن
- *   • تاخیر 1s در fetch اولیه برای کاهش فشار سرور (هماهنگی با SignalCard)
- *   • polling 60s
- */
-
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  Tooltip, TooltipContent, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair, SOURCE_BY_KEY } from "@/lib/sources";
 import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 import {
-  getConfidenceLevel,
-  isSignalActive,
-  CONF_BAR_COLOR,
-  type ConfidenceLevel,
+  getConfidenceLevel, isSignalActive, CONF_BAR_COLOR, type ConfidenceLevel,
 } from "@/lib/thresholds";
 
 const TIMEFRAMES: Timeframe[] = [
-  "۱ دقیقه",
-  "۵ دقیقه",
-  "۱۵ دقیقه",
-  "۳۰ دقیقه",
-  "۱ ساعت",
-  "روزانه",
+  "۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه",
 ];
 
 const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
@@ -53,52 +28,30 @@ const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
 };
 
 const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
-  scalp: {
-    fa: "⚡ اسکالپ",
-    cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-  },
-  swing: {
-    fa: "🌊 سوئینگ",
-    cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
-  },
-  position: {
-    fa: "🏛 پوزیشن",
-    cls: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-  },
+  scalp: { fa: "⚡ اسکالپ", cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30" },
+  swing: { fa: "🌊 سوئینگ", cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
+  position: { fa: "🏛 پوزیشن", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
 };
 
 function translateSignal(signal: string) {
-  let s = signal;
-  s = s.replace(/LONG/g, "خرید");
-  s = s.replace(/SHORT/g, "فروش");
-  return s;
+  return signal.replace(/LONG/g, "خرید").replace(/SHORT/g, "فروش");
 }
 
 function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
   if (!signal) return "neutral";
   const s = signal.toUpperCase();
-  if (s.includes("LONG") || signal.includes("صعودی") || signal.includes("خرید"))
-    return "green";
-  if (s.includes("SHORT") || signal.includes("نزولی") || signal.includes("فروش"))
-    return "red";
+  if (s.includes("LONG") || signal.includes("صعودی") || signal.includes("خرید")) return "green";
+  if (s.includes("SHORT") || signal.includes("نزولی") || signal.includes("فروش")) return "red";
   return "neutral";
 }
 
 type Direction = "long" | "short" | "neutral";
 
 interface SignalStyle {
-  bg: string;
-  border: string;
-  color: string;
-  boxShadow: string;
-  textShadow: string;
-  opacity: number;
+  bg: string; border: string; color: string; boxShadow: string; textShadow: string; opacity: number;
 }
 
-const SIGNAL_STYLE_MAP: Record<
-  Direction,
-  Record<ConfidenceLevel, SignalStyle>
-> = {
+const SIGNAL_STYLE_MAP: Record<Direction, Record<ConfidenceLevel, SignalStyle>> = {
   long: {
     golden: { bg: "rgba(250,204,21,0.20)", border: "#facc15", color: "#facc15", boxShadow: "0 0 16px rgba(250,204,21,0.6)", textShadow: "none", opacity: 1 },
     strong: { bg: "rgba(34,197,94,0.20)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.4)", textShadow: "none", opacity: 1 },
@@ -123,93 +76,34 @@ const SIGNAL_STYLE_MAP: Record<
 };
 
 const ROW_HEIGHT = "h-[42px]";
-const POLL_INTERVAL_MS = 60_000;
 
 export function TFTable() {
   const {
-    ticker,
-    tickerName,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    strategy,
-    setTimeframe,
-    getTfData,
-    setTfData,
-    wsSignal,
+    ticker, source, timeframe, riskProfile, strategy,
+    setTimeframe, getTfData, tfDataCache,
   } = useAppStore();
 
-  const [data, setData] = useState<Record<string, AnalyzeResponse>>({});
   const [showDisabledHint, setShowDisabledHint] = useState<string | null>(null);
 
+  const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
+
   const allowedTfs = useMemo(() => {
+    if (isTsetmc) {
+      return ["روزانه"] as Timeframe[];  // 🔴 بورس تهران: فقط روزانه
+    }
     return TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
-  }, [strategy]);
-
-  useEffect(() => {
-    if (wsSignal && wsSignal.ticker === ticker && wsSignal.data) {
-      const newSignal = wsSignal.data as unknown as AnalyzeResponse;
-      if (newSignal.strategy && newSignal.strategy !== strategy) return;
-      if (newSignal.ticker && newSignal.ticker !== ticker) return;
-      const tf = newSignal.timeframe;
-      if (tf) {
-        setData((prev) => ({ ...prev, [tf]: newSignal }));
-        setTfData(tf, newSignal);
-      }
-    }
-  }, [wsSignal, ticker, strategy, setTfData]);
-
-  const fetchMultiData = async () => {
-    if (!ticker || !sourceSupportsPair(source, ticker)) {
-      setData({});
-      return;
-    }
-    try {
-      const res = await api.post("/analyze/multi", {
-        ticker,
-        source,
-        timeframe: "۵ دقیقه",
-        market_type: marketType,
-        risk_profile: riskProfile,
-        strategy,
-        ticker_name: tickerName,
-      });
-      const tfs = (res.data.timeframes || {}) as Record<string, AnalyzeResponse>;
-      setData(tfs);
-      for (const [tf, tfData] of Object.entries(tfs)) {
-        if (tfData) setTfData(tf, tfData);
-      }
-    } catch {
-      // silent
-    }
-  };
-
-  useEffect(() => {
-    setData({});
+  }, [strategy, isTsetmc]);
+  
+  // 🔴 فاز ۱۶.۵ — خواندن همه TFها از کش مشترک (بدون fetch مستقیم)
+  const data = useMemo(() => {
     const cachedData: Record<string, AnalyzeResponse> = {};
-    let hasAny = false;
     for (const tf of TIMEFRAMES) {
       const c = getTfData(tf);
-      if (c) {
-        cachedData[tf] = c;
-        hasAny = true;
-      }
+      if (c) cachedData[tf] = c;
     }
-    if (hasAny) setData(cachedData);
-
-    // 🔴 فوری اجرا میشه (اول جدول)
-    fetchMultiData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, tickerName, source, marketType, riskProfile, strategy]);
-
-  useEffect(() => {
-    if (!ticker || !sourceSupportsPair(source, ticker)) return;
-    const interval = setInterval(() => fetchMultiData(), POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, source, tickerName, marketType, riskProfile, strategy]);
-
+    return cachedData;
+  }, [tfDataCache, ticker, source, timeframe, riskProfile, strategy, getTfData]);
+  
   const handleRowClick = (tf: string) => {
     if (!allowedTfs.includes(tf as Timeframe)) {
       setShowDisabledHint(tf);
@@ -233,30 +127,18 @@ export function TFTable() {
         </div>
         {ticker && (
           <div className="flex shrink-0 flex-wrap items-center gap-1">
-            {/* 🔴 بج نماد - استایل شبیه به SignalCard */}
-            <Badge
-              className="border py-0 text-[8px] sm:text-[10px] border-blue-500/30 bg-blue-500/15 text-blue-400"
-              style={{ fontFamily: "monospace" }}
-            >
+            <Badge className="border py-0 text-[8px] sm:text-[10px] border-blue-500/30 bg-blue-500/15 text-blue-400" style={{ fontFamily: "monospace" }}>
               {ticker}
             </Badge>
-            
-            {/* 🔴 بج صرافی - استایل شبیه به SignalCard */}
             {sourceMeta && (
-              <Badge
-                className="border py-0 text-[8px] sm:text-[10px] border-purple-500/30 bg-purple-500/15 text-purple-400 gap-1"
-              >
+              <Badge className="border py-0 text-[8px] sm:text-[10px] border-purple-500/30 bg-purple-500/15 text-purple-400 gap-1">
                 <span className="text-[7px] sm:text-[8px]">{sourceMeta.icon}</span>
                 {sourceMeta.label}
               </Badge>
             )}
-            
-            {/* 🔴 بج استراتژی - استایل شبیه به SignalCard */}
             <Tooltip>
               <TooltipTrigger>
-                <Badge
-                  className={`border py-0 text-[7px] sm:text-[9px] cursor-help ${strategyMeta.cls}`}
-                >
+                <Badge className={`border py-0 text-[7px] sm:text-[9px] cursor-help ${strategyMeta.cls}`}>
                   {strategyMeta.fa}
                 </Badge>
               </TooltipTrigger>
@@ -272,7 +154,6 @@ export function TFTable() {
         )}
       </CardHeader>
 
-      {/* 🔴 حداقل ارتفاع برای جلوگیری از پرش هنگام تغییر نماد/صرافی */}
       <CardContent className="px-1 sm:px-3 min-h-[300px]">
         <Table className="table-fixed w-full">
           <TableHeader>
@@ -293,20 +174,16 @@ export function TFTable() {
 
               if (!isAllowed) {
                 return (
-                  <TableRow
-                    key={tf}
-                    onClick={() => handleRowClick(tf)}
-                    className={`${ROW_HEIGHT} cursor-not-allowed opacity-40 hover:bg-transparent`}
-                  >
+                  <TableRow key={tf} onClick={() => handleRowClick(tf)} className={`${ROW_HEIGHT} cursor-not-allowed opacity-40 hover:bg-transparent`}>
                     <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0 text-muted-foreground">
-                      {tf}
-                      <span className="mr-1 text-[8px]">🔒</span>
+                      {tf} <span className="mr-1 text-[8px]">🔒</span>
                     </TableCell>
                     <TableCell colSpan={3} className="text-center text-[10px] text-muted-foreground py-0">
-                      {isHinting
-                        ? `برای استراتژی «${strategyMeta.fa}» قابل استفاده نیست`
-                        : "غیرفعال برای این استراتژی"}
-                    </TableCell>
+                    {isHinting 
+                      ? (isTsetmc ? "بورس تهران فقط روزانه" : `برای استراتژی «${strategyMeta.fa}» قابل استفاده نیست`)
+                      : (isTsetmc ? "غیرفعال برای بورس تهران" : "غیرفعال برای این استراتژی")
+                    }
+                  </TableCell>
                   </TableRow>
                 );
               }
@@ -323,13 +200,8 @@ export function TFTable() {
               }
 
               const conf = row.confidence || 0;
-              const dirFromBackend: Direction =
-                row.direction === "long" ? "long" : row.direction === "short" ? "short" : "neutral";
-
-              const isActiveSignal = isSignalActive(
-                conf, row.direction || "neutral", row.signal || "", strategy, riskProfile
-              );
-
+              const dirFromBackend: Direction = row.direction === "long" ? "long" : row.direction === "short" ? "short" : "neutral";
+              const isActiveSignal = isSignalActive(conf, row.direction || "neutral", row.signal || "", strategy, riskProfile);
               const isDirectional = dirFromBackend === "long" || dirFromBackend === "short";
               const confLevel = getConfidenceLevel(conf, isDirectional);
 
@@ -338,86 +210,54 @@ export function TFTable() {
               const confStyle = CONF_BAR_COLOR[confLevel];
 
               const rowClass = isActive
-                ? confLevel === "golden"
-                  ? `cursor-pointer transition-colors hover:bg-muted/50 bg-yellow-500/5 border-r-2 border-yellow-500/50 ${ROW_HEIGHT}`
-                  : dirFromBackend === "long"
-                    ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-green-500/50 ${ROW_HEIGHT}`
-                    : dirFromBackend === "short"
-                      ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-red-500/50 ${ROW_HEIGHT}`
-                      : `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/10 ${ROW_HEIGHT}`
+                ? confLevel === "golden" ? `cursor-pointer transition-colors hover:bg-muted/50 bg-yellow-500/5 border-r-2 border-yellow-500/50 ${ROW_HEIGHT}`
+                  : dirFromBackend === "long" ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-green-500/50 ${ROW_HEIGHT}`
+                  : dirFromBackend === "short" ? `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/5 border-r-2 border-red-500/50 ${ROW_HEIGHT}`
+                  : `cursor-pointer transition-colors hover:bg-muted/50 bg-primary/10 ${ROW_HEIGHT}`
                 : `cursor-pointer transition-colors hover:bg-muted/50 ${ROW_HEIGHT}`;
 
               const goldenMark = confLevel === "golden" ? "💎 " : "";
-
               let displaySignal = "خنثی";
               const rawSignal = row.signal || "";
 
-              if (isActiveSignal) {
-                displaySignal = translateSignal(rawSignal);
-              } else if (rawSignal.includes("در حال تشکیل")) {
-                displaySignal = "در حال تشکیل";
-              } else if (rawSignal.includes("دور")) {
-                displaySignal = "دور";
-              } else if (conf >= 25) {
-                displaySignal = "در حال تشکیل";
-              } else if (conf >= 10) {
-                displaySignal = "دور";
-              } else {
-                displaySignal = "خنثی";
-              }
+              if (isActiveSignal) displaySignal = translateSignal(rawSignal);
+              else if (rawSignal.includes("در حال تشکیل")) displaySignal = "در حال تشکیل";
+              else if (rawSignal.includes("دور")) displaySignal = "دور";
+              else if (conf >= 25) displaySignal = "در حال تشکیل";
+              else if (conf >= 10) displaySignal = "دور";
+              else displaySignal = "خنثی";
 
               let textColor = sigStyle.color;
               if (!isActiveSignal && conf >= 15) {
-                if (dirFromBackend === "short") {
-                  textColor = conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)";
-                } else if (dirFromBackend === "long") {
-                  textColor = conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)";
-                }
+                if (dirFromBackend === "short") textColor = conf >= 30 ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.4)";
+                else if (dirFromBackend === "long") textColor = conf >= 30 ? "rgba(74,222,128,0.6)" : "rgba(74,222,128,0.4)";
               }
 
               return (
                 <TableRow key={tf} onClick={() => handleRowClick(tf)} className={rowClass}>
                   <TableCell className="text-right text-[10px] sm:text-[11px] font-medium py-0">
-                    {tf}
-                    {isActive && <span className="mr-1 text-[8px] text-primary">●</span>}
+                    {tf} {isActive && <span className="mr-1 text-[8px] text-primary">●</span>}
                   </TableCell>
                   <TableCell className="text-center py-0">
-                    <span
-                      className="inline-flex w-full max-w-[130px] items-center justify-center rounded border px-1 sm:px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold tracking-wide transition-all duration-300"
+                    <span className="inline-flex w-full max-w-[130px] items-center justify-center rounded border px-1 sm:px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold tracking-wide transition-all duration-300"
                       style={{
-                        background: sigStyle.bg,
-                        borderColor: sigStyle.border,
-                        color: textColor,
-                        boxShadow: sigStyle.boxShadow,
-                        textShadow: sigStyle.textShadow,
-                        opacity: sigStyle.opacity,
+                        background: sigStyle.bg, borderColor: sigStyle.border, color: textColor,
+                        boxShadow: sigStyle.boxShadow, textShadow: sigStyle.textShadow, opacity: sigStyle.opacity,
                         borderWidth: !isActiveSignal ? 0 : confLevel === "golden" ? "2px" : "1px",
-                      }}
-                    >
-                      {goldenMark}
-                      {displaySignal}
+                      }}>
+                      {goldenMark}{displaySignal}
                     </span>
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <div className="leading-none">
-                      <div className="num text-[10px] sm:text-[11px] font-bold mb-0.5" style={{ color: confStyle.text }}>
-                        {`${conf}%`}
-                      </div>
+                      <div className="num text-[10px] sm:text-[11px] font-bold mb-0.5" style={{ color: confStyle.text }}>{`${conf}%`}</div>
                       <div className="mx-auto h-0.5 w-8 sm:w-10 overflow-hidden rounded-full bg-muted-foreground/15">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${conf}%`, background: confStyle.bar }}
-                        />
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${conf}%`, background: confStyle.bar }} />
                       </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-center px-1 py-0">
-                    <MiniSparkline
-                      data={row.close_series || []}
-                      height={22}
-                      color={sparkColorFromSignal(row.signal || "")}
-                      className="mx-auto w-16 sm:w-20"
-                    />
+                    <MiniSparkline data={row.close_series || []} height={22} color={sparkColorFromSignal(row.signal || "")} className="mx-auto w-16 sm:w-20" />
                   </TableCell>
                 </TableRow>
               );

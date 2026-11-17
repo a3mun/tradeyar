@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAppStore } from "@/store/useAppStore";
+import { useDataLoop } from "./useDataLoop"; // مسیر رو چک کن فایل useDataLoop.ts رو کجا ساختی
 
 // ═══ Types ═══
 export interface QuoteData {
@@ -89,9 +90,9 @@ function buildWsUrl(): string {
 
 // ═══ Provider ═══
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const { ticker, tickerName, source, timeframe, marketType, riskProfile } =
+  const { ticker, tickerName, source, timeframe, marketType, riskProfile, strategy } =
     useAppStore();
-
+  
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [orderbook, setOrderbook] = useState<OrderBookData | null>(null);
   const [status, setStatus] = useState<WSStatus>("idle");
@@ -121,12 +122,13 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           market_type: marketType,
           risk_profile: riskProfile,
           ticker_name: tickerName,
+          strategy, // 🔴 فاز ۱۶.۵ — پاس دادن strategy تا بک‌اند هم‌خوان با TFTable تحلیل کنه
         })
       );
     },
-    [ticker, source, timeframe, marketType, riskProfile, tickerName]
+    [ticker, source, timeframe, marketType, riskProfile, tickerName, strategy]
   );
-
+  
   // 🔴 رفع باگ: نگهداری آخرین نسخه از sendSubscribe در یک Ref
   const sendSubscribeRef = useRef(sendSubscribe);
   useEffect(() => {
@@ -183,15 +185,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           if (msg.data?.ticker && msg.data.ticker !== currentTicker) return;
           setOrderbook(msg.data);
         }
+        // 🔴 فاز ۱۶.۵ — handler سیگنال حذف شد
+        // دلیل: WS signal باعث باگ close/open loop و تناقض با TFTable می‌شد.
+        // حالا SignalCard خودش analyze_multi polling می‌کنه (هم‌خوان با TFTable).
       } catch {
         // JSON نامعتبر → نادیده
       }
     };
-
-    ws.onerror = () => {
-      // onclose بعدش میاد
-    };
-
+    
     ws.onclose = () => {
       if (pingTimerRef.current) {
         clearInterval(pingTimerRef.current);
@@ -251,11 +252,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     sendSubscribeRef.current(ws);
   }, [sendSubscribe]); // این useEffect با تغییر تنظیمات اجرا می‌شود
 
+
+  // 🔴 فاز ۱۶.۵ — شروع حلقه مرکزی دیتا
+  useDataLoop();
+
   return (
     <WSContext.Provider value={{ quote, orderbook, status }}>
       {children}
     </WSContext.Provider>
   );
+
 }
 
 // ═══ Hook مصرف‌کننده ═══

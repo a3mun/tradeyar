@@ -308,9 +308,9 @@ export function SymbolSelector() {
         <div className="flex p-1 gap-1 border-b border-white/5 bg-white/5">
           {(
             [
-              { key: "crypto", label: "کریپتو" },
-              { key: "forex", label: "فارکس" },
-              { key: "iran_stocks", label: "بورس" },
+              { key: "crypto", label: "ارز دیجیتال" },
+              { key: "forex", label: "بازار جهانی" },
+              { key: "iran_stocks", label: "بورس تهران" },
             ] as { key: TabType; label: string }[]
           ).map((tab) => (
             <button
