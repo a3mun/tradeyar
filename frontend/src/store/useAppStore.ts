@@ -32,7 +32,11 @@ interface TfCacheEntry {
   key: string;
 }
 
-const TF_CACHE_TTL_MS = 120_000;
+// 🔴 فاز ۱۶.۹ — TTL از ۱۲۰s به ۳۰۰s
+// دلیل: useDataLoop برای TF بالا هر ۴۵-۶۰s آپدیت می‌کنه؛
+// TTL=۱۲۰s باعث می‌شد بین دو آپدیت، getTfData=null بشه و کارت پرش کنه.
+// ⚠️ فقط روی data (تحلیل) اثر داره، نه روی livePrice.
+const TF_CACHE_TTL_MS = 300_000;
 
 // 🔴 لیست نمادهای فارکس (یک‌جا تعریف شده تا تکرار نشه)
 const FOREX_TICKERS = new Set([

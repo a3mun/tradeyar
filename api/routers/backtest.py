@@ -15,6 +15,7 @@ from services.backtest_service import (
     backtest_all,
     compute_stats,
     compute_stats_by_strategy,
+    compute_stats_by_tf,
     get_site_stats,
 )
 
@@ -159,6 +160,25 @@ async def backtest_stats_by_strategy(
         time_filter=time_filter,
         risk_profile=risk_profile,
         limit=limit,
+    )
+    return {"ok": True, "items": data}
+
+
+@router.get("/by-tf")
+async def backtest_stats_by_tf(
+    time_filter: str = Query(default="all"),
+    risk_profile: str = Query(default=""),
+    source: str = Query(default=""),
+    limit: int = Query(default=100, ge=50, le=500),
+    strategy: str = Query(default=""),
+):
+    data = await run_in_threadpool(
+        compute_stats_by_tf,
+        source=source,
+        time_filter=time_filter,
+        risk_profile=risk_profile,
+        limit=limit,
+        strategy=strategy,
     )
     return {"ok": True, "items": data}
 

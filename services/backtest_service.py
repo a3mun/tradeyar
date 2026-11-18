@@ -1,9 +1,12 @@
 """
 services/backtest_service.py
-راستی‌آزمایی — موتور اصلی (نسخه ۱۰.۵ — فاز ۱۵)
+راستی‌آزمایی — موتور اصلی (نسخه ۱۱.۰ — فاز ۱۶.۹)
 ============================================================
-🔴 تغییرات نسخه ۱۰.۵:
-  ۱. اصلاح loss_rate در get_site_stats (بر اساس SL، نه 100-win_rate)
+🔴 تغییرات نسخه ۱۱.۰:
+  ۱. تفکیک کامل «برد واقعی (TP)» از «جهت درست (حتی ۱ تیک)»
+  ۲. رفع باگ timeout (دیگر result=win نمی‌شود مگر TP1 زده شود)
+  ۳. افزودن compute_stats_by_tf برای گزارش تفکیکی تایم‌فریم‌ها
+  ۴. بازنویسی منطق _check_one برای اولویت‌بندی صحیح TP و SL
 """
 
 from __future__ import annotations
@@ -141,6 +144,7 @@ def _check_one(log: SignalLog) -> Optional[str]:
     timeout_end = entry_ts + timeout_td
     timeout_min = int(timeout_td.total_seconds() / 60)
     elapsed_min = (_utcnow() - entry_ts).total_seconds() / 60
+
     tf_min_map = {
         "۱ دقیقه": 1,
         "۵ دقیقه": 5,
@@ -156,6 +160,7 @@ def _check_one(log: SignalLog) -> Optional[str]:
         if elapsed_min >= timeout_min:
             return _mark_expired(log, log.price, None)
         return None
+
     df_idx_utc = (
         df.index.tz_localize("UTC")
         if df.index.tz is None
@@ -166,34 +171,37 @@ def _check_one(log: SignalLog) -> Optional[str]:
         if elapsed_min >= timeout_min:
             return _mark_expired(log, log.price, None)
         return None
+
     tp_levels = _parse_tp_levels(log)
     tp_hit_level = _compute_tp_hit_level(df_after, log, tp_levels)
     log.tp_hit_level = tp_hit_level
+
     is_long = log.direction == "long"
-    if is_long:
-        win_mask = df_after["high"] >= log.tp
-        loss_mask = df_after["low"] <= log.sl
-    else:
-        win_mask = df_after["low"] <= log.tp
-        loss_mask = df_after["high"] >= log.sl
-    tp_time = df_after[win_mask].index[0] if win_mask.any() else None
+
+    # پیدا کردن زمان برخورد با TP1، TP2، TP3 و SL
+    tp1_time = None
+    if tp_levels and "tp1" in tp_levels:
+        tp1_val = float(tp_levels["tp1"])
+        mask_tp1 = (
+            df_after["high"] >= tp1_val if is_long else df_after["low"] <= tp1_val
+        )
+        tp1_time = df_after[mask_tp1].index[0] if mask_tp1.any() else None
+
+    tp_time = None
+    win_mask = df_after["high"] >= log.tp if is_long else df_after["low"] <= log.tp
+    if win_mask.any():
+        tp_time = df_after[win_mask].index[0]
+
+    loss_mask = df_after["low"] <= log.sl if is_long else df_after["high"] >= log.sl
     sl_time = df_after[loss_mask].index[0] if loss_mask.any() else None
-    if tp_time and sl_time:
-        if tp_time < sl_time:
-            log.result = "win"
-            log.exit_reason = "tp_hit"
-            log.exit_price = log.tp
-            log.result_time = _to_utc_dt(tp_time)
-            if log.tp_hit_level is None:
-                log.tp_hit_level = 3
-            return "win"
-        else:
-            log.result = "loss"
-            log.exit_reason = "sl_hit"
-            log.exit_price = log.sl
-            log.result_time = _to_utc_dt(sl_time)
-            return "loss"
-    elif tp_time:
+
+    # منطق خروج:
+    # 1. اگر TP اصلی زده شد (چه قبل چه بعد از SL): win
+    # 2. اگر SL زده شد ولی TP1 زده شده بود: loss (ولی tp_hit_level ثبت می‌شود)
+    # 3. اگر SL زده شد و TP1 هم نزده بود: loss
+    # 4. اگر فقط TP1 زده شد (نه TP اصلی): win (چون TP1 = برد واقعی)
+
+    if tp_time and (not sl_time or tp_time < sl_time):
         log.result = "win"
         log.exit_reason = "tp_hit"
         log.exit_price = log.tp
@@ -201,16 +209,28 @@ def _check_one(log: SignalLog) -> Optional[str]:
         if log.tp_hit_level is None:
             log.tp_hit_level = 3
         return "win"
-    elif sl_time:
+
+    if sl_time:
         log.result = "loss"
         log.exit_reason = "sl_hit"
         log.exit_price = log.sl
         log.result_time = _to_utc_dt(sl_time)
         return "loss"
+
+    # اگر فقط TP1 زده شده (بدون TP اصلی و بدون SL)
+    if tp1_time:
+        log.result = "win"
+        log.exit_reason = "tp1_hit"
+        log.exit_price = float(tp_levels["tp1"])
+        log.result_time = _to_utc_dt(tp1_time)
+        log.tp_hit_level = 1
+        return "win"
+
     if elapsed_min >= timeout_min:
         current_price = float(df_after["close"].iloc[-1])
         last_time = df_after.index[-1]
         return _mark_expired(log, current_price, _to_utc_dt(last_time))
+
     return None
 
 
@@ -221,19 +241,28 @@ def _mark_expired(
     log.exit_reason = "timeout"
     log.expired_at_price = current_price
     log.exit_price = current_price
+
+    if log.price == 0:
+        log.expired_pnl_pct = 0.0
+        log.expired_bias = "flat"
+        log.result = None
+        log.result_time = result_time or _utcnow()
+        return "expired"
+
     pnl_pct = (current_price - log.price) / log.price * 100
     if log.direction == "short":
         pnl_pct = -pnl_pct
     log.expired_pnl_pct = round(pnl_pct, 3)
+
+    # 🔴 فاز ۱۶.۹: نتیجه timeout فقط در expired_bias ست می‌شود
+    # result دست نمی‌خورد مگر اینکه در آینده TP1 زده شده باشد
     if pnl_pct > 0:
         log.expired_bias = "win"
-        log.result = "win"
     elif pnl_pct < 0:
         log.expired_bias = "loss"
-        log.result = "loss"
     else:
         log.expired_bias = "flat"
-        log.result = None
+    # result را تغییر نمی‌دهیم؛ فقط اگر TP1 زده شده بود آن را در _check_one ست می‌کنیم
     log.result_time = result_time or _utcnow()
     return "expired"
 
@@ -299,11 +328,11 @@ def backtest_all(
 
 def _fetch_closed_rows(
     session: Session,
-    tf: str,
-    source: str,
-    time_filter: str,
-    risk_profile: str,
-    limit: int,
+    tf: str = "",
+    source: str = "",
+    time_filter: str = "all",
+    risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
     strategy: str = "",
 ) -> list[SignalLog]:
     stmt = select(SignalLog).where(
@@ -329,60 +358,58 @@ def _fetch_closed_rows(
 def _compute_core_stats(rows: list[SignalLog]) -> dict:
     total = len(rows)
     expired_count = sum(1 for r in rows if r.expired)
+
+    # 🔴 برد واقعی: فقط TP کامل یا TP1 (با تغییر جدید)
     tp_full = sum(1 for r in rows if r.exit_reason == "tp_hit")
+    tp1_hits = sum(1 for r in rows if r.exit_reason == "tp1_hit")
     sl_hits = sum(1 for r in rows if r.exit_reason == "sl_hit")
-    timeout_wins = sum(
-        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "win"
-    )
-    timeout_losses = sum(
-        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "loss"
-    )
-    timeout_flats = sum(
-        1 for r in rows if r.exit_reason == "timeout" and r.expired_bias == "flat"
-    )
-    total_wins = tp_full + timeout_wins
-    tp1_ever_hit = sum(1 for r in rows if r.tp_hit_level and r.tp_hit_level >= 1)
-    tp1_ever_hit = max(tp1_ever_hit, tp_full)
-    closed_real = tp_full + sl_hits + timeout_wins + timeout_losses
-    win_rate = (tp_full / closed_real * 100) if closed_real > 0 else 0.0
+
+    timeout_wins = sum(1 for r in rows if r.expired and r.expired_bias == "win")
+    timeout_losses = sum(1 for r in rows if r.expired and r.expired_bias == "loss")
+    timeout_flats = sum(1 for r in rows if r.expired and r.expired_bias == "flat")
+
+    closed_real = total  # همه سیگنال‌های بسته شده
+
+    # متریک‌های نهایی:
+    # - win_rate: نرخ رسیدن به TP کامل یا TP1 (برد واقعی)
+    # - direction_accuracy: درصد سیگنال‌هایی که حتی ۱ تیک به سمت درست رفتن
+    # - loss_rate: نرخ برخورد با SL
+
+    real_wins = tp_full + tp1_hits
+    direction_correct = tp_full + tp1_hits + timeout_wins
+
+    win_rate = (real_wins / closed_real * 100) if closed_real > 0 else 0.0
     loss_rate = (sl_hits / closed_real * 100) if closed_real > 0 else 0.0
-    direction_acc = (
-        ((tp1_ever_hit + timeout_wins) / closed_real * 100) if closed_real > 0 else 0.0
-    )
+    direction_acc = (direction_correct / closed_real * 100) if closed_real > 0 else 0.0
+
     trend_correct, trend_wrong = 0, 0
     for r in rows:
-        if r.result not in ("win", "loss"):
+        if r.expired and r.expired_bias == "flat":
             continue
-        pred = r.trend_predicted_at_entry
-        if not pred or pred == "flat":
+        if not r.trend_predicted_at_entry or r.trend_predicted_at_entry == "flat":
             continue
-        if pred == "bull":
-            if r.direction == "long" and r.result == "win":
-                trend_correct += 1
-            elif r.direction == "long" and r.result == "loss":
-                trend_wrong += 1
-            elif r.direction == "short":
-                trend_wrong += 1
-        elif pred == "bear":
-            if r.direction == "short" and r.result == "win":
-                trend_correct += 1
-            elif r.direction == "short" and r.result == "loss":
-                trend_wrong += 1
-            elif r.direction == "long":
-                trend_wrong += 1
+
+        if r.expired and r.expired_bias == "win":
+            trend_correct += 1
+        elif r.expired and r.expired_bias == "loss":
+            trend_wrong += 1
+        elif r.result == "win":
+            trend_correct += 1
+        elif r.result == "loss":
+            trend_wrong += 1
+
     trend_total = trend_correct + trend_wrong
     trend_acc = (trend_correct / trend_total * 100) if trend_total > 0 else 0.0
+
     return {
         "total": total,
         "expired": expired_count,
-        "tp_hits": tp_full,
+        "tp_hits": tp_full + tp1_hits,  # برد واقعی
         "sl_hits": sl_hits,
         "timeout_wins": timeout_wins,
         "timeout_losses": timeout_losses,
         "timeout_flats": timeout_flats,
         "closed_real": closed_real,
-        "total_wins": total_wins,
-        "tp1_ever_hit": tp1_ever_hit,
         "win_rate": round(win_rate, 2),
         "loss_rate": round(loss_rate, 2),
         "direction_accuracy": round(direction_acc, 2),
@@ -442,7 +469,6 @@ def compute_stats_by_strategy(
         core = _compute_core_stats(items)
         result[strat] = {
             "total": core["total"],
-            "tp1_ever_hit": core["tp1_ever_hit"],
             "tp_hits": core["tp_hits"],
             "sl_hits": core["sl_hits"],
             "timeout_wins": core["timeout_wins"],
@@ -452,6 +478,38 @@ def compute_stats_by_strategy(
             "direction_accuracy": core["direction_accuracy"],
             "trend_correct": core["trend_correct"],
             "trend_wrong": core["trend_wrong"],
+        }
+    return result
+
+
+def compute_stats_by_tf(
+    source: str = "",
+    time_filter: str = "all",
+    risk_profile: str = "",
+    limit: int = BACKTEST_MAX_SIGNALS,
+    strategy: str = "",
+) -> dict[str, dict]:
+    limit = max(50, min(limit, 500))
+    with Session(engine) as session:
+        rows = _fetch_closed_rows(
+            session, "", source, time_filter, risk_profile, limit, strategy
+        )
+    by_tf: dict[str, list[SignalLog]] = {}
+    for r in rows:
+        key = r.tf or "۵ دقیقه"
+        by_tf.setdefault(key, []).append(r)
+    result = {}
+    for tf_name, items in by_tf.items():
+        core = _compute_core_stats(items)
+        result[tf_name] = {
+            "total": core["total"],
+            "tp_hits": core["tp_hits"],
+            "sl_hits": core["sl_hits"],
+            "timeout_wins": core["timeout_wins"],
+            "timeout_losses": core["timeout_losses"],
+            "win_rate": core["win_rate"],
+            "loss_rate": core["loss_rate"],
+            "direction_accuracy": core["direction_accuracy"],
         }
     return result
 
@@ -475,10 +533,10 @@ def get_site_stats() -> dict:
         stats_by_strat[strat] = {
             "real_win_rate": strat_core["win_rate"],
             "real_direction_accuracy": strat_core["direction_accuracy"],
-            "real_loss_rate": strat_core["loss_rate"],  # 🔴 مقدار واقعی
+            "real_loss_rate": strat_core["loss_rate"],
             "total": strat_core["total"],
             "win_rate": strat_core["win_rate"],
-            "loss_rate": strat_core["loss_rate"],  # 🔴 مقدار واقعی
+            "loss_rate": strat_core["loss_rate"],
             "direction_accuracy": strat_core["direction_accuracy"],
             "has_override": {"win_rate": False, "direction_accuracy": False},
         }
@@ -491,7 +549,6 @@ def get_site_stats() -> dict:
     display_direction_acc = override_dict.get(
         "direction_accuracy", core["direction_accuracy"]
     )
-    # 🔴 درصد باخت نمایشی: اگه override شده، ۱۰۰ - برد. وگرنه مقدار واقعی.
     if "win_rate" in override_dict:
         display_loss_rate = 100 - display_win_rate
     else:
@@ -515,10 +572,10 @@ def get_site_stats() -> dict:
     return {
         "total_signals": display_total_signals,
         "win_rate": round(display_win_rate, 2),
-        "loss_rate": round(display_loss_rate, 2),  # 🔴 مقدار درست
+        "loss_rate": round(display_loss_rate, 2),
         "direction_accuracy": round(display_direction_acc, 2),
         "real_win_rate": round(core["win_rate"], 2),
-        "real_loss_rate": round(core["loss_rate"], 2),  # 🔴 مقدار واقعی
+        "real_loss_rate": round(core["loss_rate"], 2),
         "real_direction_accuracy": round(core["direction_accuracy"], 2),
         "real_total_signals": real_total_signals,
         "has_override": {

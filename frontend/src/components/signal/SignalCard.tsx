@@ -163,7 +163,6 @@ export function SignalCard() {
   const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
-  const [animPrice, setAnimPrice] = useState<number>(0);
   const [dotPulse, setDotPulse] = useState(false);
   const [polledPrice, setPolledPrice] = useState<number>(0);
   const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
@@ -171,10 +170,11 @@ export function SignalCard() {
   const [now, setNow] = useState<Date>(() => new Date());
 
   const prevPriceRef = useRef<number | null>(null);
-  const animRef = useRef<number>(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const lastGoldenKeyRef = useRef<string>("");
-
+  // 🔴 فاز ۱۶.۹ — آخرین قیمت شناخته‌شده (fallback نهایی قبل از صفر)
+  const lastKnownPriceRef = useRef<number>(0);
+  
   // ═══ fetch تحلیل (فقط اگه cache نیست) ═══
   useEffect(() => {
     if (!ticker) {
@@ -253,10 +253,12 @@ export function SignalCard() {
     return () => clearTimeout(timer);
   }, [loading, timeframe, getTfData]);
 
-  // ═══ polling قیمت (fallback) ═══
+  // ═══ polling قیمت (fallback) — فاز ۱۶.۹ ═══
+  // 🔴 هر ۵ ثانیه (قبلاً ۳۰s) — مستقل از capability.planned
+  // دلیل: قیمت باید همیشه به‌روز باشه، حتی اگر تحلیل unavailable باشه
   useEffect(() => {
     if (!ticker || !source) return;
-    if (capability.planned || !sourceSupportsPair(source, ticker)) {
+    if (!sourceSupportsPair(source, ticker) && source !== "tsetmc") {
       setPolledPrice(0);
       return;
     }
@@ -264,14 +266,16 @@ export function SignalCard() {
     const fetchQuote = async () => {
       try {
         const res = await api.get("/analyze/quote", { params: { ticker, source } });
-        if (!cancelled && res.data?.price) setPolledPrice(res.data.price);
+        if (!cancelled && res.data?.price && res.data.price > 0) {
+          setPolledPrice(res.data.price);
+        }
       } catch {}
     };
     fetchQuote();
-    const id = setInterval(fetchQuote, 30000);
+    const id = setInterval(fetchQuote, 5000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [ticker, source, capability.planned]);
-
+  }, [ticker, source]);
+  
   // ═══ Sparkline ═══
   useEffect(() => {
     if (!ticker) { setSparklineSeries([]); setSparklinePrice(0); return; }
@@ -286,7 +290,7 @@ export function SignalCard() {
         setSparklinePrice(res.data.price || 0);
         if (res.data.price && res.data.price > 0 && prevPriceRef.current === null) {
           prevPriceRef.current = res.data.price;
-          if (animRef.current === 0) { setAnimPrice(res.data.price); animRef.current = res.data.price; }
+        // 🔴 فاز ۱۶.۹ — حذف شد چون animPrice کلاً حذف شد
         }
       })
       .catch(() => { if (!cancelled) { setSparklineSeries([]); setSparklinePrice(0); } });
@@ -298,10 +302,17 @@ export function SignalCard() {
     setSparklineSeries([]);
     setSparklinePrice(0);
     prevPriceRef.current = null;
-    animRef.current = 0;
-    setAnimPrice(0);
     lastGoldenKeyRef.current = "";
   }, [strategy, ticker, timeframe, marketType, riskProfile]);
+
+  // 🔴 فاز ۱۶.۹ — ریست قیمت‌های کش‌شده فقط با تغییر ticker/source (نه TF)
+  // دلیل: با تغییر TF، قیمت باید همون لحظه‌ای بمونه، نه پرش به قیمت قدیمی
+  useEffect(() => {
+    setPolledPrice(0);
+    lastKnownPriceRef.current = 0;
+    prevPriceRef.current = null;
+  }, [ticker, source]);
+  
 
   // ═══ now ═══
   useEffect(() => {
@@ -309,11 +320,34 @@ export function SignalCard() {
     return () => clearInterval(t);
   }, []);
 
-  // ═══ livePrice ═══
+  // ═══ livePrice — فاز ۱۶.۹ (نسخه ۲ — اصلاح پرش قیمت) ═══
+  // 🔴 قوانین اعتبار:
+  //   1. quote فقط وقتی معتبره که quote.ticker === ticker و quote.source === source
+  //   2. polledPrice فقط وقتی معتبره که تازه (بعد از آخرین تغییر ticker/source گرفته شده)
+  //   3. lastKnown فقط برای همون ticker/source معتبره (با تغییرشون ریست می‌شه)
+  //   4. entryPrice فقط برای پر کردن اولیه (اگر هیچ منبع لحظه‌ای نیست)
   const entryPrice = data?.price ?? 0;
-  const livePrice = quote?.price || polledPrice || entryPrice || 0;
+  const quoteMatchesCurrent =
+    quote != null &&
+    quote.price > 0 &&
+    quote.ticker === ticker &&
+    quote.source === source;
+  const livePrice = (() => {
+    const fromWs = quoteMatchesCurrent ? quote.price : 0;
+    const fromPoll = polledPrice > 0 ? polledPrice : 0;
+    const fromData = entryPrice > 0 ? entryPrice : 0;
+    const fallback = lastKnownPriceRef.current;
+    let final = fromWs || fromPoll || fallback;
+    if (final === 0 && fromData > 0) final = fromData;
+    if (final > 0) lastKnownPriceRef.current = final;
 
-  // ═══ animation + flash ═══
+
+    return final;
+  })();
+    
+
+    // ═══ flash سبز/قرمز روی تغییر قیمت (بدون انیمیشن عددی) ═══
+  // 🔴 فاز ۱۶.۹ — حذف animPrice (باعث گیر کردن قیمت قدیمی می‌شد)
   useEffect(() => {
     if (!livePrice || livePrice <= 0) return;
     const prev = prevPriceRef.current;
@@ -321,30 +355,12 @@ export function SignalCard() {
       const dir = livePrice > prev ? "up" : "down";
       setPriceFlash(dir);
       setDotPulse(true);
-      const start = performance.now();
-      const from = animRef.current || prev;
-      const to = livePrice;
-      const duration = 400;
-      let rafId: number;
-      const tick = (t: number) => {
-        const elapsed = t - start;
-        const progress = Math.min(elapsed / duration, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const val = from + (to - from) * eased;
-        setAnimPrice(val);
-        animRef.current = val;
-        if (progress < 1) rafId = requestAnimationFrame(tick);
-        else { setAnimPrice(to); animRef.current = to; }
-      };
-      rafId = requestAnimationFrame(tick);
+      prevPriceRef.current = livePrice;
       const flashTimer = setTimeout(() => setPriceFlash(null), 400);
       const pulseTimer = setTimeout(() => setDotPulse(false), 700);
-      prevPriceRef.current = livePrice;
-      return () => { clearTimeout(flashTimer); clearTimeout(pulseTimer); cancelAnimationFrame(rafId); };
-    } else {
-      prevPriceRef.current = livePrice;
-      if (animRef.current === 0) { setAnimPrice(livePrice); animRef.current = livePrice; }
+      return () => { clearTimeout(flashTimer); clearTimeout(pulseTimer); };
     }
+    prevPriceRef.current = livePrice;
   }, [livePrice]);
 
   // ═══ Sparkline آخرین نقطه (throttle بر اساس TF) ═══
@@ -673,7 +689,7 @@ export function SignalCard() {
               </div>
 
               <p className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${priceFlash === "up" ? "text-green-500" : priceFlash === "down" ? "text-red-500" : "text-foreground"}`}>
-                {formatNumber(animPrice || livePrice)}
+                {formatNumber(livePrice)}
               </p>
 
               <div className="shrink-0 text-center min-w-[80px]">

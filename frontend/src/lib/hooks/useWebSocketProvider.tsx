@@ -240,18 +240,28 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     };
   }, [connect]);
 
-  // ═══ تغییر تنظیمات: پاک کردن + subscribe جدید ═══
+  // ═══ تغییر تنظیمات: subscribe جدید (بدون پاک کردن quote) ═══
+  // 🔴 فاز ۱۶.۹ — quote فقط وقتی پاک می‌شه که ticker یا source عوض شه
+  // دلیل: تغییر TF نباید باعث پرش قیمت بشه
+  const prevTickerSourceRef = useRef<string>("");
   useEffect(() => {
+    const currentKey = `${ticker}:${source}`;
+    const changed = prevTickerSourceRef.current !== currentKey;
+    prevTickerSourceRef.current = currentKey;
+
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    setQuote(null);
-    setOrderbook(null);
+    // 🔴 فقط اگر ticker یا source عوض شده، quote/orderbook رو پاک کن
+    if (changed) {
+      setQuote(null);
+      setOrderbook(null);
+    }
 
-    // 🔴 ارسال subscribe جدید با نسخه به‌روز از sendSubscribe
+    // ارسال subscribe جدید با نسخه به‌روز از sendSubscribe
     sendSubscribeRef.current(ws);
-  }, [sendSubscribe]); // این useEffect با تغییر تنظیمات اجرا می‌شود
-
+  }, [sendSubscribe, ticker, source]);
+  
 
   // 🔴 فاز ۱۶.۵ — شروع حلقه مرکزی دیتا
   useDataLoop();

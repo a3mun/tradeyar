@@ -245,6 +245,11 @@ async def analyze_multi_stream_endpoint(req: AnalyzeRequest, request: Request):
         async def process_tf(tf: str, is_priority: bool = False):
             async with semaphore:
                 try:
+                    # 🔴 فاز ۱۶.۹ — بهینه‌سازی سرعت multi-stream
+                    # فقط برای تایم‌فریم اصلی (main_tf) دیتای سنگین (extras) محاسبه شود
+                    # تایم‌فریم‌های فرعی فقط دیتای پایه لازم دارند
+                    needs_extras = tf == req.timeframe
+
                     res = await run_in_threadpool(
                         analyze,
                         ticker=req.ticker,
@@ -254,7 +259,7 @@ async def analyze_multi_stream_endpoint(req: AnalyzeRequest, request: Request):
                         risk_profile=req.risk_profile,
                         strategy=req.strategy,
                         ticker_name=req.ticker_name,
-                        include_extras=True,
+                        include_extras=needs_extras,
                     )
                     if res:
                         return (

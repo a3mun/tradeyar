@@ -48,6 +48,17 @@ interface StrategyStats {
   trend_wrong: number;
 }
 
+interface TfStats {
+  total: number;
+  tp_hits: number;
+  sl_hits: number;
+  timeout_wins: number;
+  timeout_losses: number;
+  win_rate: number;
+  loss_rate: number;
+  direction_accuracy: number;
+}
+
 const TF_OPTIONS = ["", "۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه", "۳۰ دقیقه", "۱ ساعت", "روزانه"];
 const STRATEGY_OPTIONS = [
   { v: "", label: "همه" },
@@ -139,6 +150,7 @@ export function BacktestStats({
 
   const [stats, setStats] = useState<CoreStats | null>(null);
   const [byStrategy, setByStrategy] = useState<Record<string, StrategyStats>>({});
+  const [byTf, setByTf] = useState<Record<string, TfStats>>({}); // 🔴 فاز ۱۶.۹
   const [items, setItems] = useState<SignalHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -163,14 +175,24 @@ export function BacktestStats({
       const historyParams = new URLSearchParams(params);
       historyParams.set("limit", "100");
 
-      const [statsRes, stratRes, histRes] = await Promise.all([
+      const tfParams = new URLSearchParams(params);
+      if (source) tfParams.set("source", source);
+      if (profile) tfParams.set("risk_profile", profile);
+      if (strategy) tfParams.set("strategy", strategy);
+      if (time !== "all") tfParams.set("time_filter", time);
+      tfParams.set("limit", String(Math.max(displayLimit, 50)));
+      tfParams.delete("tf"); // 🔴 برای by-tf نیاز به فیلتر tf نداریم
+
+      const [statsRes, stratRes, tfRes, histRes] = await Promise.all([
         api.get<{ stats: CoreStats }>(`/backtest?${params.toString()}`),
         api.get<{ items: Record<string, StrategyStats> }>(`/backtest/by-strategy?${params.toString()}`),
+        api.get<{ items: Record<string, TfStats> }>(`/backtest/by-tf?${tfParams.toString()}`), // 🔴 جدید
         api.get<{ items: SignalHistoryItem[] }>(`/backtest/history?${historyParams.toString()}`),
       ]);
 
       setStats(statsRes.data.stats);
       setByStrategy(stratRes.data.items || {});
+      setByTf(tfRes.data.items || {}); // 🔴 جدید
       setItems(histRes.data.items || []);
       setLoading(false);
     } catch {
@@ -178,7 +200,7 @@ export function BacktestStats({
       setLoading(false);
     }
   }, [source, profile, strategy, tf, time, displayLimit]);
-
+  
   useEffect(() => {
     setLoading(true);
     fetchAll();
@@ -401,6 +423,37 @@ export function BacktestStats({
         <div className="rounded-md border border-border/40 bg-muted/10 px-3 py-2 text-center">
           <span className="text-[10px] text-muted-foreground">📊 مجموع سیگنال‌های بررسی‌شده: </span>
           <span className="num text-sm font-bold text-foreground">{stats.total}</span>
+        </div>
+      )}
+
+      {/* 🔴 فاز ۱۶.۹ — جدول تفکیک تایم‌فریم‌ها */}
+      {Object.keys(byTf).length > 0 && (
+        <div className="rounded-lg border border-border/40 bg-muted/10 p-2.5">
+          <p className="mb-2 text-[10px] font-medium text-muted-foreground">⏱️ به تفکیک تایم‌فریم</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="border-b border-border/40 text-muted-foreground">
+                  <th className="pb-1 text-right font-normal">تایم‌فریم</th>
+                  <th className="pb-1 text-center font-normal">کل</th>
+                  <th className="pb-1 text-center font-normal text-green-500">نرخ برد</th>
+                  <th className="pb-1 text-center font-normal text-red-500">نرخ باخت</th>
+                  <th className="pb-1 text-center font-normal text-purple-400">پیش‌بینی</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(byTf).map(([key, s]) => (
+                  <tr key={key} className="border-b border-border/20 last:border-0">
+                    <td className="py-1 font-medium">{key}</td>
+                    <td className="num py-1 text-center text-muted-foreground">{s.total}</td>
+                    <td className="num py-1 text-center font-bold text-green-500">{s.win_rate.toFixed(1)}٪</td>
+                    <td className="num py-1 text-center font-bold text-red-500">{s.loss_rate.toFixed(1)}٪</td>
+                    <td className="num py-1 text-center font-bold text-purple-400">{s.direction_accuracy.toFixed(0)}٪</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
