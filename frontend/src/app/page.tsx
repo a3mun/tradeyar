@@ -46,6 +46,20 @@ export default function HomePage() {
   const [plan, setPlan] = useState<"free" | "pro" | "admin">("free");
   const isPro = plan === "pro" || plan === "admin";
 
+
+  const { data } = useSignalData();
+
+  const {
+    ticker,
+    source,
+    timeframe,
+    marketType,
+    riskProfile,
+    strategy,
+  } = useAppStore();
+
+
+
   useEffect(() => {
     const token = getToken();
     const user = getUser();
@@ -103,16 +117,6 @@ export default function HomePage() {
       });
   }, [router]);
 
-  const { data } = useSignalData();
-
-  const {
-    ticker,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    strategy,
-  } = useAppStore();
 
   const coherent = sourceSupportsPair(source, ticker);
 
@@ -320,7 +324,14 @@ export default function HomePage() {
                   subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
                   accentColor="#22c55e"
                 >
-                  <Checklist data={data?.checklist} />
+                  {/* 🔴 فاز ۱۶.۵: جلوگیری از کرش کردن ری‌اکت وقتی دیتا لود نشده */}
+                  {data ? (
+                    <Checklist data={data.checklist} />
+                  ) : (
+                    <div className="p-4 text-center text-xs text-muted-foreground animate-pulse">
+                      در حال دریافت چک‌لیست...
+                    </div>
+                  )}
                 </CollapsibleSection>
               </div>
 

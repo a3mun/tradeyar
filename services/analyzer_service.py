@@ -402,28 +402,37 @@ def _analyze_impl(
     fp_key = f"{cache_key}:fp"
 
     if use_cache:
-        cached_fp = analysis_cache.get(fp_key)
-        if cached_fp == fingerprint:
-            cached_result = analysis_cache.get(cache_key)
-            if cached_result is not None:
-                out = _refresh_live_fields(cached_result, df)
-                out["source_used"] = data_source
-                out["is_fallback"] = data_source != source
-                out.pop("orderbook", None)
+        # 🔴 فاز ۱۶.۵ — کش هوشمند:
+        # برای TFهای پایین (۱، ۵، ۱۵ دقیقه): fingerprint باید یکسان باشه
+        # برای TFهای بالا (۳۰ دقیقه، ۱ ساعت، روزانه): فقط TTL کافیه
+        TF_STRICT_FP = {"۱ دقیقه", "۵ دقیقه", "۱۵ دقیقه"}
 
-                if not skip_record and tf_name != "۱ دقیقه":
-                    _record_signal_safe(
-                        ticker,
-                        ticker_name,
-                        tf_name,
-                        source,
-                        market_type,
-                        risk_profile,
-                        strategy,
-                        out,
-                        skip_record,
-                    )
-                return out
+        cached_result = analysis_cache.get(cache_key)
+        if cached_result is not None:
+            if tf_name in TF_STRICT_FP:
+                cached_fp = analysis_cache.get(fp_key)
+                if cached_fp != fingerprint:
+                    cached_result = None  # fingerprint عوض شده → کش باطل
+
+        if cached_result is not None:
+            out = _refresh_live_fields(cached_result, df)
+            out["source_used"] = data_source
+            out["is_fallback"] = data_source != source
+            out.pop("orderbook", None)
+
+            if not skip_record and tf_name != "۱ دقیقه":
+                _record_signal_safe(
+                    ticker,
+                    ticker_name,
+                    tf_name,
+                    source,
+                    market_type,
+                    risk_profile,
+                    strategy,
+                    out,
+                    skip_record,
+                )
+            return out
 
     orderbook = None
     if include_extras and _orderbook_enabled():
@@ -784,7 +793,7 @@ def _compute_multi_tf(
                 risk_profile=risk_profile,
                 strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=True,
+                include_extras=False,
             )
             return {tf: r} if r else {}
         except Exception:
@@ -800,7 +809,7 @@ def _compute_multi_tf(
                 risk_profile=risk_profile,
                 strategy=strategy,
                 ticker_name=ticker_name,
-                include_extras=True,
+                include_extras=False,
             )
         except Exception:
             return None

@@ -2,26 +2,16 @@
 
 import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/useAppStore";
-import { api } from "@/lib/api";
 import { sourceSupportsPair } from "@/lib/sources";
 import type { AnalyzeResponse } from "@/lib/types";
 
-// 🔴 فاز ۱۶.۵ — دوره‌ی آپدیت بر اساس تایم‌فریم
 const POLL_BY_TF: Record<string, number> = {
-  "۱ دقیقه": 10_000,   // اسکالپ: ۱۰ ثانیه
-  "۵ دقیقه": 15_000,   // ۱۵ ثانیه
-  "۱۵ دقیقه": 20_000,  // ۲۰ ثانیه
-  "۳۰ دقیقه": 30_000,  // ۳۰ ثانیه
-  "۱ ساعت": 45_000,    // ۴۵ ثانیه
-  "روزانه": 60_000,    // ۱ دقیقه
+  "۱ دقیقه": 10_000, "۵ دقیقه": 15_000, "۱۵ دقیقه": 20_000,
+  "۳۰ دقیقه": 30_000, "۱ ساعت": 45_000, "روزانه": 60_000,
 };
 
 export function useDataLoop() {
-  const {
-    ticker, tickerName, source, timeframe,
-    marketType, riskProfile, strategy, setTfData,
-  } = useAppStore();
-
+  const { ticker, tickerName, source, timeframe, marketType, riskProfile, strategy, setTfData } = useAppStore();
   const fetchingRef = useRef(false);
 
   useEffect(() => {
@@ -29,44 +19,69 @@ export function useDataLoop() {
 
     let cancelled = false;
 
-    const fetchMulti = async () => {
+    const fetchStream = async () => {
       if (cancelled || fetchingRef.current) return;
       fetchingRef.current = true;
 
       try {
-        const res = await api.post<{ ok: boolean; timeframes: Record<string, AnalyzeResponse> }>("/analyze/multi", {
-          ticker,
-          source,
-          timeframe: "۵ دقیقه",
-          market_type: marketType,
-          risk_profile: riskProfile,
-          strategy,
-          ticker_name: tickerName,
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        const response = await fetch(`${apiUrl}/analyze/multi-stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticker, source, timeframe,
+            market_type: marketType, risk_profile: riskProfile,
+            strategy, ticker_name: tickerName,
+          }),
         });
 
-        if (cancelled) return;
+        if (!response.body) throw new Error("No stream body");
 
-        const tfs = res.data.timeframes || {};
-        for (const [tf, tfData] of Object.entries(tfs)) {
-          if (tfData) setTfData(tf, tfData);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || cancelled) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.slice(6);
+              if (dataStr === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(dataStr);
+                for (const [tf, data] of Object.entries(parsed)) {
+                  setTfData(tf, data as AnalyzeResponse);
+                }
+              } catch {}
+            }
+          }
         }
-      } catch {
-        // silent
+      } catch (err) {
+        console.warn("[useDataLoop] stream failed:", err);
       } finally {
         fetchingRef.current = false;
       }
     };
 
-    // اجرای فوری در بدو ورود یا تغییر تنظیمات
-    fetchMulti();
-
-    // تنظیم تایمر بر اساس تایم‌فریم
+    fetchStream();
     const interval = POLL_BY_TF[timeframe] || 20_000;
-    const timerId = setInterval(fetchMulti, interval);
+    const timerId = setInterval(fetchStream, interval);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && !cancelled) fetchStream();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       cancelled = true;
       clearInterval(timerId);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [ticker, tickerName, source, timeframe, marketType, riskProfile, strategy, setTfData]);
 }

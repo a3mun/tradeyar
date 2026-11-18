@@ -195,7 +195,7 @@ def record_signal(
     # 🔴 فاز ۱۴.۹.۴ — bypass پویا
     strong_bypass = _get_strong_bypass(strategy)
 
-    logger.info(
+    logger.debug(
         f"[Recorder] 🔍 trying: {ticker} {tf_name} strategy={strategy} "
         f"signal={signal} conf={confidence}% (min={min_conf_to_record}%) "
         f"direction={direction} is_worthwhile={is_worthwhile} "
@@ -227,7 +227,7 @@ def record_signal(
     # 🔴 فاز ۱۵: برای اسکالپ و سوئینگ، is_worthwhile نادیده گرفته میشه
     if is_worthwhile is False and strategy == "position":
         if confidence < strong_bypass:
-            logger.info(
+            logger.debug(
                 f"[Recorder] ⏭ {ticker} {tf_name}: is_worthwhile=False "
                 f"(R:R پایین) — conf={confidence}% < {strong_bypass}% "
                 f"(استراتژی={strategy})"
@@ -330,7 +330,7 @@ def record_signal(
                 strategy,
                 cooldown_min,
             ):
-                logger.info(
+                logger.debug(
                     f"[Recorder] ⏭ {ticker} {tf_name} [{strategy}]: cooldown "
                     f"({cooldown_min} دقیقه — سیگنال مشابه در همین جهت+استراتژی)"
                 )
@@ -356,19 +356,19 @@ def record_signal(
             inserted = _insert_ignore_conflict(session, values)
 
         if inserted:
-            logger.info(
+            logger.debug(
                 f"[Recorder] ✅ {ticker} {tf_name} [{strategy}] {signal} ({confidence}%)"
             )
             try:
                 from services.notifier import notify_signal
 
                 notify_signal(values_for_notifier)
-                logger.info(f"[Recorder] 📤 notified: {ticker} {tf_name}")
+                logger.debug(f"[Recorder] 📤 notified: {ticker} {tf_name}")
             except Exception as e:
                 logger.warning(f"[Recorder] ❌ Notifier failed: {e}")
             return True
         else:
-            logger.info(
+            logger.debug(
                 f"[Recorder] ⏭ {ticker} {tf_name} [{strategy}]: dedup "
                 f"(سیگنال مشابه قبلاً ثبت شده)"
             )

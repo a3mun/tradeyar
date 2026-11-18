@@ -81,6 +81,7 @@ async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
         risk_profile=req.risk_profile,
         strategy=req.strategy,  # 🔴 فاز C
         ticker_name=req.ticker_name or req.ticker,
+        main_tf=req.timeframe,  # 🔴 جدید
     )
 
     if not tfs:
@@ -210,3 +211,76 @@ async def sparkline_endpoint(
         )
 
     return SparklineResponse(**result)
+
+
+from fastapi.responses import StreamingResponse
+import json
+
+
+@router.post("/multi-stream")
+async def analyze_multi_stream_endpoint(req: AnalyzeRequest, request: Request):
+    """
+    🔴 فاز ۱۶.۹ — استریم موازی و بهینه
+    """
+    from services.analyzer_service import analyze
+    from core.contracts import TF_NAMES
+    from core.strategies import get_strategy
+
+    # فیلتر TFهای مجاز
+    strategy_cfg = get_strategy(req.strategy)
+    allowed_tfs = strategy_cfg.get("recommended_tfs", list(TF_NAMES))
+
+    # اولویت‌بندی: تایم‌فریم انتخابی کاربر اول باشه
+    if req.timeframe in allowed_tfs:
+        allowed_tfs.remove(req.timeframe)
+        allowed_tfs.insert(0, req.timeframe)
+
+    async def event_generator():
+        import asyncio
+        from fastapi.concurrency import run_in_threadpool
+
+        # 🔴 محدودیت ۳ پردازش همزمان (برای جلوگیری از فشار به صرافی)
+        semaphore = asyncio.Semaphore(3)
+
+        async def process_tf(tf: str, is_priority: bool = False):
+            async with semaphore:
+                try:
+                    res = await run_in_threadpool(
+                        analyze,
+                        ticker=req.ticker,
+                        source=req.source,
+                        tf_name=tf,
+                        market_type=req.market_type,
+                        risk_profile=req.risk_profile,
+                        strategy=req.strategy,
+                        ticker_name=req.ticker_name,
+                        include_extras=True,
+                    )
+                    if res:
+                        return (
+                            tf,
+                            f"data: {json.dumps({tf: res}, ensure_ascii=False)}\n\n",
+                        )
+                except Exception as e:
+                    logger.error(f"[Stream] {tf} failed: {e}")
+                return (tf, None)
+
+        # 🔴 مرحله ۱: تایم‌فریم اصلی رو فوراً بفرست (بدون معطلی)
+        main_tf = allowed_tfs[0]
+        rest_tfs = allowed_tfs[1:]
+
+        main_result = await process_tf(main_tf, is_priority=True)
+        if main_result[1]:
+            yield main_result[1]
+
+        # 🔴 مرحله ۲: بقیه رو موازی بفرست (هر کدوم زودتر آماده شد، زودتر بره)
+        tasks = [asyncio.create_task(process_tf(tf)) for tf in rest_tfs]
+
+        for future in asyncio.as_completed(tasks):
+            tf, result = await future
+            if result:
+                yield result
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
