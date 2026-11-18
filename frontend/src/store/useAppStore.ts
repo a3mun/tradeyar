@@ -32,7 +32,7 @@ interface TfCacheEntry {
   key: string;
 }
 
-const TF_CACHE_TTL_MS = 30_000;
+const TF_CACHE_TTL_MS = 120_000;
 
 // 🔴 لیست نمادهای فارکس (یک‌جا تعریف شده تا تکرار نشه)
 const FOREX_TICKERS = new Set([

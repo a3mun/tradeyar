@@ -13,6 +13,7 @@ const POLL_BY_TF: Record<string, number> = {
 export function useDataLoop() {
   const { ticker, tickerName, source, timeframe, marketType, riskProfile, strategy, setTfData } = useAppStore();
   const fetchingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!ticker || !sourceSupportsPair(source, ticker)) return;
@@ -20,14 +21,26 @@ export function useDataLoop() {
     let cancelled = false;
 
     const fetchStream = async () => {
-      if (cancelled || fetchingRef.current) return;
+      // اگر fetch قبلی باز است، لغو کن تا درخواست جدید پاس شود
+      if (fetchingRef.current) {
+        abortRef.current?.abort();
+      }
+      if (cancelled) return;
+
+      const controller = new AbortController();
+      abortRef.current = controller;
       fetchingRef.current = true;
+
+      // 🔴 timeout سخت — برای tsetmc کمی کوتاه‌تر
+      const timeoutMs = source === "tsetmc" ? 15_000 : 25_000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
         const response = await fetch(`${apiUrl}/analyze/multi-stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             ticker, source, timeframe,
             market_type: marketType, risk_profile: riskProfile,
@@ -35,6 +48,7 @@ export function useDataLoop() {
           }),
         });
 
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         if (!response.body) throw new Error("No stream body");
 
         const reader = response.body.getReader();
@@ -46,13 +60,17 @@ export function useDataLoop() {
           if (done || cancelled) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n\n");
+          // 🔴 پشتیبانی از \n\n و \r\n\r\n
+          const lines = buffer.split(/\r?\n\r?\n/);
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.slice(6);
-              if (dataStr === "[DONE]") break;
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data: ")) {
+              const dataStr = trimmed.slice(6).trim();
+              if (dataStr === "[DONE]") {
+                return; // خروج از کل تابع تا finally اجرا شود
+              }
               try {
                 const parsed = JSON.parse(dataStr);
                 for (const [tf, data] of Object.entries(parsed)) {
@@ -63,9 +81,19 @@ export function useDataLoop() {
           }
         }
       } catch (err) {
-        console.warn("[useDataLoop] stream failed:", err);
+        const e = err as Error;
+        if (e?.name === "AbortError") {
+          console.debug("[useDataLoop] abort (timeout/cleanup)");
+        } else if (e?.message?.includes("Failed to fetch")) {
+          console.debug("[useDataLoop] network interrupted");
+        } else {
+          console.warn("[useDataLoop] stream failed:", err);
+        }
       } finally {
+        clearTimeout(timeoutId);
+        // 🔴 همیشه قفل را آزاد کن
         fetchingRef.current = false;
+        if (abortRef.current === controller) abortRef.current = null;
       }
     };
 
@@ -82,6 +110,9 @@ export function useDataLoop() {
       cancelled = true;
       clearInterval(timerId);
       document.removeEventListener("visibilitychange", handleVisibility);
+      abortRef.current?.abort();
+      abortRef.current = null;
+      fetchingRef.current = false;
     };
   }, [ticker, tickerName, source, timeframe, marketType, riskProfile, strategy, setTfData]);
 }

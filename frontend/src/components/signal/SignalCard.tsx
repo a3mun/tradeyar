@@ -159,7 +159,7 @@ export function SignalCard() {
 
   const data: AnalyzeResponse | null = getTfData(timeframe);
 
-  const [loading, setLoading] = useState<boolean>(!data);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
@@ -177,14 +177,22 @@ export function SignalCard() {
 
   // ═══ fetch تحلیل (فقط اگه cache نیست) ═══
   useEffect(() => {
-    if (!ticker || !sourceSupportsPair(source, ticker)) {
+    if (!ticker) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    // 🔴 برای tsetmc اجازه بده حتی اگر sourceSupportsPair رد کند
+    const supports = sourceSupportsPair(source, ticker);
+    if (!supports && source !== "tsetmc") {
       setLoading(false);
       setError(null);
       return;
     }
 
     const cached = getTfData(timeframe);
-    if (cached) {
+  if (cached) {
       setLoading(false);
       setError(null);
       return;
@@ -220,6 +228,30 @@ export function SignalCard() {
 
     return () => { cancelled = true; };
   }, [ticker, source, timeframe, marketType, riskProfile, strategy, tickerName, getTfData, setTfData]);
+
+  // 🔴 فاز ۱۶.۹ — هر بار data از Store اومد، loading رو false کن (کلید حل مشکل)
+  useEffect(() => {
+    if (data) {
+      setLoading(false);
+      setError(null);
+    }
+  }, [data]);
+
+  // 🔴 فاز ۱۶.۹ — safety net: بعد ۳۰ ثانیه اگر loading ماند، آزاد کن
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => {
+      const cached = getTfData(timeframe);
+      if (cached) {
+        setLoading(false);
+        setError(null);
+      } else {
+        setLoading(false);
+        setError("داده‌ی این نماد در این تایم‌فریم در دسترس نیست");
+      }
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [loading, timeframe, getTfData]);
 
   // ═══ polling قیمت (fallback) ═══
   useEffect(() => {
