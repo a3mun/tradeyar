@@ -258,6 +258,35 @@ def migrate_db():
     except Exception as e:
         logger.warning(f"[Database] migration: {e}")
 
+    # ═══ جدول subscription_logs ═══
+    try:
+        with engine.begin() as conn:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS subscription_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        admin_phone VARCHAR NOT NULL,
+                        action_type VARCHAR NOT NULL,
+                        description VARCHAR NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS subscription_logs (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        admin_phone VARCHAR NOT NULL,
+                        action_type VARCHAR NOT NULL,
+                        description VARCHAR NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                """))
+        logger.info("[Migration] ✅ جدول subscription_logs آماده است")
+    except Exception as e:
+        logger.warning(f"[Migration] subscription_logs: {e}")
+
 
 # ═══ جدول extension_tokens ═══
 try:

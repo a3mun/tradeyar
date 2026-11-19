@@ -9,7 +9,7 @@
  *   • حفظ تمام تغییرات قبلی (بدون پرچم، ساعت در دسکتاپ)
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 import { formatNumber } from "@/lib/display";
 
@@ -17,6 +17,8 @@ interface PriceItem {
   name: string;
   price: number | null;
   unit: string;
+  change?: "up" | "down" | null; // 🔴 اضافه شد
+
 }
 
 const MARKETS = [
@@ -101,10 +103,13 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
                 {item.name}:
               </span>
 
-              <span className="num text-[11px] font-bold">
+              <span className={`num text-[11px] font-bold flex items-center gap-1 ${item.change === "up" ? "text-green-500" : item.change === "down" ? "text-red-500" : ""}`}>
                 {item.price
-                  ? formatNumber(item.price, { maxDecimals: 0 })
+                  ? formatNumber(item.price, { maxDecimals: (item.name === "نفت برنت" || item.name === "انس جهانی") ? 2 : 0})
                   : "—"}
+                {/* 🔴 فلش تغییرات */}
+                {item.change === "up" && <span className="text-[9px]">▲</span>}
+                {item.change === "down" && <span className="text-[9px]">▼</span>}
               </span>
 
               <span className="text-[9px] text-muted-foreground">
@@ -131,10 +136,13 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
                 {item.name}:
               </span>
 
-              <span className="num text-[11px] font-bold">
+              <span className={`num text-[11px] font-bold flex items-center gap-1 ${item.change === "up" ? "text-green-500" : item.change === "down" ? "text-red-500" : ""}`}>
                 {item.price
-                  ? formatNumber(item.price, { maxDecimals: 0 })
+                  ? formatNumber(item.price, { maxDecimals: (item.name === "نفت برنت" || item.name === "انس جهانی") ? 2 : 0 })
                   : "—"}
+                {/* 🔴 فلش تغییرات */}
+                {item.change === "up" && <span className="text-[9px]">▲</span>}
+                {item.change === "down" && <span className="text-[9px]">▼</span>}
               </span>
 
               <span className="text-[9px] text-muted-foreground">
@@ -150,7 +158,7 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
 
       <style jsx>{`
         .ticker-track {
-          animation: ticker-scroll 45s linear infinite;
+          animation: ticker-scroll 40s linear infinite;
           will-change: transform;
         }
 
@@ -167,17 +175,17 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
           }
         }
 
-        /* 🔴 موبایل: سریع‌تر (۲۵ ثانیه) */
+        /* 🔴 موبایل: سریع‌تر (20 ثانیه) */
         @media (max-width: 767px) {
           .ticker-track {
-            animation-duration: 25s;
+            animation-duration: 20s;
           }
         }
 
         /* 🔴 تبلت: متوسط (۳۵ ثانیه) */
         @media (min-width: 768px) and (max-width: 1023px) {
           .ticker-track {
-            animation-duration: 35s;
+            animation-duration: 30s;
           }
         }
 
@@ -195,20 +203,49 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
 export function Marquee() {
   const [items, setItems] = useState<PriceItem[]>([]);
   const now = useIranTime();
-
+  // 🔴 نگه‌داری قیمت‌های قبلی و آخرین جهت تغییر
+  const prevPricesRef = useRef<Record<string, number>>({});
+  const lastDirectionRef = useRef<Record<string, "up" | "down" | null>>({});
+  
+  
   const fetchPrices = () => {
     api.get("/symbols/iran-prices").then((res) => {
       const p = res.data.prices || {};
-      const list: PriceItem[] = [
+      
+      // لیست خام قیمت‌ها
+      const rawList = [
         { name: "دلار آزاد", price: p.dollar, unit: "تومان" },
         { name: "طلای ۱۸ عیار", price: p.geram18, unit: "تومان" },
         { name: "سکه امامی", price: p.sekee, unit: "تومان" },
-        { name: "مثقال طلا", price: p.mesghal, unit: "تومان" },
         { name: "انس جهانی", price: p.ons, unit: "دلار" },
+        { name: "نفت برنت", price: p.brent, unit: "دلار" },
       ];
-      setItems(list.filter((x) => x.price));
+
+      // 🔴 محاسبه فلش (سبز/قرمز) بر اساس قیمت قبلی
+      const list: PriceItem[] = rawList
+        .filter((x) => x.price)
+        .map((item) => {
+          const prev = prevPricesRef.current[item.name];
+          let change = lastDirectionRef.current[item.name] || null; // 🔴 حفظ جهت قبلی
+          
+          // فقط اگه قیمت واقعاً تغییر کرده بود، جهت جدید رو ذخیره کن
+          if (prev !== undefined && item.price && item.price !== prev) {
+            change = item.price > prev ? "up" : "down";
+            lastDirectionRef.current[item.name] = change;
+          }
+          
+          // ذخیره قیمت فعلی برای دفعه بعد
+          if (item.price) {
+            prevPricesRef.current[item.name] = item.price;
+          }
+          
+          return { ...item, change };
+        });
+      
+      setItems(list);
     }).catch(() => setItems([]));
   };
+
 
   useEffect(() => {
     const timer = setTimeout(fetchPrices, 1000);

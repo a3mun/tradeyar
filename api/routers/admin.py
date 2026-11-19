@@ -42,6 +42,7 @@ from api.models import (
     TicketMessage,
     RefundRequest,
     ExtensionDownloadLog,
+    SubscriptionLog,
 )
 from api.plans import PLANS
 from services.sms import send_subscription_activated_sms
@@ -559,6 +560,13 @@ async def get_user_details(
         }
         for p in payments
     ]
+
+    subscription_logs = session.exec(
+        select(SubscriptionLog)
+        .where(SubscriptionLog.user_id == user_id)
+        .order_by(SubscriptionLog.created_at.desc())
+    ).all()
+
     return {
         "ok": True,
         "user": {
@@ -569,16 +577,27 @@ async def get_user_details(
             "last_login": user.last_login.isoformat() if user.last_login else None,
             "last_ip": user.last_ip,
             "last_user_agent": user.last_user_agent,
-            "is_active": user.is_active,  # 🔴 این خط حتماً باشه
+            "is_active": user.is_active,
             "last_seen_at": (
                 user.last_seen_at.isoformat() if user.last_seen_at else None
             ),
         },
         "subscriptions": subs_list,
         "payments": pay_list,
-        "total_paid": total_paid,  # 🔴 جدید
-        "total_refunded": total_refunded,  # 🔴 جدید
-        "net_balance": net_balance,  # 🔴 جدید
+        "total_paid": total_paid,
+        "total_refunded": total_refunded,
+        "net_balance": net_balance,
+        # 🔴 لاگ‌های تغییرات ادمین
+        "subscription_logs": [
+            {
+                "id": log.id,
+                "admin_phone": log.admin_phone,
+                "action_type": log.action_type,
+                "description": log.description,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log in subscription_logs
+        ],
     }
 
 
@@ -638,6 +657,16 @@ async def change_user_plan(
             )
         except Exception:
             pass
+
+    # 🔴 ثبت لاگ تغییر پلن
+    log = SubscriptionLog(
+        user_id=user_id,
+        admin_phone=admin.phone,
+        action_type="manual_plan_change",
+        description=f"تغییر پلن به {plan_info['title']}",
+    )
+    session.add(log)
+    session.commit()
 
     return {"ok": True, "message": f"پلن کاربر به {plan_info['title']} تغییر یافت"}
 
@@ -704,7 +733,96 @@ async def adjust_user_days(
         except Exception:
             pass
 
+    # 🔴 ثبت لاگ تغییر تاریخ
+    action = "افزایش" if days > 0 else "کاهش"
+    log = SubscriptionLog(
+        user_id=user_id,
+        admin_phone=admin.phone,
+        action_type="manual_date_adjust",
+        description=f"{action} {abs(days)} روز به تاریخ انقضا",
+    )
+    session.add(log)
+    session.commit()
+
     return {"ok": True, "message": f"{days} روز به اشتراک کاربر اضافه شد"}
+
+
+@router.post("/users/{user_id}/set-expiry-date")
+async def set_user_expiry_date(
+    user_id: int,
+    new_date_jalali: str = Body(..., embed=True),
+    send_sms: bool = True,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    تنظیم مستقیم تاریخ انقضا با تاریخ شمسی (مثلاً 1405/11/25)
+    """
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
+
+    # تبدیل تاریخ شمسی به میلادی
+    try:
+        from jdatetime import datetime as jdatetime_cls
+
+        parts = new_date_jalali.strip().split("/")
+        if len(parts) != 3:
+            raise ValueError("فرمت تاریخ اشتباه است")
+        jy, jm, jd = int(parts[0]), int(parts[1]), int(parts[2])
+        gdate = jdatetime_cls(jy, jm, jd).togregorian()
+        # تنظیم ساعت به 23:59:59 به وقت تهران
+        new_end = gdate.replace(hour=23, minute=59, second=59, microsecond=0)
+        # تبدیل به UTC
+        new_end = new_end.replace(tzinfo=ZoneInfo("Asia/Tehran")).astimezone(
+            timezone.utc
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"تاریخ نامعتبر: {e}")
+
+    sub = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .order_by(Subscription.created_at.desc())
+    ).first()
+
+    now = datetime.now(timezone.utc)
+
+    if sub:
+        sub.end_date = new_end
+        sub.status = "active" if new_end > now else "expired"
+        session.add(sub)
+    else:
+        sub = Subscription(
+            user_id=user.id,
+            plan="free",
+            start_date=now,
+            end_date=new_end,
+            status="active" if new_end > now else "expired",
+        )
+        session.add(sub)
+
+    session.commit()
+
+    if send_sms:
+        try:
+            send_subscription_activated_sms(user.phone, "تغییر تاریخ انقضا", new_end)
+        except Exception:
+            pass
+
+    # 🔴 ثبت لاگ تغییر تاریخ
+    log = SubscriptionLog(
+        user_id=user_id,
+        admin_phone=admin.phone,
+        action_type="manual_date_set",
+        description=f"تنظیم دستی تاریخ انقضا به {new_date_jalali}",
+    )
+    session.add(log)
+    session.commit()
+
+    return {"ok": True, "message": f"تاریخ انقضا به {new_date_jalali} تغییر یافت"}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1310,6 +1428,17 @@ async def create_refund_request(
     )
     session.add(req)
     session.commit()
+
+    # 🔴 ثبت لاگ عودت وجه
+    log = SubscriptionLog(
+        user_id=user_id,
+        admin_phone=admin.phone,
+        action_type="refund",
+        description=f"ثبت درخواست عودت {refund_amount:,} تومان (از {sub.plan} به {new_plan})",
+    )
+    session.add(log)
+    session.commit()
+
     return {"ok": True, "message": "درخواست عودت ثبت شد (تغییر پلن را دستی بررسی کنید)"}
 
 
@@ -1336,6 +1465,7 @@ async def list_refunds(
                 "created_at": r.created_at.isoformat(),
             }
         )
+
     return {"ok": True, "items": result}
 
 

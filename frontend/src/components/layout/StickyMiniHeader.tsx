@@ -1,20 +1,12 @@
 "use client";
 
-/**
- * StickyMiniHeader — کارت سیگنال (خلاصه‌ی SignalCard)
- * ============================================================
- * نسخه ۲.۰ · فاز ۱۴.۷.۴
- * 🔴 تغییرات:
- *   • حذف useWebSocket().signal (حذف شد)
- *   • استفاده از tfDataCache (هم‌راستا با SignalCard)
- */
-
-import { TrendingUp, TrendingDown, Minus, ArrowUp } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, ArrowUp, WifiOff } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
 import { useScrollVisibility } from "@/lib/hooks/useScrollVisibility";
 import { SOURCE_BY_KEY } from "@/lib/sources";
 import { formatNumber } from "@/lib/display";
+import { useEffect, useRef, useState } from "react";
 
 export function StickyMiniHeader() {
   const { ticker, tickerName, source, timeframe, getTfData } = useAppStore();
@@ -24,16 +16,39 @@ export function StickyMiniHeader() {
   // 🔴 از cache مشترک بخون (هم‌راستا با SignalCard)
   const signal = getTfData(timeframe);
 
-  const displayPrice = quote?.price ?? signal?.price ?? 0;
-  const displayChange = quote?.change_pct ?? null;
+  // 🔴 فیکس باگ قیمت: همیشه از قیمت لحظه‌ای استفاده کن (مثل SignalCard)
+  const [lastKnownPrice, setLastKnownPrice] = useState(0);
+  const entryPrice = signal?.price ?? 0;
+  
+  useEffect(() => {
+    if (quote?.price && quote.price > 0) {
+      setLastKnownPrice(quote.price);
+    }
+  }, [quote]);
+
+  const displayPrice = quote?.price || lastKnownPrice || entryPrice || 0;
+
+  // 🔴 فیکس تغییرات: استفاده از درصد تغییرات لحظه‌ای (نه ۲۴ ساعته)
+  const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
+  const prevPriceRef = useRef<number | null>(null);
+  
+  useEffect(() => {
+    if (!displayPrice || displayPrice <= 0) return;
+    const prev = prevPriceRef.current;
+    if (prev != null && prev !== displayPrice) {
+      setPriceFlash(displayPrice > prev ? "up" : "down");
+      const timer = setTimeout(() => setPriceFlash(null), 2000); // برگشت به حالت عادی بعد ۲ ثانیه
+      return () => clearTimeout(timer);
+    }
+    prevPriceRef.current = displayPrice;
+  }, [displayPrice]);
 
   const meta = SOURCE_BY_KEY[source];
   const sigText = signal?.signal ?? "";
   const sigConf = signal?.confidence ?? 0;
   const sigDir = signal?.direction ?? "neutral";
 
-  const DirIcon =
-    sigDir === "long" ? TrendingUp : sigDir === "short" ? TrendingDown : Minus;
+  const DirIcon = sigDir === "long" ? TrendingUp : sigDir === "short" ? TrendingDown : Minus;
 
   const sigBadgeClass =
     sigDir === "long"
@@ -45,6 +60,8 @@ export function StickyMiniHeader() {
   const handleClick = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const isConnected = wsStatus === "connected";
 
   return (
     <div
@@ -66,8 +83,11 @@ export function StickyMiniHeader() {
       >
         <div className="flex w-full items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            {wsStatus === "connected" && (
+            {/* 🔴 نشانگر وب‌سوکت بهبود یافته */}
+            {isConnected ? (
               <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-green-500" />
+            ) : (
+              <WifiOff className="h-3 w-3 shrink-0 text-orange-500 animate-pulse" />
             )}
             <p className="truncate text-[11px] font-bold leading-tight">
               {tickerName || ticker}
@@ -85,17 +105,14 @@ export function StickyMiniHeader() {
           )}
 
           <div className="flex shrink-0 items-baseline gap-1">
-            <span className="num text-[12px] font-bold leading-tight">
+            <span className={`num text-[12px] font-bold leading-tight transition-colors duration-300 ${priceFlash === "up" ? "text-green-500" : priceFlash === "down" ? "text-red-500" : ""}`}>
               {formatNumber(displayPrice)}
             </span>
-            {displayChange != null && displayChange !== 0 && (
-              <span
-                className={`num text-[9px] leading-tight ${
-                  displayChange >= 0 ? "text-green-500" : "text-red-500"
-                }`}
-              >
-                {displayChange >= 0 ? "▲" : "▼"}
-                {Math.abs(displayChange).toFixed(2)}٪
+            
+            {/* 🔴 نمایش فلش تغییرات لحظه‌ای */}
+            {priceFlash && (
+              <span className={`num text-[9px] leading-tight ${priceFlash === "up" ? "text-green-500" : "text-red-500"}`}>
+                {priceFlash === "up" ? "▲" : "▼"}
               </span>
             )}
           </div>

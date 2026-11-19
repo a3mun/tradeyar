@@ -511,6 +511,8 @@ export function SignalCard() {
   const usedMeta = SOURCE_BY_KEY[usedSource] ?? requestedMeta;
   const isFallback = Boolean(data.is_fallback) && usedSource !== source;
   const inWatchlist = watchlist.some((w) => w.ticker === ticker);
+    // 🔴 تشخیص نمادهای CFD (نفت)
+  const isCFDSymbol = data.ticker === "UKOIL-USD" || data.ticker === "USOIL-USD";
 
   const activeTraps: string[] = [];
   const trapReasons: string[] = [];
@@ -645,9 +647,16 @@ export function SignalCard() {
         </div>
 
         <CardContent className="space-y-1 px-3 pb-2 pt-0">
+          {isCFDSymbol && (
+            <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400 flex items-center gap-1.5">
+              <span className="shrink-0">ℹ️</span>
+              <span>قیمت نمایش‌داده‌شده بر اساس CFD است و ممکن است با قیمت آتی بورس ICE چند دلار اختلاف داشته باشد.</span>
+            </div>
+          )}
+
           {isFallback && (
-            <p className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400">
-              ℹ️ {requestedMeta?.label} این نماد را در {data.timeframe} ندارد — داده از {usedMeta?.label}
+            <p className="rounded-md border border-slate-500/20 bg-slate-500/10 px-2 py-1.5 text-[9px] text-slate-300 leading-relaxed">
+              ℹ️ قیمت لحظه‌ای از <b>{requestedMeta?.label}</b> دریافت می‌شود، اما تحلیل و کندل‌ها بر اساس داده‌های <b>{usedMeta?.label}</b> محاسبه شده‌اند.
             </p>
           )}
 

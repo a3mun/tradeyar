@@ -113,6 +113,7 @@ def extract_tgju(html):
             "sekee": "sekee",
             "price_dollar_rl": "dollar",
             "ons": "ons",
+            "oil_brent": "brent",  # 🔴 اضافه شد
         }
         for row in soup.find_all("tr", attrs={"data-market-row": True}):
             raw_key = row.get("data-market-row", "").strip()
@@ -126,7 +127,8 @@ def extract_tgju(html):
                 continue
             price = parse_number(nf_cells[0].get_text(strip=True))
             if price:
-                if key != "ons":
+                # 🔴 ons و brent دلاری هستند، تقسیم بر ۱۰ نمی‌شن
+                if key not in ("ons", "brent"):
                     price = price / 10
                 results[key] = price
     except Exception as e:

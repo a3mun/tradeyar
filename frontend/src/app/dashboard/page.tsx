@@ -487,20 +487,13 @@ export default function DashboardPage() {
                       صرافی‌های دریا گلد و آلفا گلد. نیازمند{" "}
                       <b className="text-[#d6ad60]">اشتراک حرفه‌ای</b>.
                     </p>
-                    <Link
-                      href="/extension/guide"
-                      className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold text-[#d6ad60] hover:text-[#e2c17e] sm:text-xs"
-                    >
-                      <BookOpen className="h-3 w-3" />
-                      راهنمای جامع افزونه
-                      <ArrowRight className="h-3 w-3 rotate-180" />
-                    </Link>
+
 
                     {/* ─── ردیف نسخه و تاریخ ─── */}
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9px] text-gray-500 sm:text-[10px]">
                       <span className="inline-flex items-center gap-1.5">
                         <span className="rounded-md border border-[#d6ad60]/20 bg-[#d6ad60]/10 px-2 py-0.5 font-mono text-[10px] font-bold text-[#d6ad60]">
-                          v{EXTENSION_VERSION}
+                          v.{EXTENSION_VERSION}
                         </span>
                         <span className="text-gray-500">نسخه</span>
                       </span>

@@ -214,3 +214,17 @@ class SiteStatsOverride(SQLModel, table=True):
     value: float = 0.0
     updated_at: datetime = Field(default_factory=_utcnow)
     updated_by: Optional[str] = None
+
+
+class SubscriptionLog(SQLModel, table=True):
+    """لاگ تغییرات دستی ادمین روی اشتراک کاربران"""
+
+    __tablename__ = "subscription_logs"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    admin_phone: str = Field(max_length=20)
+    action_type: str = Field(
+        max_length=50
+    )  # manual_plan_change, manual_date_adjust, refund
+    description: str = Field(max_length=255)
+    created_at: datetime = Field(default_factory=_utcnow, index=True)

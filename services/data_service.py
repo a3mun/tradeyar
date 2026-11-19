@@ -245,9 +245,16 @@ def _fetch_ohlcv_uncached(
 
     if resolved_source:
         chain.append(resolved_source)
-    for candidate in _FALLBACK_ORDER:
-        if candidate not in chain and is_ohlcv_supported(tf_name, candidate):
-            chain.append(candidate)
+
+    # 🔴 فاز ۱۶.۹.۱ — فارکس هرگز به صرافی‌های ایرانی fallback نمی‌کند
+    # دلیل: قیمت‌های فارکس (XAU, BTC-USD جهانی) با صرافی‌های ایرانی
+    # (که تومانی هستند یا اسپرد دارند) کاملاً متفاوت است.
+    if effective_source != "forex":
+        for candidate in _FALLBACK_ORDER:
+            if candidate not in chain and is_ohlcv_supported(tf_name, candidate):
+                chain.append(candidate)
+    else:
+        logger.debug(f"[DataService] منبع فارکس — fallback غیرفعال است")
 
     if not chain:
         logger.warning(f"[DataService] هیچ صرافی‌ای برای {ticker}/{tf_name}")
