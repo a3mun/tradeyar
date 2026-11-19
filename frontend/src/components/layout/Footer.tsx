@@ -145,7 +145,6 @@ export function Footer() {
                   referrerPolicy="origin"
                   target="_blank"
                   href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                  rel="noopener noreferrer"
                   className="block rounded-md border border-white/10 bg-white p-0.5 transition-transform hover:scale-105"
                   title="نماد اعتماد الکترونیکی"
                 >
@@ -227,7 +226,6 @@ export function Footer() {
                   referrerPolicy="origin"
                   target="_blank"
                   href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                  rel="noopener noreferrer"
                   className="block rounded-lg border border-white/10 bg-white p-1 transition-transform hover:scale-105"
                   title="نماد اعتماد الکترونیکی"
                 >
