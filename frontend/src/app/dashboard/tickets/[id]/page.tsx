@@ -9,9 +9,26 @@ import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
+import imageCompression from "browser-image-compression";
 import { ArrowRight, Send, Clock, ShieldCheck, User, Loader2, Paperclip, X } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+// 🔴 تابع فرمت تاریخ هوشمند
+const formatChatTime = (iso: string) => {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return "همین الان";
+  if (diffMin < 60) return `${diffMin} دقیقه پیش`;
+  if (diffHours < 24) return `${diffHours} ساعت پیش`;
+  if (diffDays < 7) return `${diffDays} روز پیش`;
+  return d.toLocaleDateString("fa-IR", { month: "short", day: "numeric" });
+};
 
 export default function TicketDetailPage() {
   const router = useRouter();
@@ -24,6 +41,7 @@ export default function TicketDetailPage() {
   const [sending, setSending] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,26 +69,48 @@ export default function TicketDetailPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [ticket?.messages?.length]);
 
-  const handleSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    // چک کردن فرمت
-    if (!file.type.match('image/jpeg') && !file.type.match('image/png')) {
-      alert("فقط فایل‌های JPG و PNG مجاز هستند");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
+const handleSelectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    if (file.size > 1 * 1024 * 1024) {
-      alert("حجم فایل حداکثر ۱ مگابایت است");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-  };
+  if (!file.type.match("image/jpeg") && !file.type.match("image/png")) {
+    alert("فقط فایل‌های JPG و PNG مجاز هستند");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    alert("حجم فایل حداکثر ۵ مگابایت است");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    return;
+  }
+
+  setCompressing(true);
+  try {
+    const compressed = await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true,
+      // 🔴 خروجی رو همیشه JPEG کن
+      fileType: "image/jpeg",
+      initialQuality: 0.8,
+    });
+
+    // 🔴 مهم: اسم فایل اصلی رو حفظ کن، ولی محتوا رو از فایل فشرده بگیر
+    const finalFile = new File([compressed], file.name, {
+      type: compressed.type || "image/jpeg",
+      lastModified: Date.now(),
+    });
+
+    setSelectedFile(finalFile);
+    setPreviewUrl(URL.createObjectURL(finalFile));
+  } catch (err) {
+    console.error("compression failed:", err);
+    alert("خطا در فشرده‌سازی عکس");
+  } finally {
+    setCompressing(false);
+  }
+};
   
   const handleClearFile = () => {
     setSelectedFile(null);
@@ -82,20 +122,17 @@ export default function TicketDetailPage() {
   const handleSend = async () => {
     if (!reply.trim() && !selectedFile) return;
 
-    // ⬅️ چک تعداد پیام‌های متوالی
     const userMessages = ticket.messages.filter((m: any) => !m.is_admin);
     const lastAdminIndex = ticket.messages.map((m: any) => m.is_admin).lastIndexOf(true);
     const consecutive = ticket.messages.length - (lastAdminIndex + 1);
-    
-    if (consecutive >= 5) {
-      alert("شما ۵ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.");
+
+    if (consecutive >= 10) {
+      alert("شما ۱۰ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.");
       return;
     }
-
-
+    
     setSending(true);
     try {
-      // ۱. آپلود فایل (اگه هست)
       let attachmentPath = null;
       let attachmentName = null;
       if (selectedFile) {
@@ -114,7 +151,6 @@ export default function TicketDetailPage() {
         setUploading(false);
       }
 
-      // ۲. ارسال پیام
       const res = await fetch(`${apiUrl}/tickets/${ticketId}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -150,8 +186,9 @@ export default function TicketDetailPage() {
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
       <Header />
-      <main className="flex-1 container mx-auto p-4 py-8 max-w-3xl">
-        <div className="mb-4 flex items-center justify-between">
+      <main className="flex-1 container mx-auto p-4 py-4 max-w-3xl flex flex-col">
+        {/* هدر تیکت */}
+        <div className="flex items-center justify-between mb-3">
           <Link href="/dashboard/tickets">
             <Button variant="ghost" size="sm" className="gap-2 text-gray-400 hover:text-white">
               <ArrowRight className="h-4 w-4" /> بازگشت
@@ -162,46 +199,94 @@ export default function TicketDetailPage() {
           </span>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 mb-4">
+        {/* کارت اطلاعات تیکت */}
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-4 mb-3">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs text-gray-500 font-mono">#{ticket.id}</span>
             <span className="text-[10px] text-gray-500 flex items-center gap-1">
-              <Clock className="h-3 w-3" /> {new Date(ticket.created_at).toLocaleString("fa-IR")}
+              <Clock className="h-3 w-3" /> ایجاد شده در {new Date(ticket.created_at).toLocaleString("fa-IR")}
             </span>
           </div>
-          <h1 className="text-xl font-bold text-white">{ticket.subject}</h1>
+          <h1 className="text-lg font-bold text-white">{ticket.subject}</h1>
         </div>
 
-        <div className="space-y-3 mb-4">
-          {ticket.messages.map((m: any, idx: number) => (
-            <motion.div
-              key={m.id}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className={`flex ${m.is_admin ? "justify-start" : "justify-end"}`}
-            >
-              <div className={`max-w-[80%] rounded-2xl p-3 ${m.is_admin ? "bg-[#d6ad60]/10 border border-[#d6ad60]/30" : "bg-white/5 border border-white/10"}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  {m.is_admin ? <ShieldCheck className="h-3 w-3 text-[#d6ad60]" /> : <User className="h-3 w-3 text-gray-400" />}
-                  <span className="text-[10px] font-bold text-gray-400">{m.is_admin ? "پشتیبانی" : "شما"}</span>
-                  <span className="text-[9px] text-gray-600">{new Date(m.created_at).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
-                <p className="text-sm text-white whitespace-pre-wrap">{m.message}</p>
-                {m.attachment_path && (
-                  <a href={`${apiUrl}${m.attachment_path}`} target="_blank" rel="noreferrer" className="block mt-2">
-                    <img src={`${apiUrl}${m.attachment_path}`} alt={m.attachment_name || "attachment"} className="max-w-full max-h-64 rounded-lg border border-white/10" />
-                  </a>
+        {/* پیام‌ها (چت تلگرام‌مانند) */}
+        <div className="flex-1 space-y-3 mb-4 overflow-y-auto max-h-[calc(100vh-400px)] pr-2">
+          {ticket.messages.map((m: any, idx: number) => {
+            const isMe = !m.is_admin;
+            return (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: idx * 0.05, duration: 0.2 }}
+                className={`flex ${isMe ? "justify-end" : "justify-start"} gap-2`}
+              >
+                {/* آواتار - فقط برای ادمین (سمت چپ) */}
+                {!isMe && (
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-[#d6ad60]/20 border border-[#d6ad60]/40 flex items-center justify-center">
+                    <ShieldCheck className="h-4 w-4 text-[#d6ad60]" />
+                  </div>
                 )}
-              </div>
-            </motion.div>
-          ))}
+
+                <div className={`max-w-[75%] flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                  {/* حباب پیام */}
+                  <div
+                    className={`rounded-2xl px-3 py-2 shadow-lg transition-all ${
+                      isMe
+                        ? "bg-gradient-to-br from-[#c89a49] to-[#e2c17e] text-[#07111f] rounded-tr-sm"
+                        : "bg-gradient-to-br from-[#1a2c45] to-[#0d1b2d] border border-white/10 text-white rounded-tl-sm"
+                    }`}
+                  >
+                    {/* نام فرستنده */}
+                    <div className={`flex items-center gap-1.5 mb-1 ${isMe ? "text-[#07111f]/70" : "text-gray-400"}`}>
+                      {isMe ? <User className="h-2.5 w-2.5" /> : <ShieldCheck className="h-2.5 w-2.5 text-[#d6ad60]" />}
+                      <span className="text-[9px] font-bold">{isMe ? "شما" : "پشتیبانی"}</span>
+                    </div>
+
+                    {/* متن */}
+                    <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isMe ? "font-medium" : ""}`}>{m.message}</p>
+
+                    {/* عکس */}
+                    {m.attachment_path && (
+                      <a href={`${apiUrl}${m.attachment_path}`} target="_blank" rel="noreferrer" className="block mt-2">
+                        <img
+                          src={`${apiUrl}${m.attachment_path}`}
+                          alt={m.attachment_name || "attachment"}
+                          className="max-w-full max-h-64 rounded-lg border border-white/20"
+                        />
+                      </a>
+                    )}
+                  </div>
+
+                  {/* تاریخ و ساعت */}
+                  <span className={`text-[9px] text-gray-500 mt-1 ${isMe ? "text-left" : "text-right"}`}>
+                    {formatChatTime(m.created_at)}
+                  </span>
+                </div>
+
+                {/* آواتار - فقط برای کاربر (سمت راست) */}
+                {isMe && (
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-white/10 border border-white/20 flex items-center justify-center">
+                    <User className="h-4 w-4 text-gray-300" />
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
           <div ref={bottomRef} />
         </div>
 
+        {/* فرم ارسال */}
         {ticket.status === "open" ? (
-          <div className="space-y-2">
-            {previewUrl && (
+          <div className="space-y-2 sticky bottom-4 bg-[#07111f]/80 backdrop-blur-lg rounded-2xl p-2">
+            {compressing && (
+              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 p-2 text-xs text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin text-[#d6ad60]" />
+                در حال فشرده‌سازی عکس...
+              </div>
+            )}
+            {previewUrl && !compressing && (
               <div className="relative inline-block">
                 <img src={previewUrl} alt="preview" className="max-h-32 rounded-lg border border-white/20" />
                 <button onClick={handleClearFile} className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1 hover:bg-red-600">
@@ -211,17 +296,17 @@ export default function TicketDetailPage() {
             )}
             <div className="flex gap-2">
               <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleSelectFile} className="hidden" />
-              <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} className="h-11 border-white/10">
+              <Button type="button" variant="outline" size="icon" onClick={() => fileInputRef.current?.click()} disabled={compressing} className="h-11 border-white/10 shrink-0">
                 <Paperclip className="h-4 w-4" />
               </Button>
               <Input
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                 placeholder="پاسخ خود را بنویسید..."
                 className="bg-black/30 border-white/10 text-white h-11"
               />
-              <Button onClick={handleSend} disabled={sending || uploading || (!reply.trim() && !selectedFile)} className="h-11 gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
+              <Button onClick={handleSend} disabled={sending || uploading || compressing || (!reply.trim() && !selectedFile)} className="h-11 gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90 shrink-0">
                 {sending || uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
             </div>

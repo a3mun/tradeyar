@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken, getUser } from "@/lib/auth";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
-import { MessageSquare, Plus, ArrowRight, Clock, Loader2, Home, AlertCircle, CheckCircle2, Paperclip, X } from "lucide-react";
+import { MessageSquare, Plus, ArrowRight, Clock, Loader2, Home, AlertCircle, CheckCircle2 } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
@@ -23,11 +23,8 @@ export default function TicketsPage() {
   const [isOpen, setIsOpen] = useState(false);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,64 +44,23 @@ export default function TicketsPage() {
     fetchData();
   }, [router]);
 
-  const handleSelectFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    // چک کردن فرمت
-    if (!file.type.match('image/jpeg') && !file.type.match('image/png')) {
-      alert("فقط فایل‌های JPG و PNG مجاز هستند");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    if (file.size > 1 * 1024 * 1024) {
-      alert("حجم فایل حداکثر ۱ مگابایت است");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-  };
-
-  const handleClearFile = () => {
-    setSelectedFile(null);
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
   const handleCreate = async () => {
     if (subject.length < 3) return setError("موضوع باید حداقل ۳ حرف باشد");
-    if (message.length < 5 && !selectedFile) return setError("متن پیام یا عکس الزامی است");
+    if (message.length < 5) return setError("متن پیام باید حداقل ۵ حرف باشد");
     setSending(true);
     setError("");
     try {
-      // ۱. ساخت تیکت
       const res = await fetch(`${apiUrl}/tickets`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ subject, message: message || "(تصویر پیوست)" }),
+        body: JSON.stringify({ subject, message }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "خطا");
 
-      // ۲. آپلود عکس (اگر وجود دارد)
-      if (selectedFile) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        await fetch(`${apiUrl}/tickets/${data.id}/upload`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-      }
-
       setIsOpen(false);
       setSubject("");
       setMessage("");
-      handleClearFile();
       router.push(`/dashboard/tickets/${data.id}`);
     } catch (err: any) {
       setError(err.message);
@@ -114,13 +70,12 @@ export default function TicketsPage() {
   };
 
   const openTickets = tickets.filter((t) => t.status === "open");
-  const atLimit = openTickets.length >= 1; // ⬅️ محدودیت ۱ تیکت باز
+  const atLimit = openTickets.length >= 1;
 
   return (
     <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
       <Header />
       <main className="flex-1 container mx-auto p-4 py-8 max-w-4xl space-y-6">
-        {/* هدر */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
@@ -144,39 +99,27 @@ export default function TicketsPage() {
           </div>
         </div>
 
-        {/* کارت آمار */}
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                <MessageSquare className="h-3 w-3" /> کل تیکت‌ها
-              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1"><MessageSquare className="h-3 w-3" /> کل تیکت‌ها</div>
               <p className="text-2xl font-bold text-white">{stats.total_count}</p>
             </div>
             <div className="rounded-2xl border border-green-500/20 bg-green-500/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-green-400 mb-1">
-                <AlertCircle className="h-3 w-3" /> باز
-              </div>
+              <div className="flex items-center gap-2 text-xs text-green-400 mb-1"><AlertCircle className="h-3 w-3" /> باز</div>
               <p className="text-2xl font-bold text-green-400">{stats.open_count}</p>
             </div>
             <div className="rounded-2xl border border-gray-500/20 bg-gray-500/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                <CheckCircle2 className="h-3 w-3" /> بسته
-              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1"><CheckCircle2 className="h-3 w-3" /> بسته</div>
               <p className="text-2xl font-bold text-gray-300">{stats.closed_count}</p>
             </div>
             <div className={`rounded-2xl border backdrop-blur-xl p-4 ${stats.unread_count > 0 ? "border-[#d6ad60]/40 bg-[#d6ad60]/10" : "border-white/10 bg-white/5"}`}>
-              <div className="flex items-center gap-2 text-xs text-[#d6ad60] mb-1">
-                <MessageSquare className="h-3 w-3" /> خوانده‌نشده
-              </div>
-              <p className={`text-2xl font-bold ${stats.unread_count > 0 ? "text-[#d6ad60]" : "text-gray-500"}`}>
-                {stats.unread_count}
-              </p>
+              <div className="flex items-center gap-2 text-xs text-[#d6ad60] mb-1"><MessageSquare className="h-3 w-3" /> خوانده‌نشده</div>
+              <p className={`text-2xl font-bold ${stats.unread_count > 0 ? "text-[#d6ad60]" : "text-gray-500"}`}>{stats.unread_count}</p>
             </div>
           </div>
         )}
 
-        {/* هشدار محدودیت */}
         {atLimit && (
           <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-400">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -184,7 +127,6 @@ export default function TicketsPage() {
           </div>
         )}
 
-        {/* مودال تیکت جدید */}
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogContent className="bg-[#0d1b2d] border-white/10 text-white">
             <DialogHeader><DialogTitle className="text-[#d6ad60]">تیکت جدید</DialogTitle></DialogHeader>
@@ -198,25 +140,13 @@ export default function TicketsPage() {
                 <label className="text-xs text-gray-400 mb-1 block">پیام</label>
                 <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} placeholder="توضیحات کامل..." className="w-full rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white" />
               </div>
-              
-              {/* آپلود عکس در مودال */}
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">عکس (اختیاری، حداکثر ۱ مگابایت)</label>
-                {previewUrl ? (
-                  <div className="relative inline-block">
-                    <img src={previewUrl} alt="preview" className="max-h-32 rounded-lg border border-white/20" />
-                    <button onClick={handleClearFile} className="absolute -top-2 -right-2 bg-red-500 rounded-full p-1 hover:bg-red-600">
-                      <X className="h-3 w-3 text-white" />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleSelectFile} className="hidden" />
-                    <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} className="w-full gap-2 border-white/10 text-gray-300 hover:bg-white/5">
-                      <Paperclip className="h-4 w-4" /> انتخاب عکس
-                    </Button>
-                  </>
-                )}
+
+              {/* 🔴 راهنمای عکس */}
+              <div className="flex items-start gap-2 rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 p-3">
+                <AlertCircle className="h-4 w-4 text-[#d6ad60] shrink-0 mt-0.5" />
+                <p className="text-[10px] leading-relaxed text-[#d6ad60]/90">
+                  <b>توجه:</b> بعد از ایجاد تیکت، در صفحه‌ی چت می‌توانید عکس (اسکرین‌شات، رسید و...) را به پیام‌های خود پیوست کنید.
+                </p>
               </div>
 
               <Button onClick={handleCreate} disabled={sending} className="w-full h-10 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
@@ -226,7 +156,6 @@ export default function TicketsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* لیست تیکت‌ها */}
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-[#d6ad60]" /></div>
         ) : tickets.length === 0 ? (
@@ -247,9 +176,7 @@ export default function TicketsPage() {
                           {t.status === "open" ? "فعال" : "بسته"}
                         </span>
                         {t.unread_count > 0 && (
-                          <span className="rounded-full bg-[#d6ad60] text-[#101827] text-[10px] font-bold px-2 py-0.5">
-                            {t.unread_count} جدید
-                          </span>
+                          <span className="rounded-full bg-[#d6ad60] text-[#101827] text-[10px] font-bold px-2 py-0.5">{t.unread_count} جدید</span>
                         )}
                       </div>
                       <h3 className="font-bold text-white truncate">{t.subject}</h3>

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Tickets"])
 
 # ─── تنظیمات آپلود ───
-MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
+MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB — بعد از فشرده‌سازی فرانت
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 UPLOAD_DIR = Path("data/tickets")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -126,7 +126,7 @@ async def _save_attachment(file: UploadFile) -> tuple[str, str]:
 
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="حجم فایل حداکثر ۵ مگابایت")
+        raise HTTPException(status_code=400, detail="حجم فایل حداکثر ۲ مگابایت")
 
     unique_name = f"{uuid.uuid4().hex}{ext}"
     file_path = UPLOAD_DIR / unique_name
@@ -169,11 +169,14 @@ async def create_ticket(
     session.commit()
     session.refresh(ticket)
 
+    # 🔴 فاز ۱۶.۵ — پیام اول با پیوست
     msg = TicketMessage(
         ticket_id=ticket.id,
         sender_id=user.id,
         is_admin=False,
         message=req.message,
+        attachment_path=req.attachment_path,  # 🔴 جدید
+        attachment_name=req.attachment_name,  # 🔴 جدید
         is_read=False,
         created_at=_utcnow(),
     )
@@ -309,7 +312,7 @@ async def reply_to_my_ticket(
             break  # اگه به پیام ادمین رسیدیم، متوقف شو
         consecutive_user_messages += 1
 
-    if consecutive_user_messages >= 5:
+    if consecutive_user_messages >= 10:
         raise HTTPException(
             status_code=429,
             detail="شما ۵ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.",
@@ -475,6 +478,8 @@ async def admin_reply_to_ticket(
         sender_id=user.id,
         is_admin=True,
         message=req.message,
+        attachment_path=req.attachment_path,  # 🔴 جدید
+        attachment_name=req.attachment_name,  # 🔴 جدید
         is_read=False,
         created_at=_utcnow(),
     )

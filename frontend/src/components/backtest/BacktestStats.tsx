@@ -85,7 +85,7 @@ const TIME_OPTIONS = [
   { v: "30d", label: "۳۰ روز" },
 ];
 const LIMIT_OPTIONS = [
-  { v: 30, label: "۳۰ اخیر" },
+  { v: 50, label: "۵۰ اخیر" },
   { v: 100, label: "۱۰۰ اخیر" },
   { v: 500, label: "همه" },
 ];

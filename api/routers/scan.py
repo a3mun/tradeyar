@@ -1,13 +1,10 @@
 """
 api/routers/scan.py
-Endpoint اسکنر بازار — نسخه ۵.۰ · فاز ۱۵
+Endpoint اسکنر بازار — نسخه ۵.۱
 ============================================================
-🔴 تغییرات نسخه ۵.۰:
-  • پشتیبانی از ۴ حالت اسکن (همه، آماده پامپ، آماده ریزش، سیگنال فعال)
-  • اعمال محدودیت روزانه (۱۰ بار در روز برای هر IP)
-  • اضافه شدن تایم‌فریم ۵ دقیقه به لیست مجاز
-  • تمرکز روی استراتژی سوئینگ
-  • کاهش بار سرور با کش داخلی (سمت فرانت) و اسکن موازی سبک
+🔴 تغییرات نسخه ۵.۱:
+  • اضافه شدن کش ۵ دقیقه‌ای در بک‌اند (برای هر صرافی+تایم‌فریم)
+  • همیشه فیلتر حداقل ۵۰٪ اطمینان و حذف سیگنال‌های ضعیف اعمال میشه
 """
 
 import asyncio
@@ -22,13 +19,15 @@ from api.deps import rate_limit_for
 from api.schemas import ScanItem, ScanRequest, ScanResponse
 from core.market_lists import MARKET_CATEGORIES
 from services.analyzer_service import analyze
+from services.cache import data_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["Scan"])
 
 MAX_CONCURRENT = 6
 SCAN_BUDGET_SEC = 45.0
-MIN_CONFIDENCE = 50  # 🔴 فقط سیگنال‌های قوی
+MIN_CONFIDENCE = 50
+SCAN_CACHE_TTL = 300  # 🔴 ۵ دقیقه
 
 
 def _normalize_ticker(item) -> tuple[str, str] | None:
@@ -88,45 +87,45 @@ def _compute_quality_score(res: dict) -> float:
 def _is_quality_signal(res: dict) -> tuple[bool, float]:
     if not res:
         return False, 0.0
-
     direction = res.get("direction")
     if direction == "neutral":
         return False, 0.0
-
     confidence = res.get("confidence", 0)
     if confidence < MIN_CONFIDENCE:
         return False, 0.0
-
     signal = res.get("signal", "")
     if "ضعیف" in signal:
         return False, 0.0
-
     traps = res.get("traps") or {}
     active_traps = [
         k for k, v in traps.items() if isinstance(v, dict) and v.get("active")
     ]
     if active_traps:
         return False, 0.0
-
     trend = (res.get("groups") or {}).get("trend", {})
     trend_score = trend.get("score", 0.0)
-
     if direction == "long" and trend_score < -0.5:
         return False, 0.0
     if direction == "short" and trend_score > 0.5:
         return False, 0.0
-
     score = _compute_quality_score(res)
     if score < 35:
         return False, score
-
     return True, score
 
 
 @router.post("", response_model=ScanResponse)
 async def scan_endpoint(req: ScanRequest, request: Request):
-    # 🔴 محدودیت ۱۰ بار در روز (86400 ثانیه) برای هر IP
     rate_limit_for(request, "scan_daily", limit=10, window_sec=86400)
+
+    # 🔴 کلید کش بر اساس پارامترهای اسکن
+    cache_key = f"scan_result:{req.source}:{req.timeframe}:{req.scan_mode}:{req.risk_profile}:{req.limit}"
+
+    # 🔴 بررسی کش (۵ دقیقه)
+    cached_result = data_cache.get(cache_key)
+    if cached_result is not None:
+        logger.info(f"[Scan] cache hit: {cache_key}")
+        return cached_result
 
     cat_data = MARKET_CATEGORIES.get(req.category)
     if not cat_data:
@@ -185,7 +184,7 @@ async def scan_endpoint(req: ScanRequest, request: Request):
                 tf_name=req.timeframe,
                 market_type=req.market_type,
                 risk_profile=req.risk_profile,
-                strategy="swing",  # 🔴 اجباری سوئینگ
+                strategy="swing",
                 ticker_name=name,
                 include_extras=False,
                 skip_record=True,
@@ -220,12 +219,22 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             filtered += 1
             continue
 
+        # 🔴 فیلتر اجباری: همیشه سیگنال‌های با اطمینان کم و خنثی حذف بشن
+        if res.get("confidence", 0) < MIN_CONFIDENCE:
+            filtered += 1
+            continue
+        if res.get("direction") == "neutral":
+            filtered += 1
+            continue
+        if "ضعیف" in res.get("signal", ""):
+            filtered += 1
+            continue
+
         # ─── فیلتر حالت اسکن ───
         if scan_mode == "pre_breakout":
             if not is_pb_up:
                 filtered += 1
                 continue
-            # در حالت پامپ، فقط سیگنال‌های صعودی/خنثی مهمن، ولی ما همه رو نشون میدیم تا کیفیت دیده بشه
         elif scan_mode == "dump":
             if not is_pb_down:
                 filtered += 1
@@ -238,7 +247,6 @@ async def scan_endpoint(req: ScanRequest, request: Request):
             if not passed:
                 filtered += 1
                 continue
-        # "all" → همه چی
 
         quality_score = _compute_quality_score(res)
         final_score = quality_score
@@ -271,12 +279,17 @@ async def scan_endpoint(req: ScanRequest, request: Request):
         f"{filtered} فیلترشده | {errors} خطا | {skipped} رد از {len(parsed)}"
     )
 
-    return ScanResponse(
+    response = ScanResponse(
         category=req.category,
         timeframe=req.timeframe,
         total=len(results),
         items=results,
     )
+
+    # 🔴 ذخیره در کش (۵ دقیقه)
+    data_cache.set(cache_key, response, ttl=SCAN_CACHE_TTL)
+
+    return response
 
 
 @router.get("/categories")

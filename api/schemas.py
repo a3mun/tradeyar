@@ -194,7 +194,9 @@ class ScanRequest(BaseModel):
     market_type: Literal["spot", "futures"] = "spot"
     risk_profile: Literal["aggressive", "conservative"] = "aggressive"
     limit: int = Field(default=20, ge=1, le=100)
-    scan_mode: Literal["pre_breakout", "active", "all"] = "all"
+    scan_mode: Literal["pre_breakout", "active", "all", "dump"] = (
+        "all"  # 🔴 "dump" اضافه شد
+    )
 
 
 class OrderBookLevel(BaseModel):
@@ -409,6 +411,8 @@ class AdminReviewPayment(BaseModel):
 class TicketCreate(BaseModel):
     subject: str = Field(..., min_length=3, max_length=200)
     message: str = Field(..., min_length=5, max_length=2000)
+    attachment_path: Optional[str] = None  # 🔴 جدید
+    attachment_name: Optional[str] = None  # 🔴 جدید
 
 
 class TicketMessageCreate(BaseModel):

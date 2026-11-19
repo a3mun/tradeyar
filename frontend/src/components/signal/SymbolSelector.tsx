@@ -316,7 +316,7 @@ export function SymbolSelector() {
             <button
               key={tab.key}
               onClick={() => handleTabChange(tab.key)}
-              className={`relative flex-1 rounded-lg py-1.5 text-[11px] transition-all duration-300 font-display ${
+              className={`relative flex-1 rounded-lg py-1.5 text-[13px] transition-all duration-300 font-bold ${
                 activeTab === tab.key
                   ? "bg-gradient-to-b from-[#d6ad60] to-[#b88e45] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)] font-bold"
                   : "text-muted-foreground hover:bg-white/5 hover:text-foreground"

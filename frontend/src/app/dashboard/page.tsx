@@ -8,6 +8,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
+import { InstallAppCard } from "@/components/pwa/InstallAppCard";
 import {
   LogOut,
   CheckCircle2,
@@ -118,6 +119,11 @@ const getPaymentStatus = (status: string) => {
 };
 
 type TabKey = "home" | "history" | "account";
+
+// 🔴 نسخه فعلی افزونه — برای آپدیت، فقط این دو خط رو عوض کن
+const EXTENSION_VERSION = "7.1.0";
+const EXTENSION_UPDATED_AT = "1405/08/17"; // تاریخ شمسی
+
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -461,6 +467,8 @@ export default function DashboardPage() {
             <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-4 transition-all hover:border-[#d6ad60]/40 sm:p-5">
               <div className="pointer-events-none absolute right-0 top-0 h-40 w-40 rounded-bl-full bg-[#d6ad60]/8 blur-2xl transition-all group-hover:bg-[#d6ad60]/15" />
               <div className="relative flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+                
+                {/* ─── ستون اول: آیکون + توضیحات ─── */}
                 <div className="flex w-full items-start gap-3 md:min-w-0 md:flex-1">
                   <div className="shrink-0 rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/12 p-2.5 text-[#d6ad60] sm:p-3">
                     <Puzzle className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -487,8 +495,29 @@ export default function DashboardPage() {
                       راهنمای جامع افزونه
                       <ArrowRight className="h-3 w-3 rotate-180" />
                     </Link>
+
+                    {/* ─── ردیف نسخه و تاریخ ─── */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[9px] text-gray-500 sm:text-[10px]">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="rounded-md border border-[#d6ad60]/20 bg-[#d6ad60]/10 px-2 py-0.5 font-mono text-[10px] font-bold text-[#d6ad60]">
+                          v{EXTENSION_VERSION}
+                        </span>
+                        <span className="text-gray-500">نسخه</span>
+                      </span>
+                      <span className="text-gray-700">·</span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[10px] font-bold text-gray-400">
+                          {EXTENSION_UPDATED_AT}
+                        </span>
+                        <span className="text-gray-500">آخرین آپدیت</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+
+
+                {/* ─── ستون دوم: دکمه‌ها ─── */}
                 <div className="flex w-full flex-col gap-2 md:w-auto md:shrink-0 md:flex-row">
                   <Link href="/extension/guide" className="w-full sm:w-auto">
                     <Button
@@ -511,6 +540,10 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         )}
+
+
+        {/* کارت نصب PWA */}
+        <InstallAppCard />
 
         {/* ═══ تب history ═══ */}
         {activeTab === "history" && (
