@@ -1,79 +1,60 @@
 "use client";
 
 /**
- * SignalCard — کارت سیگنال (نسخه ۱۵.۰ · فاز ۱۶.۵)
+ * SignalCard — کارت سیگنال (نسخه نهایی · UI Overhaul)
  * ============================================================
- * 🔴 تغییرات نسخه ۱۵.۰:
- *   • منبع حقیقت = tfDataCache (هم‌راستا با TFTable)
- *   • حذف localStorage و _cachedAt
- *   • حذف mainData جداگانه
- *   • fetch فقط وقتی cache نیست
- *   • priority: WebSocket → polledPrice → entryPrice
+ * 🔴 تغییرات:
+ *   • حذف پیام‌های شلوغ (هزینه، زمان بازار، رای‌گیری رنگی)
+ *   • بج‌های مینیمال و تک‌رنگ
+ *   • استفاده از min-h برای جلوگیری از پرش در صورت وجود پیام هشدار
+ *   • حفظ ارتفاع پایه با flex-1
  */
 
 import { useEffect, useRef, useState } from "react";
 import {
   TrendingUp, TrendingDown, Minus, Target, Shield, Percent, Star,
-  ArrowRightLeft, AlertTriangle, Share2, Loader2, Info, Wifi, WifiOff, Crosshair,
+  AlertTriangle, Share2, Loader2, Crosshair,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { useAnalysisCapability } from "@/lib/hooks/useAnalysisCapability";
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
-import { SOURCE_BY_KEY, sourceBadgeClass, sourceSupportsPair } from "@/lib/sources";
+import { SOURCE_BY_KEY, sourceSupportsPair } from "@/lib/sources";
 import { AnalysisUnavailable } from "@/components/signal/AnalysisUnavailable";
 import { Sparkline } from "@/components/ui/sparkline";
 import { CryptoIcon } from "@/components/ui/crypto-icon";
 import type { AnalyzeResponse } from "@/lib/types";
 import { CopyableNumber } from "@/components/ui/copyable-number";
 import { getConfidenceLevel, isSignalActive, type ConfidenceLevel } from "@/lib/thresholds";
-import { regimeIcon, regimeFullFa, consensusFa, consensusColor, signalBg, formatNumber } from "@/lib/display";
+import { formatNumber } from "@/lib/display";
 
 // ═══════════════════════════════════════════════════════════
 // ثابت‌های استایل
 // ═══════════════════════════════════════════════════════════
-const LEVEL_STYLES: Record<
-  ConfidenceLevel,
-  { bg: string; border: string; text: string; icon: string; label: string }
-> = {
-  golden: { bg: "rgba(250,204,21,0.15)", border: "rgba(250,204,21,0.6)", text: "#facc15", icon: "💎", label: "طلایی" },
-  strong: { bg: "rgba(34,197,94,0.15)", border: "rgba(34,197,94,0.5)", text: "#22c55e", icon: "🟢", label: "قوی" },
-  normal: { bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.4)", text: "#3b82f6", icon: "🟡", label: "معمولی" },
-  weak: { bg: "rgba(249,115,22,0.12)", border: "rgba(249,115,22,0.4)", text: "#f97316", icon: "🟠", label: "ضعیف" },
-  neutral: { bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.25)", text: "#94a3b8", icon: "⚪", label: "خنثی" },
+const LEVEL_STYLES: Record<ConfidenceLevel, { text: string; icon: string }> = {
+  golden: { text: "#facc15", icon: "💎" },
+  strong: { text: "#22c55e", icon: "🟢" },
+  normal: { text: "#3b82f6", icon: "🟡" },
+  weak: { text: "#f97316", icon: "🟠" },
+  neutral: { text: "#94a3b8", icon: "⚪" },
 };
 
-interface SignalPillStyle {
-  bg: string; border: string; color: string; boxShadow: string; textShadow: string; opacity: number;
+function getSignalPillStyle(direction: string, confidence: number) {
+  if (direction === "long") {
+    if (confidence >= 70) return "border-green-500/40 bg-green-500/10 text-green-400";
+    if (confidence >= 50) return "border-green-500/30 bg-green-500/5 text-green-500";
+    return "border-green-500/20 bg-transparent text-green-500/80";
+  }
+  if (direction === "short") {
+    if (confidence >= 70) return "border-red-500/40 bg-red-500/10 text-red-400";
+    if (confidence >= 50) return "border-red-500/30 bg-red-500/5 text-red-500";
+    return "border-red-500/20 bg-transparent text-red-500/80";
+  }
+  return "border-border/50 bg-muted/20 text-muted-foreground";
 }
-
-const SIGNAL_PILL_STYLE: Record<"long" | "short" | "neutral", Record<ConfidenceLevel, SignalPillStyle>> = {
-  long: {
-    golden: { bg: "rgba(34,197,94,0.30)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(34,197,94,0.8)", textShadow: "0 0 8px rgba(34,197,94,0.9)", opacity: 1 },
-    strong: { bg: "rgba(34,197,94,0.22)", border: "#22c55e", color: "#4ade80", boxShadow: "0 0 10px rgba(34,197,94,0.6)", textShadow: "0 0 5px rgba(34,197,94,0.7)", opacity: 1 },
-    normal: { bg: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.6)", color: "#4ade80", boxShadow: "0 0 4px rgba(34,197,94,0.25)", textShadow: "none", opacity: 0.9 },
-    weak: { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.4)", color: "rgba(74,222,128,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.72 },
-    neutral: { bg: "rgba(34,197,94,0.03)", border: "rgba(34,197,94,0.2)", color: "rgba(74,222,128,0.5)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
-  },
-  short: {
-    golden: { bg: "rgba(239,68,68,0.30)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 16px rgba(250,204,21,0.7), 0 0 8px rgba(239,68,68,0.8)", textShadow: "0 0 8px rgba(239,68,68,0.9)", opacity: 1 },
-    strong: { bg: "rgba(239,68,68,0.22)", border: "#ef4444", color: "#f87171", boxShadow: "0 0 10px rgba(239,68,68,0.6)", textShadow: "0 0 5px rgba(239,68,68,0.7)", opacity: 1 },
-    normal: { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.6)", color: "#f87171", boxShadow: "0 0 4px rgba(239,68,68,0.25)", textShadow: "none", opacity: 0.9 },
-    weak: { bg: "rgba(239,68,68,0.06)", border: "rgba(239,68,68,0.4)", color: "rgba(248,113,113,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.72 },
-    neutral: { bg: "rgba(239,68,68,0.03)", border: "rgba(239,68,68,0.2)", color: "rgba(248,113,113,0.5)", boxShadow: "none", textShadow: "none", opacity: 0.5 },
-  },
-  neutral: {
-    golden: { bg: "rgba(100,116,139,0.10)", border: "rgba(100,116,139,0.45)", color: "#94a3b8", boxShadow: "0 0 4px rgba(100,116,139,0.2)", textShadow: "none", opacity: 0.9 },
-    strong: { bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.35)", color: "#94a3b8", boxShadow: "none", textShadow: "none", opacity: 0.85 },
-    normal: { bg: "rgba(100,116,139,0.06)", border: "rgba(100,116,139,0.25)", color: "#94a3b8", boxShadow: "none", textShadow: "none", opacity: 0.75 },
-    weak: { bg: "rgba(100,116,139,0.04)", border: "rgba(100,116,139,0.2)", color: "rgba(148,163,184,0.7)", boxShadow: "none", textShadow: "none", opacity: 0.65 },
-    neutral: { bg: "rgba(100,116,139,0.03)", border: "rgba(100,116,139,0.15)", color: "rgba(148,163,184,0.6)", boxShadow: "none", textShadow: "none", opacity: 0.55 },
-  },
-};
 
 function playGoldenBeep() {
   try {
@@ -106,38 +87,16 @@ const TRAP_LABELS: Record<string, string> = {
   bull_trap: "تله صعودی", bear_trap: "تله نزولی", fake_breakout: "شکست جعلی", exhaustion: "خستگی روند",
 };
 
-const MARKET_LABELS: Record<string, { fa: string; cls: string }> = {
-  spot: { fa: "💵 اسپات", cls: "bg-sky-500/15 text-sky-400 border-sky-500/30" },
-  futures: { fa: "📈 فیوچرز", cls: "bg-purple-500/15 text-purple-400 border-purple-500/30" },
-};
-
-const PROFILE_LABELS: Record<string, { fa: string; cls: string }> = {
-  aggressive: { fa: "🚀 جسورانه", cls: "bg-orange-500/15 text-orange-400 border-orange-500/30" },
-  conservative: { fa: "🛡 محتاطانه", cls: "bg-green-500/15 text-green-400 border-green-500/30" },
-};
-
-const STRATEGY_LABELS: Record<string, { fa: string; cls: string }> = {
-  scalp: { fa: "⚡ اسکالپ", cls: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30" },
-  swing: { fa: "🌊 سوئینگ", cls: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" },
-  position: { fa: "🏛 پوزیشن", cls: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
-};
-
 const TF_TO_SHORT: Record<string, string> = {
   "۱ دقیقه": "1m", "۵ دقیقه": "5m", "۱۵ دقیقه": "15m", "۳۰ دقیقه": "30m", "۱ ساعت": "1h", "روزانه": "1d",
 };
 
-function tfShort(tf: string): string {
-  return TF_TO_SHORT[tf] || tf;
-}
+function tfShort(tf: string): string { return TF_TO_SHORT[tf] || tf; }
 
 const GOLDEN_STYLES = `
 @keyframes golden-pulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(250,204,21,0.5), 0 0 20px rgba(250,204,21,0.3); border-color: rgba(250,204,21,0.6); }
-  50% { box-shadow: 0 0 16px rgba(250,204,21,0.9), 0 0 32px rgba(250,204,21,0.5); border-color: rgba(250,204,21,1); }
-}
-@keyframes golden-icon-glow {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(250,204,21,0.8)); transform: scale(1); }
-  50% { filter: drop-shadow(0 0 12px rgba(250,204,21,1)); transform: scale(1.15); }
+  0%, 100% { box-shadow: 0 0 8px rgba(250,204,21,0.3), 0 0 20px rgba(250,204,21,0.1); border-color: rgba(250,204,21,0.4); }
+  50% { box-shadow: 0 0 16px rgba(250,204,21,0.6), 0 0 32px rgba(250,204,21,0.2); border-color: rgba(250,204,21,0.8); }
 }
 `;
 
@@ -153,9 +112,8 @@ export function SignalCard() {
   const capability = useAnalysisCapability(source);
   const { quote, status: wsStatus } = useWebSocket();
 
-  // 🔴 منبع حقیقت: tfDataCache (هم‌راستا با TFTable)
   const tfDataCache = useAppStore((s) => s.tfDataCache);
-  void tfDataCache; // trigger re-render روی تغییر cache
+  void tfDataCache; 
 
   const data: AnalyzeResponse | null = getTfData(timeframe);
 
@@ -163,50 +121,30 @@ export function SignalCard() {
   const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
-  const [dotPulse, setDotPulse] = useState(false);
   const [polledPrice, setPolledPrice] = useState<number>(0);
   const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
-  const [sparklinePrice, setSparklinePrice] = useState<number>(0);
   const [now, setNow] = useState<Date>(() => new Date());
 
   const prevPriceRef = useRef<number | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const lastGoldenKeyRef = useRef<string>("");
-  // 🔴 فاز ۱۶.۹ — آخرین قیمت شناخته‌شده (fallback نهایی قبل از صفر)
   const lastKnownPriceRef = useRef<number>(0);
-  
-  // ═══ fetch تحلیل (فقط اگه cache نیست) ═══
+
+  // ═══ fetch تحلیل ═══
   useEffect(() => {
-    if (!ticker) {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    // 🔴 برای tsetmc اجازه بده حتی اگر sourceSupportsPair رد کند
+    if (!ticker) { setLoading(false); setError(null); return; }
     const supports = sourceSupportsPair(source, ticker);
-    if (!supports && source !== "tsetmc") {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
+    if (!supports && source !== "tsetmc") { setLoading(false); setError(null); return; }
     const cached = getTfData(timeframe);
-  if (cached) {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
+    if (cached) { setLoading(false); setError(null); return; }
+    
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    api
-      .post<AnalyzeResponse>("/analyze", {
+    api.post<AnalyzeResponse>("/analyze", {
         ticker, source, timeframe, market_type: marketType,
-        risk_profile: riskProfile, strategy,
-        ticker_name: tickerName || ticker,
+        risk_profile: riskProfile, strategy, ticker_name: tickerName || ticker,
       })
       .then((res) => {
         if (cancelled) return;
@@ -229,46 +167,27 @@ export function SignalCard() {
     return () => { cancelled = true; };
   }, [ticker, source, timeframe, marketType, riskProfile, strategy, tickerName, getTfData, setTfData]);
 
-  // 🔴 فاز ۱۶.۹ — هر بار data از Store اومد، loading رو false کن (کلید حل مشکل)
-  useEffect(() => {
-    if (data) {
-      setLoading(false);
-      setError(null);
-    }
-  }, [data]);
+  useEffect(() => { if (data) { setLoading(false); setError(null); } }, [data]);
 
-  // 🔴 فاز ۱۶.۹ — safety net: بعد ۳۰ ثانیه اگر loading ماند، آزاد کن
   useEffect(() => {
     if (!loading) return;
     const timer = setTimeout(() => {
       const cached = getTfData(timeframe);
-      if (cached) {
-        setLoading(false);
-        setError(null);
-      } else {
-        setLoading(false);
-        setError("داده‌ی این نماد در این تایم‌فریم در دسترس نیست");
-      }
+      if (cached) { setLoading(false); setError(null); }
+      else { setLoading(false); setError("داده‌ی این نماد در این تایم‌فریم در دسترس نیست"); }
     }, 30_000);
     return () => clearTimeout(timer);
   }, [loading, timeframe, getTfData]);
 
-  // ═══ polling قیمت (fallback) — فاز ۱۶.۹ ═══
-  // 🔴 هر ۵ ثانیه (قبلاً ۳۰s) — مستقل از capability.planned
-  // دلیل: قیمت باید همیشه به‌روز باشه، حتی اگر تحلیل unavailable باشه
+  // ═══ polling قیمت ═══
   useEffect(() => {
     if (!ticker || !source) return;
-    if (!sourceSupportsPair(source, ticker) && source !== "tsetmc") {
-      setPolledPrice(0);
-      return;
-    }
+    if (!sourceSupportsPair(source, ticker) && source !== "tsetmc") { setPolledPrice(0); return; }
     let cancelled = false;
     const fetchQuote = async () => {
       try {
         const res = await api.get("/analyze/quote", { params: { ticker, source } });
-        if (!cancelled && res.data?.price && res.data.price > 0) {
-          setPolledPrice(res.data.price);
-        }
+        if (!cancelled && res.data?.price && res.data.price > 0) setPolledPrice(res.data.price);
       } catch {}
     };
     fetchQuote();
@@ -278,60 +197,42 @@ export function SignalCard() {
   
   // ═══ Sparkline ═══
   useEffect(() => {
-    if (!ticker) { setSparklineSeries([]); setSparklinePrice(0); return; }
-    if (capability.planned || !sourceSupportsPair(source, ticker)) {
-      setSparklineSeries([]); setSparklinePrice(0); return;
-    }
+    if (!ticker) { setSparklineSeries([]); return; }
+    if (capability.planned || !sourceSupportsPair(source, ticker)) { setSparklineSeries([]); return; }
     let cancelled = false;
     api.get<{ ok: boolean; close_series: number[]; price: number }>("/analyze/sparkline", { params: { ticker, source, timeframe } })
       .then((res) => {
         if (cancelled) return;
         setSparklineSeries(res.data.close_series || []);
-        setSparklinePrice(res.data.price || 0);
         if (res.data.price && res.data.price > 0 && prevPriceRef.current === null) {
           prevPriceRef.current = res.data.price;
-        // 🔴 فاز ۱۶.۹ — حذف شد چون animPrice کلاً حذف شد
         }
       })
-      .catch(() => { if (!cancelled) { setSparklineSeries([]); setSparklinePrice(0); } });
+      .catch(() => { if (!cancelled) { setSparklineSeries([]); } });
     return () => { cancelled = true; };
   }, [ticker, source, timeframe, strategy, capability.planned]);
 
-  // ═══ reset روی تغییر تنظیمات ═══
+  // ═══ reset ═══
   useEffect(() => {
     setSparklineSeries([]);
-    setSparklinePrice(0);
     prevPriceRef.current = null;
     lastGoldenKeyRef.current = "";
   }, [strategy, ticker, timeframe, marketType, riskProfile]);
 
-  // 🔴 فاز ۱۶.۹ — ریست قیمت‌های کش‌شده فقط با تغییر ticker/source (نه TF)
-  // دلیل: با تغییر TF، قیمت باید همون لحظه‌ای بمونه، نه پرش به قیمت قدیمی
   useEffect(() => {
     setPolledPrice(0);
     lastKnownPriceRef.current = 0;
     prevPriceRef.current = null;
   }, [ticker, source]);
-  
 
-  // ═══ now ═══
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // ═══ livePrice — فاز ۱۶.۹ (نسخه ۲ — اصلاح پرش قیمت) ═══
-  // 🔴 قوانین اعتبار:
-  //   1. quote فقط وقتی معتبره که quote.ticker === ticker و quote.source === source
-  //   2. polledPrice فقط وقتی معتبره که تازه (بعد از آخرین تغییر ticker/source گرفته شده)
-  //   3. lastKnown فقط برای همون ticker/source معتبره (با تغییرشون ریست می‌شه)
-  //   4. entryPrice فقط برای پر کردن اولیه (اگر هیچ منبع لحظه‌ای نیست)
+  // ═══ livePrice ═══
   const entryPrice = data?.price ?? 0;
-  const quoteMatchesCurrent =
-    quote != null &&
-    quote.price > 0 &&
-    quote.ticker === ticker &&
-    quote.source === source;
+  const quoteMatchesCurrent = quote != null && quote.price > 0 && quote.ticker === ticker && quote.source === source;
   const livePrice = (() => {
     const fromWs = quoteMatchesCurrent ? quote.price : 0;
     const fromPoll = polledPrice > 0 ? polledPrice : 0;
@@ -340,30 +241,24 @@ export function SignalCard() {
     let final = fromWs || fromPoll || fallback;
     if (final === 0 && fromData > 0) final = fromData;
     if (final > 0) lastKnownPriceRef.current = final;
-
-
     return final;
   })();
-    
 
-    // ═══ flash سبز/قرمز روی تغییر قیمت (بدون انیمیشن عددی) ═══
-  // 🔴 فاز ۱۶.۹ — حذف animPrice (باعث گیر کردن قیمت قدیمی می‌شد)
+  // ═══ flash سبز/قرمز ═══
   useEffect(() => {
     if (!livePrice || livePrice <= 0) return;
     const prev = prevPriceRef.current;
     if (prev != null && prev !== livePrice) {
       const dir = livePrice > prev ? "up" : "down";
       setPriceFlash(dir);
-      setDotPulse(true);
       prevPriceRef.current = livePrice;
       const flashTimer = setTimeout(() => setPriceFlash(null), 400);
-      const pulseTimer = setTimeout(() => setDotPulse(false), 700);
-      return () => { clearTimeout(flashTimer); clearTimeout(pulseTimer); };
+      return () => { clearTimeout(flashTimer); };
     }
     prevPriceRef.current = livePrice;
   }, [livePrice]);
 
-  // ═══ Sparkline آخرین نقطه (throttle بر اساس TF) ═══
+  // ═══ Sparkline آخرین نقطه ═══
   useEffect(() => {
     if (!livePrice || livePrice <= 0) return;
     const TF_TO_MS: Record<string, number> = {
@@ -384,7 +279,7 @@ export function SignalCard() {
     return () => clearInterval(id);
   }, [livePrice, timeframe]);
 
-  // ═══ beep طلایی ═══
+  // ═══ beep ═══
   const isDirForBeep = data?.direction === "long" || data?.direction === "short";
   const confLevelForBeep = getConfidenceLevel(data?.confidence || 0, isDirForBeep);
 
@@ -443,33 +338,20 @@ export function SignalCard() {
 
   if (loading || !data) {
     return (
-      <div className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 z-0" style={{ backgroundImage: "url('/icon-192.png')", backgroundSize: "55%", backgroundPosition: "center", backgroundRepeat: "no-repeat", opacity: 0.04 }} />
-        <Card className="relative z-10 border border-border">
-          <CardContent className="space-y-3 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-8 w-8 rounded-full" />
-                <div className="space-y-1">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              </div>
-              <Skeleton className="h-7 w-24 rounded-full" />
+      <Card className="relative z-10 border border-border/40 bg-[#051118] backdrop-blur-md h-[400px] flex flex-col justify-center">
+        <CardContent className="space-y-3 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-8 w-8 rounded-full" />
+              <div className="space-y-1"><Skeleton className="h-4 w-24" /><Skeleton className="h-3 w-16" /></div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-            <Skeleton className="h-[60px] w-full rounded-md" />
-            <div className="grid grid-cols-3 gap-1.5">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Skeleton className="h-7 w-24 rounded-full" />
+          </div>
+          <div className="grid grid-cols-2 gap-2"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+          <Skeleton className="h-[60px] w-full rounded-md" />
+          <div className="grid grid-cols-3 gap-1.5"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -482,28 +364,11 @@ export function SignalCard() {
   const tp = data.tp;
   const rr = data.rr;
   const displayChange = quote != null ? quote.change_pct : null;
-  const _entryForPct = data.suggested_entry ?? data.price;
-  const _fee = data.fee_pct ?? 0;
-  const _dirMult = data.direction === "short" ? -1 : 1;
-
-  const slNetPct = (() => {
-    if (sl == null || sl <= 0 || !_entryForPct || _entryForPct <= 0) return null;
-    const gross = ((sl - _entryForPct) / _entryForPct) * 100 * _dirMult;
-    return gross - _fee;
-  })();
-
-  const tp3NetPct = (() => {
-    if (tp == null || tp <= 0 || !_entryForPct || _entryForPct <= 0) return null;
-    const gross = ((tp - _entryForPct) / _entryForPct) * 100 * _dirMult;
-    return gross - _fee;
-  })();
 
   const isDirectional = data.direction === "long" || data.direction === "short";
   const confidenceLevel = getConfidenceLevel(data.confidence || 0, isDirectional);
   const isActiveSignal = isSignalActive(data.confidence || 0, data.direction || "neutral", data.signal || "", strategy, riskProfile);
   const levelStyle = LEVEL_STYLES[confidenceLevel];
-  const dirKey: "long" | "short" | "neutral" = data.direction === "long" ? "long" : data.direction === "short" ? "short" : "neutral";
-  const pillStyle = SIGNAL_PILL_STYLE[dirKey][confidenceLevel];
   const SignalIcon = data.direction === "long" ? TrendingUp : data.direction === "short" ? TrendingDown : Minus;
 
   const requestedMeta = SOURCE_BY_KEY[source];
@@ -511,7 +376,7 @@ export function SignalCard() {
   const usedMeta = SOURCE_BY_KEY[usedSource] ?? requestedMeta;
   const isFallback = Boolean(data.is_fallback) && usedSource !== source;
   const inWatchlist = watchlist.some((w) => w.ticker === ticker);
-    // 🔴 تشخیص نمادهای CFD (نفت)
+
   const isCFDSymbol = data.ticker === "UKOIL-USD" || data.ticker === "USOIL-USD";
 
   const activeTraps: string[] = [];
@@ -526,356 +391,198 @@ export function SignalCard() {
   }
   const trapLabel = activeTraps.map((k) => TRAP_LABELS[k] || k).join(" · ");
 
-  const marketLabel = MARKET_LABELS[data.market_type || marketType] || MARKET_LABELS.spot;
-  const profileLabel = PROFILE_LABELS[data.risk_profile || riskProfile] || PROFILE_LABELS.aggressive;
-
-  const totalVotes = (data.votes_long || 0) + (data.votes_neutral || 0) + (data.votes_short || 0) || 1;
-  const longPct = ((data.votes_long || 0) / totalVotes) * 100;
-  const neutralPct = ((data.votes_neutral || 0) / totalVotes) * 100;
-  const shortPct = ((data.votes_short || 0) / totalVotes) * 100;
-
-  const feeTooltipContent = (
-    <div className="space-y-1.5 text-[11px]">
-      <p className="font-bold">💸 اقتصاد معامله</p>
-      {data.fee_pct != null && (
-        <div>
-          <p>کارمزد رفت‌وبرگشتی: <span className="num font-bold">{data.fee_pct.toFixed(2)}%</span></p>
-          {data.execution_cost && (
-            <>
-              <p className="text-muted-foreground">• کارمزد خالص: <span className="num">{data.execution_cost.fee_pct.toFixed(2)}%</span></p>
-              <p className="text-muted-foreground">• اسپرد: <span className="num">{data.execution_cost.spread_cost_pct.toFixed(2)}%</span></p>
-              <p className="text-muted-foreground">• اسلیپیج: <span className="num">{data.execution_cost.slippage_pct.toFixed(2)}%</span></p>
-              <p className="mt-1">مجموع: <span className="num font-bold">{data.execution_cost.total_pct.toFixed(2)}%</span></p>
-            </>
-          )}
-        </div>
-      )}
-      {data.breakeven_pct != null && <p>نقطه سربه‌سر: <span className="num font-bold">{data.breakeven_pct.toFixed(2)}%</span></p>}
-      {data.rr_gross != null && data.rr_net != null && <p>R:R خام <span className="num">{data.rr_gross.toFixed(2)}</span> → خالص <span className="num">{data.rr_net.toFixed(2)}</span></p>}
-      {data.rr_decay_pct != null && data.rr_decay_pct > 0 && <p className="text-orange-400">افت R:R: <span className="num font-bold">{data.rr_decay_pct.toFixed(0)}%</span></p>}
-      {data.sl_tp_scaled && data.scale_reason && <p className="text-yellow-500">🔧 {data.scale_reason}</p>}
-    </div>
-  );
-
   const wsConnected = wsStatus === "connected";
   const series = sparklineSeries.length >= 2 ? sparklineSeries : data.close_series && data.close_series.length >= 2 ? data.close_series : null;
-
-  const session = (() => {
-    const utcHour = now.getUTCHours();
-    const utcDay = now.getUTCDay();
-    if (utcDay === 0 || utcDay === 6) return { label: "📅 آخر هفته", color: "text-orange-400" };
-    if (utcHour >= 0 && utcHour < 6) return { label: "🕒 خواب تریدرها 💤", color: "text-red-400" };
-    if (utcHour >= 12 && utcHour < 16) return { label: "🕒 لندن-نیویورک 🔥", color: "text-green-400" };
-    return { label: "🕒 زمان عادی بازار", color: "text-slate-400" };
-  })();
+  const signalPillClass = getSignalPillStyle(data.direction, data.confidence || 0);
 
   // ═══════════════════════════════════════════════════════════
   // رندر اصلی
   // ═══════════════════════════════════════════════════════════
   return (
-    <div ref={cardRef} data-signal-card className="relative overflow-hidden">
+    <div ref={cardRef} data-signal-card className="relative">
       <style jsx global>{GOLDEN_STYLES}</style>
-      <div className="pointer-events-none absolute inset-0 z-0" style={{ backgroundImage: "url('/icon-192.png')", backgroundSize: "55%", backgroundPosition: "center", backgroundRepeat: "no-repeat", opacity: 0.04 }} />
-      <Card className={`relative z-10 border ${confidenceLevel === "golden" ? "" : signalBg(data.signal)}`} style={confidenceLevel === "golden" ? { animation: "golden-pulse 2s ease-in-out infinite", borderColor: "rgba(250,204,21,0.6)" } : undefined}>
-        <div className="space-y-0 px-3 pt-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <CryptoIcon ticker={data.ticker} size="md" />
-              <p className="truncate text-sm font-bold">{data.name}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] ${wsConnected ? "text-green-500" : "text-orange-400"}`}>
-                    {wsConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent><p className="text-[10px]">{wsConnected ? "اتصال زنده فعال" : wsStatus === "reconnecting" ? "در حال اتصال مجدد…" : "اتصال زنده قطع است"}</p></TooltipContent>
-              </Tooltip>
-              <button onClick={handleShare} disabled={sharing} className="rounded-md p-1 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50" aria-label="اشتراک‌گذاری کارت">
-                {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
-              </button>
-              <button onClick={() => inWatchlist ? removeFromWatchlist(ticker) : addToWatchlist(ticker, tickerName || ticker, source)} className={`rounded-md p-1 transition-colors ${inWatchlist ? "text-yellow-500" : "text-muted-foreground hover:text-yellow-500"}`} aria-pressed={inWatchlist}>
-                <Star className={`h-3.5 w-3.5 ${inWatchlist ? "fill-current" : ""}`} />
-              </button>
-            </div>
+      
+      {/* 🔴 تغییر: h-[400px] به min-h-[400px] برای جلوگیری از بریده شدن */}
+      <Card className={`relative z-10 border border-white/10 bg-[#051118] shadow-xl transition-all min-h-[400px] flex flex-col ${confidenceLevel === "golden" ? "shadow-[0_0_15px_rgba(250,204,21,0.1)]" : ""}`} style={confidenceLevel === "golden" ? { animation: "golden-pulse 2s ease-in-out infinite" } : undefined}>
+        
+        {/* هدر کارت */}
+        <div className="flex items-center justify-between gap-2 p-2 pb-0 shrink-0">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <CryptoIcon ticker={data.ticker} size="md" />
+            <p className="truncate text-sm font-bold">{data.name}</p>
           </div>
-
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="num text-[10px] font-medium text-muted-foreground">{data.ticker}</span>
-              <span className="num text-[10px] font-bold text-orange-400" style={{ letterSpacing: "0.3px" }}>· {tfShort(data.timeframe)}</span>
-              <Badge className={`border py-0 text-[8px] ${marketLabel.cls}`}>{marketLabel.fa}</Badge>
-              <Badge className={`border py-0 text-[8px] ${profileLabel.cls}`}>{profileLabel.fa}</Badge>
-              {data.strategy && (
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Badge className={`border py-0 text-[8px] cursor-help ${STRATEGY_LABELS[data.strategy]?.cls || STRATEGY_LABELS.swing.cls}`}>
-                      {STRATEGY_LABELS[data.strategy]?.fa || STRATEGY_LABELS.swing.fa}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-[10px]">
-                      {data.strategy === "scalp" && "⚡ اسکالپ: معاملات سریع فیوچرز — TP تنگ، Timeout کوتاه"}
-                      {data.strategy === "swing" && "🌊 سوئینگ: معاملات میان‌مدت — TP/SL متعادل"}
-                      {data.strategy === "position" && "🏛 پوزیشن: سرمایه‌گذاری بلندمدت — TP باز، SL بازتر"}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {isFallback ? (
-                <Tooltip>
-                  <TooltipTrigger>
-                    <Badge className={`gap-0.5 border py-0 text-[8px] ${sourceBadgeClass(usedSource)}`}>
-                      <ArrowRightLeft className="h-2 w-2" />
-                      {usedMeta?.label}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-[11px]">درخواست روی <b>{requestedMeta?.label}</b> بود ولی این نماد/تایم‌فریم آنجا نبود — داده از <b>{usedMeta?.label}</b> گرفته شد.</p>
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Badge className={`border py-0 text-[8px] ${sourceBadgeClass(source)}`}>
-                  {requestedMeta?.icon} {requestedMeta?.label}
-                </Badge>
-              )}
-            </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger>
+                <span className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] ${wsConnected ? "text-[#d6ad60]" : "text-muted-foreground"}`}>
+                  {wsConnected ? <span className="h-1.5 w-1.5 rounded-full bg-[#d6ad60] animate-pulse" /> : <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent><p className="text-[10px]">{wsConnected ? "اتصال زنده فعال" : "اتصال زنده قطع است"}</p></TooltipContent>
+            </Tooltip>
+            <button onClick={handleShare} disabled={sharing} className="rounded-md p-1 text-muted-foreground transition-colors hover:text-[#d6ad60] disabled:opacity-50">
+              {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
+            </button>
+            <button onClick={() => inWatchlist ? removeFromWatchlist(ticker) : addToWatchlist(ticker, tickerName || ticker, source)} className={`rounded-md p-1 transition-colors ${inWatchlist ? "text-[#d6ad60]" : "text-muted-foreground hover:text-[#d6ad60]"}`}>
+              <Star className={`h-3.5 w-3.5 ${inWatchlist ? "fill-current" : ""}`} />
+            </button>
           </div>
         </div>
 
-        <CardContent className="space-y-1 px-3 pb-2 pt-0">
-          {isCFDSymbol && (
-            <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-2 py-1 text-[9px] text-blue-400 flex items-center gap-1.5">
-              <span className="shrink-0">ℹ️</span>
-              <span>قیمت نمایش‌داده‌شده بر اساس CFD است و ممکن است با قیمت آتی بورس ICE چند دلار اختلاف داشته باشد.</span>
-            </div>
-          )}
+        {/* زیرنویس هدر (تک‌رنگ) */}
+        <div className="flex flex-wrap items-center gap-2 px-2 text-[10px] text-muted-foreground mt-0.5 shrink-0">
+          <span className="num font-medium">{data.ticker}</span>
+          <span className="text-border">|</span>
+          <span className="num text-[#d6ad60]">{tfShort(data.timeframe)}</span>
+          <span className="text-border">|</span>
+          <span>{data.market_type === "futures" ? "فیوچرز" : "اسپات"}</span>
+          <span className="text-border">|</span>
+          <span>{riskProfile === "aggressive" ? "جسورانه" : "محتاطانه"}</span>
+          <span className="text-border">|</span>
+          <span>{source === "forex" ? "فارکس" : requestedMeta?.label}</span>
+        </div>
 
-          {isFallback && (
-            <p className="rounded-md border border-slate-500/20 bg-slate-500/10 px-2 py-1.5 text-[9px] text-slate-300 leading-relaxed">
-              ℹ️ قیمت لحظه‌ای از <b>{requestedMeta?.label}</b> دریافت می‌شود، اما تحلیل و کندل‌ها بر اساس داده‌های <b>{usedMeta?.label}</b> محاسبه شده‌اند.
-            </p>
-          )}
+        {/* بدنه کارت */}
+        <CardContent className="flex flex-col flex-1 space-y-1.5 px-2 pb-1 pt-1.5">
+          
+          <div className="shrink-0">
+            {isCFDSymbol && (
+              <div className="rounded-md border border-border/30 bg-muted/20 px-2 py-1 text-[9px] text-muted-foreground mb-1.5">
+                ℹ️ قیمت نمایش‌داده‌شده بر اساس CFD است.
+              </div>
+            )}
 
-          {activeTraps.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1">
-                  <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
-                  <span className="text-[9px] font-bold text-red-500 shrink-0">احتمال {trapLabel}</span>
-                  {trapReasons[0] && (
-                    <>
-                      <span className="text-red-500/40">·</span>
-                      <span className="truncate text-[9px] text-red-400/80">
-                        {trapReasons[0].length > 45 ? trapReasons[0].slice(0, 45) + "…" : trapReasons[0]}
-                      </span>
-                    </>
+            {isFallback && (
+              <p className="rounded-md border border-border/30 bg-muted/20 px-2 py-1 text-[9px] text-muted-foreground mb-1.5">
+                ℹ️ قیمت از {requestedMeta?.label} — تحلیل بر اساس {usedMeta?.label}
+              </p>
+            )}
+
+            {activeTraps.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <div className="flex items-center gap-1.5 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-1 mb-1.5">
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-red-500/80" />
+                    <span className="text-[9px] font-bold text-red-500/80 shrink-0">احتمال {trapLabel}</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <p className="text-[10px] leading-relaxed">{trapReasons.join(" | ")}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* قیمت و سیگنال */}
+            <div className="rounded-lg border border-border/20 bg-muted/10 px-2.5 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="shrink-0 flex flex-col items-start gap-0.5 min-w-[80px]">
+                  <span className={`text-[10px] font-bold ${data.direction === "long" ? "text-green-500" : data.direction === "short" ? "text-red-500" : "text-muted-foreground"}`}>
+                    {data.direction === "long" ? "▲ صعودی" : data.direction === "short" ? "▼ نزولی" : "● خنثی"}
+                  </span>
+                  {displayChange != null && displayChange !== 0 && (
+                    <span className={`num text-[9px] font-medium ${displayChange >= 0 ? "text-green-500" : "text-red-500"}`}>
+                      {displayChange >= 0 ? "▲" : "▼"} {Math.abs(displayChange).toFixed(2)}%
+                    </span>
                   )}
                 </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">
-                <p className="text-[10px] leading-relaxed">{trapReasons.join(" | ")}</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
 
-          <div className="rounded-lg bg-muted/40 px-2.5 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="shrink-0 flex flex-col items-start gap-0.5 min-w-[80px]">
-                <span className={`text-[10px] font-bold ${data.direction === "long" ? "text-green-500" : data.direction === "short" ? "text-red-500" : "text-muted-foreground"}`}>
-                  {data.direction === "long" ? "▲ صعودی" : data.direction === "short" ? "▼ نزولی" : "● خنثی"}
-                </span>
-                {displayChange != null && displayChange !== 0 ? (
-                  <span className={`num text-[9px] font-medium ${displayChange >= 0 ? "text-green-500" : "text-red-500"}`}>
-                    {displayChange >= 0 ? "▲" : "▼"} {Math.abs(displayChange).toFixed(2)}%
-                  </span>
-                ) : (
-                  <span className="num text-[9px] text-muted-foreground/50">—</span>
-                )}
-              </div>
+                <p className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${priceFlash === "up" ? "text-green-500" : priceFlash === "down" ? "text-red-500" : "text-foreground"}`}>
+                  {formatNumber(livePrice)}
+                </p>
 
-              <p className={`num flex-1 text-center text-2xl font-bold leading-tight tracking-tight transition-colors duration-300 ${priceFlash === "up" ? "text-green-500" : priceFlash === "down" ? "text-red-500" : "text-foreground"}`}>
-                {formatNumber(livePrice)}
-              </p>
-
-              <div className="shrink-0 text-center min-w-[80px]">
-                <div className="mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1" style={{
-                  background: isActiveSignal ? pillStyle.bg : "rgba(100,116,139,0.08)",
-                  borderColor: isActiveSignal ? pillStyle.border : "rgba(100,116,139,0.25)",
-                  color: isActiveSignal ? pillStyle.color : "#94a3b8",
-                  boxShadow: isActiveSignal ? pillStyle.boxShadow : "none",
-                  textShadow: isActiveSignal ? pillStyle.textShadow : "none",
-                  opacity: isActiveSignal ? pillStyle.opacity : 0.6,
-                  borderWidth: isActiveSignal && confidenceLevel === "golden" ? "2px" : "1px",
-                }}>
-                  <SignalIcon className="h-3.5 w-3.5 shrink-0" style={isActiveSignal && confidenceLevel === "golden" ? { animation: "golden-icon-glow 1.5s ease-in-out infinite" } : undefined} />
-                  <p className="text-[12px] font-bold leading-none whitespace-nowrap">
-                    {isActiveSignal && confidenceLevel === "golden" && "💎 "}
-                    {isActiveSignal ? data.signal : data.signal?.includes("در حال تشکیل") ? "در حال تشکیل" : data.signal?.includes("دور") ? "دور" : "خنثی"}
+                <div className="shrink-0 text-center min-w-[80px]">
+                  <div className={`mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1 ${signalPillClass}`}>
+                    <SignalIcon className="h-3.5 w-3.5 shrink-0" />
+                    <p className="text-[12px] font-bold leading-none whitespace-nowrap">
+                      {isActiveSignal ? data.signal : "خنثی"}
+                    </p>
+                  </div>
+                  <p className="num mt-1 text-[11px] font-bold" style={{ color: levelStyle.text }}>
+                    {data.confidence}%
                   </p>
                 </div>
-                <p className="num mt-1 text-[11px] font-bold" style={{ color: levelStyle.text }}>
-                  {data.confidence}%
-                </p>
               </div>
             </div>
           </div>
 
-          {series ? (
-            <Sparkline data={series} height={60} showArea showDot sl={sl} tp={tp} entry={entryPrice} color={data.signal.includes("LONG") || data.signal.includes("صعودی") ? "green" : data.signal.includes("SHORT") || data.signal.includes("نزولی") ? "red" : "neutral"} />
-          ) : (
-            <div className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10" style={{ height: 60 }}>
-              <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-              <div className="relative flex items-center gap-2 text-[10px] text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>در حال پردازش نمودار…</span>
+          {/* نمودار */}
+          <div className="shrink-0">
+            {series ? (
+              <Sparkline data={series} height={60} showArea showDot sl={sl} tp={tp} entry={entryPrice} color={data.signal.includes("LONG") || data.signal.includes("صعودی") ? "green" : data.signal.includes("SHORT") || data.signal.includes("نزولی") ? "red" : "neutral"} />
+            ) : (
+              <div className="relative flex items-center justify-center overflow-hidden rounded-md bg-muted/10" style={{ height: 60 }}>
+                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          <div className="grid grid-cols-3 gap-1.5 min-h-[48px]">
+          {/* SL / RR / TP */}
+          <div className="grid grid-cols-3 gap-1.5 min-h-[48px] shrink-0">
             {sl != null && tp != null ? (
               <>
-                <div className="rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Shield className="h-2.5 w-2.5" />حد ضرر</div>
-                  <div className="mt-0.5 text-[10px] font-bold text-red-500"><CopyableNumber value={sl} /></div>
-                  {slNetPct != null && <p className="num text-[8px] text-red-500/80">{slNetPct >= 0 ? "+" : "−"}{Math.abs(slNetPct).toFixed(2)}%</p>}
+                <div className="flex flex-col items-center justify-center rounded-md border border-border/20 bg-muted/5 px-1.5 py-1">
+                  <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground"><Shield className="h-2.5 w-2.5" />حد ضرر</div>
+                  <div className="mt-0.5 text-[10px] font-bold text-red-500/90"><CopyableNumber value={sl} /></div>
                 </div>
-                <div className="rounded-md border border-blue-500/20 bg-blue-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Percent className="h-2.5 w-2.5" />R:R</div>
-                  <p className="num mt-0.5 text-[11px] font-bold text-blue-500">
+                <div className="flex flex-col items-center justify-center rounded-md border border-border/20 bg-muted/5 px-1.5 py-1">
+                  <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground"><Percent className="h-2.5 w-2.5" />R:R</div>
+                  <p className="num mt-0.5 text-[11px] font-bold text-foreground">
                     {data.rr_net != null ? data.rr_net.toFixed(2) : rr != null ? rr.toFixed(2) : "—"}
                   </p>
-                  {data.rr_gross != null && data.rr_net != null && <p className="num text-[8px] text-muted-foreground">خام {data.rr_gross.toFixed(2)}</p>}
                 </div>
-                <div className="rounded-md border border-green-500/20 bg-green-500/5 px-1.5 py-1 text-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground"><Target className="h-2.5 w-2.5" />هدف نهایی</div>
-                  <div className="mt-0.5 text-[10px] font-bold text-green-500"><CopyableNumber value={tp} /></div>
-                  {tp3NetPct != null && <p className="num text-[8px] text-green-500/80">{tp3NetPct >= 0 ? "+" : "−"}{Math.abs(tp3NetPct).toFixed(2)}%</p>}
+                <div className="flex flex-col items-center justify-center rounded-md border border-border/20 bg-muted/5 px-1.5 py-1">
+                  <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground"><Target className="h-2.5 w-2.5" />هدف نهایی</div>
+                  <div className="mt-0.5 text-[10px] font-bold text-green-500/90"><CopyableNumber value={tp} /></div>
                 </div>
               </>
             ) : (
-              <>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Shield className="h-2.5 w-2.5" />حد ضرر</div>
-                  <p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">—</p>
-                </div>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Percent className="h-2.5 w-2.5" />R:R</div>
-                  <p className="num mt-0.5 text-[11px] font-bold text-muted-foreground/40">—</p>
-                </div>
-                <div className="rounded-md border border-border/20 bg-muted/10 px-1.5 py-1 text-center flex flex-col items-center justify-center">
-                  <div className="flex items-center justify-center gap-0.5 text-[8px] text-muted-foreground/50"><Target className="h-2.5 w-2.5" />هدف نهایی</div>
-                  <p className="num mt-0.5 text-[10px] font-bold text-muted-foreground/40">—</p>
-                </div>
-              </>
+              <div className="col-span-3 flex items-center justify-center rounded-md border border-border/20 bg-muted/5 py-2">
+                 <p className="text-[9px] text-muted-foreground">اطلاعات کافی برای SL/TP موجود نیست</p>
+              </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-1.5">
-            {data.suggested_entry && data.direction !== "neutral" ? (
-              <div className={`flex flex-col justify-center rounded-md border-2 px-2 py-1.5 ${data.direction === "long" ? "border-green-500/40 bg-green-500/5" : "border-red-500/40 bg-red-500/5"}`}>
-                <div className="flex items-center justify-center gap-1 mb-1"><Crosshair className="h-3 w-3 text-cyan-400" /><span className="text-[9px] font-bold text-cyan-400">🎯 نقطه ورود پیشنهادی</span></div>
-                <div className="text-[16px] font-bold text-foreground leading-none text-center"><CopyableNumber value={data.suggested_entry} /></div>
-                <div className="text-[8px] text-muted-foreground text-right mt-1.5">
-                  نحوه محاسبه: <span className="text-cyan-400 font-medium">
-                    {data.suggested_entry_method === "structural" && "📍 سطح ساختاری Swing"}
-                    {data.suggested_entry_method === "atr_pullback" && "📊 پولبک ATR"}
-                    {data.suggested_entry_method === "fib_0382" && "🌀 فیبوناچی 0.382"}
-                  </span>
+          {/* نقطه ورود و خروج پله‌ای */}
+          {(data.suggested_entry || data.tp_levels?.tp1) && (
+            <div className="grid grid-cols-2 gap-1.5 shrink-0">
+              {data.suggested_entry && data.direction !== "neutral" ? (
+                <div className="flex flex-row items-center justify-between rounded-md border border-border/20 bg-muted/5 px-2 py-1.5">
+                  <span className="text-[10px] font-bold text-[#d6ad60]">نقطه ورود</span>
+                  <div className="text-[15px] font-bold text-foreground leading-none">
+                    <CopyableNumber value={data.suggested_entry} />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
-                <p className="text-[9px] text-muted-foreground/50">بدون نقطه ورود</p>
-              </div>
-            )}
+              ) : <div/>}
 
-            {data.tp_levels && data.tp_levels.tp1 != null ? (
-              <div className="flex flex-col justify-center rounded-md border border-emerald-500/25 bg-emerald-500/5 px-2 py-1.5">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <span className="text-[9px] font-bold text-emerald-400">🎯 خروج پله‌ای</span>
-                </div>
-                <div className="grid grid-cols-4 gap-0.5 text-[7px] text-muted-foreground/70 font-bold mb-0.5 pb-0.5 border-b border-emerald-500/20">
-                  <div className="text-center">خالص</div><div className="text-center">خام</div><div className="text-center">قیمت</div><div className="text-center">پله</div>
-                </div>
-                <div className="space-y-0.5">
-                  {[{ label: "TP1", value: data.tp_levels.tp1 }, { label: "TP2", value: data.tp_levels.tp2 }, { label: "TP3", value: data.tp_levels.tp3 }].map(({ label, value }) => {
-                    const entry = data.suggested_entry ?? data.price;
-                    const feeRoundTrip = data.fee_pct ?? 0;
-                    const grossPct = entry > 0 ? ((value - entry) / entry) * 100 * (data.direction === "short" ? -1 : 1) : null;
-                    const netPct = grossPct != null ? grossPct - feeRoundTrip : null;
-                    return (
-                      <div key={label} className="grid grid-cols-4 gap-0.5 items-center">
-                        <div className="text-center num font-bold text-emerald-400 text-[8px]">{netPct != null ? `${netPct >= 0 ? "+" : ""}${netPct.toFixed(1)}٪` : "—"}</div>
-                        <div className="text-center num text-emerald-400/60 text-[7px]">{grossPct != null ? `${grossPct >= 0 ? "+" : ""}${grossPct.toFixed(1)}٪` : "—"}</div>
-                        <div className="text-center num font-bold text-emerald-300 text-[10px]"><CopyableNumber value={value} /></div>
-                        <div className="text-center font-bold text-emerald-300/70 text-[8px]">{label}</div>
+              {data.tp_levels && data.tp_levels.tp1 != null ? (
+                <div className="flex flex-col justify-center rounded-md border border-border/20 bg-muted/5 px-2 py-0">
+                  <div className="flex items-center justify-center gap-1 mb-0">
+                    <span className="text-[10px] font-bold text-muted-foreground">خروج پله‌ای</span>
+                  </div>
+                  <div className="space-y-0 mt-1">
+                    {[{ label: "TP1", value: data.tp_levels.tp1 }, { label: "TP2", value: data.tp_levels.tp2 }, { label: "TP3", value: data.tp_levels.tp3 }].map(({ label, value }) => (
+                      <div key={label} className="flex items-center justify-between">
+                        <span className="text-[8px] text-muted-foreground">{label}</span>
+                        <span className="num font-bold text-[9px] text-foreground"><CopyableNumber value={value} /></span>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center rounded-md border border-border/20 bg-muted/10 px-2 py-2">
-                <p className="text-[9px] text-muted-foreground/50">بدون TP</p>
-              </div>
-            )}
-          </div>
-
-          {data.fee_pct != null && (
-            <div className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[9px] ${data.timeframe_viable === false || data.is_worthwhile === false ? "border border-orange-500/25 bg-orange-500/5 text-orange-400" : "bg-muted/20 text-muted-foreground"}`}>
-              <span className="flex items-center gap-1">
-                {data.timeframe_viable === false || data.is_worthwhile === false ? "⚠️ " : "ℹ️ "}
-                هزینه <span className="num font-medium">{data.fee_pct.toFixed(2)}%</span>
-                {data.rr_decay_pct != null && data.rr_decay_pct > 0 && (
-                  <> · افت R:R <span className="num">{data.rr_decay_pct.toFixed(0)}%</span></>
-                )}
-                <Tooltip>
-                  <TooltipTrigger>
-                    <span className="ml-0.5 inline-flex items-center text-muted-foreground/70 transition-colors hover:text-foreground">
-                      <Info className="h-3 w-3" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs border-border bg-popover text-popover-foreground">
-                    {feeTooltipContent}
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-              {data.rr_net != null && (
-                <span className="num font-medium">خالص {data.rr_net.toFixed(2)}</span>
-              )}
+              ) : <div/>}
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
-              <span>{regimeIcon(data.regime)} {regimeFullFa(data.regime)}</span>
-              <span className={consensusColor(data.consensus)}>{consensusFa(data.consensus)}</span>
-            </div>
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted/40">
-              {longPct > 0 && <div className="bg-green-500 transition-all duration-300" style={{ width: `${longPct}%` }} title={`صعودی ${data.votes_long}`} />}
-              {neutralPct > 0 && <div className="bg-yellow-500 transition-all duration-300" style={{ width: `${neutralPct}%` }} title={`خنثی ${data.votes_neutral}`} />}
-              {shortPct > 0 && <div className="bg-red-500 transition-all duration-300" style={{ width: `${shortPct}%` }} title={`نزولی ${data.votes_short}`} />}
-            </div>
-            <div className="flex items-center justify-between text-[8px] text-muted-foreground">
-              <span className="text-green-500">▲ {data.votes_long} صعودی</span>
-              <span className="text-yellow-500">● {data.votes_neutral} خنثی</span>
-              <span className="text-red-500">▼ {data.votes_short} نزولی</span>
-            </div>
-          </div>
         </CardContent>
 
-        <div className="flex items-center justify-between border-t border-border/20 px-3 py-0 text-[9px]">
-          <span className="shrink-0 text-muted-foreground/50" style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}>
-            trademun.ir
-          </span>
-          <span className={`flex items-center gap-1 text-[9px] font-bold ${session.color}`}>
-            {session.label}
-          </span>
+        {/* فوتر کارت (mt-auto برای چسبیدن به پایین در صورت وجود فضای خالی) */}
+        <div className="flex items-center justify-between border-t border-border/20 px-3 py-1 text-[9px] shrink-0 mt-auto">
+          <div className="flex items-center gap-1.5 flex-row-reverse">
+            <img src="/icon-192.png" alt="trademun" className="h-3.5 w-3.5 opacity-70 grayscale" />
+            <span className="shrink-0 text-muted-foreground/60" style={{ fontFamily: "monospace", letterSpacing: "0.3px" }}>
+              trademun.ir
+            </span>
+          </div>
+
           <span className="num flex shrink-0 items-center gap-1 text-muted-foreground/60" style={{ fontFamily: "monospace" }}>
             <span>
               {(() => {

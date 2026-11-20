@@ -212,7 +212,7 @@ export function Scanner() {
   const scanSourceLabel = SOURCES.find((s) => s.key === scanSource)?.label ?? scanSource;
 
   return (
-    <Card className="overflow-hidden border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] shadow-xl">
+    <Card className="overflow-hidden border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] shadow-xl">
 
       <CardHeader className="pb-2">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -96,7 +96,7 @@ export function SettingsPanel() {
     setMarketType,
     setRiskProfile,
     setStrategy,
-    forceSelectSymbol,  // 🔴 فاز ۱۶.۵
+    forceSelectSymbol,
   } = useAppStore();
   
   const isTouch = useIsTouchDevice();
@@ -124,29 +124,22 @@ export function SettingsPanel() {
     if (isTouch) setToast(tooltip);
   };
 
-  // 🔴 فاز ۱۶.۵ — تغییر صرافی هوشمند (ticker پیش‌فرض اگه لازم باشه)
   const handleSourceChange = (newSource: Source) => {
     const currentSource = source;
     
     if (newSource === "tsetmc") {
-      // 🔴 بورس تهران → همیشه «فولاد»
       forceSelectSymbol("فولاد", "فولاد", "tsetmc");
     } else if (newSource === "forex") {
-      // 🔴 فارکس → همیشه «انس طلا»
       forceSelectSymbol("XAU-USD", "انس طلا", "forex");
     } else {
-      // کریپتو (nobitex, bitpin, wallex, tabdeal)
       const wasSpecial = currentSource === "tsetmc" || currentSource === "forex";
       if (wasSpecial) {
-        // از tsetmc/forex به کریپتو → ticker پیش‌فرض
         forceSelectSymbol("BTC-USD", "بیت‌کوین", newSource);
       } else {
-        // از قبل کریپتو بود → فقط source عوض بشه
         setSource(newSource);
       }
     }
   };
-
 
   const strategyLabel = STRATEGIES.find((s) => s.key === strategy)?.label || "";
   const marketLabel = marketType === "spot" ? "اسپات" : "فیوچرز";
@@ -156,9 +149,9 @@ export function SettingsPanel() {
     <>
       <InfoToast message={toast} onClose={() => setToast(null)} />
 
-      <Card className="text-sm border-white/10 bg-[#0d1b2d]">
-        <CardHeader className="px-3 py-1 pb-1.5">
-          <CardTitle className="flex items-center gap-2 text-sm font-display">
+      <Card className="text-sm border-white/5 bg-[#051118] shadow-xl">
+        <CardHeader className="px-3 py-1 pb-1.5 border-b border-white/5">
+          <CardTitle className="flex items-center gap-2 text-sm font-display text-gray-100">
             <Settings className="h-4 w-4 text-[#d6ad60]" />
             تنظیمات
           </CardTitle>
@@ -166,31 +159,31 @@ export function SettingsPanel() {
             <span className="rounded border border-[#d6ad60]/30 bg-[#d6ad60]/10 px-1.5 py-0.5 text-[7px] font-extrabold text-[#d6ad60]">
               {strategyLabel}
             </span>
-            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
+            <span className="rounded border border-white/5 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
               {marketLabel}
             </span>
-            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
+            <span className="rounded border border-white/5 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
               {riskLabel}
             </span>
-            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
+            <span className="rounded border border-white/5 bg-white/5 px-1.5 py-0.5 text-[7px] font-extrabold text-gray-300">
               {timeframe}
             </span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-2.5 px-3 pb-2.5">
+        <CardContent className="space-y-3 px-3 pb-3 pt-3">
           {/* ═══ ۱. صرافی ═══ */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-gray-400">
               صرافی
             </label>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-3 gap-1.5">
               {EXCHANGES_MAJOR.map((s) => {
                 const isActive = source === s.value;
                 const hasNote = Boolean(
                   SOURCE_BY_KEY[s.value]?.note ||
                     SOURCE_BY_KEY[s.value]?.unsupportedTfs?.length
                 );
-                const textColor = isActive ? "text-[#07111f]" : "text-gray-200";
+                const textColor = isActive ? "text-[#07111f]" : "text-gray-300";
 
                 const inner = (
                   <>
@@ -212,10 +205,10 @@ export function SettingsPanel() {
                   </>
                 );
 
-                const btnClass = `relative flex flex-col items-center justify-center gap-0.5 rounded-lg border py-1 px-1 transition-all ${
+                const btnClass = `relative flex flex-col items-center justify-center gap-0.5 rounded-lg border py-1.5 px-1 transition-all ${
                   isActive
                     ? "border-[#d6ad60] bg-[#d6ad60] shadow-[0_0_8px_rgba(214,173,96,0.3)]"
-                    : "border-white/10 bg-[#0d1b2d] hover:bg-white/5 active:scale-95"
+                    : "border-white/5 bg-white/5 hover:bg-white/10 active:scale-95"
                 }`;
 
                 if (!hasNote) {
@@ -225,7 +218,6 @@ export function SettingsPanel() {
                       onClick={() => handleSourceChange(s.value)}
                       className={btnClass}
                     >                    
-                    
                       {inner}
                     </button>
                   );
@@ -273,7 +265,7 @@ export function SettingsPanel() {
                           className={`flex items-center gap-0.5 rounded border px-1 py-0.5 ${
                             isRemoved
                               ? "border-red-500/20 bg-red-500/5 opacity-60"
-                              : "border-dashed border-white/10 bg-[#0d1b2d] opacity-70"
+                              : "border-dashed border-white/5 bg-white/5 opacity-70"
                           }`}
                         />
                       }
@@ -303,7 +295,7 @@ export function SettingsPanel() {
           </div>
 
           {/* ═══ ۳. انس طلا ═══ */}
-          <div className="flex items-center justify-between gap-2 rounded-md border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2 py-1">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2 py-1.5">
             <div className="flex items-center gap-1.5">
               <span className="text-[8px] font-bold text-[#d6ad60]">
                 انس طلا
@@ -330,30 +322,30 @@ export function SettingsPanel() {
 
           {/* ═══ هشدارها ═══ */}
           {isWallex && (
-            <p className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-0.5 text-[8px] text-amber-400">
+            <p className="rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[8px] text-amber-400">
               ⚠️ والکس: فقط ۱ ساعت و روزانه
             </p>
           )}
           {selectedMeta && !selectedMeta.hasOhlcv && !isWallex && (
-            <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-0.5 text-[8px] text-sky-400">
+            <p className="rounded-md border border-sky-500/20 bg-sky-500/5 px-2 py-1 text-[8px] text-sky-400">
               ℹ️ {selectedMeta.label}: کندل ندارد — تحلیل از صرافی دیگر
             </p>
           )}
           {!isTsetmc && selectedMeta?.unsupportedTfs?.length && !isWallex && (
-            <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-0.5 text-[8px] text-yellow-500">
+            <p className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-2 py-1 text-[8px] text-yellow-500">
               ℹ️ بدون {selectedMeta.unsupportedTfs.join("، ")}
             </p>
           )}
 
           {/* ═══ ۴. استراتژی ═══ */}
-          <div className="space-y-1">
-            <label className="flex items-center justify-between text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-1.5">
+            <label className="flex items-center justify-between text-[10px] font-medium text-gray-400">
               <span>📊 استراتژی</span>
               <span className="text-[8px] text-[#d6ad60]/70">
                 {allowedTfs.length} TF فعال
               </span>
             </label>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-3 gap-1.5">
               {STRATEGIES.map((s) => {
                 const isActive = strategy === s.key;
                 const isLocked = isTsetmc && s.key === "scalp";
@@ -368,7 +360,7 @@ export function SettingsPanel() {
                           className={`relative rounded-lg border py-1.5 px-1 transition-all active:scale-95 ${
                             isActive
                               ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.4)]"
-                              : "border-white/10 bg-[#0d1b2d] text-gray-200 hover:bg-white/5"
+                              : "border-white/5 bg-white/5 text-gray-300 hover:bg-white/10"
                           } ${isLocked ? "opacity-60" : ""}`}
                         />
                       }
@@ -404,19 +396,19 @@ export function SettingsPanel() {
           </div>
 
           {/* ═══ ۵. نوع بازار ═══ */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-gray-400">
               نوع بازار
             </label>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-2 gap-1.5">
               <Button
                 size="sm"
                 onClick={() => setMarketType("spot")}
                 disabled={isSpotLocked}
-                className={`h-7 text-[10px] font-extrabold ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   marketType === "spot"
                     ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
-                    : "border border-white/10 text-gray-200 hover:bg-white/5 bg-[#0d1b2d]"
+                    : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isSpotLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
                 💵 اسپات
@@ -425,10 +417,10 @@ export function SettingsPanel() {
                 size="sm"
                 onClick={() => setMarketType("futures")}
                 disabled={isTsetmc}
-                className={`h-7 text-[10px] font-extrabold ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   marketType === "futures"
                     ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
-                    : "border border-white/10 text-gray-200 hover:bg-white/5 bg-[#0d1b2d]"
+                    : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isTsetmc ? "opacity-40 cursor-not-allowed" : ""}`}
               >
                 📈 فیوچرز
@@ -437,18 +429,18 @@ export function SettingsPanel() {
           </div>
 
           {/* ═══ ۶. پروفایل ریسک ═══ */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-gray-400">
               پروفایل ریسک
             </label>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-2 gap-1.5">
               <Button
                 size="sm"
                 onClick={() => setRiskProfile("aggressive")}
-                className={`h-7 text-[10px] font-extrabold ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   riskProfile === "aggressive"
                     ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
-                    : "border border-white/10 text-gray-200 hover:bg-white/5 bg-[#0d1b2d]"
+                    : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 }`}
               >
                 🚀 جسورانه
@@ -457,10 +449,10 @@ export function SettingsPanel() {
                 size="sm"
                 onClick={() => setRiskProfile("conservative")}
                 disabled={isConservativeLocked}
-                className={`h-7 text-[10px] font-extrabold ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   riskProfile === "conservative"
                     ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
-                    : "border border-white/10 text-gray-200 hover:bg-white/5 bg-[#0d1b2d]"
+                    : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isConservativeLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
                 🛡️ محتاطانه
@@ -469,11 +461,11 @@ export function SettingsPanel() {
           </div>
 
           {/* ═══ ۷. تایم‌فریم ═══ */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-gray-400">
               تایم‌فریم
             </label>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-3 gap-1.5">
               {TIMEFRAMES.map((tf) => {
                 const isActive = timeframe === tf;
                 const isTsetmcLocked = isTsetmc && tf !== "روزانه";
@@ -490,7 +482,7 @@ export function SettingsPanel() {
                           className={`rounded-lg border py-1.5 text-[10px] font-extrabold transition-all ${
                             isActive
                               ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.4)]"
-                              : "border-white/10 bg-[#0d1b2d] text-gray-200 hover:bg-white/5"
+                              : "border-white/5 bg-white/5 text-gray-300 hover:bg-white/10"
                           } ${
                             isDisabled
                               ? "opacity-30 cursor-not-allowed"

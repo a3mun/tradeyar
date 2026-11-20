@@ -147,7 +147,7 @@ export default function ContactPage() {
         {/* ═══ ساعات پاسخ‌دهی ═══ */}
         <section className="px-4 pb-12">
           <div className="mx-auto max-w-2xl">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#0d1b2d] p-5">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#051118] p-5">
               <div className="rounded-xl bg-[#d6ad60]/15 p-2.5">
                 <Clock className="h-5 w-5 text-[#d6ad60]" />
               </div>
@@ -174,7 +174,7 @@ export default function ContactPage() {
               {FAQ_QUICK.map((faq, i) => (
                 <div
                   key={i}
-                  className="rounded-xl border border-white/10 bg-[#0d1b2d] p-4"
+                  className="rounded-xl border border-white/10 bg-[#051118] p-4"
                 >
                   <h3 className="mb-2 text-sm font-bold text-white">
                     {faq.q}

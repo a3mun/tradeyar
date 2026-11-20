@@ -235,7 +235,7 @@ const handleSelectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     className={`rounded-2xl px-3 py-2 shadow-lg transition-all ${
                       isMe
                         ? "bg-gradient-to-br from-[#c89a49] to-[#e2c17e] text-[#07111f] rounded-tr-sm"
-                        : "bg-gradient-to-br from-[#1a2c45] to-[#0d1b2d] border border-white/10 text-white rounded-tl-sm"
+                        : "bg-gradient-to-br from-[#1a2c45] to-[#051118] border border-white/10 text-white rounded-tl-sm"
                     }`}
                   >
                     {/* نام فرستنده */}

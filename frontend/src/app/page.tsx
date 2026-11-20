@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -46,19 +45,9 @@ export default function HomePage() {
   const [plan, setPlan] = useState<"free" | "pro" | "admin">("free");
   const isPro = plan === "pro" || plan === "admin";
 
-
   const { data } = useSignalData();
 
-  const {
-    ticker,
-    source,
-    timeframe,
-    marketType,
-    riskProfile,
-    strategy,
-  } = useAppStore();
-
-
+  const { ticker, source } = useAppStore();
 
   useEffect(() => {
     const token = getToken();
@@ -76,8 +65,7 @@ export default function HomePage() {
       return;
     }
 
-    const apiUrl =
-      process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
     fetch(`${apiUrl}/subscription/my`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -88,21 +76,14 @@ export default function HomePage() {
         const endDate = sub?.end_date ? new Date(sub.end_date) : null;
         const now = new Date();
 
-        const isExpired = endDate
-          ? endDate.getTime() < now.getTime()
-          : false;
+        const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
 
         if (sub && sub.status === "active" && !isExpired) {
           setHasAccess(true);
-
           if (sub.plan && sub.plan !== "free") {
             setPlan("pro");
           }
-
-          localStorage.setItem(
-            "trademun_subscription",
-            JSON.stringify(sub)
-          );
+          localStorage.setItem("trademun_subscription", JSON.stringify(sub));
         } else {
           setHasAccess(false);
           localStorage.removeItem("trademun_subscription");
@@ -117,12 +98,11 @@ export default function HomePage() {
       });
   }, [router]);
 
-
   const coherent = sourceSupportsPair(source, ticker);
 
   if (isChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#07111f]">
+      <div className="flex min-h-screen items-center justify-center bg-[#051118]">      
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#d6ad60]" />
       </div>
     );
@@ -132,27 +112,23 @@ export default function HomePage() {
     return (
       <div className="min-h-screen bg-[#07111f] text-white">
         <Header />
-
         <main className="container mx-auto max-w-2xl px-4 py-12 sm:py-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="rounded-3xl border border-[#d6ad60]/20 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-6 sm:p-10 text-center shadow-2xl"
-          >
+            className="rounded-3xl border border-[#dad60]/20 bg-gradient-to-br from-[#051118] to-[#051118] p-6 sm:p-10 text-center shadow-2xl"
+            >
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#d6ad60]/10">
               <Lock className="h-8 w-8 text-[#d6ad60]" />
             </div>
-
             <h2 className="mb-3 text-2xl sm:text-3xl font-bold">
               دسترسی به تحلیل‌ها نیازمند اشتراک فعال است
             </h2>
-
             <p className="mb-6 text-sm leading-relaxed text-gray-400">
               برای مشاهده سیگنال‌ها، تحلیل هوش مصنوعی، اسکنر بازار و بررسی قیمت لحظه‌ای،
               از داشبورد خود اشتراک تهیه کن یا درخواست تمدید بده.
             </p>
-
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
               <Link href="/dashboard">
                 <Button className="h-11 w-full sm:w-auto gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
@@ -160,7 +136,6 @@ export default function HomePage() {
                   خرید / تمدید اشتراک
                 </Button>
               </Link>
-
               <Link href="/dashboard">
                 <Button
                   variant="outline"
@@ -173,7 +148,6 @@ export default function HomePage() {
             </div>
           </motion.div>
         </main>
-
         <Footer />
       </div>
     );
@@ -182,9 +156,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-
       <StickyMiniHeader />
-
       <div className="w-full overflow-hidden">
         <Marquee />
       </div>
@@ -192,40 +164,20 @@ export default function HomePage() {
       <div className="container mx-auto flex flex-col lg:flex-row gap-6 px-4 py-4 sm:py-6">
         <Sidebar />
 
-        <main className="min-w-0 flex-1 space-y-3 sm:space-y-4">
+        <main className="min-w-0 flex-1 space-y-4 sm:space-y-6"> {/* 🔴 space افزایش یافت */}
           <SymbolSelector />
-
           <WatchlistCard />
 
-          {/* 
-            Mobile:
-            Signal → TF → Fear/Greed + Support/Resistance
-            → Remaining components
-
-            Desktop:
-            Independent two-column layout
-          */}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-3 sm:gap-4">
-
+          <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 sm:gap-6"> {/* 🔴 gap افزایش یافت */}
             {/* ═══════════════ LEFT COLUMN ═══════════════ */}
-
             <div className="contents lg:flex lg:flex-col lg:gap-4 lg:min-w-0">
-
-              {/* 1. Signal Card */}
-
               <div className="order-1 lg:order-none min-w-0">
-                <SignalCard
-                />
+                <SignalCard />
               </div>
-
-              {/* 4. Order Book */}
 
               <div className="order-4 lg:order-none min-w-0">
                 <OrderBookPanel />
               </div>
-
-              {/* 5. AI Advisor */}
 
               <div className="order-5 lg:order-none min-w-0">
                 <CollapsibleSection
@@ -233,7 +185,6 @@ export default function HomePage() {
                   title="مشاور هوشمند"
                   icon="🧠"
                   subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
-                  accentColor="#a78bfa"
                   isLocked={!isPro}
                 >
                   <ProOverlay feature="مشاور هوشمند">
@@ -242,21 +193,16 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 6. Technical Analysis */}
-
               <div className="order-6 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="deep-analysis"
                   title="تحلیل تکنیکال"
                   icon="💬"
                   subtitle="بررسی عمیق سیگنال — کلیک کن تا باز بشه"
-                  accentColor="#60a5fa"
                 >
                   <DeepAnalysis />
                 </CollapsibleSection>
               </div>
-
-              {/* 7. Fundamental Analysis */}
 
               <div className="order-7 lg:order-none min-w-0">
                 <CollapsibleSection
@@ -264,13 +210,10 @@ export default function HomePage() {
                   title="تحلیل بنیادین (فاندامنتال)"
                   icon="🏛️"
                   subtitle="بررسی بنیادین بازار — به زودی"
-                  accentColor="#10b981"
                 >
                   <FundamentalAnalysisPlaceholder />
                 </CollapsibleSection>
               </div>
-
-              {/* 8. Scanner */}
 
               <div className="order-8 lg:order-none min-w-0">
                 {coherent ? (
@@ -279,7 +222,6 @@ export default function HomePage() {
                     title="اسکنر فرصت‌ها"
                     icon="🔍"
                     subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
-                    accentColor="#d6ad60"
                     isLocked={!isPro}
                   >
                     <ProOverlay feature="اسکنر فرصت‌ها">
@@ -292,20 +234,13 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
-
             </div>
 
             {/* ═══════════════ RIGHT COLUMN ═══════════════ */}
-
             <div className="contents lg:flex lg:flex-col lg:gap-4 lg:min-w-0">
-
-              {/* 2. Timeframe Table */}
-
               <div className="order-2 lg:order-none min-w-0">
                 <TFTable />
               </div>
-
-              {/* 3. Fear & Greed + Support & Resistance */}
 
               <div className="order-3 lg:order-none min-w-0">
                 <div className="grid grid-cols-2 gap-3 sm:gap-4 min-w-0">
@@ -314,17 +249,13 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* 9. Indicator Checklist */}
-
               <div className="order-9 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="checklist"
                   title="چک‌لیست اندیکاتورها"
                   icon="✅"
                   subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
-                  accentColor="#22c55e"
                 >
-                  {/* 🔴 فاز ۱۶.۵: جلوگیری از کرش کردن ری‌اکت وقتی دیتا لود نشده */}
                   {data ? (
                     <Checklist data={data.checklist} />
                   ) : (
@@ -335,21 +266,16 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              {/* 10. Price Comparison */}
-
               <div className="order-10 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="price-comparison"
                   title="مقایسه قیمت صرافی‌ها"
                   icon="💰"
                   subtitle="قیمت لحظه‌ای ۴ صرافی — کلیک کن تا باز بشه"
-                  accentColor="#d6ad60"
                 >
                   <PriceComparison />
                 </CollapsibleSection>
               </div>
-
-              {/* 11. Position Calculator */}
 
               <div className="order-11 lg:order-none min-w-0">
                 <CollapsibleSection
@@ -357,13 +283,10 @@ export default function HomePage() {
                   title="ماشین‌حساب سود و ضرر"
                   icon="🧮"
                   subtitle="محاسبه حجم پوزیشن — به زودی"
-                  accentColor="#a78bfa"
                 >
                   <PositionSizeCalculatorPlaceholder />
                 </CollapsibleSection>
               </div>
-
-              {/* 12. Economic Calendar */}
 
               <div className="order-12 lg:order-none min-w-0">
                 <CollapsibleSection
@@ -371,13 +294,10 @@ export default function HomePage() {
                   title="تقویم اقتصادی فارکس"
                   icon="📅"
                   subtitle="رویدادهای مهم اقتصادی — به زودی"
-                  accentColor="#f59e0b"
                 >
                   <EconomicCalendarPlaceholder />
                 </CollapsibleSection>
               </div>
-
-              {/* 13. Performance Statistics */}
 
               <div className="order-13 lg:order-none min-w-0">
                 <CollapsibleSection
@@ -385,17 +305,14 @@ export default function HomePage() {
                   title="آمار عملکرد"
                   icon="📊"
                   subtitle="خلاصه‌ی عملکرد و دقت پیش‌بینی — کلیک کن تا باز بشه"
-                  accentColor="#f59e0b"
                 >
                   <StatisticsBox />
                 </CollapsibleSection>
               </div>
-
             </div>
           </div>
         </main>
       </div>
-
       <Footer />
     </div>
   );

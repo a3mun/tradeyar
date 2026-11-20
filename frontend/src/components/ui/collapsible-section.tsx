@@ -28,25 +28,21 @@ export function CollapsibleSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="rounded-xl border border-border/40 bg-[#0d1b2d] overflow-hidden shadow-sm">
+    <div className="rounded-xl border border-white/10 bg-[#051118] shadow-md overflow-hidden transition-all hover:bg-[#051117]">
       {/* هدر — همیشه قابل کلیک */}
       <button
         onClick={() => setIsOpen((v) => !v)}
         className="flex w-full items-center justify-between p-3 text-right transition-colors hover:bg-white/5"
-        style={{ borderRight: `3px solid ${accentColor}` }}
       >
         <div className="flex items-center gap-2">
           {icon && (
-            <span className="text-lg" style={{ color: accentColor }}>
+            <span className="text-lg text-[#d6ad60]">
               {icon}
             </span>
           )}
           <div>
             <div className="flex items-center gap-2">
-              <h3
-                className="text-sm font-bold text-foreground"
-                style={{ color: accentColor }}
-              >
+              <h3 className="text-sm font-bold text-foreground">
                 {title}
               </h3>
               {/* 🔴 بج Pro برای کاربر رایگان */}
@@ -69,7 +65,7 @@ export function CollapsibleSection({
           }`}
         />
       </button>
-
+  
       {/* محتوا */}
       <AnimatePresence initial={false}>
         {isOpen && (

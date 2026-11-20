@@ -32,7 +32,7 @@ export default function MaintenancePage() {
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="max-w-md text-center space-y-6 rounded-3xl border border-[#d6ad60]/20 bg-[#0d1b2d] p-10 shadow-2xl"
+        className="max-w-md text-center space-y-6 rounded-3xl border border-[#d6ad60]/20 bg-[#051118] p-10 shadow-2xl"
       >
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#d6ad60]/10">
           <Settings className="h-10 w-10 text-[#d6ad60] animate-spin" style={{ animationDuration: "4s" }} />

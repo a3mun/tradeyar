@@ -300,7 +300,7 @@ export function RestoreGuide({ backups }: { backups: any[] }) {
         <BookOpen className="h-4 w-4" /> راهنمای مدیر
       </Button>
       
-      <DialogContent className="max-w-2xl max-h-[90vh] p-0 bg-[#0d1b2d] border-white/10 text-white gap-0 [&>button]:hidden">
+      <DialogContent className="max-w-2xl max-h-[90vh] p-0 bg-[#051118] border-white/10 text-white gap-0 [&>button]:hidden">
         
         <DialogHeader className="flex flex-row items-center justify-between p-4 sm:p-5 border-b border-white/10 space-y-0">
           <DialogTitle className="text-[#d6ad60] flex items-center gap-2 text-base sm:text-lg">

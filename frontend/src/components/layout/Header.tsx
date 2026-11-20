@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * Header — هدر اصلی سایت (نسخه ۲.۱ · فاز ۱۴.۹.۱۰)
- * ============================================================
- * 🔴 تغییرات نسخه ۲.۱:
- *   • جداسازی ClockDisplay (جلوگیری از re-render کل Header)
- *   • Lazy load user (بدون تغییر)
- *   • AnimatedLogo مربعی
- */
-
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,6 +11,7 @@ import {
   ShieldCheck,
   LogIn,
   ChevronDown,
+  HelpCircle,
 } from "lucide-react";
 import { HelpPanel } from "./HelpPanel";
 import { getUser, getToken, removeToken } from "@/lib/auth";
@@ -27,7 +19,10 @@ import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { AnimatedLogo } from "@/components/ui/animated-logo";
 
-// 🔴 کامپوننت جدا برای ساعت — فقط این هر ثانیه re-render می‌شه
+// 🔴 استایل مشترک برای دکمه‌های هدر (مدرن و یکدست)
+const HEADER_BTN_CLASS =
+  "flex items-center justify-center gap-1.5 h-9 rounded-xl border border-white/5 bg-white/5 text-[11px] font-medium text-gray-300 transition-all duration-200 hover:bg-white/10 hover:border-white/10 hover:text-white";
+
 function ClockDisplay() {
   const [time, setTime] = useState<string>("");
 
@@ -50,12 +45,12 @@ function ClockDisplay() {
   }, []);
 
   return (
-    <div className="flex h-9 items-center gap-1.5 rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 text-[11px] font-medium text-[#d6ad60] md:px-3 md:text-[12px]">
-      <Clock className="h-3 w-3 md:h-3.5 md:w-3.5" />
-      <span className="num tabular-nums" style={{ fontFamily: "monospace" }}>
+    <div className={`${HEADER_BTN_CLASS} px-2.5 md:px-3 cursor-default`}>
+      <Clock className="h-3 w-3 md:h-3.5 md:w-3.5 text-[#d6ad60]/80" />
+      <span className="num tabular-nums text-gray-200" style={{ fontFamily: "monospace" }}>
         {time || "--:--:--"}
       </span>
-      <span className="text-[9px] opacity-70">TEH</span>
+      <span className="text-[9px] text-gray-500">TEH</span>
     </div>
   );
 }
@@ -108,7 +103,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[#d6ad60]/10 bg-[#07111f]/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 w-full border-b border-white/5 bg-[#051118]/80 backdrop-blur-xl transition-all duration-300">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         {/* لوگو */}
         <Link
@@ -124,11 +119,11 @@ export function Header() {
             showParticles={true}
           />
           <div className="flex flex-col justify-center leading-none">
-            <h1 className="font-display text-[17px] font-bold leading-none text-white transition-colors group-hover:text-[#d6ad60]">
+            <h1 className="font-display text-[18px] font-bold leading-none text-white transition-colors group-hover:text-[#d6ad60]">
               تریدمون
             </h1>
-            <p className="mt-1 text-[10px] font-medium tracking-wider leading-none text-[#d6ad60]/80">
-              Trademun
+            <p className="mt-1 text-[10px] font-medium tracking-[0.15em] leading-none text-[#d6ad60]/80">
+              TRADEMUN
             </p>
           </div>
         </Link>
@@ -136,7 +131,7 @@ export function Header() {
         {/* ابزارها */}
         <div className="flex items-center gap-2">
           {/* راهنما */}
-          <div className="hidden h-9 items-center rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/5 md:flex">
+          <div className="hidden md:flex">
             <HelpPanel />
           </div>
 
@@ -144,12 +139,12 @@ export function Header() {
           <div className="relative hidden md:block" ref={dropdownRef}>
             <button
               onClick={() => setIsAccountOpen(!isAccountOpen)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-3 text-[12px] font-medium text-[#d6ad60] transition-colors hover:bg-[#d6ad60]/10"
+              className={`${HEADER_BTN_CLASS} px-3`}
             >
-              <User className="h-3.5 w-3.5" />
+              <User className="h-3.5 w-3.5 text-[#d6ad60]/80" />
               <span>حساب کاربری</span>
               <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                className={`h-3 w-3 transition-transform duration-200 ${
                   isAccountOpen ? "rotate-180" : ""
                 }`}
               />
@@ -162,11 +157,11 @@ export function Header() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={{ duration: 0.15, ease: "easeOut" }}
-                  className="absolute left-0 z-50 mt-2 w-64 rounded-xl border border-[#d6ad60]/20 bg-[#0d1b2d] p-3 shadow-2xl"
+                  className="absolute left-0 z-50 mt-2 w-64 rounded-xl border border-white/10 bg-[#051118] p-3 shadow-2xl"
                 >
                   {isLoggedIn && user ? (
                     <div className="space-y-3">
-                      <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+                      <div className="flex items-center gap-3 border-b border-white/5 pb-3">
                         <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d6ad60]/30 bg-[#d6ad60]/10">
                           <User className="h-5 w-5 text-[#d6ad60]" />
                         </div>
@@ -227,7 +222,7 @@ export function Header() {
             </AnimatePresence>
           </div>
 
-          {/* ساعت — کامپوننت جدا */}
+          {/* ساعت */}
           <ClockDisplay />
         </div>
       </div>

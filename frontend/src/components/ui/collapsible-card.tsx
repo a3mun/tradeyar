@@ -1,184 +1,95 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { ChevronDown, Lock } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
-interface Props {
-  title: ReactNode;
-  badge?: ReactNode;
+interface CollapsibleSectionProps {
+  id: string;
+  title: string;
+  icon?: string | React.ReactNode;
   subtitle?: string;
-  actions?: ReactNode;
-  children: ReactNode;
+  accentColor?: string;
+  children: React.ReactNode;
   defaultOpen?: boolean;
-  keepCollapsibleOnDesktop?: boolean;
-  /** 🔴 روی دسکتاپ (xl) همیشه باز — بدون قابلیت بستن */
-  forceOpenOnDesktop?: boolean;
-  pulse?: boolean;
-  className?: string;
-  compact?: boolean; // 🔴 حالت فشرده
-}
-
-export function CollapsibleCard({
-  title,
-  badge,
-  actions,
-  children,
-  defaultOpen = false,
-  keepCollapsibleOnDesktop = false,
-  forceOpenOnDesktop = false,
-  pulse = false,
-  className = "",
-  compact = false,
-}: Props) {
-  const [open, setOpen] = useState(defaultOpen);
-  const locked = !keepCollapsibleOnDesktop;
-  const forceOpen = forceOpenOnDesktop && !locked;
-
-  const chevronCls = open
-    ? "rotate-180 border-primary bg-primary/20 text-primary"
-    : pulse
-      ? "border-orange-500/60 bg-orange-500/10 text-orange-500"
-      : "border-primary/40 bg-primary/10 text-primary";
-
-  const chevronStyle =
-    !open && pulse
-      ? { animation: "chevron-pulse 1.5s ease-in-out infinite" }
-      : undefined;
-
-  return (
-    <Card className={className}>
-      {pulse && (
-        <style jsx global>{`
-          @keyframes chevron-pulse {
-            0%, 100% {
-              box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.5);
-            }
-            50% {
-              box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
-            }
-          }
-        `}</style>
-      )}
-
-      <CardHeader className="p-0">
-        <div className="flex w-full items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className={`flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 ${
-              compact ? "py-0" : "py-1"
-            } text-right transition-colors hover:bg-muted/30 ${
-              locked || forceOpen
-                ? "lg:pointer-events-none xl:pointer-events-none lg:hover:bg-transparent xl:hover:bg-transparent"
-                : ""
-            }`}
-            aria-expanded={open}
-            aria-disabled={locked || forceOpen}
-          >
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              <CardTitle
-                className={`truncate ${compact ? "text-[10px]" : "text-[11px]"}`}
-              >
-                {title}
-              </CardTitle>
-              {badge}
-            </span>
-
-            <span
-              className={`flex ${
-                compact ? "h-5 w-5" : "h-6 w-6"
-              } shrink-0 items-center justify-center rounded border-2 transition-all duration-200 ${chevronCls} ${
-                locked ? "lg:hidden" : ""
-              } ${forceOpen ? "xl:hidden" : ""}`}
-              style={chevronStyle}
-              aria-hidden
-            >
-              <ChevronDown
-                className={`${compact ? "h-3 w-3" : "h-4 w-4"}`}
-                strokeWidth={2.5}
-              />
-            </span>
-          </button>
-
-          {actions && <div className="shrink-0 px-2">{actions}</div>}
-        </div>
-      </CardHeader>
-
-      <div
-        className={`${open ? "block" : "hidden"} ${locked ? "lg:block" : ""} ${
-          forceOpen ? "xl:block" : ""
-        }`}
-      >
-        <CardContent className={compact ? "p-1 pt-0" : "p-2 pt-0"}>
-          {children}
-        </CardContent>
-      </div>
-    </Card>
-  );
+  isLocked?: boolean;
 }
 
 export function CollapsibleSection({
+  id,
   title,
-  badge,
+  icon,
+  subtitle,
+  accentColor = "#d6ad60",
   children,
   defaultOpen = false,
-  pulse = false,
-}: {
-  title: ReactNode;
-  badge?: ReactNode;
-  children: ReactNode;
-  defaultOpen?: boolean;
-  pulse?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  const chevronCls = open
-    ? "rotate-180 border-primary bg-primary/20 text-primary"
-    : pulse
-      ? "border-orange-500/60 bg-orange-500/10 text-orange-500"
-      : "border-primary/40 bg-primary/10 text-primary";
-
-  const chevronStyle =
-    !open && pulse
-      ? { animation: "chevron-pulse 1.5s ease-in-out infinite" }
-      : undefined;
+  isLocked = false,
+}: CollapsibleSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="rounded-lg border border-border/50">
-      {pulse && (
-        <style jsx global>{`
-          @keyframes chevron-pulse {
-            0%, 100% {
-              box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.5);
-            }
-            50% {
-              box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
-            }
-          }
-        `}</style>
-      )}
+    <div
+      className={`group rounded-xl border bg-[#051118] shadow-md overflow-hidden transition-all duration-300 ${
+        isOpen
+          ? "border-[#d6ad60]/50 bg-[#0a1a2f] shadow-[0_0_20px_rgba(214,173,96,0.15)]"
+          : "border-white/10 hover:border-[#d6ad60]/40 hover:bg-[#0a1a2f] hover:shadow-[0_0_15px_rgba(214,173,96,0.1)]"
+      }`}
+    >
+      {/* هدر — همیشه قابل کلیک */}
       <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-right transition-colors hover:bg-muted/30"
-        aria-expanded={open}
+        onClick={() => setIsOpen((v) => !v)}
+        className={`flex w-full items-center justify-between p-3 text-right transition-colors duration-300 ${
+          isOpen ? "bg-[#d6ad60]/5" : "hover:bg-[#d6ad60]/5"
+        }`}
       >
-        <span className="flex min-w-0 flex-1 items-center gap-2 text-[11px] font-medium">
-          {title}
-          {badge}
-        </span>
-        <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-all ${chevronCls}`}
-          style={chevronStyle}
-          aria-hidden
-        >
-          <ChevronDown className="h-3 w-3" strokeWidth={2.5} />
-        </span>
+        <div className="flex items-center gap-2">
+          {icon && (
+            <span className="text-lg text-[#d6ad60] transition-transform duration-300 group-hover:scale-110">
+              {icon}
+            </span>
+          )}
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className={`text-sm font-bold transition-colors duration-300 ${isOpen ? "text-[#d6ad60]" : "text-foreground group-hover:text-[#d6ad60]"}`}>
+                {title}
+              </h3>
+              {/* 🔴 بج Pro برای کاربر رایگان */}
+              {isLocked && (
+                <span className="flex items-center gap-1 rounded-md bg-[#d6ad60]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#d6ad60] border border-[#d6ad60]/30">
+                  <Lock className="h-2.5 w-2.5" /> Pro
+                </span>
+              )}
+            </div>
+            {subtitle && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                {subtitle}
+              </p>
+            )}
+          </div>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-all duration-300 ${
+            isOpen ? "rotate-180 text-[#d6ad60]" : "text-muted-foreground group-hover:text-[#d6ad60]"
+          }`}
+        />
       </button>
-      <div className={`${open ? "block" : "hidden"}`}>
-        <div className="border-t border-border/40 p-2">{children}</div>
-      </div>
+  
+      {/* محتوا */}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-[#d6ad60]/10 p-3 min-h-[100px]">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

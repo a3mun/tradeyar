@@ -37,13 +37,13 @@ const POPULAR_FOREX: SymbolItem[] = [
 
 const POPULAR_IRAN_STOCKS: SymbolItem[] = [
   { ticker: "فولاد", name: "فولاد", source: "tsetmc" },
-  { ticker: "فارس", name: "پتروشیمی فارس", source: "tsetmc" },
-  { ticker: "وتجارت", name: "بانک تجارت", source: "tsetmc" },
-  { ticker: "خساپا", name: "سایپا", source: "tsetmc" },
-  { ticker: "خودرو", name: "ایران خودرو", source: "tsetmc" },
-  { ticker: "طلا", name: "صندوق طلا", source: "tsetmc" },
-  { ticker: "نقرابی", name: "صندوق نقره", source: "tsetmc" },
-  { ticker: "عیار", name: "صندوق عیار", source: "tsetmc" },
+  { ticker: "فارس", name: "فارس", source: "tsetmc" },
+  { ticker: "وتجارت", name: "وتجارت", source: "tsetmc" },
+  { ticker: "خساپا", name: "خساپا", source: "tsetmc" },
+  { ticker: "خودرو", name: "خودرو", source: "tsetmc" },
+  { ticker: "طلا", name: "طلا", source: "tsetmc" },
+  { ticker: "نقرابی", name: "نقرابی", source: "tsetmc" },
+  { ticker: "عیار", name: "عیار", source: "tsetmc" },
 ];
 
 function normalize(text: string): string {
@@ -67,7 +67,6 @@ function isTickerForex(ticker: string): boolean {
   return FOREX_SET.has(ticker);
 }
 
-// 🔴 رنگ بج نوع (مشترک برای گرید و dropdown)
 const TYPE_BADGE_CLASS: Record<string, string> = {
   "کالا":   "bg-yellow-500/20 text-yellow-400",
   "شاخص":   "bg-purple-500/20 text-purple-400",
@@ -148,17 +147,12 @@ export function SymbolSelector() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  // 🔴 انتخاب — همیشه source صریح ست می‌شه
   const handleSelect = (item: SymbolItem) => {
     const isIranianStock = !item.ticker[0]?.match(/[A-Za-z]/);
-    
-    // 🔴 فیکس خطای تایپ: type-cast به Source
     const finalSource = (isIranianStock ? "tsetmc" : item.source) as Source;
 
-    // 🔴 برای نمادهای کریپتو، اگر صرافی فعلی از این نماد پشتیبانی می‌کند، آن را نگه دار
     if (item.source === "nobitex" || item.source === "bitpin" || item.source === "wallex" || item.source === "tabdeal") {
       const currentSource = useAppStore.getState().source;
-      // اگر در تب کریپتو هستیم و صرافی فعلی هم کریپتوست، همان را نگه دار
       if (currentSource !== "forex" && currentSource !== "tsetmc") {
         forceSelectSymbol(item.ticker, item.name, currentSource);
         setQuery("");
@@ -168,14 +162,12 @@ export function SymbolSelector() {
       }
     }
 
-    // برای فارکس و بورس، همیشه source آیتم را ست کن
     forceSelectSymbol(item.ticker, item.name, finalSource);
     setQuery("");
     setResults([]);
     setShowDropdown(false);
   };
   
-
   const handleTabChange = (tab: TabType) => {
     if (tab === "forex") {
       forceSelectSymbol("XAU-USD", "انس طلا", "forex");
@@ -211,9 +203,9 @@ export function SymbolSelector() {
         <div className="flex gap-2">
           <div className="relative flex-1">
             {searching ? (
-              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+              <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-gray-400" />
             ) : (
-              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             )}
             <Input
               placeholder="جستجو: BTC، فولاد، XAU، EURUSD..."
@@ -221,33 +213,29 @@ export function SymbolSelector() {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleManualSubmit()}
               onFocus={() => results.length > 0 && setShowDropdown(true)}
-              className="h-8 pr-9 text-xs"
+              className="h-8 pr-9 text-xs bg-[#051118] border-white/5 text-gray-200 placeholder:text-gray-500"
             />
           </div>
           <Button
             onClick={handleManualSubmit}
             size="sm"
-            className="h-8 px-3 text-xs"
+            className="h-8 px-3 text-xs bg-[#d6ad60] text-[#07111f] hover:bg-[#d6ad60]/90"
           >
-            تحلیل
+            جستجو
           </Button>
         </div>
 
         {showDropdown && results.length > 0 && (
-          <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+          <div className="absolute top-full right-0 left-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-white/5 bg-[#051118] shadow-lg">
             {results.map((item) => {
               const inWatchlist = watchlist.some(
                 (w) => w.ticker === item.ticker
               );
-              const badgeClass =
-                item.type && TYPE_BADGE_CLASS[item.type]
-                  ? TYPE_BADGE_CLASS[item.type]
-                  : "bg-muted/30 text-muted-foreground";
 
               return (
                 <div
                   key={`${item.source}-${item.ticker}`}
-                  className="flex w-full items-center justify-between gap-2 border-b border-border/40 px-3 py-2 text-xs transition-colors last:border-b-0 hover:bg-muted/50"
+                  className="flex w-full items-center justify-between gap-2 border-b border-white/5 px-3 py-2 text-xs transition-colors last:border-b-0 hover:bg-white/5"
                 >
                   <button
                     onClick={() => handleSelect(item)}
@@ -256,23 +244,14 @@ export function SymbolSelector() {
                     <CryptoIcon ticker={item.ticker} size="sm" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <p className="truncate font-medium">{item.name}</p>
-                        {/* 🔴 بج نوع */}
-                        {item.type && (
-                          <span
-                            className={`rounded px-1 py-0 text-[7px] font-bold ${badgeClass}`}
-                          >
-                            {item.type}
-                          </span>
-                        )}
-                        {/* 🔴 بج source برای فارکس */}
+                        <p className="truncate font-medium text-gray-200">{item.name}</p>
                         {item.source === "forex" && (
-                          <span className="rounded bg-cyan-500/10 px-1 py-0 text-[7px] font-bold text-cyan-400">
+                          <span className="text-[7px] font-medium text-gray-500">
                             Biquote
                           </span>
                         )}
                       </div>
-                      <p className="num truncate text-[10px] text-muted-foreground">
+                      <p className="num truncate text-[10px] text-gray-500">
                         {item.ticker}
                       </p>
                     </div>
@@ -285,8 +264,8 @@ export function SymbolSelector() {
                     }}
                     className={`rounded p-1 ${
                       inWatchlist
-                        ? "text-yellow-500"
-                        : "text-muted-foreground hover:text-yellow-500"
+                        ? "text-[#d6ad60]"
+                        : "text-gray-500 hover:text-[#d6ad60]"
                     }`}
                   >
                     <Star
@@ -303,7 +282,7 @@ export function SymbolSelector() {
       </div>
 
       {/* ═══ بخش نمادها ═══ */}
-      <div className="rounded-xl border border-white/5 bg-[#0a101a]/50 backdrop-blur-md overflow-hidden shadow-sm">
+      <div className="rounded-xl border border-white/5 bg-[#051118]/50 backdrop-blur-md overflow-hidden shadow-sm">
         {/* سربرگ تب‌ها */}
         <div className="flex p-1 gap-1 border-b border-white/5 bg-white/5">
           {(
@@ -316,10 +295,10 @@ export function SymbolSelector() {
             <button
               key={tab.key}
               onClick={() => handleTabChange(tab.key)}
-              className={`relative flex-1 rounded-lg py-1.5 text-[13px] transition-all duration-300 font-bold ${
-                activeTab === tab.key
+              className={`relative flex-1 rounded-lg py-1 text-[12px] transition-all duration-300 font-bold ${
+              activeTab === tab.key
                   ? "bg-gradient-to-b from-[#d6ad60] to-[#b88e45] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)] font-bold"
-                  : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  : "text-gray-400 hover:bg-white/5 hover:text-gray-200"
               }`}
             >
               {tab.label}
@@ -332,20 +311,16 @@ export function SymbolSelector() {
           <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
             {currentList.map((item) => {
               const isActive = ticker === item.ticker;
-              const badgeClass =
-                item.type && TYPE_BADGE_CLASS[item.type]
-                  ? TYPE_BADGE_CLASS[item.type]
-                  : "bg-muted/30 text-muted-foreground";
 
               return (
                 <button
                   key={item.ticker}
                   onClick={() => handleSelect(item)}
-                  className={`group relative flex min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border px-1 py-2 text-center transition-all duration-300
-                    ${
+                  className={`group relative flex min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-xl border px-1 py-1 text-center transition-all duration-300
+                  ${
                       isActive
                         ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#d6ad60]/20 to-transparent text-[#d6ad60] shadow-[0_0_15px_rgba(214,173,96,0.15)] ring-1 ring-[#d6ad60]/30"
-                        : "border-white/5 bg-white/5 text-foreground/70 hover:border-white/20 hover:bg-white/10 hover:text-foreground hover:shadow-lg"
+                        : "border-white/5 bg-white/5 text-gray-300 hover:border-white/20 hover:bg-white/10 hover:text-gray-100 hover:shadow-lg"
                     }
                   `}
                 >
@@ -353,14 +328,6 @@ export function SymbolSelector() {
 
                   {isActive && (
                     <div className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#d6ad60] shadow-[0_0_8px_#d6ad60] animate-pulse" />
-                  )}
-
-                  {item.type && (
-                    <span
-                      className={`absolute top-0.5 left-0.5 rounded px-1 py-0 text-[7px] font-bold ${badgeClass}`}
-                    >
-                      {item.type}
-                    </span>
                   )}
 
                   {activeTab !== "iran_stocks" && (

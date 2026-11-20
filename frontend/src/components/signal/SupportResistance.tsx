@@ -7,19 +7,12 @@ import { formatNumber } from "@/lib/display";
 export function SupportResistance() {
   const { data } = useSignalData();
 
-  // 🔴 ارتفاع ثابت برای هر دو حالت (لودینگ و دیتا) — h-[160px]
   if (!data) {
     return (
-      <Card className="h-[160px] flex flex-col">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm">
-            🎯 حمایت و مقاومت
-          </CardTitle>
-        </CardHeader>
+      <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
+        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">🎯 حمایت و مقاومت</CardTitle></CardHeader>
         <CardContent className="flex-1 flex items-center justify-center pb-3">
-          <p className="text-center text-[10px] text-muted-foreground">
-            در حال دریافت اطلاعات...
-          </p>
+          <p className="text-center text-[10px] text-gray-500">در حال دریافت...</p>
         </CardContent>
       </Card>
     );
@@ -28,133 +21,71 @@ export function SupportResistance() {
   const price = data.price || 0;
   let support = data.support || 0;
   let resistance = data.resistance || 0;
-
   const pivots = (data.pivots || {}) as Record<string, number>;
 
-  // ═══ fallback هوشمند برای support ═══
   if (support <= 0 || support >= price) {
-    if (pivots.s1 > 0 && pivots.s1 < price) {
-      support = pivots.s1;
-    } else if (pivots.s2 > 0 && pivots.s2 < price) {
-      support = pivots.s2;
-    } else if (pivots.s3 > 0 && pivots.s3 < price) {
-      support = pivots.s3;
-    } else {
-      support = price * 0.98;
-    }
+    if (pivots.s1 > 0 && pivots.s1 < price) support = pivots.s1;
+    else if (pivots.s2 > 0 && pivots.s2 < price) support = pivots.s2;
+    else if (pivots.s3 > 0 && pivots.s3 < price) support = pivots.s3;
+    else support = price * 0.98;
   }
 
-  // ═══ fallback هوشمند برای resistance ═══
   if (resistance <= 0 || resistance <= price) {
-    if (pivots.r1 > 0 && pivots.r1 > price) {
-      resistance = pivots.r1;
-    } else if (pivots.r2 > 0 && pivots.r2 > price) {
-      resistance = pivots.r2;
-    } else if (pivots.r3 > 0 && pivots.r3 > price) {
-      resistance = pivots.r3;
-    } else {
-      resistance = price * 1.02;
-    }
+    if (pivots.r1 > 0 && pivots.r1 > price) resistance = pivots.r1;
+    else if (pivots.r2 > 0 && pivots.r2 > price) resistance = pivots.r2;
+    else if (pivots.r3 > 0 && pivots.r3 > price) resistance = pivots.r3;
+    else resistance = price * 1.02;
   }
 
   const range = resistance - support;
   const position = range > 0 ? ((price - support) / range) * 100 : 50;
   const clampedPosition = Math.max(0, Math.min(100, position));
-
   const hasData = support > 0 && resistance > 0 && range > 0;
 
-  // ═══ تحلیل ۵ سطحی ═══
   let analysis = "";
-  let analysisColor = "#94a3b8";
-  let analysisIcon = "⚪";
+  let analysisColor = "#94a3b8"; // خاکستری برای خنثی
 
   if (hasData) {
-    if (clampedPosition <= 5) {
-      analysis = "روی حمایت — فرصت خرید";
-      analysisColor = "#22c55e";
-      analysisIcon = "🟢";
-    } else if (clampedPosition <= 30) {
-      analysis = "نزدیک حمایت — احتمال برگشت";
-      analysisColor = "#22c55e";
-      analysisIcon = "🟢";
-    } else if (clampedPosition <= 70) {
-      analysis = "بین حمایت و مقاومت";
-      analysisColor = "#94a3b8";
-      analysisIcon = "⚪";
-    } else if (clampedPosition <= 95) {
-      analysis = "نزدیک مقاومت — مراقب باش";
-      analysisColor = "#ef4444";
-      analysisIcon = "🔴";
-    } else {
-      analysis = "روی مقاومت — احتمال برگشت";
-      analysisColor = "#ef4444";
-      analysisIcon = "🔴";
-    }
+    if (clampedPosition <= 15) { analysis = "نزدیک حمایت"; analysisColor = "#22c55e80"; }
+    else if (clampedPosition <= 35) { analysis = "احتمال برگشت"; analysisColor = "#22c55e60"; }
+    else if (clampedPosition <= 65) { analysis = "بین حمایت و مقاومت"; analysisColor = "#94a3b8"; }
+    else if (clampedPosition <= 85) { analysis = "نزدیک مقاومت"; analysisColor = "#ef444480"; }
+    else { analysis = "احتمال ریزش"; analysisColor = "#ef444460"; }
   }
 
   return (
-    <Card className="h-[160px] flex flex-col">
+    <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-1.5 text-sm">
-          🎯 حمایت و مقاومت
-        </CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">🎯 حمایت و مقاومت</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
+      <CardContent className="flex-1 flex flex-col justify-center space-y-3 pb-3">
         {hasData ? (
           <>
             <div className="flex items-center gap-3">
-              <span className="num shrink-0 text-2xl font-bold leading-none">
-                {Math.round(clampedPosition)}
-              </span>
-              <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
-                  style={{
-                    width: `${clampedPosition}%`,
-                    background: analysisColor,
-                    opacity: 0.7,
-                  }}
-                />
-                <div
-                  className="absolute top-1/2 h-4 w-2.5 -translate-y-1/2 rounded-sm border-2 border-white bg-slate-900 shadow-md transition-all duration-500"
-                  style={{ right: `calc(${clampedPosition}% - 5px)` }}
-                />
+              <span className="num shrink-0 text-2xl font-bold leading-none text-foreground">{Math.round(clampedPosition)}</span>
+              <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+                <div className="absolute inset-y-0 right-0 rounded-full transition-all duration-500" style={{ width: `${clampedPosition}%`, background: analysisColor }} />
               </div>
             </div>
 
-            <div className="flex justify-between text-[8px] text-muted-foreground">
-              <span className="text-green-500">🟢 حمایت</span>
-              <span>🎯 قیمت</span>
-              <span className="text-red-500">🔴 مقاومت</span>
+            <div className="flex justify-between text-[8px] text-gray-500">
+              <span>حمایت</span>
+              <span>قیمت</span>
+              <span>مقاومت</span>
             </div>
 
-            <div
-              className="rounded-md border px-2 py-1 text-center text-[10px] font-bold transition-colors duration-300"
-              style={{
-                borderColor: `${analysisColor}33`,
-                backgroundColor: `${analysisColor}0a`,
-                color: analysisColor,
-              }}
-            >
-              {analysisIcon} {analysis}
+            <div className="rounded-md border px-2 py-1.5 text-center text-[10px] font-medium" style={{ borderColor: `${analysisColor}30`, backgroundColor: `${analysisColor}10`, color: analysisColor }}>
+              {analysis}
             </div>
 
             <div className="flex items-center justify-between gap-1 text-[9px]">
-              <span className="num text-green-500">
-                {formatNumber(support)}
-              </span>
-              <span className="num font-bold text-foreground">
-                {formatNumber(price)}
-              </span>
-              <span className="num text-red-500">
-                {formatNumber(resistance)}
-              </span>
+              <span className="num text-gray-400">{formatNumber(support)}</span>
+              <span className="num font-bold text-gray-200">{formatNumber(price)}</span>
+              <span className="num text-gray-400">{formatNumber(resistance)}</span>
             </div>
           </>
         ) : (
-          <p className="py-2 text-center text-[10px] text-muted-foreground">
-            سطوح کلیدی شناسایی نشد
-          </p>
+          <p className="py-2 text-center text-[10px] text-gray-500">سطوح کلیدی یافت نشد</p>
         )}
       </CardContent>
     </Card>

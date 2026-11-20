@@ -223,7 +223,7 @@ export default function FAQPage() {
                     return (
                       <div
                         key={itemId}
-                        className="overflow-hidden rounded-xl border border-white/10 bg-[#0d1b2d]"
+                        className="overflow-hidden rounded-xl border border-white/10 bg-[#051118]"
                       >
                         <button
                           onClick={() => toggleItem(itemId)}

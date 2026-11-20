@@ -36,11 +36,11 @@ export function Footer() {
     <>
       {showDisclaimer && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#07111f]/80 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#051118]/80 backdrop-blur-sm p-4"
           onClick={acceptDisclaimer}
         >
           <div
-            className="max-w-md rounded-2xl border border-[#d6ad60]/30 bg-[#0d1b2d] p-6 shadow-2xl"
+            className="max-w-md rounded-2xl border border-[#d6ad60]/30 bg-[#051118] p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-3">
@@ -77,7 +77,7 @@ export function Footer() {
         </div>
       )}
 
-      <footer className="mt-8 border-t border-[#d6ad60]/10 bg-[#07111f]/60">
+      <footer className="mt-8 border-t border-white/5 bg-[#051118]/60 backdrop-blur-md">
         <div className="container mx-auto px-4 py-4 md:py-5">
           {/* ═══════════════════════════════════════════════
               موبایل
@@ -101,38 +101,38 @@ export function Footer() {
 
             {/* لینک‌ها */}
             <div className="grid w-full max-w-xs grid-cols-2 gap-2 text-[10px]">
-              <Link href="/about" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <Link href="/about" className="flex items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <Info className="h-3 w-3" /> درباره ما
               </Link>
-              <Link href="/contact" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <Link href="/contact" className="flex items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <Phone className="h-3 w-3" /> تماس با ما
               </Link>
-              <Link href="/faq" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <Link href="/faq" className="flex items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <HelpCircle className="h-3 w-3" /> سوالات متداول
               </Link>
-              <Link href="/dashboard/tickets" className="flex items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <Link href="/dashboard/tickets" className="flex items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <Ticket className="h-3 w-3" /> ثبت تیکت
               </Link>
             </div>
 
             {/* شبکه‌ها */}
             <div className="flex w-full max-w-xs items-center justify-center gap-2 text-[10px]">
-              <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <a href="https://t.me/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <Send className="h-3 w-3" /> تلگرام
               </a>
-              <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
+              <a href="https://ble.ir/trademun" target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1 rounded-md border border-white/5 bg-white/[0.03] px-2 py-1.5 text-gray-200 transition-colors hover:border-[#d6ad60]/40 hover:bg-[#d6ad60]/5 hover:text-[#d6ad60]">
                 <MessageCircle className="h-3 w-3" /> بله
               </a>
             </div>
 
             {/* لوگوهای اعتماد + کپی‌رایت */}
-            <div className="mt-2 flex w-full flex-col items-center gap-2 border-t border-[#d6ad60]/10 pt-3">
+            <div className="mt-2 flex w-full flex-col items-center gap-2 border-t border-white/5 pt-3">
               <div className="flex items-center justify-center gap-3">
                 <a
                   href="https://zibal.ir"
                   target="_blank"
                   rel="noreferrer"
-                  className="block rounded-md border border-white/10 bg-white p-0.5 transition-transform hover:scale-105"
+                  className="block rounded-md border border-white/5 bg-white p-0.5 transition-transform hover:scale-105"
                   title="درگاه پرداخت زیبال"
                 >
                   <img
@@ -145,7 +145,7 @@ export function Footer() {
                   referrerPolicy="origin"
                   target="_blank"
                   href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                  className="block rounded-md border border-white/10 bg-white p-0.5 transition-transform hover:scale-105"
+                  className="block rounded-md border border-white/5 bg-white p-0.5 transition-transform hover:scale-105"
                   title="نماد اعتماد الکترونیکی"
                 >
                   <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="اینماد" className="h-9 w-auto object-contain" />
@@ -213,7 +213,7 @@ export function Footer() {
                   href="https://zibal.ir"
                   target="_blank"
                   rel="noreferrer"
-                  className="block rounded-lg border border-white/10 bg-white p-1 transition-transform hover:scale-105"
+                  className="block rounded-lg border border-white/5 bg-white p-1 transition-transform hover:scale-105"
                   title="درگاه پرداخت زیبال"
                 >
                   <img
@@ -226,7 +226,7 @@ export function Footer() {
                   referrerPolicy="origin"
                   target="_blank"
                   href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
-                  className="block rounded-lg border border-white/10 bg-white p-1 transition-transform hover:scale-105"
+                  className="block rounded-lg border border-white/5 bg-white p-1 transition-transform hover:scale-105"
                   title="نماد اعتماد الکترونیکی"
                 >
                   <img referrerPolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs" alt="اینماد" className="h-16 w-auto object-contain" />
@@ -235,7 +235,7 @@ export function Footer() {
             </div>
 
             {/* کپی‌رایت وسط */}
-            <div className="border-t border-[#d6ad60]/10 pt-3">
+            <div className="border-t border-white/5 pt-3">
               <div className="flex flex-col items-center gap-0.5 text-gray-400">
                 <span className="text-[10px]">
                   طراحی و توسعه: <span className="font-medium text-[#d6ad60]">آسمون</span> | © {year} تریدمون

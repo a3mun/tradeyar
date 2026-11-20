@@ -17,13 +17,13 @@ export function FundamentalAnalysisPlaceholder() {
       
       {/* نشانگرهای "به زودی" برای جذابیت بصری */}
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#0d1b2d] px-2.5 py-1 text-[9px] font-medium text-gray-400">
+        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#051118] px-2.5 py-1 text-[9px] font-medium text-gray-400">
           <Sparkles className="h-3 w-3 text-yellow-500" /> اخبار اقتصادی
         </span>
-        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#0d1b2d] px-2.5 py-1 text-[9px] font-medium text-gray-400">
+        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#051118] px-2.5 py-1 text-[9px] font-medium text-gray-400">
           <TrendingUp className="h-3 w-3 text-emerald-500" /> داده‌های کلان
         </span>
-        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#0d1b2d] px-2.5 py-1 text-[9px] font-medium text-gray-400">
+        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-[#051118] px-2.5 py-1 text-[9px] font-medium text-gray-400">
           <AlertCircle className="h-3 w-3 text-red-500" /> تحلیل بنیادی
         </span>
       </div>

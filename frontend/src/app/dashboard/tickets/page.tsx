@@ -128,7 +128,7 @@ export default function TicketsPage() {
         )}
 
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogContent className="bg-[#0d1b2d] border-white/10 text-white">
+          <DialogContent className="bg-[#051118] border-white/10 text-white">
             <DialogHeader><DialogTitle className="text-[#d6ad60]">تیکت جدید</DialogTitle></DialogHeader>
             <div className="space-y-4 py-4">
               {error && <div className="rounded-lg bg-red-500/10 p-3 text-xs text-red-400">{error}</div>}

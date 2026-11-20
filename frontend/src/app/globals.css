@@ -9,11 +9,11 @@
   --font-display: var(--font-lalezar), var(--font-vazirmatn), system-ui, sans-serif;
 
   /* ─── رنگ‌های اصلی (تم سرمه‌ای-طلایی) ─── */
-  --color-background: #07111f;
+  --color-background: #030712;
   --color-foreground: #f3f5f8;
-  --color-card: #0d1b2d;
+  --color-card: #051118;
   --color-card-foreground: #f3f5f8;
-  --color-popover: #0d1b2d;
+  --color-popover: #051118;
   --color-popover-foreground: #f3f5f8;
   --color-primary: #d6ad60;
   --color-primary-foreground: #101827;

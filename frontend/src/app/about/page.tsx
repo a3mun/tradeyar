@@ -95,7 +95,7 @@ export default function AboutPage() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="rounded-xl border border-white/10 bg-[#0d1b2d] p-4 text-center"
+                className="rounded-xl border border-white/10 bg-[#051118] p-4 text-center"
               >
                 <div className="num text-2xl font-bold text-[#d6ad60] sm:text-3xl">
                   {stat.value}
@@ -114,7 +114,7 @@ export default function AboutPage() {
             <h2 className="mb-6 text-center font-display text-2xl font-bold sm:text-3xl">
               داستان ما
             </h2>
-            <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0d1b2d] p-6 text-sm leading-relaxed text-gray-300 sm:p-8">
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-[#051118] p-6 text-sm leading-relaxed text-gray-300 sm:p-8">
               <p>
                 در بازار پرنوسان کریپتو و بورس ایران، معامله‌گران با انبوهی از
                 اطلاعات، سیگنال‌های متناقض و ابزارهای غیربومی روبرو هستند.
@@ -155,7 +155,7 @@ export default function AboutPage() {
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-5 transition-colors hover:border-[#d6ad60]/30"
+                  className="rounded-2xl border border-white/10 bg-[#051118] p-5 transition-colors hover:border-[#d6ad60]/30"
                 >
                   <div className="mb-3 inline-flex rounded-xl bg-[#d6ad60]/15 p-2.5">
                     <v.icon className="h-5 w-5 text-[#d6ad60]" />
@@ -183,7 +183,7 @@ export default function AboutPage() {
               {TEAM_ROLES.map((t, i) => (
                 <div
                   key={i}
-                  className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-5 text-center"
+                  className="rounded-2xl border border-white/10 bg-[#051118] p-5 text-center"
                 >
                   <div className="mx-auto mb-3 inline-flex rounded-full bg-[#d6ad60]/15 p-3">
                     <t.icon className="h-6 w-6 text-[#d6ad60]" />

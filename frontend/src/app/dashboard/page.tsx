@@ -409,7 +409,7 @@ export default function DashboardPage() {
             className="space-y-5"
           >
             {/* کارت اشتراک */}
-            <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] via-[#0d1b2d] to-[#07111f] p-5 sm:p-6">
+            <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] via-[#051118] to-[#07111f] p-5 sm:p-6">
               <div className="absolute -right-10 -top-10 p-4 opacity-5">
                 <Crown className="h-48 w-48 text-[#d6ad60]" />
               </div>
@@ -545,7 +545,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-5"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-4 sm:p-5">
+            <div className="rounded-2xl border border-white/10 bg-[#051118] p-4 sm:p-5">
               <div className="mb-3 flex items-center justify-between sm:mb-4">
                 <h2 className="font-display flex items-center gap-2 text-base font-semibold text-white sm:text-lg">
                   <Receipt className="h-4 w-4 text-[#d6ad60] sm:h-5 sm:w-5" />
@@ -674,7 +674,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-5"
           >
-            <div className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-4 sm:p-6">
+            <div className="rounded-2xl border border-white/10 bg-[#051118] p-4 sm:p-6">
               <div className="mb-3 flex items-center justify-between sm:mb-4">
                 <h2 className="font-display flex items-center gap-2 text-base font-semibold text-white sm:text-lg">
                   <UserIcon className="h-4 w-4 text-[#d6ad60] sm:h-5 sm:w-5" />
@@ -688,7 +688,7 @@ export default function DashboardPage() {
                     <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                     ویرایش
                   </button>
-                  <DialogContent className="border-white/10 bg-[#0d1b2d] text-white sm:max-w-[425px]">
+                  <DialogContent className="border-white/10 bg-[#051118] text-white sm:max-w-[425px]">
                     <DialogHeader>
                       <DialogTitle className="text-base text-[#d6ad60] sm:text-lg">
                         ویرایش پروفایل
@@ -858,7 +858,7 @@ export default function DashboardPage() {
         onClick={() => setDownloadError(null)}
       >
         <div
-          className="w-full max-w-sm scale-100 rounded-2xl border border-red-500/20 bg-[#0d1b2d] p-6 text-center shadow-2xl transition-transform"
+          className="w-full max-w-sm scale-100 rounded-2xl border border-red-500/20 bg-[#051118] p-6 text-center shadow-2xl transition-transform"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10">
@@ -885,7 +885,7 @@ export default function DashboardPage() {
 
       {/* ═══ مدال تراکنش ═══ */}
       <Dialog open={isUserTxDetailOpen} onOpenChange={setIsUserTxDetailOpen}>
-        <DialogContent className="max-w-md border-white/10 bg-[#0d1b2d] text-white">
+        <DialogContent className="max-w-md border-white/10 bg-[#051118] text-white">
           <DialogHeader>
             <DialogTitle className="text-[#d6ad60]">جزئیات تراکنش</DialogTitle>
           </DialogHeader>

@@ -85,7 +85,7 @@ export default function ExtensionConnectPage() {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }} 
         animate={{ opacity: 1, scale: 1 }} 
-        className="w-full max-w-md rounded-3xl border border-white/10 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-8 shadow-2xl text-center"
+        className="w-full max-w-md rounded-3xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-8 shadow-2xl text-center"
       >
         {status === "loading" && (
           <>

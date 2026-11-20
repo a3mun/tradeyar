@@ -328,7 +328,7 @@ export default function LoginPage() {
           {/* آمار */}
           <div className="mt-6 grid w-full max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
             {STATS.map((stat, i) => (
-              <div key={i} className="flex h-full flex-col items-center justify-center rounded-xl border border-white/10 bg-[#0d1b2d] py-2.5">
+              <div key={i} className="flex h-full flex-col items-center justify-center rounded-xl border border-white/10 bg-[#051118] py-2.5">
                 <span className="text-lg font-bold text-[#d6ad60] leading-none">
                   <AnimatedNumber value={stat.value} suffix={stat.suffix} />
                 </span>
@@ -340,7 +340,7 @@ export default function LoginPage() {
           {/* ویژگی‌ها */}
           <div className="mt-6 grid w-full max-w-2xl grid-cols-2 gap-2 sm:gap-2.5">
             {FEATURES.map((f, i) => (
-              <div key={i} className="group flex h-full items-start gap-2 rounded-xl border border-white/10 bg-[#0d1b2d] p-2 transition-all hover:border-[#d6ad60]/40 hover:bg-white/[0.03] sm:gap-2.5 sm:p-3">
+              <div key={i} className="group flex h-full items-start gap-2 rounded-xl border border-white/10 bg-[#051118] p-2 transition-all hover:border-[#d6ad60]/40 hover:bg-white/[0.03] sm:gap-2.5 sm:p-3">
                 <div className="shrink-0 rounded-lg bg-[#d6ad60]/15 p-1.5">
                   <f.icon className="h-3.5 w-3.5 text-[#d6ad60]" />
                 </div>
@@ -360,7 +360,7 @@ export default function LoginPage() {
             <div className="flex flex-wrap items-center justify-start gap-3">
               {EXCHANGES_MAJOR.map((ex, i) => (
                 <div key={i} className="flex flex-col items-center gap-1">
-                  <div className="h-9 w-9 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1">
+                  <div className="h-9 w-9 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1">
                     <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";
@@ -385,7 +385,7 @@ export default function LoginPage() {
             <div className="flex flex-wrap items-center justify-start gap-3 mt-2 opacity-50">
               {EXCHANGES_COMING_SOON.map((ex, i) => (
                 <div key={i} className="flex flex-col items-center gap-1">
-                  <div className={`relative h-8 w-8 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
+                  <div className={`relative h-8 w-8 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
                     <img src={ex.logo} alt={ex.name} className={`h-full w-full object-contain ${ex.removed ? "opacity-50" : ""}`}
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";
@@ -437,7 +437,7 @@ export default function LoginPage() {
 
         {/* ستون فرم ورود */}
         <div className="relative w-full max-w-sm lg:w-[400px] lg:sticky lg:top-24">
-          <div className="flex gap-1 p-1 mb-3 bg-[#0d1b2d] border border-white/10 rounded-xl">
+          <div className="flex gap-1 p-1 mb-3 bg-[#051118] border border-white/10 rounded-xl">
             <button onClick={() => { setLoginMode("otp"); setError(""); }}
               className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "otp" ? "bg-[#d6ad60] text-[#07111f]" : "text-gray-400 hover:text-white"}`}>
               کد پیامکی
@@ -448,7 +448,7 @@ export default function LoginPage() {
             </button>
           </div>
 
-          <form onSubmit={loginMode === "password" ? handlePasswordLogin : handleVerifyOtp} className="relative w-full rounded-2xl border border-[#d6ad60]/20 bg-[#0d1b2d] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
+          <form onSubmit={loginMode === "password" ? handlePasswordLogin : handleVerifyOtp} className="relative w-full rounded-2xl border border-[#d6ad60]/20 bg-[#051118] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold mb-1 text-white font-display">
                 {loginMode === "password" ? "ورود با رمز" : "ورود به تریدمون"}
@@ -524,7 +524,7 @@ export default function LoginPage() {
           </form>
 
           <Link href="/subscription" className="mt-4 block">
-            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#0d1b2d] p-3 hover:border-[#d6ad60]/60 transition-all">
+            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#051118] p-3 hover:border-[#d6ad60]/60 transition-all">
               <div className="flex items-center gap-2.5">
                 <div className="bg-[#d6ad60]/15 p-1.5 rounded-lg"><CreditCard className="h-4 w-4 text-[#d6ad60]" /></div>
                 <div>
@@ -541,7 +541,7 @@ export default function LoginPage() {
             <p className="text-[9px] text-emerald-500/70 mt-0.5">بدون نیاز به کارت بانکی</p>
           </div>
 
-          <div className="mt-4 rounded-xl border border-yellow-500/20 bg-[#0d1b2d] p-3 text-center">
+          <div className="mt-4 rounded-xl border border-yellow-500/20 bg-[#051118] p-3 text-center">
             <p className="text-[10px] text-yellow-500/80 leading-relaxed">⚠️ تحلیل‌های تریدمون صرفاً جنبه آموزشی دارند. تصمیم نهایی و مسئولیت سود یا ضرر با خودتونه.</p>
           </div>
 
@@ -559,7 +559,7 @@ export default function LoginPage() {
         <div className="flex flex-wrap items-center justify-center gap-3">
           {EXCHANGES_MAJOR.map((ex, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-9 w-9 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1">
+              <div className="h-9 w-9 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1">
                 <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = "none";
@@ -583,7 +583,7 @@ export default function LoginPage() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-2 opacity-50">
           {EXCHANGES_COMING_SOON.map((ex, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              <div className={`relative h-8 w-8 rounded-full bg-[#0d1b2d] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
+              <div className={`relative h-8 w-8 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
                 <img src={ex.logo} alt={ex.name} className={`h-full w-full object-contain ${ex.removed ? "opacity-50" : ""}`}
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = "none";

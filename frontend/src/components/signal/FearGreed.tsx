@@ -8,12 +8,12 @@ import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import type { FearGreedResponse } from "@/lib/types";
 
-function fearGreedHint(value: number): { text: string; icon: string } {
-  if (value <= 20) return { text: "ترس شدید — احتمال کف", icon: "😱" };
-  if (value <= 40) return { text: "ترس — صبر کن برای تأیید", icon: "😰" };
-  if (value <= 60) return { text: "خنثی — بازار بی‌جهت", icon: "😐" };
-  if (value <= 80) return { text: "طمع — مراقب اشباع", icon: "🤑" };
-  return { text: "طمع شدید — احتمال سقف", icon: "🚀" };
+function fearGreedHint(value: number): { text: string } {
+  if (value <= 20) return { text: "ترس شدید" };
+  if (value <= 40) return { text: "ترس" };
+  if (value <= 60) return { text: "خنثی" };
+  if (value <= 80) return { text: "طمع" };
+  return { text: "طمع شدید" };
 }
 
 export function FearGreed() {
@@ -24,116 +24,74 @@ export function FearGreed() {
   const coherent = sourceSupportsPair(source, ticker);
 
   useEffect(() => {
-    if (!ticker || !coherent) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
+    if (!ticker || !coherent) { setData(null); setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
-    api
-      .get("/analyze/fear-greed", { params: { ticker, source } })
-      .then((res) => {
-        if (!cancelled) setData(res.data);
-      })
-      .catch(() => {
-        if (!cancelled) setData(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    api.get("/analyze/fear-greed", { params: { ticker, source } })
+      .then((res) => { if (!cancelled) setData(res.data); })
+      .catch(() => { if (!cancelled) setData(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [ticker, source, coherent]);
 
-  // 🔴 ارتفاع ثابت برای حالت لودینگ — h-[160px]
   if (loading) {
     return (
-      <Card className="h-[160px] flex flex-col">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm">
-            😐 ترس و طمع
-          </CardTitle>
-        </CardHeader>
+      <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-300">😐 ترس و طمع</CardTitle></CardHeader>
         <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-2.5 w-full" />
-          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-8 w-full bg-white/5" />
+          <Skeleton className="h-1.5 w-full bg-white/5" />
+          <Skeleton className="h-6 w-full bg-white/5" />
         </CardContent>
       </Card>
     );
   }
 
-  // 🔴 اگر دیتا نیست، ارتفاع ثابت با پیام
   if (!data) {
     return (
-      <Card className="h-[160px] flex flex-col">
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm">
-            😐 ترس و طمع
-          </CardTitle>
-        </CardHeader>
+      <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
+        <CardHeader className="pb-2"><CardTitle className="text-sm text-gray-300">😐 ترس و طمع</CardTitle></CardHeader>
         <CardContent className="flex-1 flex items-center justify-center pb-3">
-          <p className="text-center text-[10px] text-muted-foreground">
-            در دسترس نیست
-          </p>
+          <p className="text-center text-[10px] text-gray-500">در دسترس نیست</p>
         </CardContent>
       </Card>
     );
   }
 
+  // 🔴 رنگ‌ها خیلی ملایم و تک‌رنگ
   const cssColor = (() => {
-    if (data.value <= 20) return "#dc2626";
-    if (data.value <= 40) return "#ea580c";
-    if (data.value <= 60) return "#ca8a04";
-    if (data.value <= 80) return "#65a30d";
-    return "#16a34a";
+    if (data.value <= 20) return "#ef4444";
+    if (data.value <= 40) return "#f97316";
+    if (data.value <= 60) return "#eab308";
+    if (data.value <= 80) return "#84cc16";
+    return "#22c55e";
   })();
 
   const percentage = Math.max(0, Math.min(100, data.value));
   const hint = fearGreedHint(data.value);
 
   return (
-    <Card className="h-[160px] flex flex-col">
+    <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-1.5 text-sm">
-          {hint.icon} ترس و طمع
-        </CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">😐 ترس و طمع</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
+      <CardContent className="flex-1 flex flex-col justify-center space-y-3 pb-3">
         <div className="flex items-center gap-3">
-          <span
-            className="num shrink-0 text-2xl font-bold leading-none"
-            style={{ color: cssColor }}
-          >
+          <span className="num shrink-0 text-2xl font-bold leading-none" style={{ color: cssColor }}>
             {data.value.toFixed(0)}
           </span>
-          <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
-              style={{
-                width: `${percentage}%`,
-                background: `linear-gradient(to left, ${cssColor}, ${cssColor}dd)`,
-              }}
-            />
+          <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+            <div className="absolute inset-y-0 right-0 rounded-full transition-all duration-500" style={{ width: `${percentage}%`, background: cssColor }} />
           </div>
         </div>
 
-        <div className="flex justify-between text-[8px] text-muted-foreground">
-          <span>😱 ترس</span>
-          <span>😐 خنثی</span>
-          <span>🚀 طمع</span>
+        <div className="flex justify-between text-[8px] text-gray-500">
+          <span>ترس</span>
+          <span>خنثی</span>
+          <span>طمع</span>
         </div>
 
-        <div
-          className="rounded-md border px-2 py-1 text-center text-[10px] font-bold"
-          style={{
-            borderColor: `${cssColor}33`,
-            backgroundColor: `${cssColor}0a`,
-            color: cssColor,
-          }}
-        >
+        <div className="rounded-md border px-2 py-1.5 text-center text-[10px] font-medium" style={{ borderColor: `${cssColor}30`, backgroundColor: `${cssColor}10`, color: cssColor }}>
           {hint.text}
         </div>
       </CardContent>

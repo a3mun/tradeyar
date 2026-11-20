@@ -148,7 +148,7 @@ export default function SubscriptionPage() {
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.08 }} 
-          className="rounded-2xl border border-white/5 bg-[#0d1b2d] p-4 sm:p-5 mb-6"
+          className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 mb-6"
         >
           <div className="flex items-center gap-2 mb-3">
             <Gift className="h-4 w-4 text-slate-400" />
@@ -290,7 +290,7 @@ export default function SubscriptionPage() {
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.24 }} 
-          className="rounded-2xl border border-white/10 bg-[#0d1b2d] p-5"
+          className="rounded-2xl border border-white/10 bg-[#051118] p-5"
         >
           <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-[#d6ad60]" /> روش پرداخت

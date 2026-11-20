@@ -10,7 +10,7 @@ import { Calculator, Clock, TrendingUp, ShieldCheck, Wallet } from "lucide-react
 
 export function PositionSizeCalculatorPlaceholder() {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-dashed border-[#a78bfa]/30 bg-gradient-to-br from-[#0d1b2d] to-[#07111f] p-4 sm:p-6">
+    <div className="relative overflow-hidden rounded-xl border border-dashed border-[#a78bfa]/30 bg-gradient-to-br from-[#051118] to-[#07111f] p-4 sm:p-6">
       {/* بک‌گراند تزئینی */}
       <div className="absolute inset-0 opacity-5">
         <div className="absolute -top-10 -left-10 h-40 w-40 rounded-full bg-[#a78bfa] blur-3xl" />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, TrendingUp, TrendingDown, Layers } from "lucide-react";
+import { Activity, Layers } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
@@ -14,11 +14,7 @@ interface OBData {
   imbalance: number;
   spread_pct: number;
   pressure_fa: string;
-  wall?: {
-    side: "bid" | "ask";
-    price: number;
-    ratio: number;
-  } | null;
+  wall?: { side: "bid" | "ask"; price: number; ratio: number; } | null;
 }
 
 export function OrderBookPanel() {
@@ -26,48 +22,33 @@ export function OrderBookPanel() {
   const { orderbook: wsData } = useWebSocket();
   const [data, setData] = useState<OBData | null>(null);
 
-  const supported =
-    OB_SOURCES.has(source) && sourceSupportsPair(source, ticker);
+  const supported = OB_SOURCES.has(source) && sourceSupportsPair(source, ticker);
 
   useEffect(() => {
-    if (!supported) {
-      setData(null);
-      return;
-    }
+    if (!supported) { setData(null); return; }
     let cancelled = false;
-    api
-      .get(`/orderbook/${ticker}`, { params: { source, depth: 20 } })
+    api.get(`/orderbook/${ticker}`, { params: { source, depth: 20 } })
       .then((res) => {
         if (cancelled) return;
-        if (res.data?.ok && res.data?.imbalance != null) {
-          setData(res.data);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+        if (res.data?.ok && res.data?.imbalance != null) setData(res.data);
+      }).catch(() => {});
+    return () => { cancelled = true; };
   }, [ticker, source, supported]);
     
-  useEffect(() => {
-    if (wsData) setData(wsData as OBData);
-  }, [wsData]);
+  useEffect(() => { if (wsData) setData(wsData as OBData); }, [wsData]);
 
-  // 🔴 ارتفاع ثابت برای حالت لودینگ یا عدم پشتیبانی — h-[160px]
   if (!supported || !data) {
     return (
-      <Card className="h-[160px] flex flex-col">
+      <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm">
-            <Layers className="h-4 w-4" />
+          <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">
+            <Layers className="h-4 w-4 text-[#d6ad60]" />
             عمق بازار
           </CardTitle>
         </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center pb-3">
-          <p className="text-center text-[10px] text-muted-foreground">
-            {!supported
-              ? "عمق بازار برای این صرافی در دسترس نیست"
-              : "در حال دریافت اطلاعات..."}
+          <p className="text-center text-[10px] text-gray-500">
+            {!supported ? "داده‌ای برای این صرافی موجود نیست" : "در حال دریافت..."}
           </p>
         </CardContent>
       </Card>
@@ -79,93 +60,56 @@ export function OrderBookPanel() {
   const isSell = imb < 0.45;
   const imbPct = Math.round(imb * 100);
 
-  const cssColor = isBuy ? "#22c55e" : isSell ? "#ef4444" : "#94a3b8";
+  // 🔴 تک‌رنگ کردن نوارها: طلایی، خاکستری، یا رنگ تیره‌ی سبز/قرمز خیلی محو
+  const cssColor = isBuy ? "#22c55e80" : isSell ? "#ef444480" : "#64748b";
   const label = isBuy ? "فشار خرید" : isSell ? "فشار فروش" : "تعادل";
 
-  const liq =
-    data.spread_pct < 0.1
-      ? "عالی"
-      : data.spread_pct < 0.3
-        ? "خوب"
-        : data.spread_pct < 0.6
-          ? "متوسط"
-          : "ضعیف";
+  const liq = data.spread_pct < 0.1 ? "عالی" : data.spread_pct < 0.3 ? "خوب" : data.spread_pct < 0.6 ? "متوسط" : "ضعیف";
 
   return (
-    <Card className="h-[160px] flex flex-col">
+    <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-1.5 text-sm">
-            <Layers className="h-4 w-4" />
+          <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">
+            <Layers className="h-4 w-4 text-[#d6ad60]" />
             عمق بازار
           </CardTitle>
-          <span
-            className="flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[9px] font-bold"
-            style={{
-              borderColor: `${cssColor}50`,
-              backgroundColor: `${cssColor}15`,
-              color: cssColor,
-            }}
-          >
-            {isBuy ? (
-              <TrendingUp className="h-2.5 w-2.5" />
-            ) : isSell ? (
-              <TrendingDown className="h-2.5 w-2.5" />
-            ) : (
-              <Activity className="h-2.5 w-2.5" />
-            )}
+          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-medium text-gray-400">
+            <Activity className="h-2.5 w-2.5" />
             {label}
           </span>
         </div>
       </CardHeader>
 
-      <CardContent className="flex-1 flex flex-col justify-center space-y-2 pb-3">
+      <CardContent className="flex-1 flex flex-col justify-center space-y-3 pb-3">
         <div className="flex items-center gap-3">
-          <span
-            className="num shrink-0 text-2xl font-bold leading-none"
-            style={{ color: cssColor }}
-          >
+          <span className="num shrink-0 text-2xl font-bold leading-none" style={{ color: isBuy ? "#4ade80" : isSell ? "#f87171" : "#94a3b8" }}>
             {imbPct}
           </span>
-          <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
-              style={{
-                width: `${imbPct}%`,
-                background: cssColor,
-                opacity: 0.7,
-              }}
-            />
-            <div
-              className="absolute top-1/2 h-4 w-2.5 -translate-y-1/2 rounded-sm border-2 border-white bg-slate-900 shadow-md transition-all duration-500"
-              style={{ right: `calc(${imbPct}% - 5px)` }}
-            />
+          <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
+            <div className="absolute inset-y-0 right-0 rounded-full transition-all duration-500" style={{ width: `${imbPct}%`, background: cssColor }} />
           </div>
         </div>
 
-        <div className="flex justify-between text-[8px] text-muted-foreground">
-          <span className="text-red-500">🔴 فروش</span>
-          <span>تعادل ۵۰٪</span>
-          <span className="text-green-500">🟢 خرید</span>
+        <div className="flex justify-between text-[8px] text-gray-500">
+          <span>فروش</span>
+          <span>تعادل</span>
+          <span>خرید</span>
         </div>
 
         <div className="grid grid-cols-3 gap-1.5 text-[9px]">
-          <div className="rounded border border-border/40 bg-muted/20 px-1.5 py-1 text-center">
-            <p className="text-muted-foreground">اسپرد</p>
-            <p className="num font-bold">{data.spread_pct.toFixed(3)}%</p>
+          <div className="rounded border border-white/5 bg-white/5 px-1.5 py-1 text-center">
+            <p className="text-gray-500 mb-0.5">اسپرد</p>
+            <p className="num font-bold text-gray-300">{data.spread_pct.toFixed(3)}%</p>
           </div>
-          <div className="rounded border border-border/40 bg-muted/20 px-1.5 py-1 text-center">
-            <p className="text-muted-foreground">نقدینگی</p>
-            <p className="font-bold">{liq}</p>
+          <div className="rounded border border-white/5 bg-white/5 px-1.5 py-1 text-center">
+            <p className="text-gray-500 mb-0.5">نقدینگی</p>
+            <p className="font-bold text-gray-300">{liq}</p>
           </div>
-          <div className="rounded border border-border/40 bg-muted/20 px-1.5 py-1 text-center">
-            <p className="text-muted-foreground">دیوار</p>
-            <p className="font-bold">
-              {data.wall
-                ? data.wall.side === "bid"
-                  ? "🟢 خرید"
-                  : "🔴 فروش"
-                : "—"}
+          <div className="rounded border border-white/5 bg-white/5 px-1.5 py-1 text-center">
+            <p className="text-gray-500 mb-0.5">دیوار</p>
+            <p className="font-bold text-gray-300">
+              {data.wall ? (data.wall.side === "bid" ? "خرید" : "فروش") : "—"}
             </p>
           </div>
         </div>
