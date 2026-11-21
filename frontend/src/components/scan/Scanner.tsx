@@ -270,13 +270,13 @@ export function Scanner() {
                     }
                   }}
                   disabled={s.disabled}
-                  className={`relative flex flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 transition-all duration-200 ${
+                  className={`relative flex flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 transition-all duration-300 ${
                     isActive
-                      ? "border-[#d6ad60] bg-[#d6ad60]/10 shadow-[0_0_12px_rgba(214,173,96,0.2)]"
-                      : "border-white/5 bg-white/5 hover:border-white/10 hover:bg-white/10"
+                      ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#d6ad60]/20 to-transparent text-[#d6ad60] shadow-[0_0_15px_rgba(214,173,96,0.15)] ring-1 ring-[#d6ad60]/30"
+                      : "border-white/5 bg-white/5 text-foreground/70 hover:border-white/20 hover:bg-white/10 hover:text-foreground hover:shadow-lg"
                   } ${s.disabled ? "cursor-not-allowed opacity-40" : ""}`}
                 >
-                  {hasCache && (
+                {hasCache && (
                     <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.8)]" />
                   )}
                   {s.disabled && (

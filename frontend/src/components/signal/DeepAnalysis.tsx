@@ -1,14 +1,12 @@
 "use client";
 
 /**
- * DeepAnalysis — تحلیل و چرایی (نسخه ۹.۰ · فاز ۱۶.۱)
+ * DeepAnalysis — تحلیل و چرایی (نسخه ۱۰.۰ · UI Polish)
  * ============================================================
- * 🔴 تغییرات نسخه ۹.۰:
- *   • رفع باگ false-positive «خلاف جهت» (Regex دقیق LONG/SHORT)
- *   • برچسب «شانس موفقیت» به‌جای «X٪»
- *   • توضیح راهنما بالای سناریوها
- *   • فارسی‌سازی Pump/Dump
- *   • بهبود رنگ‌بندی و فاصله‌گذاری هشدارها
+ * 🔴 تغییرات جدید:
+ *   • هماهنگ‌سازی رنگ‌ها با تم طلایی/خاکستری
+ *   • حذف رنگ‌های آبی و زرد تند
+ *   • استایل شیشه‌ای برای بخش‌های اصلی
  */
 
 import {
@@ -67,22 +65,22 @@ function buildNarrative(data: any): {
   let headline = "";
   if (isLong) {
     headline = isWeak
-      ? `🟡 خرید ضعیف — بهتره با احتیاط وارد شی`
+      ? `خرید ضعیف — بهتره با احتیاط وارد شی`
       : conf >= 70
-      ? `✅ خرید قوی — شرایط مساعدِ`
-      : `🟢 سیگنال خرید — شرایط مناسبه`;
+      ? `خرید قوی — شرایط مساعدِ`
+      : `سیگنال خرید — شرایط مناسبه`;
   } else if (isShort) {
     headline = isWeak
-      ? `🟠 فروش ضعیف — پرریسکه، با احتیاط`
+      ? `فروش ضعیف — پرریسکه، با احتیاط`
       : conf >= 70
-      ? `🔴 فروش قوی — شرایط مساعدِ`
-      : `🔴 سیگنال فروش — شرایط مناسبه`;
+      ? `فروش قوی — شرایط مساعدِ`
+      : `سیگنال فروش — شرایط مناسبه`;
   } else if (isForming) {
-    headline = `⏳ در حال تشکیل — هنوز سیگنال کامل نشده`;
+    headline = `در حال تشکیل — هنوز سیگنال کامل نشده`;
   } else if (isFar) {
-    headline = `⚪ دور از ورود — فعلاً صبر کن`;
+    headline = `دور از ورود — فعلاً صبر کن`;
   } else {
-    headline = `⚪ بدون سیگنال — بهترین کار، صبر کردنه`;
+    headline = `بدون سیگنال — بهترین کار، صبر کردنه`;
   }
 
   const reasons = data.reasons || [];
@@ -113,17 +111,17 @@ function buildNarrative(data: any): {
 
   let action = "";
   if (isLong && conf >= 70) {
-    action = `✅ می‌تونی وارد شی — ولی مدیریت سرمایه یادت نره (حداکثر ۲-۳٪).\n💡 حتماً حد ضرر بذار.`;
+    action = `می‌تونی وارد شی — ولی مدیریت سرمایه یادت نره (حداکثر ۲-۳٪).\nحتماً حد ضرر بذار.`;
   } else if (isLong && isWeak) {
-    action = `🟡 با احتیاط وارد شو — فقط ۰.۵-۱٪ سرمایه.\n💡 حرکت ضعیفه، TP رو نزدیک‌تر بذار.`;
+    action = `با احتیاط وارد شو — فقط ۰.۵-۱٪ سرمایه.\nحرکت ضعیفه، TP رو نزدیک‌تر بذار.`;
   } else if (isShort && conf >= 70) {
-    action = `✅ SHORT منطقیه — ولی حد ضرر تنگ بذار.\n💡 نوسان ممکنه بالا باشه، مراقب باش.`;
+    action = `SHORT منطقیه — ولی حد ضرر تنگ بذار.\nنوسان ممکنه بالا باشه، مراقب باش.`;
   } else if (isShort && isWeak) {
-    action = `🟠 با احتیاط SHORT بزن — فقط با حجم کم.\n💡 ریسک بالاست، حد ضرر نزدیک بذار.`;
+    action = `با احتیاط SHORT بزن — فقط با حجم کم.\nریسک بالاست، حد ضرر نزدیک بذار.`;
   } else if (isForming) {
-    action = `⏳ صبر کن — سیگنال در حال کامله.\n💡 چند دقیقه دیگه چک کن یا TF رو عوض کن.`;
+    action = `صبر کن — سیگنال در حال کامله.\nچند دقیقه دیگه چک کن یا TF رو عوض کن.`;
   } else {
-    action = `⏸ وارد نشو — بهترین معامله، معامله‌ای هست که انجام نشه.\n💡 صبر کن تا سیگنال واضح بیاد.`;
+    action = `وارد نشو — بهترین معامله، معامله‌ای هست که انجام نشه.\nصبر کن تا سیگنال واضح بیاد.`;
   }
 
   return { headline, why, action };
@@ -137,16 +135,15 @@ function ScenarioCard({
   mainDirection: string;
 }) {
   const colorMap: Record<string, string> = {
-    green: "border-green-500/30 bg-green-500/5 text-green-400",
-    red: "border-red-500/30 bg-red-500/5 text-red-400",
-    yellow: "border-yellow-500/30 bg-yellow-500/5 text-yellow-400",
+    green: "border-green-500/20 bg-green-500/5 text-green-400/90",
+    red: "border-red-500/20 bg-red-500/5 text-red-400/90",
+    yellow: "border-[#d6ad60]/20 bg-[#d6ad60]/5 text-[#d6ad60]/90",
   };
   const color = scenario.color || "yellow";
   const probability = Math.round((scenario.probability || 0.5) * 100);
   const condition = scenario.condition || "";
   const action = scenario.action || "";
 
-  // 🔴 فاز ۱۶.۱ — فقط LONG/SHORT انگلیسی کامل
   const isLongScenario = /\bLONG\b/i.test(action);
   const isShortScenario = /\bSHORT\b/i.test(action);
   const isConflict =
@@ -157,10 +154,10 @@ function ScenarioCard({
     <div
       className={`rounded-lg border p-2.5 ${
         colorMap[color] || colorMap.yellow
-      } transition-all hover:bg-white/10 relative`}
+      } transition-all hover:bg-white/5 relative`}
     >
       {isConflict && (
-        <div className="absolute -top-2 -left-2 rounded bg-orange-700 text-[8px] font-bold text-white px-1.5 py-0.5 shadow-sm z-10">
+        <div className="absolute -top-2 -left-2 rounded bg-orange-600 text-[8px] font-bold text-white px-1.5 py-0.5 shadow-sm z-10">
           ⚠️ خلاف جهت
         </div>
       )}
@@ -235,27 +232,27 @@ export function DeepAnalysis() {
         <div
           className={`rounded-lg border px-2.5 py-2 ${
             pumpWarning === "alert"
-              ? "border-red-500/40 bg-red-500/10"
-              : "border-amber-500/40 bg-amber-500/10"
+              ? "border-red-500/30 bg-red-500/5"
+              : "border-[#d6ad60]/30 bg-[#d6ad60]/5"
           }`}
         >
           <div className="flex items-center gap-1.5">
             <Zap
               className={`h-3.5 w-3.5 ${
-                pumpWarning === "alert" ? "text-red-500" : "text-amber-500"
+                pumpWarning === "alert" ? "text-red-500" : "text-[#d6ad60]"
               }`}
             />
             <span
               className={`text-[10px] font-bold ${
-                pumpWarning === "alert" ? "text-red-500" : "text-amber-500"
+                pumpWarning === "alert" ? "text-red-500" : "text-[#d6ad60]"
               }`}
             >
               {pumpType === "pump" &&
-                `⚠️ حرکت صعودی غیرعادی (${pumpScore}/100)`}
+                `حرکت صعودی غیرعادی (${pumpScore}/100)`}
               {pumpType === "dump" &&
-                `⚠️ حرکت نزولی غیرعادی (${dumpScore}/100)`}
+                `حرکت نزولی غیرعادی (${dumpScore}/100)`}
               {pumpType === "both" &&
-                `⚠️ نوسان شدید (صعودی ${pumpScore}، نزولی ${dumpScore})`}
+                `نوسان شدید (صعودی ${pumpScore}، نزولی ${dumpScore})`}
             </span>
           </div>
           <p className="mt-1 text-[9px] text-foreground/70">
@@ -268,8 +265,8 @@ export function DeepAnalysis() {
 
       {/* هشدار تله‌ها */}
       {activeTraps.length > 0 && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-2.5">
-          <p className="text-[10px] font-bold text-red-500 mb-1.5 flex items-center gap-1">
+        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
+          <p className="text-[10px] font-bold text-red-500/90 mb-1.5 flex items-center gap-1">
             <AlertTriangle className="h-3 w-3" />
             {activeTraps.length} تله فعال
           </p>
@@ -283,11 +280,11 @@ export function DeepAnalysis() {
               return (
                 <div
                   key={k}
-                  className="rounded-md border border-red-500/20 bg-red-500/5 px-2 py-1.5"
+                  className="rounded-md border border-red-500/10 bg-red-500/5 px-2 py-1.5"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-red-500">
-                      🚨 {TRAP_LABELS[k] || k}
+                    <span className="text-[10px] font-bold text-red-500/90">
+                      {TRAP_LABELS[k] || k}
                     </span>
                     <span className="num text-[8px] text-muted-foreground">
                       شدت {trap.severity || 0}/10
@@ -303,7 +300,7 @@ export function DeepAnalysis() {
         </div>
       )}
 
-      {/* تحلیل روایی */}
+      {/* تحلیل روایی - استراتژی */}
       <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 py-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[12px]">{strategyMeta.icon}</span>
@@ -324,8 +321,8 @@ export function DeepAnalysis() {
       </div>
 
       {/* چرا؟ */}
-      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2">
-        <p className="text-[9px] font-bold text-blue-400 mb-1 flex items-center gap-1">
+      <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 py-2">
+        <p className="text-[9px] font-bold text-[#d6ad60] mb-1 flex items-center gap-1">
           <Lightbulb className="h-3 w-3" />
           چرا این سیگنال؟
         </p>
@@ -337,12 +334,11 @@ export function DeepAnalysis() {
       {/* چیکار کنم؟ */}
       <div
         className={`rounded-lg border px-2.5 py-2 ${
-          narrative.action.includes("✅")
-            ? "border-green-500/30 bg-green-500/5"
-            : narrative.action.includes("⏸") ||
-              narrative.action.includes("⏳")
-            ? "border-amber-500/30 bg-amber-500/5"
-            : "border-orange-500/30 bg-orange-500/5"
+          narrative.action.includes("وارد شی") || narrative.action.includes("SHORT منطقیه")
+            ? "border-green-500/20 bg-green-500/5"
+            : narrative.action.includes("صبر کن") || narrative.action.includes("وارد نشو")
+            ? "border-[#d6ad60]/20 bg-[#d6ad60]/5"
+            : "border-red-500/20 bg-red-500/5"
         }`}
       >
         <p className="text-[9px] font-bold text-foreground/80 mb-1">
@@ -360,9 +356,6 @@ export function DeepAnalysis() {
             <GitBranch className="h-3 w-3" />
             سناریوهای پیش‌رو ({scenarios.length})
           </p>
-          <p className="text-[9px] text-muted-foreground/70 mb-2 leading-relaxed">
-            💡 «شانس موفقیت» یعنی: از ۱۰۰ بار مشابه، چند بار احتمال داره درست باشه
-          </p>
           <div className="space-y-2">
             {scenarios.map((sc, i) => (
               <ScenarioCard
@@ -376,7 +369,7 @@ export function DeepAnalysis() {
       )}
 
       {/* هشدار نهایی */}
-      <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-2.5 py-2 text-[9px] text-yellow-500/80 leading-relaxed">
+      <div className="rounded-lg border border-[#d6ad60]/10 bg-[#d6ad60]/5 px-2.5 py-2 text-[9px] text-[#d6ad60]/80 leading-relaxed">
         ⚠️ این تحلیل بر اساس دیتای فعلی هست. بازار ممکنه متفاوت عمل کنه.
         همیشه با حد ضرر و مدیریت سرمایه وارد شو.
       </div>

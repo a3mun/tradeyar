@@ -161,7 +161,9 @@ type TabKey =
   | "tools"
   | "zibal"
   | "refunds"
-  | "verification";
+  | "verification"
+  | "pricing"; // 🔴 این خط باید حتماً باشه
+
 
 // 🔴 تابع تشخیص دستگاه و مرورگر
 const parseUserAgent = (ua: string) => {
@@ -226,6 +228,7 @@ export default function AdminPage() {
   const [userDetails, setUserDetails] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [adjustDays, setAdjustDays] = useState<number>(0);
+  const [basePrice, setBasePrice] = useState<number>(390000); // 🔴 قیمت پایه یک ماهه
   const [sendSmsPlan, setSendSmsPlan] = useState(false);
   const [sendSmsDays, setSendSmsDays] = useState(false);
   const [inputWinRateDict, setInputWinRateDict] = useState<Record<string, string>>({});
@@ -241,6 +244,10 @@ export default function AdminPage() {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+   // 🔴 Stateهای تب مدیریت قیمت‌ها
+  const [pricingPlans, setPricingPlans] = useState<any[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{
     type: "delete" | "admin" | "action" | "delete_backups";
     id?: number;
@@ -359,7 +366,94 @@ export default function AdminPage() {
     } catch {}
   };
 
-const saveOverride = async (key: string, value: number) => {
+
+  // 🔴 دریافت قیمت‌ها از بک‌اند
+const fetchPricing = async () => {
+  setPricingLoading(true);
+  try {
+    const res = await fetch(`${apiUrl}/admin/pricing`);
+    if (res.ok) {
+      const data = await res.json();
+      
+      // 🔴 استخراج قیمت پایه از پلن یک ماهه
+      if (data["1_month"]) {
+        setBasePrice(data["1_month"].old_price || data["1_month"].price);
+      }
+
+      const formatted = Object.entries(data).map(([id, v]: [string, any]) => ({
+        id,
+        title: id === "1_month" ? "یک ماهه" : id === "3_months" ? "سه ماهه" : id === "6_months" ? "شش ماهه" : "یک ساله",
+        price: v.price,
+        oldPrice: v.old_price,
+        discount: v.discount,
+        days: id === "1_month" ? 30 : id === "3_months" ? 90 : id === "6_months" ? 180 : 365,
+        popular: v.popular,
+      }));
+      setPricingPlans(formatted);
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setPricingLoading(false);
+  }
+};
+  
+// 🔴 محاسبه خودکار قیمت‌ها بر اساس قیمت پایه
+const recalcPrices = (base: number, currentPlans: any[]) => {
+  return currentPlans.map((plan) => {
+    // محاسبه قیمت قبلی (بدون تخفیف) بر اساس ضریب
+    let multiplier = 1;
+    if (plan.id === "3_months") multiplier = 3;
+    if (plan.id === "6_months") multiplier = 6;
+    if (plan.id === "12_months") multiplier = 12;
+    
+    const calculatedOldPrice = base * multiplier;
+    
+    // محاسبه درصد تخفیف
+    let discount = 0;
+    if (calculatedOldPrice > 0 && plan.price < calculatedOldPrice) {
+      discount = Math.round(((calculatedOldPrice - plan.price) / calculatedOldPrice) * 100);
+    }
+    
+    return {
+      ...plan,
+      oldPrice: calculatedOldPrice,
+      discount: discount,
+    };
+  });
+};
+
+  // 🔴 ذخیره قیمت‌ها به بک‌اند
+  const savePricing = async () => {
+    setPricingSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/admin/pricing/update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(
+          pricingPlans.map((p) => ({
+            plan_id: p.id,
+            price: p.price,
+            old_price: p.oldPrice,
+            discount: p.discount,
+            popular: p.popular,
+          }))
+        ),
+      });
+      if (!res.ok) throw new Error("خطا در ذخیره");
+      alert("✅ قیمت‌ها با موفقیت ذخیره شدند");
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setPricingSaving(false);
+    }
+  };
+
+
+  const saveOverride = async (key: string, value: number) => {
   if (value < 0 || value > 100) {
       alert("مقدار باید بین ۰ تا ۱۰۰ باشد");
       return;
@@ -424,6 +518,7 @@ const deleteOverride = async (key: string) => {
     setUserData(u);
     fetchData();
     if (activeTab === "verification") fetchSiteStats();
+    if (activeTab === "pricing") fetchPricing(); // 🔴 اضافه شد
   }, [router, activeTab]);
   
   const fetchData = async () => {
@@ -456,6 +551,9 @@ const deleteOverride = async (key: string) => {
         });
         const data = await res.json();
         if (res.ok) setRefunds(data.items || []);
+      } else if (activeTab === "pricing") {
+        // 🔴 فراخوانی تابع دریافت قیمت‌ها هنگام باز شدن تب
+        await fetchPricing();
       }
       fetchStats();
     } catch (err) {
@@ -464,7 +562,7 @@ const deleteOverride = async (key: string) => {
       setLoading(false);
     }
   };
-
+  
   const { connected } = useAdminNotifications((n) => {
     setNotifications((prev) => [n, ...prev].slice(0, 5));
     fetchData();
@@ -553,6 +651,7 @@ const deleteOverride = async (key: string) => {
       console.error(err);
     }
   };
+
 
   const requestConfirm = (
     type: "delete" | "admin" | "action" | "delete_backups",
@@ -671,29 +770,27 @@ const deleteOverride = async (key: string) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // 🔴 این خط توکن رو پاس می‌ده
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           new_date_jalali: newExpiryDate,
-          send_sms: sendSmsDays,
+          send_sms: sendSmsDays,  // 🔴 این خط مهمه
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "خطا در تغییر تاریخ");
-      
-      alert("تاریخ انقضا با موفقیت تغییر یافت");
+
+      alert(data.message || "تاریخ با موفقیت تغییر کرد");
       setNewExpiryDate("");
-      
-      // 🔴 اگر تابعی برای رفرش اطلاعات داری، اینجا صداش بزن. مثلا:
-      // setSelectedUser({ ...selectedUser }); // یا هر تابعی که اطلاعات رو دوباره می‌گیره
+      // رفرش اطلاعات کاربر
+      await fetchData();
       
     } catch (err: any) {
-      alert(err.message || "خطا در ارتباط با سرور");
+      alert(err.message);
     }
   };
-
-
+  
   const handleResetPassword = () => {
     if (!newPasswordForUser || newPasswordForUser.length < 6)
       return alert("رمز جدید باید حداقل ۶ حرف باشد");
@@ -982,7 +1079,7 @@ const deleteOverride = async (key: string) => {
 
   if (!user)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#030712] text-white">
         در حال بارگذاری...
       </div>
     );
@@ -1090,7 +1187,7 @@ const deleteOverride = async (key: string) => {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 sm:gap-4">
           <button
             onClick={() => setActiveTab("users")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-[#d6ad60]/10 p-2 text-[#d6ad60] sm:p-3">
               <Users className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1105,7 +1202,7 @@ const deleteOverride = async (key: string) => {
 
           <button
             onClick={() => setActiveTab("users")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-green-500/10 p-2 text-green-400 sm:p-3">
               <TrendingUp className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1122,7 +1219,7 @@ const deleteOverride = async (key: string) => {
 
           <button
             onClick={() => setActiveTab("payments")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-yellow-500/10 p-2 text-yellow-400 sm:p-3">
               <CreditCard className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1138,7 +1235,7 @@ const deleteOverride = async (key: string) => {
           </button>
 
           <Link href="/admin/tickets">
-            <div className="group relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#1a2c45] hover:to-[#051118] sm:gap-4 sm:p-5">
+            <div className="group relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#1a2c45] hover:to-[#051118] sm:gap-4 sm:p-5">
               {ticketStats?.unread_count > 0 && (
                 <div className="absolute right-0 top-0 flex h-12 w-12 items-start justify-end rounded-bl-full bg-[#d6ad60]/10 p-1.5 sm:h-16 sm:w-16 sm:p-2">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#d6ad60] sm:h-2 sm:w-2"></span>
@@ -1173,7 +1270,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-green-500/10 p-2 text-green-400 sm:p-3">
               <TrendingUp className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1196,7 +1293,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-purple-500/10 p-2 text-purple-400 sm:p-3">
               <RefreshCw className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1219,7 +1316,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.7 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400 sm:p-3">
               <DollarSign className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1244,7 +1341,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#07111f] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
           >
             <div className="rounded-xl bg-yellow-500/10 p-2 text-yellow-400 sm:p-3">
               <Hourglass className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1340,6 +1437,7 @@ const deleteOverride = async (key: string) => {
               </Button>
             </Link>
 
+
             <Button
               variant={activeTab === "tools" ? "default" : "ghost"}
               onClick={() => setActiveTab("tools")}
@@ -1365,6 +1463,20 @@ const deleteOverride = async (key: string) => {
               <Target className="h-4 w-4" />
               <span className="hidden sm:inline">راستی‌آزمایی</span>
             </Button>
+
+            <button
+              onClick={() => setActiveTab("pricing")}
+              className={`flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-all ${
+                activeTab === "pricing"
+                  ? "bg-[#d6ad60] text-[#030712] shadow-md"
+                  : "text-gray-400 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <DollarSign className="h-4 w-4" />
+              <span className="hidden sm:inline">مدیریت قیمت‌ها</span>
+            </button>
+
+
           </div>
         </div>
 
@@ -2117,7 +2229,7 @@ const deleteOverride = async (key: string) => {
             </details>
 
             {/* ۲. کنترل آمار نمایشی (بخش تنظیمات مدیر) - کشویی و پیش‌فرض بسته */}
-            <details className="group rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#051118] to-[#07111f] shadow-xl [&_summary::-webkit-details-marker]:hidden">
+            <details className="group rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#051118] to-[#030712] shadow-xl [&_summary::-webkit-details-marker]:hidden">
               <summary className="flex cursor-pointer items-center justify-between p-4">
                 <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
                   <Target className="h-4 w-4" />
@@ -2217,6 +2329,122 @@ const deleteOverride = async (key: string) => {
 
           </div>
         )}
+
+        {activeTab === "pricing" && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-[#d6ad60] flex items-center gap-2">
+                <DollarSign className="h-5 w-5" /> مدیریت قیمت‌های اشتراک
+              </h2>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={fetchPricing} disabled={pricingLoading} className="border-white/10 text-gray-300 hover:bg-white/5">
+                  <RotateCcw className={`h-4 w-4 ${pricingLoading ? "animate-spin" : ""}`} /> بازخوانی
+                </Button>
+                <Button onClick={savePricing} disabled={pricingSaving} className="bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#030712] font-bold hover:opacity-90">
+                  <Save className="h-4 w-4" /> {pricingSaving ? "در حال ذخیره..." : "ذخیره تغییرات"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-6">
+              {/* 🔴 فیلد قیمت پایه یک ماهه */}
+              <div className="mb-6 rounded-xl border border-[#d6ad60]/30 bg-[#d6ad60]/5 p-4">
+                <label className="text-xs font-bold text-[#d6ad60] mb-2 block">
+                  قیمت پایه (یک ماهه - بدون تخفیف)
+                </label>
+                <Input
+                  type="number"
+                  value={basePrice}
+                  onChange={(e) => {
+                    const newBase = Number(e.target.value);
+                    setBasePrice(newBase);
+                    // 🔴 محاسبه مجدد همه قیمت‌های قبلی بر اساس قیمت پایه جدید
+                    setPricingPlans(recalcPrices(newBase, pricingPlans));
+                  }}
+                  className="h-10 bg-black/40 border-[#d6ad60]/20 text-white text-sm dir-ltr w-full max-w-xs"
+                  dir="ltr"
+                />
+                <p className="text-[10px] text-gray-400 mt-2">
+                  با تغییر این عدد، قیمت قبلی سایر پلن‌ها (سه‌ماهه، شش‌ماهه، یک‌ساله) به صورت خودکار محاسبه می‌شود.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {pricingPlans.map((plan, idx) => (
+                  <div key={plan.id} className="rounded-xl border border-white/5 bg-black/20 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-gray-200">{plan.title} ({plan.days} روز)</h3>
+                      {plan.popular && (
+                        <span className="bg-[#d6ad60] text-[#030712] text-[9px] font-bold px-2 py-0.5 rounded-full">پرفروش</span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block">قیمت فعلی (تومان)</label>
+                        <Input
+                          type="number"
+                          value={plan.price}
+                          onChange={(e) => {
+                            const newPlans = [...pricingPlans];
+                            newPlans[idx].price = Number(e.target.value);
+                            // محاسبه مجدد تخفیف
+                            const p = newPlans[idx];
+                            if (p.oldPrice > 0 && p.price < p.oldPrice) {
+                              p.discount = Math.round(((p.oldPrice - p.price) / p.oldPrice) * 100);
+                            } else {
+                              p.discount = 0;
+                            }
+                            setPricingPlans(newPlans);
+                          }}
+                          className="h-9 bg-black/40 border-white/10 text-white text-sm dir-ltr"
+                          dir="ltr"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-400 mb-1 block">قیمت قبلی (خودکار)</label>
+                        <Input
+                          type="number"
+                          value={plan.oldPrice}
+                          disabled
+                          className="h-9 bg-black/20 border-white/5 text-gray-400 text-sm dir-ltr cursor-not-allowed"
+                          dir="ltr"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg bg-[#d6ad60]/10 px-3 py-2">
+                      <span className="text-[10px] text-gray-400">درصد تخفیف:</span>
+                      <span className="text-sm font-bold text-[#d6ad60]">{plan.discount}٪</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id={`popular-${plan.id}`}
+                        checked={plan.popular}
+                        onChange={(e) => {
+                          const newPlans = [...pricingPlans];
+                          newPlans.forEach((p, i) => { if (i !== idx) p.popular = false; });
+                          newPlans[idx].popular = e.target.checked;
+                          setPricingPlans(newPlans);
+                        }}
+                        className="accent-[#d6ad60]"
+                      />
+                      <label htmlFor={`popular-${plan.id}`} className="text-xs text-gray-400 cursor-pointer">
+                        نمایش به عنوان «پیشنهاد ویژه»
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+
+
+
       </main>
 
       {/* ═══ مودال افزودن کاربر ═══ */}
@@ -2292,305 +2520,298 @@ const deleteOverride = async (key: string) => {
 
 
       {/* ═══ مودال جزئیات کاربر ═══ */}
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent 
-          className="max-h-[95vh] w-[95vw] overflow-y-auto border-white/10 bg-[#07111f] p-0 gap-0 text-white shadow-2xl"
-          style={{ maxWidth: "1200px", width: "95vw" }} // 🔴 عرض دسکتاپ رو زورکی پهن کردیم
-        >
-          {/* ═══ هدر ثابت (Sticky) ═══ */}
-          <DialogHeader className="sticky top-0 z-20 bg-[#07111f]/95 backdrop-blur border-b border-white/10 px-4 py-4 sm:px-6 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-lg font-bold text-[#d6ad60]">
-              <UserCheck className="h-5 w-5" /> 
-              <span className="dir-ltr">{selectedUser?.phone}</span>
-              {userDetails?.user?.full_name && (
-                <span className="text-sm font-normal text-gray-400">({userDetails.user.full_name})</span>
-              )}
-            </DialogTitle>
-            {/* 🔴 دکمه بستن (بدون asChild) */}
-            <DialogClose className="rounded-full p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
-              <XIcon className="h-5 w-5" />
-            </DialogClose>
-          </DialogHeader>
+{/* ═══ مودال جزئیات کاربر ═══ */}
+<Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+  <DialogContent 
+    className="max-h-[95vh] w-[95vw] overflow-y-auto border-white/10 bg-[#030712] p-0 gap-0 text-white shadow-2xl"
+    style={{ maxWidth: "1200px" }}
+  >
+    {/* هدر ثابت (Sticky) */}
+    <DialogHeader className="sticky top-0 z-20 bg-[#030712]/95 backdrop-blur border-b border-white/10 px-4 py-4 sm:px-6 flex flex-row items-center justify-between">
+      <DialogTitle className="flex items-center gap-2 text-lg font-bold text-[#d6ad60]">
+        <UserCheck className="h-5 w-5" /> 
+        <span className="dir-ltr">{selectedUser?.phone}</span>
+        {userDetails?.user?.full_name && (
+          <span className="text-sm font-normal text-gray-400">({userDetails.user.full_name})</span>
+        )}
+      </DialogTitle>
+      <DialogClose className="rounded-full p-1.5 text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
+        <XIcon className="h-5 w-5" />
+      </DialogClose>
+    </DialogHeader>
 
-          {userDetails ? (
-            <div className="p-4 sm:p-6 space-y-6">
-              
-              {/* ═══ شبکه اصلی (دسکتاپ ۳ ستونه، تبلت ۲ ستونه، موبایل ۱ ستونه) ═══ */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-
-                {/* ─── ستون ۱: مشخصات کاربر + تیکت ─── */}
-                <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm flex flex-col">
-                  <h3 className="mb-4 text-sm font-bold text-gray-200 flex items-center gap-2">
-                    <UserIcon className="h-4 w-4 text-[#d6ad60]" /> مشخصات کاربر
-                  </h3>
-                  <div className="space-y-3 text-[11px] sm:text-xs flex-1">
-
-                    <div className="flex justify-between items-center bg-black/20 p-2.5 rounded-lg">
-                      <span className="text-gray-400">وضعیت:</span>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${isUserOnline(userDetails.user.last_seen_at) ? "bg-green-500/10 text-green-400" : "bg-gray-500/10 text-gray-400"}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${isUserOnline(userDetails.user.last_seen_at) ? "bg-green-500 animate-pulse" : "bg-gray-500"}`} />
-                        {isUserOnline(userDetails.user.last_seen_at) ? "آنلاین" : "آفلاین"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                      <span className="text-gray-400">تاریخ عضویت:</span>
-                      <span className="dir-ltr font-medium text-gray-200">{formatFaDate(userDetails.user.created_at)}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                      <span className="text-gray-400">آخرین ورود:</span>
-                      <span className="dir-ltr text-gray-300">{formatFaDateTime(userDetails.user.last_login)}</span>
-                    </div>
-                    <div className="flex flex-col gap-1 border-b border-white/5 pb-2">
-                      <span className="text-gray-400">مرورگر و دستگاه:</span>
-                      <span className="text-gray-300 bg-white/5 px-2 py-1 rounded dir-ltr text-[10px] break-all leading-relaxed">
-                        {parseUserAgent(userDetails.user.last_user_agent).device} / {parseUserAgent(userDetails.user.last_user_agent).browser}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center pb-1">
-                      <span className="text-gray-400">آی‌پی:</span>
-                      <div className="flex items-center gap-2">
-                        <span className="dir-ltr font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">{userDetails.user.last_ip || "نامشخص"}</span>
-                        {userDetails.user.last_ip && (
-                          <button onClick={() => navigator.clipboard.writeText(userDetails.user.last_ip)} className="text-[10px] text-[#d6ad60] hover:text-white transition-colors" title="کپی آی‌پی">کپی</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+    {userDetails ? (
+      <div className="p-4 sm:p-6 space-y-5">
+        
+        {/* ─── ردیف اول: ۳ کارت بالا ─── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          
+          {/* ۱. مشخصات کاربر */}
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col justify-between h-[240px]">
+            <div>
+              <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
+                <UserIcon className="h-4 w-4 text-[#d6ad60]" /> مشخصات کاربر
+              </h3>
+              <div className="space-y-2.5 text-[11px]">
+                <div className="flex justify-between items-center bg-black/20 p-2 rounded-lg">
+                  <span className="text-gray-400">وضعیت:</span>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${isUserOnline(userDetails.user.last_seen_at) ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-white/5 text-gray-400 border border-white/10"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${isUserOnline(userDetails.user.last_seen_at) ? "bg-green-500 animate-pulse" : "bg-gray-500"}`} />
+                    {isUserOnline(userDetails.user.last_seen_at) ? "آنلاین" : "آفلاین"}
+                    {userDetails.user.last_seen_at && (
+                      <span className="text-gray-500 font-normal mr-1">({formatFaDateTime(userDetails.user.last_seen_at)})</span>
+                    )}
+                  </span>
                 </div>
-
-                {/* ─── ستون ۲: وضعیت مالی ─── */}
-                <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm flex flex-col">
-                  <h3 className="mb-4 text-sm font-bold text-gray-200 flex items-center gap-2">
-                    <WalletIcon className="h-4 w-4 text-[#d6ad60]" /> وضعیت مالی
-                  </h3>
-                  <div className="flex-1 flex flex-col justify-center gap-3">
-                    <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-3 flex justify-between items-center">
-                      <span className="text-[11px] text-green-400 font-medium">جمع پرداختی‌ها:</span>
-                      <span className="text-sm font-bold text-green-400 dir-ltr">{(userDetails.total_paid || 0).toLocaleString("fa-IR")} <span className="text-[9px] text-gray-400 font-normal">تومان</span></span>
-                    </div>
-                    <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-3 flex justify-between items-center">
-                      <span className="text-[11px] text-purple-400 font-medium">جمع عودت‌ها:</span>
-                      <span className="text-sm font-bold text-purple-400 dir-ltr">{(userDetails.total_refunded || 0).toLocaleString("fa-IR")} <span className="text-[9px] text-gray-400 font-normal">تومان</span></span>
-                    </div>
-                    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 flex justify-between items-center">
-                      <span className="text-[11px] text-blue-400 font-medium">مانده خالص:</span>
-                      <span className="text-sm font-bold text-blue-400 dir-ltr">{(userDetails.net_balance || 0).toLocaleString("fa-IR")} <span className="text-[9px] text-gray-400 font-normal">تومان</span></span>
-                    </div>
-                  </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-gray-400">آخرین ورود:</span>
+                  <span className="dir-ltr text-gray-300">{formatFaDateTime(userDetails.user.last_login)}</span>
                 </div>
-
-                {/* ─── ستون ۳: تغییرات دستی ادمین (لاگ) ─── */}
-                <div className="rounded-2xl border border-yellow-500/20 bg-[#051118] p-4 sm:p-5 shadow-sm row-span-1 xl:row-span-2 flex flex-col">
-                  <h3 className="mb-4 text-sm font-bold text-yellow-500 flex items-center gap-2">
-                    <HistoryIcon className="h-4 w-4" /> تغییرات دستی ادمین
-                  </h3>
-                  <div className="flex-1 overflow-y-auto pr-1 space-y-2 max-h-[250px] xl:max-h-full">
-                    {!userDetails.subscription_logs || userDetails.subscription_logs.length === 0 ? (
-                      <div className="h-full flex items-center justify-center text-xs text-gray-500 py-6">تغییری توسط ادمین ثبت نشده است.</div>
-                    ) : (
-                      userDetails.subscription_logs.map((log: any) => (
-                        <div key={log.id} className="flex flex-col gap-1.5 rounded-lg border border-yellow-500/10 bg-yellow-500/5 p-2.5 text-[11px]">
-                          <span className="font-bold text-yellow-500 leading-tight">{log.description}</span>
-                          <div className="flex justify-between items-center text-[9px] text-gray-400 mt-1">
-                            <span className="bg-black/30 px-1.5 py-0.5 rounded">توسط: {log.admin_phone}</span>
-                            <span className="dir-ltr">{formatFaDateTime(log.created_at)}</span>
-                          </div>
-                        </div>
-                      ))
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-gray-400">آی‌پی:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="dir-ltr font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">{userDetails.user.last_ip || "نامشخص"}</span>
+                    {userDetails.user.last_ip && (
+                      <button onClick={() => navigator.clipboard.writeText(userDetails.user.last_ip)} className="text-[10px] text-[#d6ad60] hover:text-white transition-colors" title="کپی آی‌پی">کپی</button>
                     )}
                   </div>
                 </div>
-
-                {/* ─── ستون ۱ و ۲: مدیریت اشتراک ─── */}
-                <div className="rounded-2xl border border-[#d6ad60]/20 bg-[#051118] p-4 sm:p-5 shadow-sm lg:col-span-2 xl:col-span-2">
-                  <h3 className="mb-4 text-sm font-bold text-[#d6ad60] flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4" /> مدیریت اشتراک
-                  </h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {/* تغییر پلن */}
-                    <div>
-                      <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر پلن:</h4>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" className="h-8 border-green-500/30 text-green-400 hover:bg-green-500/10 text-xs" onClick={() => handleChangePlan("free")}>دوره رایگان</Button>
-                        {["1_month", "3_months", "6_months", "12_months"].map((plan) => (
-                          <Button key={plan} size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-white/10 text-xs" onClick={() => handleChangePlan(plan)}>
-                            {getPlanNameFa(plan)}
-                          </Button>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex items-center gap-2 bg-black/20 p-2 rounded-lg w-fit">
-                        <input type="checkbox" id="sendSmsPlan" checked={sendSmsPlan} onChange={(e) => setSendSmsPlan(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
-                        <label htmlFor="sendSmsPlan" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک اطلاع‌رسانی</label>
-                      </div>
-                    </div>
-
-                    {/* تغییرات تاریخ */}
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روزها (نسبت به تاریخ فعلی):</h4>
-                        <div className="flex items-center gap-2">
-                          <Input type="number" placeholder="مثلاً 30" value={adjustDays || ""} onChange={(e) => setAdjustDays(Number(e.target.value))} className="h-8 w-24 border-white/10 bg-black/30 text-white text-xs" />
-                          <Button size="sm" variant="outline" onClick={handleAdjustDays} className="h-8 gap-1 border-green-500/20 text-green-400 hover:bg-green-500/10 text-xs">اعمال</Button>
-                          <span className="text-[9px] text-gray-500">(منفی = کاهش)</span>
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="mb-2 text-[11px] font-bold text-gray-300">تنظیم دستی تاریخ (شمسی):</h4>
-                        <div className="flex items-center gap-2">
-                          <Input type="text" placeholder="1405/11/25" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} className="h-8 w-32 border-white/10 bg-black/30 text-white text-xs text-left dir-ltr" />
-                          <Button size="sm" variant="outline" onClick={handleSetExpiryDate} className="h-8 gap-1 border-blue-500/20 text-blue-400 hover:bg-blue-500/10 text-xs">اعمال</Button>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 bg-black/20 p-2 rounded-lg w-fit">
-                        <input type="checkbox" id="sendSmsDays" checked={sendSmsDays} onChange={(e) => setSendSmsDays(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
-                        <label htmlFor="sendSmsDays" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک برای تاریخ</label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* ─── ستون ۱ و ۲: تاریخچه کامل اشتراک‌ها ─── */}
-                <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm lg:col-span-2 xl:col-span-2">
-                  <h3 className="mb-4 text-sm font-bold text-gray-200 flex items-center gap-2">
-                    <ClockIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه کامل اشتراک‌ها
-                  </h3>
-                  <div className="overflow-x-auto">
-                    {userDetails.subscriptions.length === 0 ? <p className="text-xs text-gray-500">هیچ سابقه‌ای یافت نشد.</p> : (
-                      <table className="w-full text-right text-xs">
-                        <thead>
-                          <tr className="border-b border-white/10 text-gray-400">
-                            <th className="pb-2 font-medium">پلن</th>
-                            <th className="pb-2 font-medium">تاریخ شروع</th>
-                            <th className="pb-2 font-medium">تاریخ پایان</th>
-                            <th className="pb-2 font-medium">وضعیت</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                          {userDetails.subscriptions.map((s: any) => (
-                            <tr key={s.id} className="hover:bg-white/5 transition-colors">
-                              <td className="py-2.5 font-bold text-gray-200">{getPlanNameFa(s.plan)}</td>
-                              <td className="py-2.5 text-gray-400 dir-ltr">{formatFaDate(s.start)}</td>
-                              <td className="py-2.5 text-gray-400 dir-ltr">{s.end ? formatFaDate(s.end) : "نامحدود"}</td>
-                              <td className="py-2.5">
-                                <span className={`inline-block rounded px-2 py-0.5 text-[9px] font-bold ${s.status === "active" ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
-                                  {s.status === "active" ? "فعال" : "منقضی"}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
-
-                {/* ─── ستون ۳: امنیت و دسترسی + منطقه خطر ─── */}
-                <div className="space-y-5 xl:row-span-1">
-                  <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm space-y-4">
-                    <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2"><LockIcon className="h-4 w-4 text-[#d6ad60]" /> امنیت و دسترسی</h3>
-                    <div>
-                      <h4 className="mb-2 text-[11px] text-gray-400">ریست رمز عبور:</h4>
-                      <div className="flex gap-2">
-                        <Input type="text" placeholder="رمز جدید (حداقل ۶ حرف)" value={newPasswordForUser} onChange={(e) => setNewPasswordForUser(e.target.value)} className="h-8 flex-1 border-white/10 bg-black/30 text-xs text-left dir-ltr" />
-                        <Button size="sm" variant="outline" onClick={handleResetPassword} className="h-8 gap-1 border-blue-500/20 text-blue-400 text-xs">ثبت</Button>
-                      </div>
-                    </div>
-                    {user.phone === "09129630901" && (
-                      <div>
-                        <h4 className="mb-2 text-[11px] text-gray-400">سطح دسترسی:</h4>
-                        {selectedUser.is_admin ? (
-                          selectedUser.phone !== "09129630901" && (
-                            <Button size="sm" variant="destructive" onClick={() => handleAction(selectedUser.id, `/admin/users/${selectedUser.id}/remove-admin`, "لغو دسترسی؟")} className="h-8 w-full gap-1 text-xs"><ShieldAlert className="h-3.5 w-3.5" /> لغو دسترسی ادمین</Button>
-                          )
-                        ) : (
-                          <Button size="sm" variant="outline" onClick={() => handleAction(selectedUser.id, `/admin/users/${selectedUser.id}/make-admin`, "ارتقا به مدیر؟")} className="h-8 w-full gap-1 border-orange-500/20 text-orange-400 text-xs"><ShieldAlert className="h-3.5 w-3.5" /> ارتقا به مدیر</Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 sm:p-5 shadow-sm space-y-3">
-                    <h3 className="text-sm font-bold text-red-400 flex items-center gap-2"><Trash2 className="h-4 w-4" /> منطقه خطر (حذف و عودت)</h3>
-                    <Button size="sm" variant="outline" onClick={() => setIsRefundModalOpen(true)} className="h-8 w-full gap-1 border-red-500/20 text-red-400 hover:bg-red-500/10 text-xs"><DollarSign className="h-3.5 w-3.5" /> ثبت درخواست عودت وجه</Button>
-                    <div className="h-px bg-red-500/10 my-2" />
-                    <div className="flex items-center gap-2 mb-2">
-                      <input type="checkbox" id="deleteHard" checked={deleteHard} onChange={(e) => setDeleteHard(e.target.checked)} className="accent-red-500 h-3.5 w-3.5 cursor-pointer" />
-                      <label htmlFor="deleteHard" className="text-[10px] text-red-400 cursor-pointer">حذف کامل (غیرقابل بازگشت)</label>
-                    </div>
-                    <Button size="sm" variant="destructive" onClick={handleDeleteUser} className="h-8 w-full gap-1 text-xs"><Trash2 className="h-3.5 w-3.5" /> حذف / غیرفعال‌سازی کاربر</Button>
-                  </div>
-                </div>
-
-                {/* ─── ستون ۱ و ۲: تاریخچه پرداخت‌ها ─── */}
-                <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm lg:col-span-2 xl:col-span-2">
-                  <h3 className="mb-4 text-sm font-bold text-gray-200 flex items-center gap-2">
-                    <ReceiptIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه پرداخت‌ها
-                  </h3>
-                  <div className="max-h-60 overflow-y-auto pr-1">
-                    {userDetails.payments.length === 0 ? <p className="text-xs text-gray-500">ندارد</p> : (
-                      <div className="space-y-2">
-                        {userDetails.payments.map((p: any) => {
-                          const isRefund = p.payment_method === "refund" || p.plan === "refund";
-                          return (
-                            <div key={p.id} className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border p-2.5 text-xs ${isRefund ? "border-purple-500/20 bg-purple-500/5" : "border-white/5 bg-white/5"}`}>
-                              <div className="flex items-center gap-3">
-                                <span className={`font-bold ${isRefund ? "text-purple-400" : "text-gray-200"}`}>{getPlanNameFa(p.plan)}</span>
-                                <span className="text-[10px] text-gray-400 dir-ltr">{p.amount.toLocaleString("fa-IR")} تومان</span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${p.status === "approved" ? "border-green-500/30 text-green-400" : p.status === "pending" ? "border-yellow-500/30 text-yellow-400" : "border-red-500/30 text-red-400"}`}>
-                                  {p.status === "approved" ? "تایید" : p.status === "pending" ? "در انتظار" : "رد شده"}
-                                </span>
-                                <span className="text-[10px] text-gray-400 dir-ltr">{formatFaDate(p.created_at)}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ─── ستون ۳: آمار دانلود افزونه ─── */}
-                <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 shadow-sm">
-                  <h3 className="mb-4 text-sm font-bold text-gray-200 flex items-center gap-2"><DownloadIcon className="h-4 w-4 text-[#d6ad60]" /> آمار دانلود افزونه</h3>
-                  {extStats ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-lg border border-white/5 bg-black/30 p-2.5 text-xs">
-                        <span className="text-gray-400">تعداد کل دانلودها:</span>
-                        <span className="font-bold text-white">{extStats.total_downloads} بار</span>
-                      </div>
-                      {extStats.logs && extStats.logs.length > 0 && (
-                        <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto pr-1">
-                          {extStats.logs.map((log: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between rounded border border-white/5 bg-white/5 p-1.5 text-[10px]">
-                              <span className="text-gray-300 dir-ltr">{formatFaDateTime(log.downloaded_at)}</span>
-                              <span className="dir-ltr font-mono text-gray-400">{log.ip_address}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : <p className="text-xs text-gray-500">در حال بارگذاری...</p>}
-                </div>
-
               </div>
             </div>
-          ) : (
-            <div className="flex justify-center py-20">
-              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-t-2 border-[#d6ad60]"></div>
+            <div className="flex flex-col gap-1 border-t border-white/5 pt-2 text-[10px]">
+              <span className="text-gray-400">مرورگر و دستگاه:</span>
+              <span className="text-gray-300 bg-white/5 px-2 py-1 rounded dir-ltr break-all">
+                {parseUserAgent(userDetails.user.last_user_agent).device} / {parseUserAgent(userDetails.user.last_user_agent).browser}
+              </span>
             </div>
-          )}
-
-          {/* ═══ فوتر مودال (دکمه بستن) ═══ */}
-          <div className="sticky bottom-0 bg-[#07111f]/95 backdrop-blur border-t border-white/10 px-4 py-3 sm:px-6 flex justify-end z-20">
-            <DialogClose className="border border-white/10 text-gray-300 hover:bg-white/5 hover:text-white h-9 px-4 rounded-md text-xs transition-colors">
-              بستن
-            </DialogClose>
           </div>
-        </DialogContent>
-      </Dialog>
+
+          {/* ۲. وضعیت مالی */}
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col h-[240px]">
+            <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
+              <WalletIcon className="h-4 w-4 text-[#d6ad60]" /> وضعیت مالی
+            </h3>
+            <div className="flex-1 flex flex-col justify-center gap-2.5">
+              <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-2 flex justify-between items-center">
+                <span className="text-[10px] text-green-400 font-medium">جمع پرداختی‌ها:</span>
+                <span className="text-xs font-bold text-green-400 dir-ltr">{(userDetails.total_paid || 0).toLocaleString("fa-IR")}</span>
+              </div>
+              <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-2 flex justify-between items-center">
+                <span className="text-[10px] text-purple-400 font-medium">جمع عودت‌ها:</span>
+                <span className="text-xs font-bold text-purple-400 dir-ltr">{(userDetails.total_refunded || 0).toLocaleString("fa-IR")}</span>
+              </div>
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-2 flex justify-between items-center">
+                <span className="text-[10px] text-blue-400 font-medium">مانده خالص:</span>
+                <span className="text-xs font-bold text-blue-400 dir-ltr">{(userDetails.net_balance || 0).toLocaleString("fa-IR")}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ۳. تغییرات دستی ادمین */}
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col h-[240px]">
+            <h3 className="mb-2 text-sm font-bold text-yellow-500 flex items-center gap-2">
+              <HistoryIcon className="h-4 w-4" /> تغییرات ادمین
+            </h3>
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              {!userDetails.subscription_logs || userDetails.subscription_logs.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-xs text-gray-500">تغییری ثبت نشده.</div>
+              ) : (
+                userDetails.subscription_logs.map((log: any) => (
+                  <div key={log.id} className="flex flex-col gap-1 rounded-lg border border-white/5 bg-black/20 p-2 text-[10px]">
+                    <span className="font-bold text-gray-200 leading-tight">{log.description}</span>
+                    <div className="flex justify-between items-center text-[9px] text-gray-400 mt-0.5">
+                      <span>{log.admin_phone}</span>
+                      <span className="dir-ltr">{formatFaDateTime(log.created_at)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── ردیف دوم: مدیریت اشتراک ─── */}
+        <div className="rounded-2xl border border-[#d6ad60]/20 bg-[#051118] p-4 sm:p-5 shadow-sm">
+          <h3 className="mb-4 text-sm font-bold text-[#d6ad60] flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" /> مدیریت اشتراک
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر پلن:</h4>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs" onClick={() => handleChangePlan("free")}>دوره رایگان</Button>
+                {["1_month", "3_months", "6_months", "12_months"].map((plan) => (
+                  <Button key={plan} size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs" onClick={() => handleChangePlan(plan)}>
+                    {getPlanNameFa(plan)}
+                  </Button>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <input type="checkbox" id="sendSmsPlan" checked={sendSmsPlan} onChange={(e) => setSendSmsPlan(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
+                <label htmlFor="sendSmsPlan" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روزها:</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="number" placeholder="30" value={adjustDays || ""} onChange={(e) => setAdjustDays(Number(e.target.value))} className="h-8 w-20 border-white/10 bg-black/30 text-white text-xs" />
+                  <Button size="sm" variant="outline" onClick={handleAdjustDays} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs">اعمال</Button>
+                </div>
+              </div>
+              <div>
+                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تنظیم تاریخ (شمسی):</h4>
+                <div className="flex items-center gap-2">
+                  <Input type="text" placeholder="1405/11/25" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} className="h-8 w-28 border-white/10 bg-black/30 text-white text-xs text-left dir-ltr" />
+                  <Button size="sm" variant="outline" onClick={handleSetExpiryDate} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs">اعمال</Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="sendSmsDays" checked={sendSmsDays} onChange={(e) => setSendSmsDays(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
+                <label htmlFor="sendSmsDays" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ─── ردیف سوم: تاریخچه‌ها ─── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
+              <ClockIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه اشتراک‌ها
+            </h3>
+            <div className="max-h-[220px] overflow-y-auto pr-1">
+              {userDetails.subscriptions.length === 0 ? <p className="text-xs text-gray-500">سابقه‌ای یافت نشد.</p> : (
+                <table className="w-full text-right text-[11px]">
+                  <thead>
+                    <tr className="border-b border-white/10 text-gray-400">
+                      <th className="pb-2 font-medium">پلن</th>
+                      <th className="pb-2 font-medium">شروع</th>
+                      <th className="pb-2 font-medium">پایان</th>
+                      <th className="pb-2 font-medium">وضعیت</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {userDetails.subscriptions.map((s: any) => (
+                      <tr key={s.id}>
+                        <td className="py-2 font-bold text-gray-200">{getPlanNameFa(s.plan)}</td>
+                        <td className="py-2 text-gray-400 dir-ltr">{formatFaDate(s.start)}</td>
+                        <td className="py-2 text-gray-400 dir-ltr">{s.end ? formatFaDate(s.end) : "نامحدود"}</td>
+                        <td className="py-2">
+                          <span className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold ${s.status === "active" ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+                            {s.status === "active" ? "فعال" : "منقضی"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+            <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
+              <ReceiptIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه پرداخت‌ها
+            </h3>
+            <div className="max-h-[220px] overflow-y-auto pr-1 space-y-2">
+              {userDetails.payments.length === 0 ? <p className="text-xs text-gray-500">ندارد</p> : (
+                userDetails.payments.map((p: any) => {
+                  const isRefund = p.payment_method === "refund" || p.plan === "refund";
+                  return (
+                    <div key={p.id} className={`flex items-center justify-between rounded-lg border p-2 text-[11px] ${isRefund ? "border-purple-500/20 bg-purple-500/5" : "border-white/5 bg-black/20"}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${isRefund ? "text-purple-400" : "text-gray-200"}`}>{getPlanNameFa(p.plan)}</span>
+                        <span className="text-[10px] text-gray-400 dir-ltr">{p.amount.toLocaleString("fa-IR")}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${p.status === "approved" ? "border-green-500/30 text-green-400" : p.status === "pending" ? "border-yellow-500/30 text-yellow-400" : "border-red-500/30 text-red-400"}`}>
+                          {p.status === "approved" ? "تایید" : p.status === "pending" ? "در انتظار" : "رد"}
+                        </span>
+                        <span className="text-[9px] text-gray-400 dir-ltr">{formatFaDate(p.created_at)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── ردیف چهارم: امنیت، حذف و افزونه ─── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          
+          {/* امنیت و دسترسی */}
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm space-y-3">
+            <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2"><LockIcon className="h-4 w-4 text-[#d6ad60]" /> امنیت</h3>
+            <div>
+              <h4 className="mb-1 text-[10px] text-gray-400">ریست رمز:</h4>
+              <div className="flex gap-2">
+                <Input type="text" placeholder="رمز جدید" value={newPasswordForUser} onChange={(e) => setNewPasswordForUser(e.target.value)} className="h-7 flex-1 border-white/10 bg-black/30 text-[10px] text-left dir-ltr" />
+                <Button size="sm" variant="outline" onClick={handleResetPassword} className="h-7 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-[10px]">ثبت</Button>
+              </div>
+            </div>
+            
+            {!userDetails.user.is_active ? (
+              <div className="pt-2 border-t border-white/5">
+                <Button size="sm" variant="outline" onClick={handleActivateUser} className="h-7 w-full gap-1 border-green-500/20 text-green-400 text-[10px]"><UserCheck2 className="h-3 w-3" /> فعال‌سازی کاربر</Button>
+              </div>
+            ) : user.phone === "09129630901" && (
+              <div className="pt-2 border-t border-white/5">
+                {selectedUser.is_admin ? (
+                  selectedUser.phone !== "09129630901" && (
+                    <Button size="sm" variant="destructive" onClick={() => handleAction(selectedUser.id, `/admin/users/${selectedUser.id}/remove-admin`, "لغو دسترسی؟")} className="h-7 w-full gap-1 text-[10px]"><ShieldAlert className="h-3 w-3" /> لغو ادمین</Button>
+                  )
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => handleAction(selectedUser.id, `/admin/users/${selectedUser.id}/make-admin`, "ارتقا به مدیر؟")} className="h-7 w-full gap-1 border-orange-500/20 text-orange-400 text-[10px]"><ShieldAlert className="h-3 w-3" /> ارتقا به مدیر</Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* منطقه خطر */}
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 shadow-sm space-y-2">
+            <h3 className="text-sm font-bold text-red-400 flex items-center gap-2"><Trash2 className="h-4 w-4" /> منطقه خطر</h3>
+            <Button size="sm" variant="outline" onClick={() => setIsRefundModalOpen(true)} className="h-7 w-full gap-1 border-red-500/20 text-red-400 hover:bg-red-500/10 text-[10px]"><DollarSign className="h-3 w-3" /> ثبت عودت</Button>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="deleteHard" checked={deleteHard} onChange={(e) => setDeleteHard(e.target.checked)} className="accent-red-500 h-3 w-3 cursor-pointer" />
+              <label htmlFor="deleteHard" className="text-[9px] text-red-400 cursor-pointer">حذف کامل</label>
+            </div>
+            <Button size="sm" variant="destructive" onClick={handleDeleteUser} className="h-7 w-full gap-1 text-[10px]"><Trash2 className="h-3 w-3" /> حذف کاربر</Button>
+          </div>
+
+          {/* آمار افزونه */}
+          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+            <h3 className="mb-2 text-sm font-bold text-gray-200 flex items-center gap-2"><DownloadIcon className="h-4 w-4 text-[#d6ad60]" /> آمار افزونه</h3>
+            {extStats ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg border border-white/5 bg-black/30 p-2 text-[11px]">
+                  <span className="text-gray-400">تعداد کل:</span>
+                  <span className="font-bold text-white">{extStats.total_downloads} بار</span>
+                </div>
+              </div>
+            ) : <p className="text-xs text-gray-500">...</p>}
+          </div>
+        </div>
+      </div>
+    ) : (
+      <div className="flex justify-center py-20">
+        <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-t-2 border-[#d6ad60]"></div>
+      </div>
+    )}
+
+    <div className="sticky bottom-0 bg-[#030712]/95 backdrop-blur border-t border-white/10 px-4 py-3 sm:px-6 flex justify-end z-20">
+      <DialogClose className="border border-white/10 text-gray-300 hover:bg-white/5 hover:text-white h-8 px-4 rounded-md text-xs transition-colors">
+        بستن
+      </DialogClose>
+    </div>
+  </DialogContent>
+</Dialog>
+
+
+
 
       {/* ═══ مودال یادداشت ═══ */}
       <Dialog open={isNoteModalOpen} onOpenChange={setIsNoteModalOpen}>

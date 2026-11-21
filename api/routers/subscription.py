@@ -91,7 +91,8 @@ async def get_my_transactions(
                 "id": f"pay_{p.id}",
                 "source": "payment",
                 "plan": p.plan,
-                "plan_price": PLANS.get(p.plan, {}).get("price", 0),
+                "plan_price": p.plan_price_at_purchase
+                or PLANS.get(p.plan, {}).get("price", 0),  # 🔴
                 "amount": p.amount or 0,
                 "status": p.status,
                 "payment_method": p.payment_method or "card",
@@ -129,6 +130,47 @@ async def get_my_transactions(
     items.sort(key=lambda x: x["created_at"] or "", reverse=True)
 
     return {"items": items}
+
+
+# 🔴 اندپوینت جدید برای تاریخچه اشتراک‌ها
+@router.get("/history")
+async def get_my_subscriptions_history(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    لیست تمام اشتراک‌های کاربر (شامل فعال‌شده توسط ادمین و خریدهای پرداخت‌شده)
+    """
+    subs = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .order_by(Subscription.created_at.desc())
+    ).all()
+
+    now = datetime.now(timezone.utc)
+
+    items = []
+    for s in subs:
+        # تشخیص وضعیت واقعی
+        actual_status = "active"
+        if s.end_date:
+            end = s.end_date
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            if end < now:
+                actual_status = "expired"
+
+        items.append(
+            {
+                "id": s.id,
+                "plan": s.plan,
+                "start_date": s.start_date.isoformat() if s.start_date else None,
+                "end_date": s.end_date.isoformat() if s.end_date else None,
+                "status": actual_status,
+            }
+        )
+
+    return {"ok": True, "total": len(items), "items": items}
 
 
 @router.post("/request")
@@ -188,6 +230,7 @@ async def create_payment_request(
         user_id=user.id,
         plan=req.plan,
         amount=req.amount or 0,
+        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,  # 🔴 جدید
         payment_method=req.payment_method or "card",
         status="pending",
         receipt_note=req.receipt_note,

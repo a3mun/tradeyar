@@ -177,7 +177,7 @@ export function SettingsPanel() {
                   SOURCE_BY_KEY[s.value]?.note ||
                     SOURCE_BY_KEY[s.value]?.unsupportedTfs?.length
                 );
-                const textColor = isActive ? "text-[#07111f]" : "text-gray-300";
+                const textColor = isActive ? "text-[#101827]" : "text-gray-300";
 
                 const inner = (
                   <>
@@ -199,9 +199,10 @@ export function SettingsPanel() {
                   </>
                 );
 
+                // 🔴 گرادیانت و سایه برای حالت فعال
                 const btnClass = `relative flex flex-col items-center justify-center gap-0.5 rounded-lg border py-1.5 px-1 transition-all ${
                   isActive
-                    ? "border-[#d6ad60] bg-[#d6ad60] shadow-[0_0_8px_rgba(214,173,96,0.3)]"
+                    ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)]"
                     : "border-white/5 bg-white/5 hover:bg-white/10 active:scale-95"
                 }`;
 
@@ -291,9 +292,6 @@ export function SettingsPanel() {
           {/* ═══ ۳. انس طلا ═══ */}
           <div className="flex items-center justify-between gap-2 rounded-md border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2 py-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="text-[8px] font-bold text-[#d6ad60]">
-                انس طلا
-              </span>
               <div className="flex items-center gap-1.5">
                 {EXCHANGES_GOLD.map((s, i) => (
                   <div key={i} className="flex items-center gap-0.5">
@@ -310,7 +308,7 @@ export function SettingsPanel() {
               </div>
             </div>
             <span className="text-[7px] text-gray-500 whitespace-nowrap font-bold">
-              فقط با افزونه کروم
+              فقط با نصب  افزونه کروم
             </span>
           </div>
 
@@ -353,7 +351,7 @@ export function SettingsPanel() {
                           onClick={() => handleStrategyClick(s.key, s.tooltip)}
                           className={`relative rounded-lg border py-1.5 px-1 transition-all active:scale-95 ${
                             isActive
-                              ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.4)]"
+                              ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)]"
                               : "border-white/5 bg-white/5 text-gray-300 hover:bg-white/10"
                           } ${isLocked ? "opacity-60" : ""}`}
                         />
@@ -401,7 +399,7 @@ export function SettingsPanel() {
                 disabled={isSpotLocked}
                 className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   marketType === "spot"
-                    ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
+                    ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isSpotLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
@@ -413,7 +411,7 @@ export function SettingsPanel() {
                 disabled={isTsetmc}
                 className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   marketType === "futures"
-                    ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
+                    ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isTsetmc ? "opacity-40 cursor-not-allowed" : ""}`}
               >
@@ -433,7 +431,7 @@ export function SettingsPanel() {
                 onClick={() => setRiskProfile("aggressive")}
                 className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   riskProfile === "aggressive"
-                    ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
+                    ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 }`}
               >
@@ -445,7 +443,7 @@ export function SettingsPanel() {
                 disabled={isConservativeLocked}
                 className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
                   riskProfile === "conservative"
-                    ? "bg-[#d6ad60] text-[#101827] border-none shadow-sm hover:bg-[#d6ad60]/90"
+                    ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isConservativeLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
@@ -475,7 +473,7 @@ export function SettingsPanel() {
                           disabled={isDisabled}
                           className={`rounded-lg border py-1.5 text-[10px] font-extrabold transition-all ${
                             isActive
-                              ? "border-[#d6ad60] bg-[#d6ad60] text-[#101827] shadow-[0_0_8px_rgba(214,173,96,0.4)]"
+                              ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)]"
                               : "border-white/5 bg-white/5 text-gray-300 hover:bg-white/10"
                           } ${
                             isDisabled

@@ -311,10 +311,11 @@ export function HelpContent() {
 
       <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-center">
         <p className="text-[10px] text-muted-foreground">
-          Trademun · دستیار هوشمند معامله‌گر
+          تریدمون | معامله هوشمند از اینجا شروع میشه!
         </p>
         <p className="mt-1 text-[9px] text-muted-foreground/70">
-          ⚠️ تحلیل‌ها صرفاً جنبه آموزشی دارند — تصمیم نهایی با خودت است.
+         ⚠️ تریدمون صرفاً ابزار تحلیل داده و ارائه سیگنال‌های کمکی است. تحلیل‌ها بر پایه الگوریتم‌ها و داده‌های تاریخی انجام می‌شوند و تضمینی برای سودآوری ندارند. مسئولیت تصمیم‌گیری و نتایج معاملات بر عهده کاربر است.
+
         </p>
       </div>
     </div>

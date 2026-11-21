@@ -145,6 +145,7 @@ class PaymentRequest(SQLModel, table=True):
     payment_time: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     reviewed_at: Optional[datetime] = None
+    plan_price_at_purchase: Optional[int] = None  # 🔴 فیلد جدید
 
 
 class Ticket(SQLModel, table=True):
@@ -228,3 +229,14 @@ class SubscriptionLog(SQLModel, table=True):
     )  # manual_plan_change, manual_date_adjust, refund
     description: str = Field(max_length=255)
     created_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
+class PricingSettings(SQLModel, table=True):
+    __tablename__ = "pricing_settings"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    plan_id: str = Field(unique=True, index=True)  # e.g., "1_month", "3_months"
+    price: int = 0
+    old_price: int = 0
+    discount: int = 0
+    popular: bool = False
+    updated_at: datetime = Field(default_factory=_utcnow)

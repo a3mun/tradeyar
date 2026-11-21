@@ -77,9 +77,10 @@ export function Checklist({ data }: Props) {
   const warnings = data.items.filter((i) => i.color === "red");
   const percentage = data.percentage || 0;
 
-  const progressColor = "text-blue-500";
-  const borderColor = "border-blue-500/30";
-  const bgColor = "bg-blue-500/5";
+  // 🔴 رنگ‌های طلایی/خاکستری به جای آبی
+  const progressColor = "text-[#d6ad60]";
+  const borderColor = "border-[#d6ad60]/20";
+  const bgColor = "bg-[#d6ad60]/5";
 
   const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
 
@@ -142,7 +143,7 @@ export function Checklist({ data }: Props) {
               {warnings.slice(0, 2).map((w, i) => (
                 <span
                   key={i}
-                  className="flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[9px] text-red-400 border border-red-500/20"
+                  className="flex items-center gap-1 rounded-md border border-red-500/20 bg-red-500/5 px-1.5 py-0.5 text-[9px] text-red-400/80"
                 >
                   <AlertTriangle className="h-2.5 w-2.5" />
                   {w.label}
@@ -164,21 +165,25 @@ export function Checklist({ data }: Props) {
             : isRed
             ? XCircle
             : MinusCircle;
+            
+          // 🔴 رنگ‌آمیزی مینیمال‌تر
           const iconColor = isGreen
-            ? "text-green-500"
+            ? "text-green-500/80"
             : isRed
-            ? "text-red-500"
-            : "text-yellow-500";
+            ? "text-red-500/80"
+            : "text-[#d6ad60]/80";
+            
           const itemBgColor = isGreen
             ? "bg-green-500/5"
             : isRed
             ? "bg-red-500/5"
-            : "bg-yellow-500/5";
+            : "bg-[#d6ad60]/5";
+            
           const itemBorderColor = isGreen
             ? "border-green-500/20"
             : isRed
             ? "border-red-500/20"
-            : "border-yellow-500/20";
+            : "border-[#d6ad60]/20";
 
           return (
             <div
@@ -224,12 +229,12 @@ export function Checklist({ data }: Props) {
         ref={counterRef}
         className="mt-4 flex items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[10px] text-muted-foreground"
       >
-        <Brain className="h-3.5 w-3.5 text-blue-400" />
+        <Brain className="h-3.5 w-3.5 text-[#d6ad60]" />
         <span>
           برای این تحلیل،{" "}
-          <b className="num text-blue-400 text-sm">{count}</b> اندیکاتور
+          <b className="num text-[#d6ad60] text-sm">{count}</b> اندیکاتور
           تکنیکال در{" "}
-          <b className="num text-blue-400">{TOTAL_GROUPS}</b> گروه بررسی شد.
+          <b className="num text-[#d6ad60]">{TOTAL_GROUPS}</b> گروه بررسی شد.
         </span>
       </div>
     </div>

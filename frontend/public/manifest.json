@@ -4,8 +4,8 @@
   "description": "معامله هوشمند از اینجا شروع میشه!",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#3b82f6",
+  "background_color": "#051118",
+  "theme_color": "#051118",
   "orientation": "portrait",
   "lang": "fa",
   "dir": "rtl",
@@ -14,13 +14,13 @@
       "src": "/icon-148.png",
       "sizes": "148x148",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/icon-148.png",
-      "sizes": "148x148",
+      "src": "/icon-512-pwa.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

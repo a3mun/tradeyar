@@ -23,6 +23,19 @@ import { AnimatedLogo } from "@/components/ui/animated-logo";
 const HEADER_BTN_CLASS =
   "flex items-center justify-center gap-1.5 h-9 rounded-xl border border-white/5 bg-white/5 text-[11px] font-medium text-gray-300 transition-all duration-200 hover:bg-white/10 hover:border-white/10 hover:text-white";
 
+// 🔴 تابع ترجمه نام پلن‌ها
+function getPlanName(plan: string) {
+  const map: Record<string, string> = {
+    "1_month": "یک ماهه",
+    "3_months": "سه ماهه",
+    "6_months": "شش ماهه",
+    "12_months": "یک ساله",
+    "free": "رایگان",
+    "monthly": "ماهانه",
+  };
+  return map[plan] || plan;
+}
+
 function ClockDisplay() {
   const [time, setTime] = useState<string>("");
 
@@ -59,14 +72,25 @@ export function Header() {
   const router = useRouter();
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [user, setUserData] = useState<any>(null);
+  const [subData, setSubData] = useState<any>(null); // 🔴 برای اطلاعات اشتراک
   const dropdownRef = useRef<HTMLDivElement>(null);
   const isLoggedIn = !!getToken();
 
   useEffect(() => {
     const u = getUser();
     setUserData(u);
+    
+    // 🔴 خواندن اطلاعات اشتراک از localStorage
+    try {
+      const subStr = localStorage.getItem("trademun_subscription");
+      if (subStr) {
+        setSubData(JSON.parse(subStr));
+      }
+    } catch {
+      // نادیده گرفتن خطای JSON
+    }
   }, []);
-
+  
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -172,6 +196,25 @@ export function Header() {
                           <p className="num mt-0.5 truncate text-[10px] text-gray-400 font-mono dir-ltr">
                             {user.phone}
                           </p>
+                          {/* 🔴 نمایش وضعیت اشتراک (از subData) */}
+                          {user.is_admin ? (
+                            <p className="mt-1 flex items-center gap-1 text-[9px] text-[#d6ad60]/80">
+                              <ShieldCheck className="h-3 w-3" />
+                              دسترسی نامحدود (مدیر)
+                            </p>
+
+                          ) : subData && subData.status === "active" && subData.end_date ? (
+                            <p className="mt-1 flex items-center gap-1 text-[9px] text-gray-500">
+                              <Clock className="h-3 w-3" />
+                              اشتراک: {getPlanName(subData.plan)} تا {new Intl.DateTimeFormat("fa-IR").format(new Date(subData.end_date))}
+                            </p>
+                          ) : (
+
+                            <p className="mt-1 flex items-center gap-1 text-[9px] text-red-400/80">
+                              <Clock className="h-3 w-3" />
+                              اشتراک: منقضی شده
+                            </p>
+                          )}
                         </div>
                       </div>
 

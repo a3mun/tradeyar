@@ -17,9 +17,23 @@ import { SettingsPanel } from "@/components/layout/SettingsPanel";
 import { HelpContent } from "@/components/layout/HelpPanel";
 import { getUser, getToken, removeToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { Clock, ShieldCheck as ShieldCheckIcon } from "lucide-react"; // 🔴 آیکون‌های جدید
+
+// 🔴 تابع ترجمه نام پلن‌ها
+function getPlanName(plan: string) {
+  const map: Record<string, string> = {
+    "1_month": "یک ماهه",
+    "3_months": "سه ماهه",
+    "6_months": "شش ماهه",
+    "12_months": "یک ساله",
+    "free": "رایگان",
+    "monthly": "ماهانه",
+  };
+  return map[plan] || plan;
+}
 
 export function BottomNav() {
-  const pathname = usePathname();
+const pathname = usePathname();
   const router = useRouter();
   const mobileSheet = useAppStore((s) => s.mobileSheet);
   const setMobileSheet = useAppStore((s) => s.setMobileSheet);
@@ -28,6 +42,15 @@ export function BottomNav() {
 
   const user = getUser();
   const isLoggedIn = !!getToken();
+
+  // 🔴 خواندن اطلاعات اشتراک از localStorage
+  let subData: any = null;
+  if (typeof window !== "undefined") {
+    try {
+      const subStr = localStorage.getItem("trademun_subscription");
+      if (subStr) subData = JSON.parse(subStr);
+    } catch {}
+  }
   const isHome = pathname === "/";
 
   if (!isLoggedIn && isHome) return null;
@@ -180,6 +203,24 @@ export function BottomNav() {
                         <p className="mt-1 text-xs text-gray-400 font-mono dir-ltr">
                           {user.phone}
                         </p>
+                        
+                        {/* 🔴 نمایش وضعیت اشتراک */}
+                        {user.is_admin ? (
+                          <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-[#d6ad60]/80 bg-[#d6ad60]/10 px-2 py-0.5 rounded-full">
+                            <ShieldCheckIcon className="h-3 w-3" />
+                            دسترسی نامحدود (مدیر)
+                          </p>
+                        ) : subData && subData.status === "active" && subData.end_date ? (
+                          <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-gray-400 bg-white/5 px-2 py-0.5 rounded-full">
+                            <Clock className="h-3 w-3" />
+                            {getPlanName(subData.plan)} تا {new Intl.DateTimeFormat("fa-IR").format(new Date(subData.end_date))}
+                          </p>
+                        ) : (
+                          <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-red-400/80 bg-red-500/5 px-2 py-0.5 rounded-full border border-red-500/10">
+                            <Clock className="h-3 w-3" />
+                            اشتراک منقضی شده
+                          </p>
+                        )}
                       </div>
                     </div>
 

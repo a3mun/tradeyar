@@ -514,6 +514,7 @@ async def get_user_details(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
     subs = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user_id)
@@ -529,11 +530,16 @@ async def get_user_details(
         }
         for s in subs
     ]
+
     payments = session.exec(
         select(PaymentRequest)
         .where(PaymentRequest.user_id == user_id)
         .order_by(PaymentRequest.created_at.desc())
     ).all()
+
+    # 🔴 دریافت قیمت‌های جدید از جدول PricingSettings
+    pricing_settings = session.exec(select(PricingSettings)).all()
+    pricing_map = {s.plan_id: s.price for s in pricing_settings}
 
     # 🔴 محاسبه جمع‌بندی مالی
     total_paid = sum(
@@ -557,6 +563,9 @@ async def get_user_details(
             "payment_method": p.payment_method,
             "created_at": p.created_at.isoformat(),
             "note": p.receipt_note,
+            # 🔴 استفاده از قیمت جدید (اگر در جدول نبود، از PLANS قدیمی)
+            "plan_price": p.plan_price_at_purchase
+            or pricing_map.get(p.plan, PLANS.get(p.plan, {}).get("price", 0)),
         }
         for p in payments
     ]
@@ -587,7 +596,6 @@ async def get_user_details(
         "total_paid": total_paid,
         "total_refunded": total_refunded,
         "net_balance": net_balance,
-        # 🔴 لاگ‌های تغییرات ادمین
         "subscription_logs": [
             {
                 "id": log.id,
@@ -622,51 +630,47 @@ async def change_user_plan(
     if not plan_info:
         raise HTTPException(status_code=400, detail="پلن نامعتبر است")
 
-    sub = session.exec(
+    now = datetime.now(timezone.utc)
+
+    # 🔴 مرحله ۱: غیرفعال کردن تمام اشتراک‌های فعال قبلی (قبل از ساخت جدید)
+    active_subs = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "active")
+    ).all()
+    for old_sub in active_subs:
+        old_sub.status = "expired"
+        session.add(old_sub)
+    session.commit()  # 🔴 مهم: کامیت قبل از ساخت اشتراک جدید
+
+    # 🔴 مرحله ۲: ساخت اشتراک جدید
+    # محاسبه تاریخ پایان بر اساس آخرین اشتراک
+    last_sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
         .order_by(Subscription.created_at.desc())
     ).first()
-
-    now = datetime.now(timezone.utc)
-    current_end = sub.end_date if sub else None
+    current_end = last_sub.end_date if last_sub else None
     new_end = calculate_new_end_date(current_end, plan_info["days"])
 
-    if sub:
-        sub.plan = plan
-        sub.start_date = now
-        sub.end_date = new_end
-        sub.status = "active"
-        session.add(sub)
-    else:
-        sub = Subscription(
-            user_id=user.id,
-            plan=plan,
-            start_date=now,
-            end_date=new_end,
-            status="active",
-        )
-        session.add(sub)
-
+    new_sub = Subscription(
+        user_id=user.id,
+        plan=plan,
+        start_date=now,
+        end_date=new_end,
+        status="active",
+    )
+    session.add(new_sub)
     session.commit()
+    session.refresh(new_sub)
 
     if send_sms:
         try:
             send_subscription_activated_sms(
-                user.phone, plan_info["title"], sub.end_date
+                user.phone, plan_info["title"], new_sub.end_date
             )
         except Exception:
             pass
-
-    # 🔴 ثبت لاگ تغییر پلن
-    log = SubscriptionLog(
-        user_id=user_id,
-        admin_phone=admin.phone,
-        action_type="manual_plan_change",
-        description=f"تغییر پلن به {plan_info['title']}",
-    )
-    session.add(log)
-    session.commit()
 
     return {"ok": True, "message": f"پلن کاربر به {plan_info['title']} تغییر یافت"}
 
@@ -687,6 +691,17 @@ async def adjust_user_days(
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.is_admin:
         raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
+
+    # در approve_payment، قبل از ساخت اشتراک جدید:
+    active_subs = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "active")
+    ).all()
+    for old_sub in active_subs:
+        old_sub.status = "expired"
+        session.add(old_sub)
+    session.commit()
 
     sub = session.exec(
         select(Subscription)
@@ -750,8 +765,8 @@ async def adjust_user_days(
 @router.post("/users/{user_id}/set-expiry-date")
 async def set_user_expiry_date(
     user_id: int,
-    new_date_jalali: str = Body(..., embed=True),
-    send_sms: bool = True,
+    new_date_jalali: str = Body(...),
+    send_sms: bool = Body(False),  # 🔴 از Body بگیره، پیش‌فرض False
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
@@ -995,17 +1010,26 @@ async def list_all_transactions_merged(
         select(PaymentRequest).order_by(PaymentRequest.created_at.desc())
     ).all()
 
+    # 🔴 دریافت قیمت‌های جدید از جدول PricingSettings
+    pricing_settings = session.exec(select(PricingSettings)).all()
+    pricing_map = {s.plan_id: s.price for s in pricing_settings}
+
     result = []
     for p in payments:
         user = session.get(User, p.user_id)
-        plan_info = PLANS.get(p.plan, {})
+
+        # 🔴 استفاده از قیمت جدید (اگر در جدول نبود، از PLANS قدیمی)
+        current_price = p.plan_price_at_purchase or pricing_map.get(
+            p.plan, PLANS.get(p.plan, {}).get("price", 0)
+        )
+
         result.append(
             {
                 "id": f"pay_{p.id}",
                 "source": "payment_request",
                 "user_phone": user.phone if user else "ناشناس",
                 "plan": p.plan,
-                "plan_price": plan_info.get("price", 0),  # 🔴 قیمت اصلی پلن
+                "plan_price": current_price,  # 🔴 قیمت به‌روز شده
                 "amount": p.amount or 0,
                 "payment_method": p.payment_method or "card",
                 "status": p.status,
@@ -1139,6 +1163,17 @@ async def approve_payment(
     now = datetime.now(timezone.utc)
     current_end = sub.end_date if sub else None
     new_end = calculate_new_end_date(current_end, plan_info["days"])
+
+    # در approve_payment، قبل از ساخت اشتراک جدید:
+    active_subs = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "active")
+    ).all()
+    for old_sub in active_subs:
+        old_sub.status = "expired"
+        session.add(old_sub)
+    session.commit()
 
     if sub:
         sub.plan = payment.plan
@@ -1645,6 +1680,93 @@ async def admin_set_site_stats_override(
         )
     session.commit()
     return {"ok": True, "key": req.key, "value": req.value}
+
+
+from api.models import PricingSettings  # به importها اضافه کن
+
+
+# ─── خواندن قیمت‌ها (برای صفحه اشتراک) ───
+@router.get("/pricing")
+async def get_pricing_settings(session: Session = Depends(get_session)):
+    # این API نباید نیاز به لاگین داشته باشه، چون صفحه اشتراک برای همه بازه
+    settings = session.exec(select(PricingSettings)).all()
+    # اگر خالی بود، مقادیر پیش‌فرض رو برگردون
+    if not settings:
+        return {
+            "1_month": {
+                "price": 390000,
+                "old_price": 590000,
+                "discount": 33,
+                "popular": False,
+            },
+            "3_months": {
+                "price": 1050000,
+                "old_price": 1770000,
+                "discount": 40,
+                "popular": True,
+            },
+            "6_months": {
+                "price": 1870000,
+                "old_price": 3540000,
+                "discount": 47,
+                "popular": False,
+            },
+            "12_months": {
+                "price": 3270000,
+                "old_price": 7080000,
+                "discount": 54,
+                "popular": False,
+            },
+        }
+    return {
+        s.plan_id: {
+            "price": s.price,
+            "old_price": s.old_price,
+            "discount": s.discount,
+            "popular": s.popular,
+        }
+        for s in settings
+    }
+
+
+# ─── ذخیره قیمت‌ها (فقط برای ادمین) ───
+class PricingUpdateItem(BaseModel):
+    plan_id: str
+    price: int
+    old_price: int
+    discount: int
+    popular: bool
+
+
+@router.post("/pricing/update")
+async def update_pricing_settings(
+    items: list[PricingUpdateItem],
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    for item in items:
+        existing = session.exec(
+            select(PricingSettings).where(PricingSettings.plan_id == item.plan_id)
+        ).first()
+        if existing:
+            existing.price = item.price
+            existing.old_price = item.old_price
+            existing.discount = item.discount
+            existing.popular = item.popular
+            existing.updated_at = datetime.now(timezone.utc)
+            session.add(existing)
+        else:
+            session.add(
+                PricingSettings(
+                    plan_id=item.plan_id,
+                    price=item.price,
+                    old_price=item.old_price,
+                    discount=item.discount,
+                    popular=item.popular,
+                )
+            )
+    session.commit()
+    return {"ok": True, "message": "قیمت‌ها با موفقیت به‌روزرسانی شدند"}
 
 
 @router.delete("/site-stats/override/{key}")

@@ -17,13 +17,6 @@ import Link from "next/link";
 const CARD_NUMBER = "5859-4710-1084-0910";
 const CARD_HOLDER = "محمدمهدی";
 
-const PRO_PLANS = [
-  { id: "1_month", title: "یک ماهه", price: 390000, oldPrice: 590000, discount: 33, days: 30 },
-  { id: "3_months", title: "سه ماهه", price: 1050000, oldPrice: 1770000, discount: 40, days: 90, popular: true },
-  { id: "6_months", title: "شش ماهه", price: 1870000, oldPrice: 3540000, discount: 47, days: 180 },
-  { id: "12_months", title: "یک ساله", price: 3270000, oldPrice: 7080000, discount: 54, days: 365 },
-];
-
 const PENDING_KEY = "trademun_pending_request";
 
 const SEO_KEYWORDS = [
@@ -46,15 +39,38 @@ export default function SubscriptionPage() {
   const [success, setSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // 🔴 فقط یک بار تعریف State برای پلن‌ها
+  const [plans, setPlans] = useState<any[]>([]);
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
 
-  const selectedPlanData = PRO_PLANS.find(p => p.id === selectedPlan);
-
+  const selectedPlanData = plans.find(p => p.id === selectedPlan);
+  
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem(PENDING_KEY) === "true") {
       setSuccess(true);
     }
+  }, []);
+
+  // 🔴 دریافت قیمت‌ها از API
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    fetch(`${apiUrl}/admin/pricing`)
+      .then(res => res.json())
+      .then(data => {
+        const formatted = Object.entries(data).map(([id, v]: [string, any]) => ({
+          id,
+          title: id === "1_month" ? "یک ماهه" : id === "3_months" ? "سه ماهه" : id === "6_months" ? "شش ماهه" : "یک ساله",
+          price: v.price,
+          oldPrice: v.old_price,
+          discount: v.discount,
+          days: id === "1_month" ? 30 : id === "3_months" ? 90 : id === "6_months" ? 180 : 365,
+          popular: v.popular
+        }));
+        setPlans(formatted);
+      })
+      .catch(console.error);
   }, []);
 
   const copyCard = () => {
@@ -73,13 +89,14 @@ export default function SubscriptionPage() {
       const res = await fetch(`${apiUrl}/subscription/request`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ 
-          plan: selectedPlan, 
-          receipt_note: note, 
-          payment_time: paymentTime,
-          payment_method: paymentMethod,
-          amount: selectedPlanData?.price
-        }),
+      body: JSON.stringify({ 
+        plan: selectedPlan, 
+        receipt_note: note, 
+        payment_time: paymentTime,
+        payment_method: paymentMethod,
+        amount: selectedPlanData?.price,
+        plan_price_at_purchase: selectedPlanData?.price  // 🔴 قیمت لحظه‌ی خرید
+      }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail);
@@ -204,19 +221,16 @@ export default function SubscriptionPage() {
             </div>
             {[
               { label: "اسکنر فرصت‌ها" },
-              { label: "مشاوره هوش مصنوعی با کلید API شخصی", sub: "به‌زودی با اتصال مستقیم به موتور AI" },
+              { label: "مشاوره هوشمند با استفاده از هوش مصنوعی" },
               { label: "کپی داده های خام" },
               { label: "دانلود افزونه اختصاصی کروم (دریا گلد و آلفا گلد)" },
-              { label: "درخواست افزونه سفارشی" },
+              { label: "درخواست افزونه سفارشی از طریق ثبت تیکت" },
             ].map((item, i) => (
               <div key={i} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-xs text-gray-200">
                   <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
                   <span>{item.label}</span>
                 </div>
-                {item.sub && (
-                  <span className="text-[9px] text-[#d6ad60]/80 mr-5 mt-0.5">{item.sub}</span>
-                )}
               </div>
             ))}
           </div>
@@ -229,7 +243,8 @@ export default function SubscriptionPage() {
             </div>
             
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-              {PRO_PLANS.map((plan) => {
+              {/* 🔴 اینجا از plans استفاده می‌کنیم */}
+              {plans.map((plan) => {
                 const isSelected = selectedPlan === plan.id;
                 return (
                   <button
@@ -262,7 +277,7 @@ export default function SubscriptionPage() {
                     </div>
                     
                     {plan.oldPrice > 0 && (
-                      <div className="text-[9px] text-gray-500 line-through mt-0.5">
+                      <div className="text-[13px] text-gray-500 line-through mt-0.5">
                         {plan.oldPrice.toLocaleString("fa-IR")}
                       </div>
                     )}
@@ -452,9 +467,6 @@ export default function SubscriptionPage() {
                   </div>
 
                 </div>
-                
-
-                
               )}
             </>
           )}

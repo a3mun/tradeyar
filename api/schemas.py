@@ -364,6 +364,7 @@ class PaymentRequestCreate(BaseModel):
     payment_time: Optional[str] = None
     amount: Optional[int] = 0  # 🔴 جدید: مبلغ انتخابی کاربر
     payment_method: Optional[str] = "card"  # 🔴 جدید: "zibal" یا "card"
+    plan_price_at_purchase: Optional[int] = None  # 🔴 فیلد جدید
 
 
 class PaymentRequestRead(BaseModel):

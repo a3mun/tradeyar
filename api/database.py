@@ -143,6 +143,29 @@ def _add_missing_columns_sqlite(inspector, conn):
                 except Exception as e:
                     logger.debug(f"  - ستون users.{col_name}: {e}")
 
+    # 🔴 فاز ۱۶.۶ — ستون‌های جدول payment_requests در SQLite
+    if "payment_requests" in inspector.get_table_names():
+        existing_pay_cols = {
+            col["name"] for col in inspector.get_columns("payment_requests")
+        }
+        pay_new_columns = [
+            ("full_name", "VARCHAR"),
+            ("payment_time", "VARCHAR"),
+            ("payment_method", "VARCHAR"),
+            ("plan_price_at_purchase", "INTEGER"),
+        ]
+        for col_name, col_type in pay_new_columns:
+            if col_name not in existing_pay_cols:
+                try:
+                    conn.execute(
+                        text(
+                            f"ALTER TABLE payment_requests ADD COLUMN {col_name} {col_type}"
+                        )
+                    )
+                    logger.info(f"  + ستون payment_requests.{col_name} اضافه شد")
+                except Exception as e:
+                    logger.debug(f"  - ستون payment_requests.{col_name}: {e}")
+
     for col_name, col_type in new_columns:
         if col_name not in existing_cols:
             try:
@@ -228,6 +251,7 @@ def _add_missing_columns_postgres(inspector, conn):
             ("full_name", "VARCHAR"),
             ("payment_time", "VARCHAR"),
             ("payment_method", "VARCHAR"),
+            ("plan_price_at_purchase", "INTEGER"),
         ]
         for col_name, col_type in pay_cols:
             if col_name not in cols:
@@ -286,6 +310,37 @@ def migrate_db():
         logger.info("[Migration] ✅ جدول subscription_logs آماده است")
     except Exception as e:
         logger.warning(f"[Migration] subscription_logs: {e}")
+
+    # ═══ جدول pricing_settings ═══
+    try:
+        with engine.begin() as conn:
+            if is_sqlite:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS pricing_settings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        plan_id VARCHAR NOT NULL UNIQUE,
+                        price INTEGER DEFAULT 0,
+                        old_price INTEGER DEFAULT 0,
+                        discount INTEGER DEFAULT 0,
+                        popular INTEGER DEFAULT 0,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """))
+            else:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS pricing_settings (
+                        id SERIAL PRIMARY KEY,
+                        plan_id VARCHAR NOT NULL UNIQUE,
+                        price INTEGER DEFAULT 0,
+                        old_price INTEGER DEFAULT 0,
+                        discount INTEGER DEFAULT 0,
+                        popular BOOLEAN DEFAULT FALSE,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                """))
+        logger.info("[Migration] ✅ جدول pricing_settings آماده است")
+    except Exception as e:
+        logger.warning(f"[Migration] pricing_settings: {e}")
 
 
 # ═══ جدول extension_tokens ═══
