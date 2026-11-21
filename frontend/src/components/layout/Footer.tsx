@@ -15,19 +15,29 @@ import {
 
 export function Footer() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   useEffect(() => {
-    const seen = localStorage.getItem("trademun_disclaimer_seen");
-    if (!seen) {
+    // چک می‌کنیم که آیا کاربر قبلاً تیک "دیگر نمایش داده نشود" رو زده یا نه
+    const hideForever = localStorage.getItem("trademun_hide_disclaimer_forever");
+    if (!hideForever) {
       setTimeout(() => setShowDisclaimer(true), 1500);
     }
   }, []);
 
   const acceptDisclaimer = () => {
-    localStorage.setItem("trademun_disclaimer_seen", "1");
+    // اگر تیک زده باشه، برای همیشه (تا وقتی کش پاک بشه) مخفی می‌شه
+    if (dontShowAgain) {
+      localStorage.setItem("trademun_hide_disclaimer_forever", "1");
+    } else {
+      // اگر تیک نزده باشه، فقط برای این دفعه (با همون کلید قبلی) ذخیره می‌کنیم که دفعه بعد دوباره بیاد
+      localStorage.removeItem("trademun_hide_disclaimer_forever");
+    }
     setShowDisclaimer(false);
   };
+  
 
+  
   const year = new Intl.DateTimeFormat("fa-IR", {
     year: "numeric",
   }).format(new Date());
@@ -37,36 +47,48 @@ export function Footer() {
       {showDisclaimer && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-[#051118]/80 backdrop-blur-sm p-4"
-          onClick={acceptDisclaimer}
+          onClick={() => {}} // کلیک روی پس‌زمینه بسته نکنه تا کاربر مجبور به خوندن باشه
         >
           <div
             className="max-w-md rounded-2xl border border-[#d6ad60]/30 bg-[#051118] p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center gap-3">
+            <div className="mb-4 flex items-center gap-3">
               <div className="rounded-full bg-[#d6ad60]/15 p-2">
                 <AlertTriangle className="h-5 w-5 text-[#d6ad60]" />
               </div>
               <h3 className="text-base font-bold text-white">توجه مهم</h3>
             </div>
+            
             <div className="space-y-3 text-xs leading-relaxed text-gray-400">
               <p>
-                📊 تحلیل‌ها و سیگنال‌های این اپ{" "}
-                <strong className="text-white">صرفاً جنبه آموزشی</strong> دارن.
+                ⚠️ تریدمون صرفاً ابزار تحلیل داده و ارائه سیگنال‌های کمکی است. تحلیل‌ها بر پایه الگوریتم‌ها و داده‌های تاریخی انجام می‌شوند و تضمینی برای سودآوری ندارند. مسئولیت تصمیم‌گیری و نتایج معاملات بر عهده کاربر است.
               </p>
-              <p>
-                🎯 تصمیم نهایی معامله،{" "}
-                <strong className="text-white">با خودتونه</strong>.
-              </p>
-              <p>
-                ⚠️ <strong className="text-white">مسئولیت سود یا ضرر</strong>{" "}
-                بر عهده‌ی شماست.
-              </p>
-              <p className="rounded-lg bg-white/5 p-3 text-[11px]">
-                💡 این ابزار برای کمک به تحلیل شماست، نه جایگزین تصمیم شما.
-                همیشه با مدیریت سرمایه و حد ضرر معامله کنید.
-              </p>
+              
+              <div className="rounded-lg bg-white/5 p-3 text-[11px] space-y-2">
+                <p>💡 برای استفاده بهتر، پیشنهاد می‌کنیم:</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-300 pr-1">
+                  <li>از بخش <span className="text-[#d6ad60]">راهنما</span> دیدن کنید.</li>
+                  <li>در صورت وجود سوال، <span className="text-[#d6ad60]">سوالات متداول</span> را بخوانید.</li>
+                  <li>در صورت نیاز به پشتیبانی، از بخش <span className="text-[#d6ad60]">ثبت تیکت</span> استفاده کنید.</li>
+                </ul>
+              </div>
             </div>
+
+            {/* 🔴 چک‌باکس عدم نمایش مجدد */}
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="dontShowAgain"
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+                className="h-4 w-4 accent-[#d6ad60] cursor-pointer"
+              />
+              <label htmlFor="dontShowAgain" className="text-[11px] text-gray-400 cursor-pointer select-none">
+                دیگر نمایش داده نشود
+              </label>
+            </div>
+
             <button
               onClick={acceptDisclaimer}
               className="mt-4 w-full rounded-lg bg-gradient-to-l from-[#c89a49] to-[#e2c17e] px-4 py-2.5 text-sm font-bold text-[#101827] transition-opacity hover:opacity-90"

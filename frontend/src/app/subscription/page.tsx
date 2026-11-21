@@ -96,7 +96,7 @@ export default function SubscriptionPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       {/* SEO */}
       <div className="sr-only" aria-hidden="true">
         <h1>خرید اشتراک حرفه‌ای تریدمون | تحلیل تکنیکال کریپتو، سیگنال هوش مصنوعی و تحلیل انس طلا</h1>
@@ -119,7 +119,7 @@ export default function SubscriptionPage() {
         <motion.div 
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
-          className="rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] to-[#0a1526] p-4 sm:p-5 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-[#d6ad60]/5"
+          className="rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#0d1b2d] to-[#051118] p-4 sm:p-5 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-[#d6ad60]/5"
         >
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <div className="bg-[#d6ad60]/15 p-2.5 rounded-xl border border-[#d6ad60]/30 shrink-0">
@@ -130,29 +130,24 @@ export default function SubscriptionPage() {
                 دوره آشنایی با تریدمون
                 <span className="text-[10px] text-green-400 font-bold bg-green-400/10 px-2 py-0.5 rounded-full border border-green-400/20">۳ روز رایگان</span>
               </h2>
-              {/* 🔴 متن پرانتزی حذف شد */}
               <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
                 همه امکانات تحلیل و سیگنال‌دهی را بدون محدودیت امتحان کنید.
               </p>
             </div>
           </div>
-          <Link href="/dashboard" className="w-full sm:w-auto shrink-0">
-            <Button className="w-full h-9 bg-white/10 hover:bg-white/20 text-white border border-white/10 text-xs font-bold gap-1.5">
-              شروع دوره رایگان
-            </Button>
-          </Link>
+
         </motion.div>
 
-        {/* ═══════ بخش امکانات دوره آشنایی (همیشه باز در موبایل و دسکتاپ) ═══════ */}
+        {/* ═══════ بخش امکانات دوره آشنایی ═══════ */}
         <motion.div 
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.08 }} 
-          className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 mb-6"
+          className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-5 mb-6 shadow-sm"
         >
           <div className="flex items-center gap-2 mb-3">
-            <Gift className="h-4 w-4 text-slate-400" />
-            <h3 className="text-sm font-bold text-white">امکاناتی که در ۳ روز رایگان می‌بینید:</h3>
+            <Gift className="h-4 w-4 text-gray-400" />
+            <h3 className="text-sm font-bold text-gray-100">امکاناتی که در ۳ روز رایگان می‌بینید:</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2.5 bg-black/20 p-4 rounded-xl">
             {[
@@ -185,7 +180,7 @@ export default function SubscriptionPage() {
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.16 }} 
-          className="rounded-2xl border-2 border-[#d6ad60]/60 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-5 sm:p-6 relative overflow-hidden mb-8"
+          className="rounded-2xl border-2 border-[#d6ad60]/60 bg-gradient-to-br from-[#0d1b2d] to-[#051118] p-5 sm:p-6 relative overflow-hidden mb-8 shadow-[0_0_30px_rgba(214,173,96,0.05)]"
         >
           <div className="absolute top-4 left-4 bg-[#d6ad60] text-[#07111f] text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-lg shadow-[#d6ad60]/30">
             <Sparkles className="h-3 w-3" /> پیشنهاد ویژه
@@ -226,7 +221,6 @@ export default function SubscriptionPage() {
             ))}
           </div>
 
-          {/* انتخاب پلن‌ها - داخل کارت پرو */}
           <div className="mt-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-xs font-bold text-white flex items-center gap-2">
@@ -244,7 +238,7 @@ export default function SubscriptionPage() {
                     className={`relative p-3 sm:p-4 rounded-xl text-right transition-all duration-200 ${
                       isSelected
                         ? "bg-[#d6ad60]/10 border-2 border-[#d6ad60] ring-1 ring-[#d6ad60]/30"
-                        : "bg-black/30 border border-white/10 hover:border-[#d6ad60]/40 hover:bg-white/5"
+                        : "bg-black/30 border border-white/5 hover:border-[#d6ad60]/40 hover:bg-white/5"
                     }`}
                   >
                     {plan.popular && (
@@ -290,7 +284,7 @@ export default function SubscriptionPage() {
           initial={{ opacity: 0, y: 16 }} 
           animate={{ opacity: 1, y: 0 }} 
           transition={{ delay: 0.24 }} 
-          className="rounded-2xl border border-white/10 bg-[#051118] p-5"
+          className="rounded-2xl border border-white/5 bg-[#051118] p-5 shadow-sm"
         >
           <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-[#d6ad60]" /> روش پرداخت
@@ -322,14 +316,14 @@ export default function SubscriptionPage() {
                   </Button>
                 </Link>
                 <Link href="/" className="flex-1">
-                  <Button variant="outline" className="w-full h-11 border-white/15 text-gray-300 hover:bg-white/5 text-sm">
+                  <Button variant="outline" className="w-full h-11 border-white/10 text-gray-300 hover:bg-white/5 text-sm">
                     بازگشت به خانه
                   </Button>
                 </Link>
               </div>
             </div>
           ) : !token ? (
-            <div className="text-center bg-black/30 p-6 rounded-xl border border-white/10">
+            <div className="text-center bg-black/30 p-6 rounded-xl border border-white/5">
               <p className="text-sm text-gray-400 mb-4">برای مشاهده روش‌های پرداخت و خرید اشتراک، لطفاً وارد حساب کاربری خود شوید.</p>
               <Link href="/login" className="w-full inline-block">
                 <Button className="w-full sm:w-auto px-8 h-11 text-sm font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] hover:opacity-90">
@@ -345,7 +339,7 @@ export default function SubscriptionPage() {
                   className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all ${
                     paymentMethod === "zibal"
                       ? "border-[#d6ad60] bg-[#d6ad60]/10 ring-1 ring-[#d6ad60]/30"
-                      : "border-white/10 bg-black/30 hover:bg-white/5 hover:border-[#d6ad60]/40"
+                      : "border-white/5 bg-black/30 hover:bg-white/5 hover:border-[#d6ad60]/40"
                   }`}
                 >
                   <Wallet className="h-6 w-6 text-[#d6ad60]" />
@@ -357,7 +351,7 @@ export default function SubscriptionPage() {
                   className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border-2 transition-all ${
                     paymentMethod === "card"
                       ? "border-[#d6ad60] bg-[#d6ad60]/10 ring-1 ring-[#d6ad60]/30"
-                      : "border-white/10 bg-black/30 hover:bg-white/5 hover:border-[#d6ad60]/40"
+                      : "border-white/5 bg-black/30 hover:bg-white/5 hover:border-[#d6ad60]/40"
                   }`}
                 >
                   <CreditCard className="h-6 w-6 text-[#d6ad60]" />
@@ -367,7 +361,7 @@ export default function SubscriptionPage() {
               </div>
 
               {paymentMethod === "zibal" && (
-                <div className="animate-in fade-in slide-in-from-top-2 duration-300 bg-black/30 p-4 rounded-xl border border-white/10 text-center">
+                <div className="animate-in fade-in slide-in-from-top-2 duration-300 bg-black/30 p-4 rounded-xl border border-white/5 text-center">
                   <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-3 inline-flex items-center gap-2">
                     <Clock className="h-4 w-4 text-yellow-400" />
                     <span className="text-xs text-yellow-400 font-bold">درگاه پرداخت زیبال به زودی فعال می‌شود</span>
@@ -379,7 +373,7 @@ export default function SubscriptionPage() {
               )}
 
               {paymentMethod === "card" && (
-                <div className="animate-in fade-in slide-in-from-top-2 duration-300 bg-black/30 p-4 rounded-xl border border-white/10">
+                <div className="animate-in fade-in slide-in-from-top-2 duration-300 bg-black/30 p-4 rounded-xl border border-white/5">
                   
                   <div className="mb-4 flex items-start gap-2 bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-2.5">
                     <Info className="h-4 w-4 text-yellow-400 shrink-0 mt-0.5" />
@@ -404,7 +398,7 @@ export default function SubscriptionPage() {
                       variant="outline" 
                       size="sm" 
                       onClick={copyCard} 
-                      className="mt-2 h-8 px-4 rounded-full border-white/20 text-[#d6ad60] hover:bg-[#d6ad60]/10 gap-2 text-xs"
+                      className="mt-2 h-8 px-4 rounded-full border-white/10 text-[#d6ad60] hover:bg-[#d6ad60]/10 gap-2 text-xs"
                     >
                       {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                       {copied ? "کپی شد" : "کپی شماره کارت"}
@@ -421,7 +415,7 @@ export default function SubscriptionPage() {
                         placeholder="1404/10/25 - 16:42" 
                         value={paymentTime} 
                         onChange={(e) => setPaymentTime(e.target.value)} 
-                        className="h-10 bg-black/40 border-white/10 text-white text-sm dir-ltr text-center" 
+                        className="h-10 bg-black/40 border-white/5 text-white text-sm dir-ltr text-center" 
                       />
                     </div>
                     <div className="space-y-1">
@@ -430,7 +424,7 @@ export default function SubscriptionPage() {
                         placeholder="۱۲۳۴۵۶" 
                         value={note} 
                         onChange={(e) => setNote(e.target.value)} 
-                        className="h-10 bg-black/40 border-white/10 text-white text-sm text-center" 
+                        className="h-10 bg-black/40 border-white/5 text-white text-sm text-center" 
                       />
                     </div>
                   </div>
@@ -448,7 +442,19 @@ export default function SubscriptionPage() {
                   >
                     {loading ? "در حال ارسال..." : "ثبت درخواست و ارسال رسید"}
                   </Button>
+
+                  <div className="mt-6 flex w-full justify-center">
+                    <Link href="/dashboard">
+                      <Button className="h-9 bg-white/5 hover:bg-white/10 text-white border border-white/10 text-xs font-bold gap-1.5">
+                        بازگشت به داشبورد
+                      </Button>
+                    </Link>
+                  </div>
+
                 </div>
+                
+
+                
               )}
             </>
           )}

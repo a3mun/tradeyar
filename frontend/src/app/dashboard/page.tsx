@@ -290,7 +290,7 @@ export default function DashboardPage() {
 
   if (!user)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white">
+      <div className="flex min-h-screen items-center justify-center bg-[#030712] text-white">
         در حال بارگذاری...
       </div>
     );
@@ -299,7 +299,7 @@ export default function DashboardPage() {
   const displayName = user.full_name || user.phone;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
       <main className="container mx-auto max-w-5xl flex-1 space-y-5 p-4 py-6">
         {/* ═══ خوش‌آمد ═══ */}
@@ -313,9 +313,6 @@ export default function DashboardPage() {
               <h1 className="font-display truncate text-xl font-bold text-white sm:text-2xl">
                 خوش آمدی، <span className="text-[#d6ad60]">{displayName}</span> 👋
               </h1>
-              <p className="mt-1 text-xs text-gray-400 sm:text-sm">
-                امروز چه خبر؟ بازار منتظرته.
-              </p>
             </div>
             <div className="flex shrink-0 gap-2">
               <Link href="/">
@@ -409,9 +406,8 @@ export default function DashboardPage() {
             className="space-y-5"
           >
             {/* کارت اشتراک */}
-            <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#14263e] via-[#051118] to-[#07111f] p-5 sm:p-6">
+            <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-r from-[#051118] via-[#051118] to-[#030712] p-5 sm:p-6">
               <div className="absolute -right-10 -top-10 p-4 opacity-5">
-                <Crown className="h-48 w-48 text-[#d6ad60]" />
               </div>
               <div className="relative z-10 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div className="w-full space-y-2 sm:w-auto">
@@ -455,7 +451,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <Link href="/subscription" className="mt-2 w-full shrink-0 sm:mt-0 sm:w-auto">
-                  <Button className="h-11 w-full gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] px-5 text-sm font-bold text-[#07111f] shadow-lg shadow-[#d6ad60]/20 transition-transform hover:scale-[1.02] hover:opacity-90 sm:h-12 sm:px-6 sm:text-base">
+                  <Button className="h-11 w-full gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] px-5 text-sm font-bold text-[#030712] shadow-lg shadow-[#d6ad60]/20 transition-transform hover:scale-[1.02] hover:opacity-90 sm:h-12 sm:px-6 sm:text-base">
                     <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
                     ارتقا / تمدید
                   </Button>
@@ -464,7 +460,7 @@ export default function DashboardPage() {
             </div>
 
             {/* کارت افزونه */}
-            <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#14263e] to-[#0a1526] p-4 transition-all hover:border-[#d6ad60]/40 sm:p-5">
+            <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#051118] p-4 transition-all hover:border-[#051118]/40 sm:p-5">
               <div className="pointer-events-none absolute right-0 top-0 h-40 w-40 rounded-bl-full bg-[#d6ad60]/8 blur-2xl transition-all group-hover:bg-[#d6ad60]/15" />
               <div className="relative flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                 
@@ -478,12 +474,9 @@ export default function DashboardPage() {
                       <p className="text-sm font-bold text-white sm:text-base">
                         افزونه کروم تریدمون
                       </p>
-                      <span className="rounded-full border border-[#d6ad60]/25 bg-[#d6ad60]/15 px-2 py-0.5 text-[9px] font-bold text-[#d6ad60]">
-                        ویژه انس طلا
-                      </span>
                     </div>
                     <p className="mt-1 text-[11px] leading-relaxed text-gray-400 sm:text-xs">
-                      نوسان‌گیر لحظه‌ای <b className="text-gray-200">XAU/USD</b> در
+                      تحلیل لحظه‌ای <b className="text-gray-200">XAU/USD</b> در
                       صرافی‌های دریا گلد و آلفا گلد. نیازمند{" "}
                       <b className="text-[#d6ad60]">اشتراک حرفه‌ای</b>.
                     </p>
@@ -523,7 +516,7 @@ export default function DashboardPage() {
                   </Link>
                   <Button
                     onClick={handleDownload}
-                    className="h-10 w-full gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] px-4 text-xs font-bold text-[#07111f] shadow-md shadow-[#d6ad60]/20 hover:opacity-90 sm:w-auto sm:text-sm"
+                    className="h-10 w-full gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] px-4 text-xs font-bold text-[#030712] shadow-md shadow-[#d6ad60]/20 hover:opacity-90 sm:w-auto sm:text-sm"
                   >
                     <Download className="h-4 w-4" />
                     دانلود افزونه
@@ -752,7 +745,7 @@ export default function DashboardPage() {
                       <Button
                         onClick={handleUpdateProfile}
                         disabled={editLoading}
-                        className="h-10 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] sm:h-11"
+                        className="h-10 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#030712] sm:h-11"
                       >
                         {editLoading ? "در حال ذخیره..." : "ذخیره تغییرات"}
                       </Button>
@@ -823,10 +816,10 @@ export default function DashboardPage() {
           className="pt-4"
         >
           <Link href="/dashboard/tickets">
-            <div className="group relative flex items-center justify-between overflow-hidden rounded-2xl border-2 border-[#d6ad60]/40 bg-gradient-to-br from-[#1a2c45] to-[#0a1526] p-4 transition-all hover:border-[#d6ad60]">
+            <div className="group relative flex items-center justify-between overflow-hidden rounded-2xl border-2 border-[#d6ad60]/40 bg-gradient-to-br from-[#051118] to-[#051118] p-4 transition-all hover:border-[#d6ad60]">
               <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-bl-full bg-[#d6ad60]/15 blur-xl transition-all group-hover:bg-[#d6ad60]/25" />
               <div className="relative z-10 flex items-center gap-3">
-                <div className="relative shrink-0 rounded-xl bg-[#d6ad60] p-2.5 text-[#07111f] shadow-lg shadow-[#d6ad60]/25">
+                <div className="relative shrink-0 rounded-xl bg-[#d6ad60] p-2.5 text-[#030712] shadow-lg shadow-[#d6ad60]/25">
                   <MessageSquare className="h-5 w-5" />
                   {ticketStats?.unread_count > 0 && (
                     <span className="absolute -right-1 -top-1 flex h-4 w-4 animate-pulse items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
@@ -868,7 +861,7 @@ export default function DashboardPage() {
           <p className="mb-6 text-sm leading-relaxed text-gray-400">{downloadError}</p>
           <div className="flex gap-2">
             <Link href="/subscription" className="flex-1">
-              <Button className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f]">
+              <Button className="w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#030712]">
                 ارتقا اشتراک
               </Button>
             </Link>

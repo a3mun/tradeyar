@@ -21,7 +21,7 @@ const FAQ_CATEGORIES = [
     items: [
       {
         q: "تریدمون چیه؟",
-        a: "تریدمون یک موتور تحلیل‌گر ریاضی است که با ترکیب ۳۲ اندیکاتور تکنیکال حرفه‌ای در ۵ گروه (مومنتوم، روند، نوسان، حجم، ساختار)، به معامله‌گران ایرانی کمک می‌کند تصمیم‌های بهتری بگیرند. ما از ۴ صرافی ایرانی (نوبیتکس، بیت‌پین، والکس، تبدیل) و ۳ استراتژی معاملاتی (اسکالپ، سوئینگ، پوزیشن) پشتیبانی می‌کنیم.",
+        a: "تریدمون یک موتور تحلیل‌گر ریاضی است که با ترکیب ۳۲ اندیکاتور تکنیکال حرفه‌ای در ۵ گروه (مومنتوم، روند، نوسان، حجم، ساختار)، به معامله‌گران ایرانی کمک می‌کند تصمیم‌های بهتری بگیرند. ما از بازار فارکس biquote و ۴ صرافی ایرانی (نوبیتکس، بیت‌پین، والکس، تبدیل) و ۳ استراتژی معاملاتی (اسکالپ، سوئینگ، پوزیشن) پشتیبانی می‌کنیم.",
       },
       {
         q: "چطور شروع کنم؟",
@@ -29,7 +29,26 @@ const FAQ_CATEGORIES = [
       },
       {
         q: "پلن رایگان چقدره و چی داره؟",
-        a: "پلن رایگان ۳ روزه است و شامل: مشاهده کارت سیگنال، جدول تایم‌فریم‌ها، عمق بازار، شاخص ترس و طمع، تحلیل تکنیکال پیشرفته، سناریوها، چک‌لیست، کپی داده خام، و کارت آمار راستی‌آزمایی. برای اسکنر، مشاور هوشمند AI، مقایسه صرافی‌ها و افزونه کروم، نیاز به اشتراک Pro داری.",
+        a: "پلن رایگان ۳ روزه است و شامل: مشاهده کارت سیگنال، جدول تایم‌فریم‌ها، عمق بازار، شاخص ترس و طمع، تحلیل تکنیکال، تحلیل بنیادین، ماشین حساب سود و زیان، تقویم اقتصادی، چک‌لیست اندیکاتور ها، و آمار راستی‌آزمایی. برای اسکنر، مشاور هوشمند AI، و افزونه کروم، نیاز به اشتراک Pro داری.",
+      },
+    ],
+  },
+  {
+    id: "markets",
+    title: "صرافی‌ها و بازارها",
+    icon: "🌍",
+    items: [
+      {
+        q: "تریدمون از چه صرافی‌هایی پشتیبانی می‌کند؟",
+        a: "در حال حاضر از ۶ صرافی فعال: نوبیتکس، بیت‌پین، والکس، تبدیل (کریپتو) و بورس تهران (TSETMC) و بازار فارکس/کالا (طلا، نفت، شاخص‌ها) از طریق Biquote پشتیبانی می‌کند. صرافی‌های دیگری مانند رمزینکس، توبیت و بیت۲۴ در به روز رسانی های بعدی اضافه خواهند شد.",
+      },
+      {
+        q: "چرا قیمت بیت‌کوین در تریدمون با منابع دیگر فرق دارد؟",
+        a: "قیمت بیت‌کوین (و سایر ارزها) در تریدمون مستقیماً از صرافی انتخابی شما (مثلاً نوبیتکس) گرفته می‌شود. بنابراین ممکن است با قیمت‌های جهانی یا صرافی‌های دیگر کمی اختلاف داشته باشد. برای مقایسه لحظه‌ای قیمت‌ها، از بخش «مقایسه قیمت صرافی‌ها» استفاده کنید.",
+      },
+      {
+        q: "چرا قیمت نفت در تریدمون با منابع خبری فرق دارد؟",
+        a: "قیمت نفت نمایش‌داده‌شده بر اساس CFD (قرارداد مابه‌التفاوت) است و ممکن است با قیمت آتی بورس ICE چند دلار اختلاف داشته باشد. این اختلاف به دلیل تفاوت بین قراردادهای CFD و فیوچرز بورس است.",
       },
     ],
   },
@@ -117,7 +136,6 @@ const FAQ_CATEGORIES = [
       },
     ],
   },
-
   {
     id: "extension",
     title: "افزونه کروم",
@@ -141,8 +159,6 @@ const FAQ_CATEGORIES = [
       },
     ],
   },
-
-
   {
     id: "account",
     title: "حساب کاربری",
@@ -178,7 +194,7 @@ export default function FAQPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
 
       <main className="flex-1">
@@ -199,7 +215,7 @@ export default function FAQPage() {
                 <br />
                 <span className="text-[#d6ad60]">جوابش اینجاست</span>
               </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
+              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base text-justify">
                 هر آنچه برای استفاده حرفه‌ای از تریدمون نیاز داری. اگه جوابت رو
                 پیدا نکردی، از طریق کانال‌های پشتیبانی با ما در ارتباط باش.
               </p>
@@ -223,14 +239,14 @@ export default function FAQPage() {
                     return (
                       <div
                         key={itemId}
-                        className="overflow-hidden rounded-xl border border-white/10 bg-[#051118]"
+                        className="overflow-hidden rounded-xl border border-white/5 bg-[#051118] shadow-sm"
                       >
                         <button
                           onClick={() => toggleItem(itemId)}
                           className="flex w-full items-center justify-between gap-3 p-4 text-right transition-colors hover:bg-white/[0.03]"
                           aria-expanded={isOpen}
                         >
-                          <span className="flex-1 text-sm font-bold text-white">
+                          <span className="flex-1 text-sm font-bold text-gray-200">
                             {item.q}
                           </span>
                           <ChevronDown
@@ -251,7 +267,7 @@ export default function FAQPage() {
                               }}
                               style={{ overflow: "hidden" }}
                             >
-                              <div className="border-t border-white/10 p-4 text-xs leading-relaxed text-gray-400">
+                              <div className="border-t border-white/5 p-4 text-xs leading-relaxed text-gray-400 text-justify">
                                 {item.a}
                               </div>
                             </motion.div>
@@ -273,7 +289,7 @@ export default function FAQPage() {
             <h2 className="mb-3 font-display text-xl font-bold">
               جوابت رو پیدا نکردی؟
             </h2>
-            <p className="mb-6 text-sm text-gray-400">
+            <p className="mb-6 text-sm text-gray-400 text-justify">
               تیم پشتیبانی ما آماده کمکه
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">

@@ -5,11 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip, TooltipContent, TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAppStore } from "@/store/useAppStore";
-import { sourceSupportsPair, SOURCE_BY_KEY } from "@/lib/sources";
+import { SOURCE_BY_KEY } from "@/lib/sources";
 import { MiniSparkline } from "@/components/ui/sparkline";
 import type { AnalyzeResponse, Timeframe } from "@/lib/types";
 import {
@@ -27,31 +24,6 @@ const TF_ALLOWED_BY_STRATEGY: Record<string, Timeframe[]> = {
   position: ["۳۰ دقیقه", "۱ ساعت", "روزانه"],
 };
 
-// 🔴 استایل‌های تک‌رنگ و مینیمال
-const SIGNAL_STYLE_MAP: Record<string, Record<string, string>> = {
-  long: {
-    golden: "border-[#d6ad60] bg-[#d6ad60]/10 text-[#d6ad60]",
-    strong: "border-green-500/30 bg-green-500/5 text-green-400/90",
-    normal: "border-green-500/20 bg-green-500/5 text-green-400/70",
-    weak: "border-green-500/10 bg-transparent text-green-400/50",
-    neutral: "border-transparent bg-transparent text-muted-foreground/50",
-  },
-  short: {
-    golden: "border-[#d6ad60] bg-[#d6ad60]/10 text-[#d6ad60]",
-    strong: "border-red-500/30 bg-red-500/5 text-red-400/90",
-    normal: "border-red-500/20 bg-red-500/5 text-red-400/70",
-    weak: "border-red-500/10 bg-transparent text-red-400/50",
-    neutral: "border-transparent bg-transparent text-muted-foreground/50",
-  },
-  neutral: {
-    golden: "border-transparent bg-transparent text-muted-foreground/50",
-    strong: "border-transparent bg-transparent text-muted-foreground/50",
-    normal: "border-transparent bg-transparent text-muted-foreground/70",
-    weak: "border-transparent bg-transparent text-muted-foreground/50",
-    neutral: "border-transparent bg-transparent text-muted-foreground/30",
-  }
-};
-
 function translateSignal(signal: string) {
   return signal.replace(/LONG/g, "خرید").replace(/SHORT/g, "فروش");
 }
@@ -65,8 +37,50 @@ function sparkColorFromSignal(signal: string): "green" | "red" | "neutral" {
 }
 
 type Direction = "long" | "short" | "neutral";
-
 const ROW_HEIGHT = "h-[42px]";
+
+/**
+ * 🔴 تابع استایل سیگنال (با کلاس‌های کامل Tailwind برای متن)
+ */
+function getSignalStyle(direction: Direction, confLevel: ConfidenceLevel, isActive: boolean, statusText: string) {
+  if (direction === "neutral") {
+    return "border-transparent bg-transparent text-muted-foreground/30";
+  }
+
+  const isLong = direction === "long";
+
+  // 🔴 حالت دور (خیلی کم‌رنگ)
+  if (statusText === "دور") {
+    return isLong 
+      ? "border-green-500/10 bg-transparent text-green-400/20" 
+      : "border-red-500/10 bg-transparent text-red-400/20";
+  }
+
+  // 🔴 حالت در حال تشکیل (کم‌رنگ‌تر از فعال)
+  if (statusText === "در حال تشکیل") {
+    return isLong 
+      ? "border-green-500/20 bg-transparent text-green-400/30" 
+      : "border-red-500/20 bg-transparent text-red-400/30";
+  }
+
+  // 🔴 حالت فعال (پررنگ)
+  if (isActive) {
+    switch (confLevel) {
+      case "golden":
+        return "border-[#d6ad60] bg-[#d6ad60]/10 text-[#d6ad60]";
+      case "strong":
+        return isLong ? "border-green-500/40 bg-green-500/5 text-green-400/90" : "border-red-500/40 bg-red-500/5 text-red-400/90";
+      case "normal":
+        return isLong ? "border-green-500/30 bg-green-500/5 text-green-400/70" : "border-red-500/30 bg-red-500/5 text-red-400/70";
+      case "weak":
+        return isLong ? "border-green-500/20 bg-transparent text-green-400/50" : "border-red-500/20 bg-transparent text-red-400/50";
+      default:
+        return "border-transparent bg-transparent text-muted-foreground/50";
+    }
+  }
+
+  return "border-transparent bg-transparent text-muted-foreground/50";
+}
 
 export function TFTable() {
   const {
@@ -79,9 +93,7 @@ export function TFTable() {
   const isTsetmc = Boolean(ticker) && ticker.charCodeAt(0) > 127;
 
   const allowedTfs = useMemo(() => {
-    if (isTsetmc) {
-      return ["روزانه"] as Timeframe[];
-    }
+    if (isTsetmc) return ["روزانه"] as Timeframe[];
     return TF_ALLOWED_BY_STRATEGY[strategy] || TIMEFRAMES;
   }, [strategy, isTsetmc]);
   
@@ -177,25 +189,48 @@ export function TFTable() {
               const isDirectional = dirFromBackend === "long" || dirFromBackend === "short";
               const confLevel = getConfidenceLevel(conf, isDirectional);
 
-              const styleDirection = isActiveSignal ? dirFromBackend : "neutral";
-              const sigClass = SIGNAL_STYLE_MAP[styleDirection][confLevel];
+              // 🔴 تشخیص جهت بر اساس رشته سیگنال برای باکس
+              const rawSignal = row.signal || "";
+              const rawSignalUpper = rawSignal.toUpperCase();
+              let effectiveDirection: Direction = dirFromBackend;
+              if (rawSignalUpper.includes("LONG") || rawSignal.includes("خرید") || rawSignal.includes("صعودی")) {
+                effectiveDirection = "long";
+              } else if (rawSignalUpper.includes("SHORT") || rawSignal.includes("فروش") || rawSignal.includes("نزولی")) {
+                effectiveDirection = "short";
+              }
+
+              // 🔴 تعیین نوع نمایش سیگنال
+              let displaySignal = "خنثی";
+              let statusText = "";
+
+              if (isActiveSignal) {
+                displaySignal = translateSignal(rawSignal);
+                statusText = "فعال";
+              } else if (rawSignal.includes("در حال تشکیل") || conf >= 25) {
+                displaySignal = "در حال تشکیل";
+                statusText = "در حال تشکیل";
+              } else if (rawSignal.includes("دور") || conf >= 10) {
+                displaySignal = "دور";
+                statusText = "دور";
+              } else {
+                displaySignal = "خنثی";
+                statusText = "خنثی";
+              }
+
+              // 🔴 تعیین استایل سیگنال
+              const sigClass = getSignalStyle(effectiveDirection, confLevel, isActiveSignal, statusText);
+              
+              // رنگ نوار درصد
               const confStyle = CONF_BAR_COLOR[confLevel];
 
-              // 🔴 ردیف فعال فقط با یک خط طلایی در سمت راست مشخص میشه
+              // 🔴 نمودار همیشه رنگ خودش رو داره
+              const sparkColor = sparkColorFromSignal(rawSignal);
+
               const rowClass = isActive
                 ? "cursor-pointer transition-all duration-200 bg-white/[0.02] border-r-2 border-[#d6ad60]"
                 : "cursor-pointer transition-all duration-200 hover:bg-[#d6ad60]/5 border-r-2 border-transparent";
 
-              const goldenMark = confLevel === "golden" ? "💎 " : "";
-              let displaySignal = "خنثی";
-              const rawSignal = row.signal || "";
-
-              if (isActiveSignal) displaySignal = translateSignal(rawSignal);
-              else if (rawSignal.includes("در حال تشکیل")) displaySignal = "در حال تشکیل";
-              else if (rawSignal.includes("دور")) displaySignal = "دور";
-              else if (conf >= 25) displaySignal = "در حال تشکیل";
-              else if (conf >= 10) displaySignal = "دور";
-              else displaySignal = "خنثی";
+              const goldenMark = (confLevel === "golden" && isActiveSignal) ? "💎 " : "";
 
               return (
                 <TableRow key={tf} onClick={() => handleRowClick(tf)} className={`${rowClass} ${ROW_HEIGHT} border-white/10`}>
@@ -209,16 +244,16 @@ export function TFTable() {
                   </TableCell>
                   <TableCell className="text-center py-0">
                     <div className="leading-none flex flex-col items-center justify-center gap-1.5">
-                      <div className="num text-[11px] sm:text-[12px] font-bold" style={{ color: isActiveSignal ? confStyle.text : "#64748b" }}>
+                      <div className="num text-[11px] sm:text-[12px] font-bold" style={{ color: isActiveSignal ? confStyle.text : "#475569" }}>
                         {`${conf}%`}
                       </div>
-                      <div className="h-1 w-10 sm:w-12 overflow-hidden rounded-full bg-white/10">
-                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${conf}%`, background: isActiveSignal ? confStyle.bar : "#475569", boxShadow: isActiveSignal ? `0 0 8px ${confStyle.bar}` : "none" }} />
+                      <div className="h-1 w-10 sm:w-12 overflow-hidden rounded-full bg-white/5">
+                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${conf}%`, background: isActiveSignal ? confStyle.bar : "#334155", boxShadow: isActiveSignal ? `0 0 8px ${confStyle.bar}` : "none" }} />
                       </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-center px-1 py-0 rounded-l-md">
-                    <MiniSparkline data={row.close_series || []} height={22} color={sparkColorFromSignal(row.signal || "")} className="mx-auto w-14 sm:w-20 opacity-80" />
+                    <MiniSparkline data={row.close_series || []} height={22} color={sparkColor} className="mx-auto w-14 sm:w-20 opacity-80" />
                   </TableCell>
                 </TableRow>
               );

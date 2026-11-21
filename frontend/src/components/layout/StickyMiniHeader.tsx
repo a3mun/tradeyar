@@ -6,6 +6,7 @@ import { useWebSocket } from "@/lib/hooks/useWebSocket";
 import { useScrollVisibility } from "@/lib/hooks/useScrollVisibility";
 import { SOURCE_BY_KEY } from "@/lib/sources";
 import { formatNumber } from "@/lib/display";
+import { getConfidenceLevel } from "@/lib/thresholds";
 import { useEffect, useRef, useState } from "react";
 
 export function StickyMiniHeader() {
@@ -41,18 +42,37 @@ export function StickyMiniHeader() {
   }, [displayPrice]);
 
   const meta = SOURCE_BY_KEY[source];
-  const sigText = signal?.signal ?? "";
   const sigConf = signal?.confidence ?? 0;
   const sigDir = signal?.direction ?? "neutral";
 
+  const isDirectional = sigDir === "long" || sigDir === "short";
+  const confLevel = getConfidenceLevel(sigConf, isDirectional);
+
+  // 🔴 استخراج فقط کلمه انگلیسی (حذف هر کلمه فارسی)
+  const rawSignal = signal?.signal || "";
+  const englishSignal = (() => {
+    const upper = rawSignal.toUpperCase();
+    if (upper.includes("LONG")) return "LONG";
+    if (upper.includes("SHORT")) return "SHORT";
+    // اگر در سیگنال کلمه خرید/فروش بود، تبدیل کن
+    if (rawSignal.includes("خرید")) return "LONG";
+    if (rawSignal.includes("فروش")) return "SHORT";
+    return "NEUTRAL";
+  })();
+
   const DirIcon = sigDir === "long" ? TrendingUp : sigDir === "short" ? TrendingDown : Minus;
 
-  const sigBadgeClass =
-    sigDir === "long"
-      ? "border-green-500/30 bg-green-500/10 text-green-400"
-      : sigDir === "short"
-        ? "border-red-500/30 bg-red-500/10 text-red-400"
-        : "border-white/10 bg-white/5 text-gray-400";
+  // 🔴 رنگ‌بندی بر اساس سطح اطمینان
+  const sigBadgeClass = (() => {
+    if (!isDirectional) return "border-white/10 bg-white/5 text-gray-400";
+    switch (confLevel) {
+      case "golden": return "border-[#d6ad60]/50 bg-[#d6ad60]/10 text-[#d6ad60]";
+      case "strong": return sigDir === "long" ? "border-green-500/30 bg-green-500/10 text-green-400" : "border-red-500/30 bg-red-500/10 text-red-400";
+      case "normal": return sigDir === "long" ? "border-green-500/20 bg-green-500/5 text-green-400/80" : "border-red-500/20 bg-red-500/5 text-red-400/80";
+      case "weak": return sigDir === "long" ? "border-green-500/10 bg-transparent text-green-400/60" : "border-red-500/10 bg-transparent text-red-400/60";
+      default: return "border-white/10 bg-white/5 text-gray-400";
+    }
+  })();
 
   const handleClick = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -90,13 +110,14 @@ export function StickyMiniHeader() {
             </p>
           </div>
 
-          {sigText && (
+          {/* 🔴 نمایش بج انگلیسی در همه سایزها (موبایل + دسکتاپ) */}
+          {sigConf > 0 && (
             <span
-              className={`hidden shrink-0 items-center gap-0.5 rounded border px-1.5 py-0 text-[9px] font-bold leading-tight sm:flex ${sigBadgeClass}`}
+              className={`shrink-0 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold leading-none ${sigBadgeClass}`}
             >
               <DirIcon className="h-2.5 w-2.5" />
-              {sigText}
-              <span className="num">· {sigConf}%</span>
+              <span className="hidden sm:inline">{englishSignal}</span>
+              <span className="sm:hidden">{englishSignal.substring(0, 1)}</span>
             </span>
           )}
 
@@ -115,13 +136,14 @@ export function StickyMiniHeader() {
           <ArrowUp className="h-3 w-3 shrink-0 text-gray-500/50" />
         </div>
 
-        <div className="flex w-full items-center justify-between gap-2 text-[9px] leading-tight text-gray-500">
-          <span className="num truncate">{ticker}</span>
-          <span className="hidden items-center gap-1.5 sm:flex">
+        <div className="flex w-full items-center justify-between gap-2 text-[9px] leading-none text-gray-500">
+          <span className="num min-w-0 truncate">{ticker}</span>
+
+          <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
             {meta && (
               <span className="flex items-center gap-0.5">
                 <span className="text-[8px]">{meta.icon}</span>
-                {meta.label}
+                <span>{meta.label}</span>
               </span>
             )}
             <span className="text-white/10">·</span>

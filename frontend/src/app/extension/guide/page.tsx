@@ -120,7 +120,7 @@ export default function ExtensionGuidePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#07111f] text-white py-12 px-4">
+    <div className="min-h-screen bg-[#030712] text-white py-12 px-4">
       <div className="max-w-3xl mx-auto">
         
         {/* هدر */}

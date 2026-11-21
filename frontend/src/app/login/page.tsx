@@ -10,6 +10,38 @@ import { motion, useInView } from "framer-motion";
 import { PublicFooter } from "@/components/layout/PublicFooter";
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, BarChart3, Brain, Check, CreditCard, Filter, Globe, Layers, Target, Zap } from "lucide-react";
 
+// 🔴 SEO: اضافه کردن اسکیمای FAQ برای ریچ‌اسنیپت
+const FAQ_SCHEMA = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "تریدمون چیست و چه کاربردی دارد؟",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "تریدمون یک دستیار هوشمند تحلیل بازارهای مالی است که با ۳۲ اندیکاتور تکنیکال، سه استراتژی معاملاتی و مشاور هوش مصنوعی، به شما در تحلیل کریپتو، فارکس و بورس کمک می‌کند."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "آیا استفاده از تریدمون رایگان است؟",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "با اولین ورود، ۳ روز اشتراک رایگان هدیه می‌گیرید. برای ادامه استفاده، می‌توانید یکی از پلن‌های اشتراک را از صفحه پلن‌ها تهیه کنید."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "تریدمون از چه صرافی‌هایی پشتیبانی می‌کند؟",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "تریدمون از نوبیتکس، بیت‌پین، والکس، تبدیل، بورس تهران و بازار فارکس (طلا، نفت، شاخص‌ها) پشتیبانی می‌کند. همچنین افزونه اختصاصی کروم برای تحلیل انس طلا (XAU/USD) در دریا گلد و آلفا گلد ارائه شده است."
+      }
+    }
+  ]
+};
+
 function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string }) {
   const [count, setCount] = useState(0);
   const ref = useRef(null);
@@ -42,26 +74,24 @@ function AnimatedNumber({ value, suffix = "" }: { value: number; suffix?: string
   );
 }
 
-// 🔴 آمار
 const STATS = [
   { label: "اندیکاتور تکنیکال", value: 32, suffix: "" },
   { label: "صرافی", value: 6, suffix: "" },
-  { label: "دقت پیش‌بینی روند", value: 78, suffix: "٪" },
-  { label: "دقت رسیدن به هدف", value: 62, suffix: "٪" },
+  { label: "دقت پیش‌بینی", value: 78, suffix: "٪" },
+  { label: "دقت به هدف", value: 62, suffix: "٪" },
 ];
 
-// 🔴 ۱۰ ویژگی (دقیقاً مثل قبل)
 const FEATURES = [
-  { icon: Brain, title: "مشاور هوشمند AI", desc: "تحلیل با AI + کپی داده‌های خام" },
+  { icon: Brain, title: "مشاور هوشمند AI", desc: "تحلیل لحظه‌ای با هوش مصنوعی" },
   { icon: Filter, title: "اسکنر فرصت‌ها", desc: "پیدا کردن پرسودترین نمادها" },
-  { icon: Zap, title: "سه استراتژی معاملاتی", desc: "اسکالپ سریع، سوئینگ متعادل، پوزیشن بلندمدت" },
-  { icon: Target, title: "دو پروفایل ریسک", desc: "جسورانه برای سود بیشتر، محتاطانه برای امنیت" },
-  { icon: Layers, title: "اسپات و فیوچرز (تعهدی)", desc: "پشتیبانی از هر دو بازار" },
-  { icon: Globe, title: "افزونه کروم", desc: "تحلیل زنده XAU/USD در دریا گلد و آلفا گلد" },
-  { icon: ArrowLeftRight, title: "مقایسه صرافی‌ها", desc: "قیمت لحظه‌ای ۴ صرافی ایرانی" },
-  { icon: BarChart3, title: "بررسی بورس تهران", desc: "تحلیل بازار سهام و صندوق‌های بورسی" },
-  { icon: AlertTriangle, title: "هشدار تله‌ها", desc: "تشخیص تله صعودی، نزولی و شکست جعلی" },
-  { icon: Check, title: "راستی‌آزمایی خودکار", desc: "ثبت و ارزیابی مستمر همه سیگنال‌ها" },
+  { icon: Zap, title: "سه استراتژی", desc: "اسکالپ، سوئینگ، پوزیشن" },
+  { icon: Target, title: "دو پروفایل ریسک", desc: "جسورانه و محتاطانه" },
+  { icon: Layers, title: "اسپات و فیوچرز", desc: "پشتیبانی از هر دو بازار" },
+  { icon: Globe, title: "افزونه کروم", desc: "تحلیل زنده XAU/USD" },
+  { icon: ArrowLeftRight, title: "مقایسه صرافی‌ها", desc: "مقایسه قیمت ۴ صرافی ایرانی" },
+  { icon: BarChart3, title: "بورس تهران", desc: "تحلیل سهام و صندوق‌ها" },
+  { icon: AlertTriangle, title: "هشدار تله‌ها", desc: "تشخیص تله و شکست جعلی" },
+  { icon: Check, title: "راستی‌آزمایی", desc: "ارزیابی مستمر سیگنال‌ها" },
 ];
 
 const EXCHANGES_MAJOR = [
@@ -104,29 +134,19 @@ export default function LoginPage() {
   const [loginMode, setLoginMode] = useState<"otp" | "password">("otp");
   const [password, setPassword] = useState("");
 
-  const [floatingSignals, setFloatingSignals] = useState<any[]>([]);
   const [candleHeights, setCandleHeights] = useState<any[]>([]);
 
   const codeInputs = useRef<(HTMLInputElement | null)[]>([]);
   const [codeDigits, setCodeDigits] = useState(["", "", "", "", ""]);
 
+  // 🔴 تنظیم کندل‌های پس‌زمینه (کمتر و پهن‌تر)
   useEffect(() => {
     setCandleHeights(
-      Array.from({ length: 15 }).map((_, i) => ({
+      Array.from({ length: 7 }).map((_, i) => ({
         id: i,
-        start: 20 + ((i * 7) % 40),
-        peak: 50 + ((i * 11) % 40),
-        color: i % 2 === 0 ? "bg-[#10b981]" : "bg-[#ef4444]",
-      }))
-    );
-    setFloatingSignals(
-      Array.from({ length: 10 }).map((_, i) => ({
-        id: i,
-        x: -100,
-        y: Math.random() * 800,
-        duration: 10 + Math.random() * 8,
-        delay: Math.random() * 5,
-        size: 2 + Math.random() * 1.5,
+        base: 15 + Math.random() * 35,
+        peak: 40 + Math.random() * 50,
+        color: i % 2 === 0 ? "bg-[#10b981]/30" : "bg-[#ef4444]/30",
       }))
     );
   }, []);
@@ -243,92 +263,78 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#07111f] text-white">
-      {/* 🔴 سئو مخفی (فقط متن‌ها آپدیت شدن) */}
+    <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#030712] text-white">
+      {/* 🔴 SEO: اسکیمای FAQ */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_SCHEMA) }}
+      />
+
+      {/* 🔴 سئو مخفی */}
       <div className="sr-only" aria-hidden="true">
-        <h1>
-          تحلیل بازارهای مالی با تریدمون — معامله هوشمند، از اینجا شروع می‌شه! تریدمون نشه؟
-        </h1>
-        <h2>
-          تریدمون: تحلیل تکنیکال حرفه‌ای با ۳۲ اندیکاتور، ۳ استراتژی معاملاتی,
-          مشاور AI، اسکنر بازار و مقایسه صرافی‌های ایرانی
-        </h2>
-        <p>
-          با ورود به تریدمون، به موتور تحلیل حرفه‌ای با ۳۲ اندیکاتور تکنیکال
-          دسترسی پیدا می‌کنید. سه استراتژی معاملاتی (اسکالپ، سوئینگ، پوزیشن),
-          مشاور هوشمند با AI و دسترسی به داده‌های خام، اسکنر فرصت‌ها، مقایسه
-          لحظه‌ای قیمت صرافی‌های ایرانی (نوبیتکس، بیت‌پین، والکس، تبدیل) و بررسی
-          بازار فارکس و کالا (طلا، نقره، نفت)، تحلیل اختصاصی انس طلا (XAU/USD) از
-          طریق افزونه کروم، مدیریت ریسک هوشمند، چک‌لیست معاملاتی، سناریوهای پیش‌بینی
-          بازار، راستی‌آزمایی خودکار سیگنال، شاخص ترس و طمع، عمق بازار و پروفایل
-          ریسک شخصی‌سازی شده. ۳ روز رایگان با اولین ورود.
-        </p>
+        <h1>تحلیل بازارهای مالی با تریدمون — معامله هوشمند، از اینجا شروع می‌شه! تریدمون نشه؟</h1>
+        <h2>تریدمون: تحلیل تکنیکال حرفه‌ای با ۳۲ اندیکاتور، ۳ استراتژی معاملاتی, مشاور AI، اسکنر بازار و مقایسه صرافی‌های ایرانی</h2>
+        <p>با ورود به تریدمون، به موتور تحلیل حرفه‌ای با ۳۲ اندیکاتور تکنیکال دسترسی پیدا می‌کنید. سه استراتژی معاملاتی (اسکالپ، سوئینگ، پوزیشن), مشاور هوشمند با AI و دسترسی به داده‌های خام، اسکنر فرصت‌ها، مقایسه لحظه‌ای قیمت صرافی‌های ایرانی (نوبیتکس، بیت‌پین، والکس، تبدیل) و بررسی بازار فارکس و کالا (طلا، نقره، نفت)، تحلیل اختصاصی انس طلا (XAU/USD) از طریق افزونه کروم، مدیریت ریسک هوشمند، چک‌لیست معاملاتی، سناریوهای پیش‌بینی بازار، راستی‌آزمایی خودکار سیگنال، شاخص ترس و طمع، عمق بازار و پروفایل ریسک شخصی‌سازی شده. ۳ روز رایگان با اولین ورود.</p>
       </div>
 
-      {/* پس‌زمینه انیمیشن */}
+      {/* 🔴 پس‌زمینه انیمیشن (نمودار شمعی و خط طلایی) */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <svg className="absolute inset-0 h-full w-full opacity-70" viewBox="0 0 1200 800" preserveAspectRatio="none">
+        <svg className="absolute inset-0 h-full w-full opacity-60" viewBox="0 0 1200 800" preserveAspectRatio="none">
           <motion.path
             initial={{ pathLength: 0, opacity: 0 }}
-            animate={{ pathLength: 1, opacity: 0.6 }}
-            transition={{ duration: 8, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
+            animate={{ pathLength: 1, opacity: 0.4 }}
+            transition={{ duration: 10, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
             d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110"
             fill="none"
             stroke="#d6ad60"
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinecap="round"
           />
         </svg>
-        <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-40">
+
+        <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-30">
           {candleHeights.map((candle) => (
             <motion.div
               key={candle.id}
-              initial={{ height: `${candle.start}%`, opacity: 0.4 }}
-              animate={{ height: [`${candle.start}%`, `${candle.peak}%`, `${candle.start}%`] }}
-              transition={{ duration: 5 + (candle.id % 3), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }}
-              className={`w-3 sm:w-4 rounded-t-sm ${candle.color}`}
+              initial={{ height: `${candle.base}%` }}
+              animate={{ height: [`${candle.base}%`, `${candle.peak}%`, `${candle.base}%`] }}
+              transition={{ duration: 4 + (candle.id % 5), repeat: Infinity, ease: "easeInOut", delay: candle.id * 0.1 }}
+              className={`w-9 sm:w-12 rounded-t-sm ${candle.color}`}
             />
           ))}
         </div>
-        {floatingSignals.map((signal) => (
-          <motion.div
-            key={`signal-${signal.id}`}
-            initial={{ x: signal.x, y: signal.y, opacity: 0 }}
-            animate={{ x: 1200, y: [signal.y, signal.y + 30, signal.y - 30, signal.y], opacity: [0, 0.7, 0], scale: [1, 1.3, 1] }}
-            transition={{ duration: signal.duration, repeat: Infinity, ease: "linear", delay: signal.delay }}
-            className="absolute rounded-full bg-[#d6ad60] shadow-[0_0_15px_#d6ad60]"
-            style={{ width: `${signal.size * 4}px`, height: `${signal.size * 4}px` }}
-          />
-        ))}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#07111f]/80 via-[#07111f]/60 to-[#07111f]/95" />
+
+        <div className="absolute inset-0 bg-gradient-to-br from-[#030712]/80 via-[#030712]/60 to-[#030712]/95" />
       </div>
 
-      {/* هدر */}
-      <header className="relative z-10 flex items-center justify-between p-4 sm:p-6">
+      {/* هدر (لوگو وسط‌چین) */}
+      <header className="relative z-10 flex items-center justify-center p-4 sm:p-6">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
-          <img src="/icon-512.png" alt="Trademun" className="h-14 w-auto sm:h-16 rounded-xl object-contain" />
+          <img src="/icon-512-login.png" alt="Trademun" className="h-14 w-auto sm:h-16 rounded-xl object-contain" />
         </Link>
-        <div className="flex items-center gap-2 text-xs text-gray-400 bg-white/5 py-1 px-3 rounded-full border border-white/10">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-[#10b981]" />
-          دستیار هوشمند بازار
-        </div>
       </header>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-8 p-4 py-8 sm:p-6 lg:flex-row lg:items-center lg:justify-between lg:pt-16">
-        {/* ستون محتوا */}
-        <div className="flex w-full flex-col items-center lg:items-start lg:w-1/2 text-center lg:text-right">
-          <h1 className="font-display font-bold leading-tight mt-2 tracking-tight">
-            <span className="block text-3xl sm:text-4xl lg:text-5xl text-white">تحلیل بازارهای مالی</span>
-            <span className="mt-2 block text-lg sm:text-xl lg:text-2xl font-medium">
-              <span className="text-white">معامله هوشمند، از اینجا شروع می‌شه!</span>{" "}
-              <span className="text-[#d6ad60]">تریدمون نشه؟</span>
-            </span>
-          </h1>
+      {/* تیتر وسط‌چین */}
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-4 pt-4 pb-8 text-center">
+        <h1 className="font-display font-bold leading-tight tracking-tight">
+          <span className="block text-3xl sm:text-4xl lg:text-5xl text-white">تحلیل بازارهای مالی</span>
+          <span className="mt-2 block text-lg sm:text-xl lg:text-2xl font-medium">
+            <span className="text-white">معامله هوشمند، از اینجا شروع می‌شه!</span>{" "}
+            <span className="text-[#d6ad60]">تریدمون نشه؟</span>
+          </span>
+        </h1>
+      </div>
 
+      {/* 🔴 بخش اصلی: دو ستونه (ویژگی‌ها + فرم) */}
+      {/* 🔴 تغییر: items-stretch به items-start تغییر کرد تا ستون‌ها مستقل بشن */}
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-8 p-4 py-4 sm:p-6 lg:flex-row lg:justify-between">
+        
+        {/* ستون چپ (ویژگی‌ها + آمار) */}
+        <div className="flex w-full flex-col lg:w-1/2 gap-4">
           {/* آمار */}
-          <div className="mt-6 grid w-full max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
+          <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
             {STATS.map((stat, i) => (
-              <div key={i} className="flex h-full flex-col items-center justify-center rounded-xl border border-white/10 bg-[#051118] py-2.5">
+              <div key={i} className="flex h-full flex-col items-center justify-center rounded-xl border border-white/10 bg-[#051118]/80 backdrop-blur-sm py-2.5">
                 <span className="text-lg font-bold text-[#d6ad60] leading-none">
                   <AnimatedNumber value={stat.value} suffix={stat.suffix} />
                 </span>
@@ -337,10 +343,10 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* ویژگی‌ها */}
-          <div className="mt-6 grid w-full max-w-2xl grid-cols-2 gap-2 sm:gap-2.5">
+          {/* ۱۰ ویژگی */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 flex-1" dir="rtl">
             {FEATURES.map((f, i) => (
-              <div key={i} className="group flex h-full items-start gap-2 rounded-xl border border-white/10 bg-[#051118] p-2 transition-all hover:border-[#d6ad60]/40 hover:bg-white/[0.03] sm:gap-2.5 sm:p-3">
+              <div key={i} className="group flex items-start gap-2 rounded-xl border border-white/10 bg-[#051118]/80 backdrop-blur-sm p-2 transition-all hover:border-[#d6ad60]/40 hover:bg-white/[0.03] sm:gap-2.5 sm:p-3 h-full">
                 <div className="shrink-0 rounded-lg bg-[#d6ad60]/15 p-1.5">
                   <f.icon className="h-3.5 w-3.5 text-[#d6ad60]" />
                 </div>
@@ -351,107 +357,25 @@ export default function LoginPage() {
               </div>
             ))}
           </div>
-
-          {/* صرافی‌ها (دسکتاپ) */}
-          <div className="mt-8 w-full max-w-lg hidden lg:block">
-            <p className="text-[10px] text-gray-400 mb-3 text-right">پشتیبانی از صرافی‌های معتبر ایرانی</p>
-            
-            {/* 🔴 لوگوها در دسکتاپ: دقیقاً مثل قبل (flex) */}
-            <div className="flex flex-wrap items-center justify-start gap-3">
-              {EXCHANGES_MAJOR.map((ex, i) => (
-                <div key={i} className="flex flex-col items-center gap-1">
-                  <div className="h-9 w-9 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1">
-                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent && !parent.querySelector(".fallback-text")) {
-                          const span = document.createElement("span");
-                          span.className = "fallback-text text-[8px] text-gray-300 font-bold";
-                          span.innerText = ex.name.substring(0, 2);
-                          parent.appendChild(span);
-                        }
-                      }}
-                    />
-                  </div>
-                  <span className="text-[8px] text-gray-400">{ex.name}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 flex items-center gap-2">
-              <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
-            </div>
-            <div className="flex flex-wrap items-center justify-start gap-3 mt-2 opacity-50">
-              {EXCHANGES_COMING_SOON.map((ex, i) => (
-                <div key={i} className="flex flex-col items-center gap-1">
-                  <div className={`relative h-8 w-8 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
-                    <img src={ex.logo} alt={ex.name} className={`h-full w-full object-contain ${ex.removed ? "opacity-50" : ""}`}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent && !parent.querySelector(".fallback-text")) {
-                          const span = document.createElement("span");
-                          span.className = "fallback-text text-[7px] text-gray-500 font-bold";
-                          span.innerText = ex.name.substring(0, 2);
-                          parent.appendChild(span);
-                        }
-                      }}
-                    />
-                  </div>
-                  <span className={`text-[7px] ${ex.removed ? "text-gray-600 line-through" : "text-gray-500"}`}>{ex.name}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 flex items-center gap-2">
-              <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
-              <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
-            </div>
-            <div className="flex flex-wrap items-center justify-start gap-3 mt-3">
-              {EXCHANGES_GOLD.map((ex, i) => (
-                <div key={i} className="flex flex-col items-center gap-1">
-                  <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
-                    <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent && !parent.querySelector(".fallback-text")) {
-                          const span = document.createElement("span");
-                          span.className = "fallback-text text-[8px] text-[#d6ad60] font-bold";
-                          span.innerText = ex.name.substring(0, 2);
-                          parent.appendChild(span);
-                        }
-                      }}
-                    />
-                  </div>
-                  <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-right">
-              ⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.
-            </p>
-          </div>
         </div>
 
-        {/* ستون فرم ورود */}
-        <div className="relative w-full max-w-sm lg:w-[400px] lg:sticky lg:top-24">
-          <div className="flex gap-1 p-1 mb-3 bg-[#051118] border border-white/10 rounded-xl">
+        {/* ستون راست (فرم ورود + پلن + هشدار) */}
+        <div className="relative w-full max-w-sm lg:w-[400px] flex flex-col gap-3">
+          <div className="flex gap-1 p-1 bg-[#051118]/80 backdrop-blur-sm border border-white/10 rounded-xl">
             <button onClick={() => { setLoginMode("otp"); setError(""); }}
-              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "otp" ? "bg-[#d6ad60] text-[#07111f]" : "text-gray-400 hover:text-white"}`}>
-              کد پیامکی
+              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "otp" ? "bg-[#d6ad60] text-[#051118]" : "text-gray-400 hover:text-white"}`}>
+              ورود پیامکی
             </button>
             <button onClick={() => { setLoginMode("password"); setError(""); }}
-              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "password" ? "bg-[#d6ad60] text-[#07111f]" : "text-gray-400 hover:text-white"}`}>
-              رمز عبور
+              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all ${loginMode === "password" ? "bg-[#d6ad60] text-[#051118]" : "text-gray-400 hover:text-white"}`}>
+             ورود با رمز
             </button>
           </div>
 
-          <form onSubmit={loginMode === "password" ? handlePasswordLogin : handleVerifyOtp} className="relative w-full rounded-2xl border border-[#d6ad60]/20 bg-[#051118] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
+          <form onSubmit={loginMode === "password" ? handlePasswordLogin : handleVerifyOtp} className="relative w-full rounded-2xl border border-[#d6ad60]/30 bg-[#051118]/80 backdrop-blur-sm p-6 shadow-[0_8px_40px_rgba(0,0,0,0.6)]">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold mb-1 text-white font-display">
-                {loginMode === "password" ? "ورود با رمز" : "ورود به تریدمون"}
+                {loginMode === "password" ? "ورود به تریدمون" : "ورود به تریدمون"}
               </h2>
               <p className="text-xs text-gray-400">
                 {loginMode === "password" ? "شماره موبایل و رمز عبور خود را وارد کنید." : step === 1 ? "برای ادامه، شماره موبایلت را وارد کن." : `کد ارسال شده به ${phone} را وارد کن.`}
@@ -476,7 +400,7 @@ export default function LoginPage() {
                     <Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12" dir="ltr" />
                   </div>
                 </div>
-                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#051118] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
                   {loading ? "در حال ورود..." : "ورود به حساب"}
                 </Button>
               </div>
@@ -488,7 +412,7 @@ export default function LoginPage() {
                     <Input type="tel" placeholder="0912 000 0000" value={phone} onChange={(e) => setPhone(e.target.value)} onKeyDown={handleKeyDown} className="border-0 bg-transparent text-center text-lg text-white shadow-none focus-visible:ring-0 h-12" maxLength={11} dir="ltr" />
                   </div>
                 </div>
-                <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                <Button onClick={handleSendOtp} disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#051118] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
                   {loading ? "در حال ارسال..." : "دریافت کد ورود"}
                 </Button>
               </div>
@@ -509,7 +433,7 @@ export default function LoginPage() {
                     ))}
                   </div>
                 </div>
-                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#07111f] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
+                <Button type="submit" disabled={loading} className="h-12 w-full rounded-xl bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-sm font-bold text-[#051118] hover:opacity-90 shadow-[0_0_20px_rgba(214,173,96,0.3)]">
                   {loading ? "در حال بررسی..." : "ورود به حساب"}
                 </Button>
                 <div className="text-center text-xs">
@@ -523,8 +447,8 @@ export default function LoginPage() {
             )}
           </form>
 
-          <Link href="/subscription" className="mt-4 block">
-            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#051118] p-3 hover:border-[#d6ad60]/60 transition-all">
+          <Link href="/subscription" className="block">
+            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#051118]/80 backdrop-blur-sm p-3 hover:border-[#d6ad60]/60 transition-all">
               <div className="flex items-center gap-2.5">
                 <div className="bg-[#d6ad60]/15 p-1.5 rounded-lg"><CreditCard className="h-4 w-4 text-[#d6ad60]" /></div>
                 <div>
@@ -536,99 +460,94 @@ export default function LoginPage() {
             </div>
           </Link>
 
-          <div className="mt-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-center">
-            <p className="text-[11px] font-bold text-emerald-400 flex items-center justify-center gap-1.5">🎁 با اولین ورود، ۳ روز اشتراک رایگان هدیه بگیر!</p>
-            <p className="text-[9px] text-emerald-500/70 mt-0.5">بدون نیاز به کارت بانکی</p>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-yellow-500/20 bg-[#051118] p-3 text-center">
-            <p className="text-[10px] text-yellow-500/80 leading-relaxed">⚠️ تحلیل‌های تریدمون صرفاً جنبه آموزشی دارند. تصمیم نهایی و مسئولیت سود یا ضرر با خودتونه.</p>
-          </div>
-
-          <div className="mt-6 flex items-center justify-center gap-6 opacity-80">
-            <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ duration: 2, repeat: Infinity }} className="rounded-lg border border-[#10b981] bg-[#10b981]/10 px-6 py-1.5 text-sm font-bold text-[#10b981] shadow-[0_0_20px_#10b98140]">LONG</motion.div>
-            <motion.div animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 2, repeat: Infinity }} className="rounded-lg border border-[#ef4444] bg-[#ef4444]/10 px-6 py-1.5 text-sm font-bold text-[#ef4444] shadow-[0_0_20px_#ef444440]">SHORT</motion.div>
-          </div>
         </div>
       </div>
 
-      {/* موبایل: صرافی‌ها */}
-      <div className="relative z-10 w-full px-4 pb-8 lg:hidden">
-        <p className="text-[10px] text-gray-400 mb-3 text-center">پشتیبانی از صرافی‌های معتبر ایرانی</p>
-        {/* 🔴 لوگوها در موبایل: دقیقاً مثل قبل (flex) */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {EXCHANGES_MAJOR.map((ex, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-9 w-9 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1">
-                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                    const parent = (e.target as HTMLImageElement).parentElement;
-                    if (parent && !parent.querySelector(".fallback-text")) {
-                      const span = document.createElement("span");
-                      span.className = "fallback-text text-[8px] text-gray-300 font-bold";
-                      span.innerText = ex.name.substring(0, 2);
-                      parent.appendChild(span);
-                    }
-                  }}
-                />
+      {/* 🔴 نوار افقی پایین: بازارها + افزونه (تفکیک شده) */}
+      <div className="relative z-10 w-full px-4 pb-4">
+        <div className="mx-auto max-w-6xl flex flex-col gap-4 border-t border-white/10 pt-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            
+            {/* ستون ۱: صرافی‌های فعال */}
+            <div className="space-y-2 flex flex-col items-center md:items-start">
+              <p className="text-[10px] font-bold text-gray-300">صرافی‌های پشتیبانی شده</p>
+              <div className="flex flex-wrap justify-center md:justify-start gap-2">
+                {EXCHANGES_MAJOR.map((ex, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1">
+                    <div className="h-8 w-8 rounded-full bg-[#051118]/80 border border-white/10 flex items-center justify-center overflow-hidden p-1 backdrop-blur-sm">
+                      <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                          const parent = (e.target as HTMLImageElement).parentElement;
+                          if (parent && !parent.querySelector(".fallback-text")) {
+                            const span = document.createElement("span");
+                            span.className = "fallback-text text-[7px] text-gray-300 font-bold";
+                            span.innerText = ex.name.substring(0, 2);
+                            parent.appendChild(span);
+                          }
+                        }}
+                      />
+                    </div>
+                    <span className="text-[7px] text-gray-400">{ex.name}</span>
+                  </div>
+                ))}
               </div>
-              <span className="text-[8px] text-gray-400">{ex.name}</span>
             </div>
-          ))}
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-2">
-          <span className="text-[9px] text-gray-500">در آینده نزدیک:</span>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-2 opacity-50">
-          {EXCHANGES_COMING_SOON.map((ex, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className={`relative h-8 w-8 rounded-full bg-[#051118] border border-white/10 flex items-center justify-center overflow-hidden p-1 ${ex.removed ? "opacity-40" : "grayscale"}`}>
-                <img src={ex.logo} alt={ex.name} className={`h-full w-full object-contain ${ex.removed ? "opacity-50" : ""}`}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                    const parent = (e.target as HTMLImageElement).parentElement;
-                    if (parent && !parent.querySelector(".fallback-text")) {
-                      const span = document.createElement("span");
-                      span.className = "fallback-text text-[7px] text-gray-500 font-bold";
-                      span.innerText = ex.name.substring(0, 2);
-                      parent.appendChild(span);
-                    }
-                  }}
-                />
+
+            {/* ستون ۲: به زودی */}
+            <div className="space-y-2 flex flex-col items-center md:items-start">
+              <p className="text-[10px] font-bold text-gray-500">به زودی</p>
+              <div className="flex flex-wrap justify-center md:justify-start gap-2">
+                {EXCHANGES_COMING_SOON.map((ex, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1 opacity-50">
+                    <div className={`relative h-7 w-7 rounded-full bg-[#051118]/80 border border-white/10 flex items-center justify-center overflow-hidden p-1 backdrop-blur-sm ${ex.removed ? "opacity-40" : "grayscale"}`}>
+                      <img src={ex.logo} alt={ex.name} className={`h-full w-full object-contain ${ex.removed ? "opacity-50" : ""}`}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                          const parent = (e.target as HTMLImageElement).parentElement;
+                          if (parent && !parent.querySelector(".fallback-text")) {
+                            const span = document.createElement("span");
+                            span.className = "fallback-text text-[6px] text-gray-500 font-bold";
+                            span.innerText = ex.name.substring(0, 2);
+                            parent.appendChild(span);
+                          }
+                        }}
+                      />
+                    </div>
+                    <span className={`text-[6px] ${ex.removed ? "text-gray-600 line-through" : "text-gray-500"}`}>{ex.name}</span>
+                  </div>
+                ))}
               </div>
-              <span className={`text-[7px] ${ex.removed ? "text-gray-600 line-through" : "text-gray-500"}`}>{ex.name}</span>
             </div>
-          ))}
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-2">
-          <AlertTriangle className="h-3 w-3 text-[#d6ad60]" />
-          <p className="text-[10px] text-[#d6ad60]">تحلیل اختصاصی انس طلا (فقط از طریق افزونه تریدمون)</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-3">
-          {EXCHANGES_GOLD.map((ex, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
-              <div className="h-9 w-9 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1">
-                <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                    const parent = (e.target as HTMLImageElement).parentElement;
-                    if (parent && !parent.querySelector(".fallback-text")) {
-                      const span = document.createElement("span");
-                      span.className = "fallback-text text-[8px] text-[#d6ad60] font-bold";
-                      span.innerText = ex.name.substring(0, 2);
-                      parent.appendChild(span);
-                    }
-                  }}
-                />
+
+            {/* ستون ۳: صرافی‌های طلا */}
+            <div className="space-y-2 flex flex-col items-center md:items-start">
+              <p className="text-[10px] font-bold text-[#d6ad60]">صرافی‌های انس طلا (افزونه کروم)</p>
+              <div className="flex flex-wrap justify-center md:justify-start gap-2">
+                {EXCHANGES_GOLD.map((ex, i) => (
+                  <div key={`gold-${i}`} className="flex flex-col items-center gap-1">
+                    <div className="h-8 w-8 rounded-full bg-[#d6ad60]/10 border border-[#d6ad60]/30 flex items-center justify-center overflow-hidden p-1 backdrop-blur-sm">
+                      <img src={ex.logo} alt={ex.name} className="h-full w-full object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                          const parent = (e.target as HTMLImageElement).parentElement;
+                          if (parent && !parent.querySelector(".fallback-text")) {
+                            const span = document.createElement("span");
+                            span.className = "fallback-text text-[7px] text-[#d6ad60] font-bold";
+                            span.innerText = ex.name.substring(0, 2);
+                            parent.appendChild(span);
+                          }
+                        }}
+                      />
+                    </div>
+                    <span className="text-[7px] text-[#d6ad60]">{ex.name}</span>
+                  </div>
+                ))}
               </div>
-              <span className="text-[8px] text-[#d6ad60]">{ex.name}</span>
             </div>
-          ))}
+
+          </div>
         </div>
-        <p className="text-[8px] text-gray-500 mt-3 leading-relaxed text-center">
-          ⚠️ تریدمون هیچ سفارش یا تراکنشی در این پلتفرم‌ها انجام نمی‌دهد و صرفاً تحلیل داده‌های انس طلا را از طریق افزونه ارائه می‌کند.
-        </p>
       </div>
 
       <PublicFooter />

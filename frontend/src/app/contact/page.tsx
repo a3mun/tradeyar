@@ -73,7 +73,7 @@ const FAQ_QUICK = [
 
 export default function ContactPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
 
       <main className="flex-1">
@@ -94,7 +94,7 @@ export default function ContactPage() {
                 <br />
                 <span className="text-[#d6ad60]">ما اینجاییم</span>
               </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
+              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base text-justify">
                 از سه راه می‌تونی با ما در ارتباط باشی. سریع‌ترین راه، عضویت در
                 کانال‌های تلگرام و بله است.
               </p>
@@ -115,13 +115,13 @@ export default function ContactPage() {
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className={`group flex flex-col rounded-2xl border ${m.border} ${m.bg} p-5 transition-all hover:scale-[1.02] hover:shadow-lg`}
+                  className={`group flex flex-col rounded-2xl border ${m.border} bg-[#051118] p-5 transition-all hover:scale-[1.02] hover:shadow-lg`}
                 >
                   <div className={`mb-3 inline-flex rounded-xl bg-white/5 p-2.5 ${m.color} w-fit`}>
                     <m.icon className="h-5 w-5" />
                   </div>
-                  <h3 className="mb-1 text-base font-bold">{m.title}</h3>
-                  <p className="mb-3 text-[11px] leading-relaxed text-gray-400">
+                  <h3 className="mb-1 text-base font-bold text-gray-100">{m.title}</h3>
+                  <p className="mb-3 text-[11px] leading-relaxed text-gray-400 text-justify">
                     {m.subtitle}
                   </p>
                   <div className="mt-auto flex items-center justify-between">
@@ -147,12 +147,12 @@ export default function ContactPage() {
         {/* ═══ ساعات پاسخ‌دهی ═══ */}
         <section className="px-4 pb-12">
           <div className="mx-auto max-w-2xl">
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#051118] p-5">
+            <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#051118] p-5 shadow-sm">
               <div className="rounded-xl bg-[#d6ad60]/15 p-2.5">
                 <Clock className="h-5 w-5 text-[#d6ad60]" />
               </div>
               <div>
-                <h3 className="text-sm font-bold">ساعات پاسخ‌دهی</h3>
+                <h3 className="text-sm font-bold text-gray-100">ساعات پاسخ‌دهی</h3>
                 <p className="text-xs text-gray-400">
                   شنبه تا پنجشنبه، ۹ صبح تا ۹ شب
                 </p>
@@ -174,12 +174,12 @@ export default function ContactPage() {
               {FAQ_QUICK.map((faq, i) => (
                 <div
                   key={i}
-                  className="rounded-xl border border-white/10 bg-[#051118] p-4"
+                  className="rounded-xl border border-white/5 bg-[#051118] p-4 shadow-sm"
                 >
-                  <h3 className="mb-2 text-sm font-bold text-white">
+                  <h3 className="mb-2 text-sm font-bold text-gray-200">
                     {faq.q}
                   </h3>
-                  <p className="text-xs leading-relaxed text-gray-400">
+                  <p className="text-xs leading-relaxed text-gray-400 text-justify">
                     {faq.a}
                   </p>
                 </div>
@@ -189,7 +189,7 @@ export default function ContactPage() {
               <Link href="/faq">
                 <Button
                   variant="outline"
-                  className="gap-2 border-white/20 text-white hover:bg-white/5"
+                  className="gap-2 border-white/10 text-white hover:bg-white/5"
                 >
                   مشاهده همه سوالات
                   <ArrowLeft className="h-4 w-4" />
@@ -210,7 +210,7 @@ export default function ContactPage() {
                 <h3 className="mb-1 text-sm font-bold text-emerald-400">
                   امنیت ارتباط شما
                 </h3>
-                <p className="text-xs leading-relaxed text-gray-400">
+                <p className="text-xs leading-relaxed text-gray-400 text-justify">
                   تریدمون هیچ‌وقت از طریق پیام خصوصی، شماره کارت یا رمز عبور
                   درخواست نمی‌کند. برای پرداخت، فقط از شماره کارت رسمی در صفحه
                   اشتراک استفاده کنید.

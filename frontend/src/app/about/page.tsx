@@ -43,7 +43,7 @@ const VALUES = [
 
 const STATS = [
   { label: "اندیکاتور تکنیکال", value: "۳۲" },
-  { label: "صرافی متصل", value: "۴" },
+  { label: "صرافی متصل", value: "۶" }, // 🔴 از ۴ به ۶ تغییر کرد
   { label: "استراتژی معاملاتی", value: "۳" },
   { label: "تست خودکار", value: "۳۳۵+" },
 ];
@@ -56,7 +56,7 @@ const TEAM_ROLES = [
 
 export default function AboutPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
 
       <main className="flex-1">
@@ -77,7 +77,7 @@ export default function AboutPage() {
                 <br />
                 <span className="text-[#d6ad60]">لایق تحلیل حرفه‌ای است</span>
               </h1>
-              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base">
+              <p className="mx-auto mt-5 max-w-2xl text-sm leading-relaxed text-gray-400 sm:text-base text-justify">
                 تریدمون یک پلتفرم تحلیل تکنیکال است که با ترکیب الگوریتم‌های
                 ریاضی، داده‌های تاریخی و هوش مصنوعی، به معامله‌گران ایرانی کمک
                 می‌کند تصمیم‌های بهتری بگیرند.
@@ -95,7 +95,7 @@ export default function AboutPage() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="rounded-xl border border-white/10 bg-[#051118] p-4 text-center"
+                className="rounded-xl border border-white/5 bg-[#051118] p-4 text-center shadow-sm"
               >
                 <div className="num text-2xl font-bold text-[#d6ad60] sm:text-3xl">
                   {stat.value}
@@ -114,7 +114,7 @@ export default function AboutPage() {
             <h2 className="mb-6 text-center font-display text-2xl font-bold sm:text-3xl">
               داستان ما
             </h2>
-            <div className="space-y-4 rounded-2xl border border-white/10 bg-[#051118] p-6 text-sm leading-relaxed text-gray-300 sm:p-8">
+            <div className="space-y-4 rounded-2xl border border-white/5 bg-[#051118] p-6 text-sm leading-relaxed text-gray-300 sm:p-8 text-justify shadow-sm">
               <p>
                 در بازار پرنوسان کریپتو و بورس ایران، معامله‌گران با انبوهی از
                 اطلاعات، سیگنال‌های متناقض و ابزارهای غیربومی روبرو هستند.
@@ -130,7 +130,7 @@ export default function AboutPage() {
                 می‌کند.
               </p>
               <p>
-                امروز تریدمون به ۴ صرافی ایرانی (نوبیتکس، بیت‌پین، والکس، تبدیل)
+                امروز تریدمون به ۶ صرافی و بازار (نوبیتکس، بیت‌پین، والکس، تبدیل، بورس تهران و بازار فارکس/کالا)
                 متصل است، از ۳ استراتژی معاملاتی (اسکالپ، سوئینگ، پوزیشن)
                 پشتیبانی می‌کند، و با راستی‌آزمایی خودکار سیگنال‌ها، شفافیت کامل
                 در آمار را تضمین می‌کند.
@@ -155,13 +155,13 @@ export default function AboutPage() {
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className="rounded-2xl border border-white/10 bg-[#051118] p-5 transition-colors hover:border-[#d6ad60]/30"
+                  className="rounded-2xl border border-white/5 bg-[#051118] p-5 transition-colors hover:border-[#d6ad60]/30 shadow-sm"
                 >
                   <div className="mb-3 inline-flex rounded-xl bg-[#d6ad60]/15 p-2.5">
                     <v.icon className="h-5 w-5 text-[#d6ad60]" />
                   </div>
-                  <h3 className="mb-2 text-base font-bold">{v.title}</h3>
-                  <p className="text-xs leading-relaxed text-gray-400">
+                  <h3 className="mb-2 text-base font-bold text-gray-100">{v.title}</h3>
+                  <p className="text-xs leading-relaxed text-gray-400 text-justify">
                     {v.desc}
                   </p>
                 </motion.div>
@@ -183,12 +183,12 @@ export default function AboutPage() {
               {TEAM_ROLES.map((t, i) => (
                 <div
                   key={i}
-                  className="rounded-2xl border border-white/10 bg-[#051118] p-5 text-center"
+                  className="rounded-2xl border border-white/5 bg-[#051118] p-5 text-center shadow-sm"
                 >
                   <div className="mx-auto mb-3 inline-flex rounded-full bg-[#d6ad60]/15 p-3">
                     <t.icon className="h-6 w-6 text-[#d6ad60]" />
                   </div>
-                  <h3 className="mb-1 text-sm font-bold">{t.title}</h3>
+                  <h3 className="mb-1 text-sm font-bold text-gray-100">{t.title}</h3>
                   <p className="text-[11px] text-gray-400">{t.desc}</p>
                 </div>
               ))}
@@ -198,7 +198,7 @@ export default function AboutPage() {
 
         {/* ═══ CTA ═══ */}
         <section className="px-4 py-12">
-          <div className="mx-auto max-w-2xl rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#d6ad60]/10 to-transparent p-8 text-center">
+          <div className="mx-auto max-w-2xl rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#d6ad60]/10 to-transparent p-8 text-center shadow-sm">
             <h2 className="mb-3 font-display text-2xl font-bold">
               آماده‌ای شروع کنی؟
             </h2>
@@ -214,7 +214,7 @@ export default function AboutPage() {
               <Link href="/contact">
                 <Button
                   variant="outline"
-                  className="h-11 w-full gap-2 border-white/20 text-white hover:bg-white/5 sm:w-auto"
+                  className="h-11 w-full gap-2 border-white/10 text-white hover:bg-white/5 sm:w-auto"
                 >
                   تماس با ما
                 </Button>

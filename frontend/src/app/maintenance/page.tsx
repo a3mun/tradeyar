@@ -28,7 +28,7 @@ export default function MaintenancePage() {
   }, [router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#07111f] text-white p-4">
+    <main className="flex min-h-screen items-center justify-center bg-[#030712] text-white p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -44,7 +44,7 @@ export default function MaintenancePage() {
           لطفاً چند دقیقه دیگر دوباره سر بزنید.
         </p>
         <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-          <Clock className="h-4 w-4" /> زمان تقریبی: چند دقیقه
+          این صفحه به صورت خودکار به‌روزرسانی می‌شود
         </div>
         
         {/* ⬅️ دکمه تلاش مجدد */}
@@ -56,7 +56,7 @@ export default function MaintenancePage() {
         </button>
         
         <div className="border-t border-white/10 pt-4 text-xs text-[#d6ad60]">
-          تریدمون — دستیار هوشمند بازار
+          تریدمون — معامله هوشمند از اینجا شروع میشه
         </div>
       </motion.div>
     </main>

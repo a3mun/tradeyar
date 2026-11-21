@@ -36,12 +36,6 @@ const EXCHANGES_COMING_SOON = [
   { name: "توبیت", logo: "/logos/toobit.png" },
   { name: "بینگ‌ایکس", logo: "/logos/bingx.png" },
   { name: "بیت۲۴", logo: "/logos/bit24.png" },
-  {
-    name: "آبان‌تتر",
-    logo: "/logos/abantether.png",
-    isRemoved: true,
-    reason: "API صرافی دارای اشکال — موقتاً حذف شد",
-  },
 ];
 
 const EXCHANGES_GOLD = [

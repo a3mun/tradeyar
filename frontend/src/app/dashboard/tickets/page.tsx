@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
-import { MessageSquare, Plus, ArrowRight, Clock, Loader2, Home, AlertCircle, CheckCircle2 } from "lucide-react";
+import { MessageSquare, Plus, ArrowRight, Clock, Loader2, Home, AlertCircle, CheckCircle2, Inbox } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
@@ -73,19 +73,21 @@ export default function TicketsPage() {
   const atLimit = openTickets.length >= 1;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
-      <main className="flex-1 container mx-auto p-4 py-8 max-w-4xl space-y-6">
+      <main className="flex-1 container mx-auto p-4 py-8 max-w-5xl space-y-6">
+        
+        {/* ═══ هدر صفحه ═══ */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-white flex items-center gap-2 font-display">
               <MessageSquare className="h-6 w-6 text-[#d6ad60]" /> تیکت‌های پشتیبانی
             </h1>
             <p className="text-sm text-gray-400 mt-1">سوال یا مشکلی داری؟ با ما در تماس باش.</p>
           </div>
           <div className="flex gap-2">
             <Link href="/dashboard">
-              <Button variant="outline" size="sm" className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white">
+              <Button variant="outline" size="sm" className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white h-10">
                 <Home className="h-4 w-4" /> داشبورد
               </Button>
             </Link>
@@ -99,53 +101,55 @@ export default function TicketsPage() {
           </div>
         </div>
 
+        {/* ═══ کارت‌های آماری ═══ */}
         {stats && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1"><MessageSquare className="h-3 w-3" /> کل تیکت‌ها</div>
-              <p className="text-2xl font-bold text-white">{stats.total_count}</p>
+            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
+              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><MessageSquare className="h-3.5 w-3.5" /> کل تیکت‌ها</div>
+              <p className="text-2xl font-bold text-gray-100">{stats.total_count}</p>
             </div>
-            <div className="rounded-2xl border border-green-500/20 bg-green-500/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-green-400 mb-1"><AlertCircle className="h-3 w-3" /> باز</div>
-              <p className="text-2xl font-bold text-green-400">{stats.open_count}</p>
+            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
+              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><AlertCircle className="h-3.5 w-3.5" /> باز</div>
+              <p className="text-2xl font-bold text-gray-100">{stats.open_count}</p>
             </div>
-            <div className="rounded-2xl border border-gray-500/20 bg-gray-500/5 backdrop-blur-xl p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-400 mb-1"><CheckCircle2 className="h-3 w-3" /> بسته</div>
-              <p className="text-2xl font-bold text-gray-300">{stats.closed_count}</p>
+            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
+              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><CheckCircle2 className="h-3.5 w-3.5" /> بسته</div>
+              <p className="text-2xl font-bold text-gray-100">{stats.closed_count}</p>
             </div>
-            <div className={`rounded-2xl border backdrop-blur-xl p-4 ${stats.unread_count > 0 ? "border-[#d6ad60]/40 bg-[#d6ad60]/10" : "border-white/10 bg-white/5"}`}>
-              <div className="flex items-center gap-2 text-xs text-[#d6ad60] mb-1"><MessageSquare className="h-3 w-3" /> خوانده‌نشده</div>
+            <div className="rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/5 p-4">
+              <div className="flex items-center gap-2 text-xs text-[#d6ad60]/80 mb-2"><MessageSquare className="h-3.5 w-3.5" /> خوانده‌نشده</div>
               <p className={`text-2xl font-bold ${stats.unread_count > 0 ? "text-[#d6ad60]" : "text-gray-500"}`}>{stats.unread_count}</p>
             </div>
           </div>
         )}
 
+        {/* ═══ هشدار محدودیت ═══ */}
         {atLimit && (
-          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs text-yellow-400">
+          <div className="flex items-start gap-2 rounded-xl border border-yellow-500/10 bg-yellow-500/5 p-3 text-xs text-yellow-500/80">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>شما یک تیکت باز دارید. لطفاً تا پاسخ و بسته شدن آن صبر کنید.</span>
           </div>
         )}
 
+        {/* ═══ مودال ایجاد تیکت ═══ */}
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogContent className="bg-[#051118] border-white/10 text-white">
+          <DialogContent className="bg-[#051118] border-white/10 text-white sm:max-w-md">
             <DialogHeader><DialogTitle className="text-[#d6ad60]">تیکت جدید</DialogTitle></DialogHeader>
-            <div className="space-y-4 py-4">
+            <div className="space-y-4 py-2">
               {error && <div className="rounded-lg bg-red-500/10 p-3 text-xs text-red-400">{error}</div>}
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">موضوع</label>
-                <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثلاً: مشکل در پرداخت" className="bg-black/30 border-white/10" />
+                <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="مثلاً: مشکل در پرداخت" className="bg-black/30 border-white/10 h-10 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">پیام</label>
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} placeholder="توضیحات کامل..." className="w-full rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white" />
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} placeholder="توضیحات کامل..." className="w-full rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white focus:outline-none focus:border-[#d6ad60]/50" />
               </div>
 
-              {/* 🔴 راهنمای عکس */}
-              <div className="flex items-start gap-2 rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 p-3">
-                <AlertCircle className="h-4 w-4 text-[#d6ad60] shrink-0 mt-0.5" />
-                <p className="text-[10px] leading-relaxed text-[#d6ad60]/90">
-                  <b>توجه:</b> بعد از ایجاد تیکت، در صفحه‌ی چت می‌توانید عکس (اسکرین‌شات، رسید و...) را به پیام‌های خود پیوست کنید.
+              <div className="flex items-start gap-2 rounded-lg border border-white/5 bg-white/5 p-3">
+                <AlertCircle className="h-4 w-4 text-gray-500 shrink-0 mt-0.5" />
+                <p className="text-[10px] leading-relaxed text-gray-400">
+                  توجه: بعد از ایجاد تیکت، در صفحه‌ی چت می‌توانید عکس (اسکرین‌شات، رسید و...) را به پیام‌های خود پیوست کنید.
                 </p>
               </div>
 
@@ -156,37 +160,38 @@ export default function TicketsPage() {
           </DialogContent>
         </Dialog>
 
+        {/* ═══ لیست تیکت‌ها ═══ */}
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-[#d6ad60]" /></div>
         ) : tickets.length === 0 ? (
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-16 text-center">
-            <MessageSquare className="h-12 w-12 text-gray-600 mx-auto mb-4" />
+          <div className="rounded-xl border border-white/5 bg-[#051118] p-16 text-center">
+            <Inbox className="h-12 w-12 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400">هنوز تیکتی ارسال نکردی.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {tickets.map((t) => (
               <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                 <Link href={`/dashboard/tickets/${t.id}`}>
-                  <div className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 transition-all hover:border-[#d6ad60]/40 hover:bg-white/10">
+                  <div className="group flex items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#051118] p-4 transition-all hover:border-[#d6ad60]/30 hover:bg-[#0a1526]">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs text-gray-500 font-mono">#{t.id}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${t.status === "open" ? "bg-green-500/20 text-green-400" : "bg-gray-500/20 text-gray-400"}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[10px] text-gray-600 font-mono">#{t.id}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold border ${t.status === "open" ? "border-green-500/20 bg-green-500/5 text-green-500/90" : "border-white/10 bg-white/5 text-gray-500"}`}>
                           {t.status === "open" ? "فعال" : "بسته"}
                         </span>
                         {t.unread_count > 0 && (
-                          <span className="rounded-full bg-[#d6ad60] text-[#101827] text-[10px] font-bold px-2 py-0.5">{t.unread_count} جدید</span>
+                          <span className="rounded bg-[#d6ad60]/15 text-[#d6ad60] text-[9px] font-bold px-1.5 py-0.5">{t.unread_count} پیام جدید</span>
                         )}
                       </div>
-                      <h3 className="font-bold text-white truncate">{t.subject}</h3>
-                      <p className="text-xs text-gray-400 truncate mt-0.5">{t.last_message}</p>
+                      <h3 className="font-bold text-sm text-gray-100 truncate">{t.subject}</h3>
+                      <p className="text-xs text-gray-400 truncate mt-1">{t.last_message}</p>
                       <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
                         <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(t.updated_at).toLocaleString("fa-IR")}</span>
                         <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {t.messages_count} پیام</span>
                       </div>
                     </div>
-                    <ArrowRight className="h-5 w-5 text-gray-600 group-hover:text-[#d6ad60] transition-colors" />
+                    <ArrowRight className="h-4 w-4 text-gray-600 group-hover:text-[#d6ad60] transition-all group-hover:-translate-x-1" />
                   </div>
                 </Link>
               </motion.div>

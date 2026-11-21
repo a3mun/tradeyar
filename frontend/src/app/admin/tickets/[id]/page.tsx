@@ -201,7 +201,7 @@ const handleSelectFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
   if (!ticket) return null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#07111f] text-white">
+    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
       <Header />
       <main className="flex-1 container mx-auto p-4 py-4 max-w-3xl flex flex-col">
         {/* هدر تیکت */}

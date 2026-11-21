@@ -84,8 +84,8 @@ export const metadata: Metadata = {
     title: "Trademun",
   },
   icons: {
-    icon: "/icon-192.png",
-    apple: "/icon-192.png",
+    icon: "/icon-148.png",
+    apple: "/icon-148.png",
   },
 
   // ═══ تنظیمات ربات‌های جستجو ═══

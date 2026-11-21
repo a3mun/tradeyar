@@ -81,7 +81,7 @@ export default function ExtensionConnectPage() {
   }, [router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#07111f] text-white p-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#051118] text-white p-4">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }} 
         animate={{ opacity: 1, scale: 1 }} 

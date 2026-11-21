@@ -48,13 +48,13 @@ function getMarketSessionStatus(now: Date) {
     return { label: "📅 آخر هفته", color: "text-gray-500" };
   }
   if (13 <= utcH && utcH < 17) {
-    return { label: "🔥 همپوشانی لندن + نیویورک", color: "text-orange-400" };
+    return { label: "🔥 لندن + نیویورک", color: "text-orange-400" };
   }
   if (8 <= utcH && utcH < 9) {
-    return { label: "⚡ همپوشانی توکیو + لندن", color: "text-yellow-400" };
+    return { label: "⚡ توکیو + لندن", color: "text-yellow-400" };
   }
   if (0 <= utcH && utcH < 8) {
-    return { label: "🌙 فقط بازار آسیا", color: "text-blue-400" };
+    return { label: "🌙 بازار آسیا", color: "text-blue-400" };
   }
   return { label: "🕜 زمان عادی بازار", color: "text-gray-400" };
 }
@@ -125,7 +125,7 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
 
       <style jsx>{`
         .ticker-track {
-          animation: ticker-scroll 50s linear infinite;
+          animation: ticker-scroll 40s linear infinite;
           will-change: transform;
         }
         .ticker-track:hover {
@@ -141,7 +141,7 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
         }
         @media (max-width: 767px) {
           .ticker-track {
-            animation-duration: 30s;
+            animation-duration: 15s;
           }
         }
         @media (prefers-reduced-motion: reduce) {
@@ -235,7 +235,7 @@ export function Marquee() {
   return (
     <div className="w-full overflow-hidden border-b border-white/5 bg-[#051118]/80 backdrop-blur-md shadow-sm">
       {/* ═══════════ خط اول: وضعیت سشن‌ها ═══════════ */}
-      <div className="flex items-center justify-center gap-x-5 md:gap-x-7 px-1 py-1 border-b border-white/5 overflow-x-auto whitespace-nowrap scrollbar-hide">
+      <div className="flex items-center justify-center gap-x-2 md:gap-x-7 px-1 py-1 border-b border-white/5 overflow-x-auto whitespace-nowrap scrollbar-hide">
         {MARKETS.map((mk, i) => {
           const st = marketStatus(mk);
           return (

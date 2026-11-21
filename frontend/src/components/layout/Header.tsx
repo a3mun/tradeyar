@@ -122,8 +122,8 @@ export function Header() {
             <h1 className="font-display text-[18px] font-bold leading-none text-white transition-colors group-hover:text-[#d6ad60]">
               تریدمون
             </h1>
-            <p className="mt-1 text-[10px] font-medium tracking-[0.15em] leading-none text-[#d6ad60]/80">
-              TRADEMUN
+            <p className="mt-1 text-[10px] font-medium tracking-[0.03em] leading-none text-[#d6ad60]/90">
+              Trademun.ir
             </p>
           </div>
         </Link>

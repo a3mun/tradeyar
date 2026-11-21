@@ -42,18 +42,44 @@ const LEVEL_STYLES: Record<ConfidenceLevel, { text: string; icon: string }> = {
   neutral: { text: "#94a3b8", icon: "⚪" },
 };
 
-function getSignalPillStyle(direction: string, confidence: number) {
-  if (direction === "long") {
-    if (confidence >= 70) return "border-green-500/40 bg-green-500/10 text-green-400";
-    if (confidence >= 50) return "border-green-500/30 bg-green-500/5 text-green-500";
-    return "border-green-500/20 bg-transparent text-green-500/80";
+function getSignalPillStyle(direction: string, confLevel: string, isActive: boolean, statusText: string) {
+  if (direction === "neutral") {
+    return "border-transparent bg-transparent text-muted-foreground/30";
   }
-  if (direction === "short") {
-    if (confidence >= 70) return "border-red-500/40 bg-red-500/10 text-red-400";
-    if (confidence >= 50) return "border-red-500/30 bg-red-500/5 text-red-500";
-    return "border-red-500/20 bg-transparent text-red-500/80";
+
+  const isLong = direction === "long";
+
+  // 🔴 حالت دور (خیلی کم‌رنگ)
+  if (statusText === "دور") {
+    return isLong 
+      ? "border-green-500/10 bg-transparent text-green-400/20" 
+      : "border-red-500/10 bg-transparent text-red-400/20";
   }
-  return "border-border/50 bg-muted/20 text-muted-foreground";
+
+  // 🔴 حالت در حال تشکیل (کم‌رنگ‌تر از فعال)
+  if (statusText === "در حال تشکیل") {
+    return isLong 
+      ? "border-green-500/20 bg-transparent text-green-400/30" 
+      : "border-red-500/20 bg-transparent text-red-400/30";
+  }
+
+  // 🔴 حالت فعال (پررنگ)
+  if (isActive) {
+    switch (confLevel) {
+      case "golden":
+        return "border-[#d6ad60] bg-[#d6ad60]/10 text-[#d6ad60]";
+      case "strong":
+        return isLong ? "border-green-500/40 bg-green-500/5 text-green-400/90" : "border-red-500/40 bg-red-500/5 text-red-400/90";
+      case "normal":
+        return isLong ? "border-green-500/30 bg-green-500/5 text-green-400/70" : "border-red-500/30 bg-red-500/5 text-red-400/70";
+      case "weak":
+        return isLong ? "border-green-500/20 bg-transparent text-green-400/50" : "border-red-500/20 bg-transparent text-red-400/50";
+      default:
+        return "border-transparent bg-transparent text-muted-foreground/50";
+    }
+  }
+
+  return "border-transparent bg-transparent text-muted-foreground/50";
 }
 
 function playGoldenBeep() {
@@ -92,6 +118,27 @@ const TF_TO_SHORT: Record<string, string> = {
 };
 
 function tfShort(tf: string): string { return TF_TO_SHORT[tf] || tf; }
+
+// 🔴 تابع ترجمه سیگنال‌ها به فارسی
+function translateSignal(signal: string) {
+  if (!signal) return "";
+  return signal
+    .replace(/LONG/g, "خرید")
+    .replace(/SHORT/g, "فروش")
+    .replace(/ضعیف/g, "Weak")
+    .replace(/قوی/g, "Strong");
+}
+
+function getEnglishSignal(signal: string) {
+  if (!signal) return "";
+  return signal
+    .replace(/LONG/g, "LONG")
+    .replace(/SHORT/g, "SHORT")
+    .replace(/خرید/g, "LONG")
+    .replace(/فروش/g, "SHORT")
+    .replace(/ضعیف/g, "Weak")
+    .replace(/قوی/g, "Strong");
+}
 
 const GOLDEN_STYLES = `
 @keyframes golden-pulse {
@@ -393,8 +440,20 @@ export function SignalCard() {
 
   const wsConnected = wsStatus === "connected";
   const series = sparklineSeries.length >= 2 ? sparklineSeries : data.close_series && data.close_series.length >= 2 ? data.close_series : null;
-  const signalPillClass = getSignalPillStyle(data.direction, data.confidence || 0);
+  // 🔴 تشخیص وضعیت متن برای هماهنگی با جدول
+  let cardStatusText = "فعال";
+  if (!isActiveSignal) {
+    if (data.signal?.includes("در حال تشکیل") || (data.confidence || 0) >= 25) {
+      cardStatusText = "در حال تشکیل";
+    } else if (data.signal?.includes("دور") || (data.confidence || 0) >= 10) {
+      cardStatusText = "دور";
+    } else {
+      cardStatusText = "خنثی";
+    }
+  }
 
+  const signalPillClass = getSignalPillStyle(data.direction || "neutral", confidenceLevel, isActiveSignal, cardStatusText);
+  
   // ═══════════════════════════════════════════════════════════
   // رندر اصلی
   // ═══════════════════════════════════════════════════════════
@@ -433,13 +492,28 @@ export function SignalCard() {
         <div className="flex flex-wrap items-center gap-2 px-2 text-[10px] text-muted-foreground mt-0.5 shrink-0">
           <span className="num font-medium">{data.ticker}</span>
           <span className="text-border">|</span>
-          <span className="num text-[#d6ad60]">{tfShort(data.timeframe)}</span>
+          <span className="num">{tfShort(data.timeframe)}</span>
           <span className="text-border">|</span>
           <span>{data.market_type === "futures" ? "فیوچرز" : "اسپات"}</span>
           <span className="text-border">|</span>
           <span>{riskProfile === "aggressive" ? "جسورانه" : "محتاطانه"}</span>
           <span className="text-border">|</span>
           <span>{source === "forex" ? "فارکس" : requestedMeta?.label}</span>
+          
+          {/* 🔴 بج اخطار تله (منتقل شده به اینجا) */}
+          {activeTraps.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger>
+                <div className="flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-1 py-0.5">
+                  <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-red-500" />
+                  <span className="text-[8px] font-bold text-red-500">تله - شکست جعلی</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p className="text-[10px] leading-relaxed">احتمال {trapLabel}: {trapReasons.join(" | ")}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* بدنه کارت */}
@@ -448,7 +522,7 @@ export function SignalCard() {
           <div className="shrink-0">
             {isCFDSymbol && (
               <div className="rounded-md border border-border/30 bg-muted/20 px-2 py-1 text-[9px] text-muted-foreground mb-1.5">
-                ℹ️ قیمت نمایش‌داده‌شده بر اساس CFD است.
+                ℹ️ قیمت نمایش‌داده‌شده بر اساس CFD است و ممکن است با بازار ICE اختلاف کمی داشته باشد.
               </div>
             )}
 
@@ -458,19 +532,7 @@ export function SignalCard() {
               </p>
             )}
 
-            {activeTraps.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger>
-                  <div className="flex items-center gap-1.5 rounded-md border border-red-500/20 bg-red-500/5 px-2 py-1 mb-1.5">
-                    <AlertTriangle className="h-3 w-3 shrink-0 text-red-500/80" />
-                    <span className="text-[9px] font-bold text-red-500/80 shrink-0">احتمال {trapLabel}</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  <p className="text-[10px] leading-relaxed">{trapReasons.join(" | ")}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
+
 
             {/* قیمت و سیگنال */}
             <div className="rounded-lg border border-border/20 bg-muted/10 px-2.5 py-1.5">
@@ -490,16 +552,33 @@ export function SignalCard() {
                   {formatNumber(livePrice)}
                 </p>
 
-                <div className="shrink-0 text-center min-w-[80px]">
-                  <div className={`mx-auto inline-flex items-center justify-center gap-1 rounded-md border px-2 py-1 ${signalPillClass}`}>
-                    <SignalIcon className="h-3.5 w-3.5 shrink-0" />
-                    <p className="text-[12px] font-bold leading-none whitespace-nowrap">
-                      {isActiveSignal ? data.signal : "خنثی"}
+                <div className="shrink-0 flex flex-row items-center gap-2 min-w-[90px]">
+                  {/* باکس سیگنال دو خطی (بزرگ‌تر) */}
+                  <div className={`inline-flex flex-col items-center justify-center rounded-md border px-3 py-1 ${signalPillClass}`}>
+                    {/* انگلیسی بالا */}
+                    <p className="text-[12px] font-bold leading-none whitespace-nowrap uppercase tracking-wider">
+                      {isActiveSignal 
+                        ? getEnglishSignal(data.signal).replace("خرید", "LONG").replace("فروش", "SHORT")
+                        : "NEUTRAL"}
+                    </p>
+                    {/* فارسی پایین (کوچیک‌تر) */}
+                    <p className="text-[9px] opacity-80 leading-none mt-0.5 whitespace-nowrap font-medium">
+                      {isActiveSignal 
+                        ? translateSignal(data.signal).replace("Weak", "ضعیف").replace("Strong", "قوی")
+                        : cardStatusText === "در حال تشکیل" 
+                          ? "در حال تشکیل" 
+                          : cardStatusText === "دور" 
+                            ? "دور" 
+                            : "خنثی"}
                     </p>
                   </div>
-                  <p className="num mt-1 text-[11px] font-bold" style={{ color: levelStyle.text }}>
-                    {data.confidence}%
-                  </p>
+                  
+                  {/* درصد اطمینان (کوچیک‌تر و کم‌رنگ‌تر) */}
+                  <div className="flex flex-col items-center justify-center">
+                     <p className="num text-[9px] font-bold text-muted-foreground/80">
+                       {data.confidence}%
+                     </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -537,7 +616,7 @@ export function SignalCard() {
               </>
             ) : (
               <div className="col-span-3 flex items-center justify-center rounded-md border border-border/20 bg-muted/5 py-2">
-                 <p className="text-[9px] text-muted-foreground">اطلاعات کافی برای SL/TP موجود نیست</p>
+                 <p className="text-[9px] text-muted-foreground">بدون سیگنال - اطلاعات کافی برای SL/TP موجود نیست، لطفا تایم فریم دیگری انتخب نمایید.</p>
               </div>
             )}
           </div>
