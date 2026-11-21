@@ -1,111 +1,434 @@
+
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Sparkles, Loader2, Settings, Key, Trash2, AlertCircle, ExternalLink,
-  Globe, Check, Copy, ClipboardCopy, Bot, ArrowUpRight, Info,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  Check,
+  Copy,
+  ClipboardCopy,
+  Bot,
+  ArrowUpRight,
+  Info,
+  History,
+  Clock,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import { useSignalData } from "@/hooks/useSignalData";
 
-const LS_OPENROUTER = "openrouter_api_key";
+// تنظیمات
+const MAX_HISTORY = 5;
+const HISTORY_TTL = 5 * 24 * 60 * 60 * 1000;
+const DAILY_LIMIT = 10;
 
-const CHAT_SERVICES = [
-  { id: "deepseek", name: "DeepSeek", icon: "🐋", url: "https://chat.deepseek.com/", note: "بدون VPN · رایگان", color: "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10", vpnRequired: false },
-  { id: "chatgpt", name: "ChatGPT", icon: "🤖", url: "https://chat.openai.com/", note: "بدون VPN · رایگان", color: "border-green-500/30 bg-green-500/5 hover:bg-green-500/10", vpnRequired: false },
-  { id: "gemini", name: "Gemini", icon: "✨", url: "https://gemini.google.com/app", note: "نیاز به VPN", color: "border-purple-500/30 bg-purple-500/5 hover:bg-purple-500/10", vpnRequired: true },
-  { id: "claude", name: "Claude", icon: "🎭", url: "https://claude.ai/", note: "نیاز به VPN", color: "border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10", vpnRequired: true },
-  { id: "groq", name: "Groq", icon: "⚡", url: "https://console.groq.com/playground", note: "نیاز به VPN", color: "border-red-500/30 bg-red-500/5 hover:bg-red-500/10", vpnRequired: true },
-] as const;
+type CachedAnalysis = {
+  id: string;
+  data: string;
+  response: string;
+  symbol: string;
+  createdAt: string;
+};
 
-function maskKey(key: string): string {
-  if (!key || key.length < 12) return "—";
-  return `${key.slice(0, 6)}…${key.slice(-4)}`;
+type DailyUsage = {
+  date: string;
+  count: number;
+};
+
+interface AIAnalysisProps {
+  userId?: string;
+  symbol?: string;
 }
 
-export function AIAnalysis() {
+// تاریخ روز بر اساس UTC
+function getUTCDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// استخراج نام نماد از اطلاعات تحلیل
+function getSymbolFromData(data: unknown): string {
+  if (!data || typeof data !== "object") {
+    return "نماد فعلی";
+  }
+
+  const obj = data as Record<string, unknown>;
+
+  const candidates = [
+    obj.symbol,
+    obj.ticker,
+    obj.pair,
+    obj.symbol_name,
+    obj.market,
+    obj.asset,
+  ];
+
+  for (const value of candidates) {
+    if (
+      typeof value === "string" &&
+      value.trim().length > 0
+    ) {
+      return value.trim().toUpperCase();
+    }
+  }
+
+  // بررسی اطلاعات تو در تو
+  for (const key of ["meta", "info", "market_data"]) {
+    const nested = obj[key];
+
+    if (nested && typeof nested === "object") {
+      const result = getSymbolFromData(nested);
+
+      if (result !== "نماد فعلی") return result;
+    }
+  }
+
+  return "نماد فعلی";
+}
+
+// سهمیه روزانه
+function getDailyUsage(key: string): DailyUsage {
+  try {
+    const saved = localStorage.getItem(key);
+
+    if (saved) {
+      const usage: DailyUsage = JSON.parse(saved);
+
+      if (
+        usage.date === getUTCDate() &&
+        Number.isInteger(usage.count) &&
+        usage.count >= 0
+      ) {
+        return usage;
+      }
+    }
+  } catch (error) {
+    console.error("[AI Usage]", error);
+  }
+
+  return {
+    date: getUTCDate(),
+    count: 0,
+  };
+}
+
+// ذخیره تاریخچه
+function saveHistory(
+  key: string,
+  items: CachedAnalysis[]
+) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify(items.slice(0, MAX_HISTORY))
+    );
+  } catch (error) {
+    console.error("[AI History]", error);
+  }
+}
+
+// اعتبارسنجی و پاک‌سازی تاریخچه پنج روزه
+function cleanHistory(items: unknown): CachedAnalysis[] {
+  if (!Array.isArray(items)) return [];
+
+  const now = Date.now();
+
+  return items
+    .filter((item): item is CachedAnalysis => {
+      if (
+        !item ||
+        typeof item.id !== "string" ||
+        typeof item.data !== "string" ||
+        typeof item.response !== "string" ||
+        typeof item.symbol !== "string" ||
+        typeof item.createdAt !== "string"
+      ) {
+        return false;
+      }
+
+      const timestamp = new Date(item.createdAt).getTime();
+
+      return (
+        Number.isFinite(timestamp) &&
+        timestamp <= now &&
+        now - timestamp < HISTORY_TTL
+      );
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() -
+        new Date(a.createdAt).getTime()
+    )
+    .slice(0, MAX_HISTORY);
+}
+
+// تاریخ فارسی
+function formatDate(date: string) {
+  return new Date(date).toLocaleString("fa-IR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const CHAT_SERVICES = [
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    icon: "🐋",
+    url: "https://chat.deepseek.com/",
+    note: "بدون VPN · رایگان",
+    vpnRequired: false,
+  },
+  {
+    id: "chatgpt",
+    name: "ChatGPT",
+    icon: "🤖",
+    url: "https://chat.openai.com/",
+    note: "بدون VPN · رایگان",
+    vpnRequired: false,
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    icon: "✨",
+    url: "https://gemini.google.com/app",
+    note: "نیاز به VPN",
+    vpnRequired: true,
+  },
+  {
+    id: "claude",
+    name: "Claude",
+    icon: "🎭",
+    url: "https://claude.ai/",
+    note: "نیاز به VPN",
+    vpnRequired: true,
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    icon: "⚡",
+    url: "https://console.groq.com/playground",
+    note: "نیاز به VPN",
+    vpnRequired: true,
+  },
+] as const;
+
+export function AIAnalysis({
+  userId = "guest",
+  symbol: symbolProp,
+}: AIAnalysisProps) {
   const { data } = useSignalData();
+
   const aiExport = data?.ai_export || "";
+
+  // اولویت با نمادی است که صریحاً از والد دریافت می‌شود
+  const currentSymbol =
+    symbolProp?.trim().toUpperCase() ||
+    getSymbolFromData(data);
+
+  // ذخیره مستقل برای هر کاربر
+  const namespace = encodeURIComponent(userId);
+
+  const historyKey = `ai-history-v2-${namespace}`;
+  const usageKey = `ai-usage-v2-${namespace}`;
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState("");
   const [aiError, setAiError] = useState("");
-  const [showKeyInput, setShowKeyInput] = useState(false);
+
   const [copied, setCopied] = useState(false);
+  const [copiedResult, setCopiedResult] = useState(false);
   const [showChatServices, setShowChatServices] = useState(false);
 
-  const [apiKey, setApiKey] = useState("");
-  const [savedKey, setSavedKey] = useState("");
+  const [recentAnalyses, setRecentAnalyses] =
+    useState<CachedAnalysis[]>([]);
 
+  const [selectedId, setSelectedId] = useState<string | null>(
+    null
+  );
+
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // بارگذاری تاریخچه کاربر
   useEffect(() => {
-    const key = localStorage.getItem(LS_OPENROUTER) || "";
-    setApiKey(key);
-    setSavedKey(key);
-  }, []);
-
-  const handleSaveKey = useCallback(() => {
-    const key = apiKey.trim();
-    if (!key) return;
-    localStorage.setItem(LS_OPENROUTER, key);
-    setSavedKey(key);
-    setShowKeyInput(false);
-    setAiError("");
-  }, [apiKey]);
-
-  const handleClearKey = useCallback(() => {
-    localStorage.removeItem(LS_OPENROUTER);
-    setApiKey("");
-    setSavedKey("");
-    setShowKeyInput(true);
-    setAiError("");
+    setHistoryLoaded(false);
     setAiResult("");
-  }, []);
+    setSelectedId(null);
 
+    try {
+      const saved = localStorage.getItem(historyKey);
+
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      const cleaned = cleanHistory(parsed);
+
+      setRecentAnalyses(cleaned);
+
+      // ذخیره مجدد تاریخچه پاک‌سازی‌شده
+      saveHistory(historyKey, cleaned);
+    } catch (error) {
+      console.error("[AI History Load]", error);
+      setRecentAnalyses([]);
+    } finally {
+      setHistoryLoaded(true);
+    }
+  }, [historyKey]);
+
+  // کپی داده خام
   const handleCopyRaw = useCallback(async () => {
     if (!aiExport) return;
+
     try {
       await navigator.clipboard.writeText(aiExport);
+
       setCopied(true);
       setShowChatServices(true);
+
       setTimeout(() => setCopied(false), 3000);
-    } catch (e) {
-      console.error("[Copy] خطا:", e);
+    } catch (error) {
+      console.error("[Copy]", error);
     }
   }, [aiExport]);
 
+  // کپی نتیجه
+  const handleCopyResult = useCallback(async () => {
+    if (!aiResult) return;
+
+    try {
+      await navigator.clipboard.writeText(aiResult);
+
+      setCopiedResult(true);
+
+      setTimeout(() => setCopiedResult(false), 3000);
+    } catch (error) {
+      console.error("[Copy Result]", error);
+    }
+  }, [aiResult]);
+
+  // انتخاب تحلیل قبلی
+  const handleViewHistory = (item: CachedAnalysis) => {
+    setAiResult(item.response);
+    setAiError("");
+    setCopiedResult(false);
+    setSelectedId(item.id);
+  };
+
+  // تحلیل هوشمند
   const handleAiAnalyze = async () => {
     if (!aiExport) {
       setAiError("داده‌ای برای تحلیل نیست — چند لحظه صبر کن.");
       return;
     }
 
-    setAiLoading(true);
+    if (aiLoading || !historyLoaded) return;
+
     setAiError("");
     setAiResult("");
+    setSelectedId(null);
+
+    // ۱. بررسی کش قبل از مصرف سهمیه
+    const cached = recentAnalyses.find(
+      (item) => item.data === aiExport
+    );
+
+    if (cached) {
+      handleViewHistory(cached);
+      return;
+    }
+
+    // ۲. بررسی محدودیت روزانه
+    const usage = getDailyUsage(usageKey);
+
+    if (usage.count >= DAILY_LIMIT) {
+      setAiError(
+        "محدودیت موقت روزانه استفاده از تحلیل هوشمند برای حساب کاربری شما به پایان رسیده است. لطفاً ساعت ۰۳:۳۰ بامداد به وقت ایران (۰۰:۰۰ UTC) مجدداً مراجعه کنید."
+      );
+      return;
+    }
+
+    setAiLoading(true);
 
     try {
-      // 🔴 استفاده از api (axios) که خودش توکن رو به هدر اضافه می‌کنه
-      const res = await api.post<{ ok: boolean; response: string; error?: string }>(
+      // ۳. درخواست به API
+      const res = await api.post<{
+        ok: boolean;
+        response: string;
+        error?: string;
+      }>(
         "/ai",
-        {
-          data: aiExport, // 🔴 string (نه object)
-          api_key: savedKey || apiKey.trim() || undefined,
-        },
-        { timeout: 60000 },
+        { data: aiExport },
+        { timeout: 60000 }
       );
 
-      if (!res.data.ok) {
-        throw new Error(res.data.error || "خطا در تحلیل");
+      if (!res.data.ok || !res.data.response) {
+        throw new Error(
+          res.data.error || "خطا در تحلیل هوشمند"
+        );
       }
-      setAiResult(res.data.response);
-    } catch (e: unknown) {
+
+      const response = res.data.response;
+
+      // ۴. ثبت درخواست موفق
+      const latestUsage = getDailyUsage(usageKey);
+
+      const updatedUsage: DailyUsage = {
+        date: getUTCDate(),
+        count: latestUsage.count + 1,
+      };
+
+      try {
+        localStorage.setItem(
+          usageKey,
+          JSON.stringify(updatedUsage)
+        );
+      } catch (error) {
+        console.error("[AI Usage Save]", error);
+      }
+
+      // ۵. ساخت رکورد تاریخچه
+      const newAnalysis: CachedAnalysis = {
+        id: crypto.randomUUID(),
+        data: aiExport,
+        response,
+        symbol: currentSymbol,
+        createdAt: new Date().toISOString(),
+      };
+
+      const updatedHistory = cleanHistory([
+        newAnalysis,
+        ...recentAnalyses.filter(
+          (item) => item.data !== aiExport
+        ),
+      ]);
+
+      setRecentAnalyses(updatedHistory);
+
+      saveHistory(historyKey, updatedHistory);
+
+      setAiResult(response);
+      setSelectedId(newAnalysis.id);
+
+    } catch (error: unknown) {
       const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        (e as Error)?.message ||
-        "مشکلی پیش آمد";
+        (
+          error as {
+            response?: {
+              data?: {
+                detail?: string;
+              };
+            };
+          }
+        )?.response?.data?.detail ||
+        (error as Error)?.message ||
+        "مشکلی در دریافت تحلیل پیش آمد.";
+
       setAiError(msg);
+
+      // خطا سهمیه مصرف نمی‌کند
     } finally {
       setAiLoading(false);
     }
@@ -113,129 +436,285 @@ export function AIAnalysis() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2 rounded-lg border border-blue-500/20 bg-blue-500/5 px-2.5 py-2">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-400" />
-        <p className="text-[10px] leading-relaxed text-blue-300/90">
-          <b>دو روش داری:</b> یا با API رایگان مستقیم تحلیل بگیر، یا داده‌های خام رو کپی کن و توی <b>DeepSeek</b> یا <b>ChatGPT</b> بچسبون. اگه روش اول خطا داد، روش دوم همیشه جواب می‌ده.
-        </p>
-      </div>
 
-      {/* روش ۱ */}
-      <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 p-3 space-y-2">
+      {/* تحلیل هوشمند */}
+      <div className="rounded-xl border border-[#d6ad60]/20 bg-[#051118] p-4 shadow-xl space-y-3">
+
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-[#d6ad60]" />
-            <span className="text-[11px] font-bold text-[#d6ad60]">روش ۱ — تحلیل مستقیم</span>
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg bg-[#d6ad60]/10 p-1.5 text-[#d6ad60]">
+              <Sparkles className="h-4 w-4" />
+            </div>
+
+            <span className="text-sm font-bold text-gray-100">
+              تحلیل با هوش مصنوعی
+            </span>
           </div>
-          <button
-            onClick={() => setShowKeyInput(!showKeyInput)}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
-            title="تنظیمات کلید"
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </button>
+
+          <span className="text-[10px] text-gray-500">
+            Cloudflare AI
+          </span>
         </div>
 
-        {savedKey && !showKeyInput && (
-          <div className="flex items-center justify-between rounded-md bg-muted/20 px-2 py-1.5 text-[10px]">
-            <span className="flex items-center gap-1 text-muted-foreground">
-              <Key className="h-3 w-3" />
-              کلید فعال:
-              <span className="num font-mono text-foreground/80">{maskKey(savedKey)}</span>
-            </span>
-            <button onClick={handleClearKey} className="flex items-center gap-0.5 text-red-400 hover:text-red-300">
-              <Trash2 className="h-3 w-3" /> پاک کن
-            </button>
-          </div>
-        )}
+        <p className="text-[11px] leading-relaxed text-gray-400">
+          داده‌های تکنیکال این نماد به صورت خودکار به هوش مصنوعی
+          ارسال می‌شود و یک تحلیل جامع از روند، نقطه ورود،
+          حمایت و مقاومت و مدیریت ریسک دریافت می‌کنید.
+        </p>
 
-        {showKeyInput && (
-          <div className="rounded-lg border border-border bg-background/50 p-2.5">
-            <p className="text-[10px] leading-relaxed text-muted-foreground mb-1.5">
-              یه کلید رایگان از{" "}
-              <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-yellow-500 underline">
-                openrouter.ai/keys <ExternalLink className="mr-0.5 inline h-2.5 w-2.5" />
-              </a>{" "}
-              بگیر (روزی ۵۰ درخواست رایگان).
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-or-..."
-                className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                dir="ltr"
-              />
-              <Button size="sm" onClick={handleSaveKey} disabled={!apiKey.trim()} variant="default" className="font-bold">
-                ذخیره
-              </Button>
-            </div>
-            <p className="text-[9px] text-muted-foreground/70 mt-1">
-              🔒 کلیدت فقط توی مرورگر خودت ذخیره میشه و هیچ‌وقت به سرور ما فرستاده نمیشه.
-            </p>
-          </div>
-        )}
-
+        {/* دکمه تحلیل */}
         <Button
           onClick={handleAiAnalyze}
-          disabled={aiLoading || !aiExport}
-          className="w-full font-bold"
-          variant="default"
-          size="sm"
+          disabled={
+            aiLoading ||
+            !aiExport ||
+            !historyLoaded
+          }
+          className="w-full h-10 font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90 transition-all"
         >
           {aiLoading ? (
-            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> در حال تحلیل...</>
+            <>
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              در حال تحلیل...
+            </>
           ) : (
-            <><Sparkles className="h-3.5 w-3.5" /> تحلیل با هوش مصنوعی</>
+            <>
+              <Sparkles className="h-4 w-4 mr-2" />
+              دریافت تحلیل هوشمند
+            </>
           )}
         </Button>
+
+        {/* تاریخچه جمع و جور */}
+        {historyLoaded && recentAnalyses.length > 0 && (
+          <div className="pt-2 space-y-1.5">
+
+            <div className="flex items-center justify-between pb-1">
+              <div className="flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5 text-[#d6ad60]" />
+
+                <span className="text-[11px] font-bold text-gray-300">
+                  تحلیل‌های اخیر
+                </span>
+              </div>
+
+              <span className="text-[9px] text-gray-500">
+                نگهداری ۵ روزه
+              </span>
+            </div>
+
+            {recentAnalyses.map((item) => {
+              const isSelected = selectedId === item.id;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleViewHistory(item)}
+                  aria-pressed={isSelected}
+                  className={`
+                    w-full min-h-[36px]
+                    flex items-center justify-between gap-2
+                    rounded-md border px-2.5 py-1.5
+                    text-right transition-all
+                    ${
+                      isSelected
+                        ? "border-[#d6ad60]/70 bg-[#d6ad60]/10 shadow-[inset_0_0_0_1px_rgba(214,173,96,0.12)]"
+                        : "border-white/5 bg-black/20 hover:border-white/15 hover:bg-white/[0.03]"
+                    }
+                  `}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+
+                    <span
+                      className={`
+                        flex h-5 w-5 shrink-0 items-center justify-center
+                        rounded text-[9px] font-bold
+                        ${
+                          isSelected
+                            ? "bg-[#d6ad60] text-[#101827]"
+                            : "bg-white/5 text-gray-500"
+                        }
+                      `}
+                    >
+                      {isSelected ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <Bot className="h-3 w-3" />
+                      )}
+                    </span>
+
+                    <span
+                      className={`text-[10px] font-semibold truncate ${
+                        isSelected
+                          ? "text-[#e2c17e]"
+                          : "text-gray-300"
+                      }`}
+                    >
+                      {item.symbol}
+                    </span>
+
+                    <span className="text-[9px] text-gray-600">
+                      {formatDate(item.createdAt)}
+                    </span>
+
+                  </div>
+
+                  <span
+                    className={`text-[9px] shrink-0 ${
+                      isSelected
+                        ? "text-[#e2c17e]"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    {isSelected ? "انتخاب‌شده" : "مشاهده"}
+                  </span>
+
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* خطا */}
+        {aiError && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+
+            <p className="text-[10px] leading-relaxed text-red-300">
+              {aiError}
+            </p>
+          </div>
+        )}
+
+        {/* نتیجه */}
+        {aiResult && (
+          <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Bot className="h-4 w-4 text-[#d6ad60]" />
+
+                <span className="text-xs font-bold text-gray-200">
+                  تحلیل هوش مصنوعی
+                </span>
+
+                {selectedId && (
+                  <span className="text-[9px] text-[#d6ad60]">
+                    · ذخیره‌شده
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyResult}
+                className="text-[10px] flex items-center gap-1 text-gray-500 hover:text-[#d6ad60] transition-colors"
+              >
+                {copiedResult ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+
+                {copiedResult ? "کپی شد" : "کپی متن"}
+              </button>
+            </div>
+
+            <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-300 text-justify">
+                {aiResult}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* روش ۲ */}
-      <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <ClipboardCopy className="h-3.5 w-3.5 text-purple-400" />
-          <span className="text-[11px] font-bold text-purple-400">روش ۲ — کپی داده خام</span>
+      {/* کپی داده خام */}
+      <div className="rounded-xl border border-white/5 bg-[#051118] p-4 shadow-xl space-y-3">
+
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-white/5 p-1.5 text-gray-400">
+            <ClipboardCopy className="h-4 w-4" />
+          </div>
+
+          <span className="text-sm font-bold text-gray-100">
+            کپی داده‌های خام
+          </span>
         </div>
 
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          داده‌های کامل تحلیل رو کپی کن و توی هر هوش مصنوعی (DeepSeek، ChatGPT، Gemini و...) بچسبون.
-          <br />
-          <span className="text-purple-400 font-medium">⚡ سریع‌ترین راه برای تحلیل لحظه‌ای</span>
+        <p className="text-[11px] leading-relaxed text-gray-400">
+          اگر ترجیح می‌دهید از هوش مصنوعی دیگری استفاده کنید،
+          می‌توانید داده‌های کامل تحلیل را کپی کرده و در سرویس‌های
+          زیر پیست کنید.
         </p>
 
         <Button
           onClick={handleCopyRaw}
           disabled={!aiExport}
-          variant="default"
-          size="sm"
-          className={`w-full font-bold transition-colors ${copied ? "bg-green-600 text-white hover:bg-green-700" : "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"}`}
+          variant="outline"
+          className={`w-full h-10 border-white/10 font-bold transition-colors ${
+            copied
+              ? "bg-green-500/10 text-green-400 border-green-500/30"
+              : "text-gray-200 hover:bg-white/5"
+          }`}
         >
           {copied ? (
-            <><Check className="h-3.5 w-3.5" /> کپی شد — حالا توی چت پیست کن</>
+            <>
+              <Check className="h-4 w-4 mr-2" />
+              کپی شد — حالا در چت پیست کنید
+            </>
           ) : (
-            <><Copy className="h-3.5 w-3.5" /> کپی داده‌های خام برای AI</>
+            <>
+              <Copy className="h-4 w-4 mr-2" />
+              کپی داده‌های خام
+            </>
           )}
         </Button>
 
         {showChatServices && (
-          <div className="space-y-1.5 pt-1">
-            <p className="text-[9px] font-bold text-muted-foreground">👇 یکی رو انتخاب کن و توی چت پیست کن:</p>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <div className="space-y-2 pt-2">
+
+            <p className="text-[10px] font-bold text-gray-500">
+              👇 یکی از سرویس‌های زیر را انتخاب کنید:
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {CHAT_SERVICES.map((svc) => (
-                <a key={svc.id} href={svc.url} target="_blank" rel="noreferrer" className={`group relative flex items-center justify-between gap-1 rounded-md border px-2 py-1.5 transition-colors ${svc.color}`}>
+                <a
+                  key={svc.id}
+                  href={svc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group relative flex flex-col items-start gap-1 rounded-lg border border-white/5 bg-black/20 p-2 hover:border-[#d6ad60]/30 hover:bg-white/5 transition-colors"
+                >
                   {svc.vpnRequired && (
-                    <span className="absolute -top-1.5 -right-1.5 rounded-full bg-orange-500/90 px-1 py-0.5 text-[7px] font-bold text-white shadow-sm" title="نیاز به VPN">VPN</span>
+                    <span className="absolute -top-1.5 -right-1.5 rounded-full bg-orange-500/90 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm">
+                      VPN
+                    </span>
                   )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[12px]">{svc.icon}</span>
-                      <span className="text-[10px] font-bold truncate">{svc.name}</span>
-                    </div>
-                    <p className={`text-[8px] truncate ${svc.vpnRequired ? "text-orange-400/80" : "text-emerald-400/80"}`}>{svc.note}</p>
+
+                  <div className="flex items-center gap-1.5 w-full">
+                    <span className="text-sm">
+                      {svc.icon}
+                    </span>
+
+                    <span className="text-[11px] font-bold text-gray-200">
+                      {svc.name}
+                    </span>
+
+                    <ArrowUpRight className="h-3 w-3 ml-auto text-gray-500 group-hover:text-[#d6ad60]" />
                   </div>
-                  <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" />
+
+                  <p
+                    className={`text-[8px] ${
+                      svc.vpnRequired
+                        ? "text-orange-400/80"
+                        : "text-green-400/80"
+                    }`}
+                  >
+                    {svc.note}
+                  </p>
                 </a>
               ))}
             </div>
@@ -243,38 +722,16 @@ export function AIAnalysis() {
         )}
       </div>
 
-      <p className="text-[8.5px] text-muted-foreground/70 text-center leading-relaxed pt-1">
-        💡 برای کاربران ایران: <span className="text-emerald-400">DeepSeek</span> و <span className="text-emerald-400">ChatGPT</span> بدون VPN کار می‌کنن. بقیه نیاز به VPN دارن.
-      </p>
+      {/* توضیحات */}
+      <div className="flex items-start gap-1.5 px-1">
+        <Info className="h-3 w-3 mt-0.5 shrink-0 text-gray-600" />
 
-      {aiError && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-          <div className="flex-1 space-y-1">
-            <p className="text-[10px] leading-relaxed text-red-300">{aiError}</p>
-            {(aiError.includes("اعتبار") || aiError.includes("نامعتبر") || aiError.includes("کلید") || aiError.includes("سهمیه") || aiError.includes("Authentication")) && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button onClick={() => setShowKeyInput(true)} className="flex items-center gap-0.5 text-[9px] text-red-400 underline hover:text-red-300">
-                  <Globe className="h-2.5 w-2.5" /> تغییر کلید
-                </button>
-                <button onClick={() => setShowChatServices(true)} className="flex items-center gap-0.5 text-[9px] text-purple-400 underline hover:text-purple-300">
-                  <Bot className="h-2.5 w-2.5" /> استفاده از روش کپی داده
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+        <p className="text-[9px] leading-relaxed text-gray-500 text-justify">
+          تحلیل‌های هوش مصنوعی صرفاً جنبه کمکی دارند و جایگزین
+          تحلیل شخصی شما نیستند. تصمیم نهایی با خودتان است.
+        </p>
+      </div>
 
-      {aiResult && (
-        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Bot className="h-3.5 w-3.5 text-yellow-500" />
-            <span className="text-[10px] font-bold text-yellow-500">تحلیل هوش مصنوعی:</span>
-          </div>
-          <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed">{aiResult}</pre>
-        </div>
-      )}
     </div>
   );
 }
