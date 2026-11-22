@@ -1,12 +1,17 @@
+
+{
+    servers {
+        trusted_proxies static 185.159.155.0/24 185.159.153.254/32 185.55.224.5/32 185.55.226.5/32 5.101.147.70/32 5.161.141.22/32 91.107.174.200/32 54.39.60.145/32 40.160.151.186/32 65.109.210.163/32 51.83.197.215/32 217.216.77.106/32 13.140.75.243/32 13.140.65.193/32 216.238.99.143/32 181.215.205.198/32 193.70.2.160/32 110.172.145.91/32
+        trusted_proxies_strict
+    }
+}
+
 api.trademun.ir {
-    # 🔴 WebSocket (باید قبل از reverse_proxy عمومی باشه)
     @websocket {
         header Connection *Upgrade*
         header Upgrade websocket
     }
     reverse_proxy @websocket api:7860
-
-    # بقیه درخواست‌ها (HTTP معمولی)
     reverse_proxy api:7860
     encode gzip
     log {
@@ -17,18 +22,14 @@ api.trademun.ir {
 trademun.ir {
     reverse_proxy frontend:3000
     encode gzip
-    log {
-        output file /data/frontend-access.log
-    }
-
- # ⬅️ این بلاک رو برای تایید اینماد اضافه کن
     handle /32191391.txt {
         root * /srv/frontend/public
         file_server
     }
-
+    log {
+        output file /data/frontend-access.log
+    }
 }
-
 
 www.trademun.ir {
     redir https://trademun.ir{uri}
