@@ -192,14 +192,18 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
   const pendingCount = items.filter((i) => !i.result && !i.expired).length;
 
   const resultBadge = (r: SignalHistoryItem) => {
-    // 🔴 نسخه ۱۰.۱۰: استفاده از exit_reason
-    if (r.exit_reason === "tp_hit") {
-      return <Badge className="bg-green-600 text-[9px]">✅ برد (TP)</Badge>;
+    // نرمال‌سازی برای جلوگیری از خطا/عدم تطابق در مقادیر خالی یا حروف متفاوت
+    const exitReason = String(r.exit_reason ?? "").trim().toLowerCase();
+    if (exitReason === "tp1_hit") {
+      return <Badge className="bg-emerald-600 text-[9px]">✅ هدف اول (TP1)</Badge>;
     }
-    if (r.exit_reason === "sl_hit") {
+    if (exitReason === "tp_hit") {
+      return <Badge className="bg-green-600 text-[9px]">✅ هدف کامل (TP)</Badge>;
+    }
+    if (exitReason === "sl_hit") {
       return <Badge className="bg-red-600 text-[9px]">❌ باخت (SL)</Badge>;
     }
-    if (r.exit_reason === "timeout") {
+    if (exitReason === "timeout") {
       if (r.expired_bias === "win") {
         return <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[9px]">⏰ جهت درست</Badge>;
       }
@@ -309,7 +313,7 @@ export function SignalHistory({ source = "", profile = "" }: Props) {
                     {r.exit_price != null && (
                       <>
                         <span className="text-muted-foreground/50">→</span>
-                        <span className={`num font-medium ${r.exit_reason === "tp_hit" ? "text-green-500" : r.exit_reason === "sl_hit" ? "text-red-500" : "text-yellow-500"}`}>
+                        <span className={`num font-medium ${String(r.exit_reason ?? "").trim().toLowerCase().startsWith("tp") ? "text-green-500" : String(r.exit_reason ?? "").trim().toLowerCase() === "sl_hit" ? "text-red-500" : "text-yellow-500"}`}>
                           خروج: {formatNumber(r.exit_price)}
                         </span>
                       </>

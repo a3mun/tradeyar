@@ -495,6 +495,32 @@ const deleteOverride = async (key: string) => {
   };
 
 
+const handleDeleteSub = async (subId: number) => {
+  if (!selectedUser) return;
+  if (!confirm("این اشتراک حذف شود؟ (این عمل در تاریخچه تغییرات ثبت می‌شود)")) return;
+  
+  try {
+    const res = await fetch(`${apiUrl}/admin/users/${selectedUser.id}/subscriptions/${subId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "خطا در حذف");
+    
+    alert(data.message);
+    
+    // رفرش جزئیات کاربر
+    const detailsRes = await fetch(`${apiUrl}/admin/users/${selectedUser.id}/details`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (detailsRes.ok) setUserDetails(await detailsRes.json());
+  } catch (err: any) {
+    alert(err.message);
+  }
+};
+  
+
+
   useEffect(() => {
     fetch(`${apiUrl}/admin/payments`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -1098,7 +1124,7 @@ const deleteOverride = async (key: string) => {
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 50 }}
-              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-[#d6ad60]/40 bg-[#051118] p-4 shadow-2xl backdrop-blur-xl"
+              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-[#d6ad60]/40 bg-[#0b151f] p-4 shadow-lg backdrop-blur-sm"
             >
               <div
                 className={`rounded-lg p-2 ${
@@ -1133,11 +1159,11 @@ const deleteOverride = async (key: string) => {
       </div>
 
       <Header />
-      <main className="container mx-auto max-w-6xl flex-1 space-y-6 p-4 py-8">
+      <main className="container mx-auto max-w-6xl flex-1 space-y-5 p-4 py-8">
         {/* ═══ هدر ═══ */}
         <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/10 p-2 shadow-[0_0_15px_#d6ad6040]">
+            <div className="rounded-xl border border-[#d6ad60]/20 bg-[#d6ad60]/10 p-2 shadow-sm">
               <Crown className="h-6 w-6 text-[#d6ad60]" />
             </div>
             <div>
@@ -1162,7 +1188,7 @@ const deleteOverride = async (key: string) => {
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white"
+                className="gap-2 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white"
               >
                 <Home className="h-4 w-4" />
                 صفحه اصلی
@@ -1187,7 +1213,7 @@ const deleteOverride = async (key: string) => {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 sm:gap-4">
           <button
             onClick={() => setActiveTab("users")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm transition-all hover:border-[#d6ad60]/40 hover:bg-[#111f2b] sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-[#d6ad60]/10 p-2 text-[#d6ad60] sm:p-3">
               <Users className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1202,7 +1228,7 @@ const deleteOverride = async (key: string) => {
 
           <button
             onClick={() => setActiveTab("users")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm transition-all hover:border-[#d6ad60]/40 hover:bg-[#111f2b] sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-green-500/10 p-2 text-green-400 sm:p-3">
               <TrendingUp className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1219,23 +1245,25 @@ const deleteOverride = async (key: string) => {
 
           <button
             onClick={() => setActiveTab("payments")}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#14263e] hover:to-[#051118] sm:gap-4 sm:p-5"
+            className="relative flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm transition-all hover:border-[#d6ad60]/40 hover:bg-[#111f2b] sm:gap-4 sm:p-4"
           >
+            {/* 🔴 نشانگر تعداد */}
+            {pendingCount > 0 && (
+              <div className="absolute right-0 top-0 flex h-12 w-12 items-start justify-end rounded-bl-full bg-[#d6ad60]/10 p-1.5 sm:h-16 sm:w-16 sm:p-2">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#d6ad60] sm:h-2 sm:w-2"></span>
+              </div>
+            )}
             <div className="rounded-xl bg-yellow-500/10 p-2 text-yellow-400 sm:p-3">
               <CreditCard className="h-4 w-4 sm:h-6 sm:w-6" />
             </div>
             <div>
-              <p className="text-[10px] text-gray-400 sm:text-xs">
-                درخواست‌های در حال بررسی
-              </p>
-              <p className="text-lg font-bold text-white sm:text-2xl">
-                {pendingCount}
-              </p>
+              <p className="text-[10px] text-gray-400 sm:text-xs">درخواست‌های در حال بررسی</p>
+              <p className="text-lg font-bold text-white sm:text-2xl">{pendingCount}</p>
             </div>
           </button>
 
           <Link href="/admin/tickets">
-            <div className="group relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl transition-all hover:border-[#d6ad60]/40 hover:from-[#1a2c45] hover:to-[#051118] sm:gap-4 sm:p-5">
+            <div className="group relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm transition-all hover:border-[#d6ad60]/40 hover:bg-[#111f2b] sm:gap-4 sm:p-4">
               {ticketStats?.unread_count > 0 && (
                 <div className="absolute right-0 top-0 flex h-12 w-12 items-start justify-end rounded-bl-full bg-[#d6ad60]/10 p-1.5 sm:h-16 sm:w-16 sm:p-2">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#d6ad60] sm:h-2 sm:w-2"></span>
@@ -1270,7 +1298,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-green-500/10 p-2 text-green-400 sm:p-3">
               <TrendingUp className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1293,7 +1321,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-purple-500/10 p-2 text-purple-400 sm:p-3">
               <RefreshCw className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1316,7 +1344,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.7 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-blue-500/10 p-2 text-blue-400 sm:p-3">
               <DollarSign className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1341,7 +1369,7 @@ const deleteOverride = async (key: string) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8 }}
-            className="flex items-center gap-2 rounded-2xl border border-white/10 bg-gradient-to-br from-[#051118] to-[#030712] p-3 text-right shadow-xl sm:gap-4 sm:p-5"
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-yellow-500/10 p-2 text-yellow-400 sm:p-3">
               <Hourglass className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1361,7 +1389,27 @@ const deleteOverride = async (key: string) => {
         </div>
 
         {/* ═══ تب‌ها ═══ */}
-        <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
+        <motion.div 
+          className="relative border-b border-white/10 pb-2"
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.1}
+          onDragEnd={(e, { offset }) => {
+            const swipe = offset.x;
+            if (swipe < -50) {
+              // سوایپ به چپ
+              const tabs: TabKey[] = ["users", "payments", "transactions", "tools", "verification"];
+              const idx = tabs.indexOf(activeTab);
+              if (idx < tabs.length - 1) setActiveTab(tabs[idx + 1]);
+            } else if (swipe > 50) {
+              // سوایپ به راست
+              const tabs: TabKey[] = ["users", "payments", "transactions", "tools", "verification"];
+              const idx = tabs.indexOf(activeTab);
+              if (idx > 0) setActiveTab(tabs[idx - 1]);
+            }
+          }}
+        ></motion.div>
+
           <div className="flex w-full gap-1 overflow-x-auto md:w-auto">
             <Button
               variant={activeTab === "users" ? "default" : "ghost"}
@@ -1378,12 +1426,17 @@ const deleteOverride = async (key: string) => {
             <Button
               variant={activeTab === "payments" ? "default" : "ghost"}
               onClick={() => setActiveTab("payments")}
-              className={`shrink-0 gap-2 ${
+              className={`relative shrink-0 gap-2 ${
                 activeTab === "payments"
                   ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"
                   : "text-gray-400 hover:bg-white/5 hover:text-white"
               }`}
             >
+              {pendingCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white shadow-sm">
+                  {pendingCount}
+                </span>
+              )}
               <CreditCard className="h-4 w-4" />
               <span className="hidden sm:inline">در حال بررسی</span>
             </Button>
@@ -1430,7 +1483,7 @@ const deleteOverride = async (key: string) => {
             <Link href="/admin/tickets">
               <Button
                 variant="ghost"
-                className="shrink-0 gap-2 text-gray-400 hover:bg-white/5 hover:text-white"
+                className="shrink-0 gap-2 text-gray-400 hover:bg-[#0b151f] hover:text-white"
               >
                 <MessageSquare className="h-4 w-4" />
                 <span className="hidden sm:inline">تیکت‌ها</span>
@@ -1464,21 +1517,21 @@ const deleteOverride = async (key: string) => {
               <span className="hidden sm:inline">راستی‌آزمایی</span>
             </Button>
 
-            <button
+            <Button
+              variant={activeTab === "pricing" ? "default" : "ghost"}
               onClick={() => setActiveTab("pricing")}
-              className={`flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-bold transition-all ${
+              className={`shrink-0 gap-2 ${
                 activeTab === "pricing"
-                  ? "bg-[#d6ad60] text-[#030712] shadow-md"
+                  ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90"
                   : "text-gray-400 hover:bg-white/5 hover:text-white"
               }`}
             >
               <DollarSign className="h-4 w-4" />
               <span className="hidden sm:inline">مدیریت قیمت‌ها</span>
-            </button>
+            </Button>
 
 
           </div>
-        </div>
 
         {/* ═══ تب users ═══ */}
         {activeTab === "users" && (
@@ -1491,13 +1544,13 @@ const deleteOverride = async (key: string) => {
                     placeholder="جستجوی شماره یا نام..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-11 rounded-xl border-white/10 bg-[#051118] pl-4 pr-10 text-white"
+                    className="h-11 rounded-xl border-white/10 bg-[#0b151f] pl-4 pr-10 text-white"
                   />
                 </div>
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as any)}
-                  className="h-11 rounded-xl border border-white/10 bg-[#051118] px-4 text-sm text-white"
+                  className="h-11 rounded-xl border border-white/10 bg-[#0b151f] px-4 text-sm text-white"
                 >
                   <option value="all">همه ({usersList.length})</option>
                   <option value="active">فعال ({activeUsersCount})</option>
@@ -1534,9 +1587,9 @@ const deleteOverride = async (key: string) => {
             {loading ? (
               <p className="py-4 text-center text-gray-400">در حال دریافت...</p>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5 shadow-xl backdrop-blur-xl">
+              <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0b151f] shadow-sm backdrop-blur-sm">
                 <table className="w-full text-right text-sm">
-                  <thead className="bg-white/5 text-gray-400">
+                  <thead className="bg-[#0b151f] text-gray-400">
                     <tr>
                       <th
                         className="cursor-pointer px-3 py-3 font-medium hover:text-[#d6ad60]"
@@ -1610,7 +1663,7 @@ const deleteOverride = async (key: string) => {
                       sortedUsers.map((u) => (
                         <tr
                           key={u.id}
-                          className="transition-colors hover:bg-white/5"
+                          className="transition-colors hover:bg-[#0b151f]"
                         >
                           <td className="px-3 py-3">
                             <div className="flex items-center gap-2">
@@ -1701,7 +1754,7 @@ const deleteOverride = async (key: string) => {
             {loading ? (
               <p className="py-4 text-center text-gray-400">در حال دریافت...</p>
             ) : payments.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/5 py-10 text-center text-gray-400 backdrop-blur-xl">
+              <div className="rounded-xl border border-white/10 bg-[#0b151f] py-10 text-center text-gray-400 backdrop-blur-sm">
                 هیچ درخواستی نیست.
               </div>
             ) : (
@@ -1710,7 +1763,7 @@ const deleteOverride = async (key: string) => {
                   key={p.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-white/10 bg-white/5 p-5 shadow-lg backdrop-blur-xl transition-colors hover:border-[#d6ad60]/30 md:flex-row md:items-center"
+                  className="flex flex-col items-start justify-between gap-4 rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-lg backdrop-blur-sm transition-colors hover:border-[#d6ad60]/30 md:flex-row md:items-center"
                 >
                   <div className="w-full space-y-3">
                     <div className="flex flex-wrap items-center gap-3">
@@ -1790,7 +1843,7 @@ const deleteOverride = async (key: string) => {
                   placeholder="جستجو در شماره، پلن، وضعیت، روش پرداخت..."
                   value={txSearchQuery}
                   onChange={(e) => setTxSearchQuery(e.target.value)}
-                  className="h-11 rounded-xl border-white/10 bg-[#051118] pl-4 pr-10 text-white"
+                  className="h-11 rounded-xl border-white/10 bg-[#0b151f] pl-4 pr-10 text-white"
                 />
               </div>
               <div className="flex gap-2">
@@ -1809,13 +1862,13 @@ const deleteOverride = async (key: string) => {
             {loading ? (
               <p className="py-4 text-center text-gray-400">در حال دریافت...</p>
             ) : filteredTransactions.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/5 py-10 text-center text-gray-400 backdrop-blur-xl">
+              <div className="rounded-xl border border-white/10 bg-[#0b151f] py-10 text-center text-gray-400 backdrop-blur-sm">
                 هیچ تراکنشی نیست.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5 shadow-xl backdrop-blur-xl">
+              <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0b151f] shadow-sm backdrop-blur-sm">
                 <table className="w-full text-right text-sm">
-                  <thead className="bg-white/5 text-gray-400">
+                  <thead className="bg-[#0b151f] text-gray-400">
                     <tr>
                       <th className="px-3 py-3 font-medium">شناسه</th>
                       <th className="px-3 py-3 font-medium">کاربر</th>
@@ -1843,7 +1896,7 @@ const deleteOverride = async (key: string) => {
                       return (
                         <tr
                           key={t.id}
-                          className="transition-colors hover:bg-white/5"
+                          className="transition-colors hover:bg-[#0b151f]"
                         >
                           <td className="px-3 py-3 font-mono text-[10px] text-gray-500">
                             {t.id}
@@ -1916,7 +1969,7 @@ const deleteOverride = async (key: string) => {
             {loading ? (
               <p className="py-4 text-center text-gray-400">در حال دریافت...</p>
             ) : refunds.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/5 py-10 text-center text-gray-400 backdrop-blur-xl">
+              <div className="rounded-xl border border-white/10 bg-[#0b151f] py-10 text-center text-gray-400 backdrop-blur-sm">
                 هیچ درخواست عودتی نیست.
               </div>
             ) : (
@@ -1925,7 +1978,7 @@ const deleteOverride = async (key: string) => {
                   key={r.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-purple-500/30 bg-gradient-to-br from-[#1a1635] to-[#0d0b1f] p-4 shadow-lg md:flex-row md:items-center"
+                  className="flex flex-col items-start justify-between gap-3 rounded-xl border border-purple-500/30 bg-[#0b151f] p-4 shadow-lg md:flex-row md:items-center"
                 >
                   <div className="w-full min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -2016,7 +2069,7 @@ const deleteOverride = async (key: string) => {
 
         {/* ═══ تب zibal ═══ */}
         {activeTab === "zibal" && (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-10 text-center">
+          <div className="rounded-xl border border-dashed border-white/10 bg-[#0b151f] p-10 text-center">
             <Wallet className="mx-auto mb-3 h-12 w-12 text-gray-500" />
             <h3 className="mb-2 text-lg font-bold text-white">
               اتصال به درگاه زیبال
@@ -2037,7 +2090,7 @@ const deleteOverride = async (key: string) => {
         {/* ═══ تب tools ═══ */}
         {activeTab === "tools" && (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl backdrop-blur-xl">
+            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm backdrop-blur-sm">
               <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
                 <h3 className="flex items-center gap-2 text-base font-bold text-[#d6ad60]">
                   <Database className="h-5 w-5" /> بک‌آپ
@@ -2150,7 +2203,7 @@ const deleteOverride = async (key: string) => {
                 </div>
               )}
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl backdrop-blur-xl">
+            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm backdrop-blur-sm">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <ShieldAlert
@@ -2185,7 +2238,7 @@ const deleteOverride = async (key: string) => {
                 </Button>
               </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl backdrop-blur-xl">
+            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm backdrop-blur-sm">
               <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
                 <Wrench className="h-4 w-4" /> ابزارهای مدیریت (به‌زودی)
               </h3>
@@ -2200,7 +2253,7 @@ const deleteOverride = async (key: string) => {
                 ].map((t, idx) => (
                   <div
                     key={idx}
-                    className="rounded-lg border border-white/5 bg-white/5 p-2 text-center opacity-40"
+                    className="rounded-lg border border-white/5 bg-[#0b151f] p-2 text-center opacity-40"
                   >
                     <p className="text-[10px] text-gray-400">{t}</p>
                   </div>
@@ -2215,7 +2268,7 @@ const deleteOverride = async (key: string) => {
           <div className="space-y-4">
             
             {/* ۱. آمار کامل و اصلی (موضوع اصلی) - کشویی */}
-            <details className="group rounded-2xl border border-white/10 bg-white/5 shadow-xl backdrop-blur-xl [&_summary::-webkit-details-marker]:hidden" open>
+            <details className="group rounded-xl border border-white/10 bg-[#0b151f] shadow-sm backdrop-blur-sm [&_summary::-webkit-details-marker]:hidden" open>
               <summary className="flex cursor-pointer items-center justify-between p-4">
                 <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
                   <CheckCircle className="h-4 w-4" />
@@ -2229,7 +2282,7 @@ const deleteOverride = async (key: string) => {
             </details>
 
             {/* ۲. کنترل آمار نمایشی (بخش تنظیمات مدیر) - کشویی و پیش‌فرض بسته */}
-            <details className="group rounded-2xl border border-[#d6ad60]/30 bg-gradient-to-br from-[#051118] to-[#030712] shadow-xl [&_summary::-webkit-details-marker]:hidden">
+            <details className="group rounded-xl border border-[#d6ad60]/30 bg-[#0b151f] shadow-sm [&_summary::-webkit-details-marker]:hidden">
               <summary className="flex cursor-pointer items-center justify-between p-4">
                 <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
                   <Target className="h-4 w-4" />
@@ -2337,16 +2390,16 @@ const deleteOverride = async (key: string) => {
                 <DollarSign className="h-5 w-5" /> مدیریت قیمت‌های اشتراک
               </h2>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={fetchPricing} disabled={pricingLoading} className="border-white/10 text-gray-300 hover:bg-white/5">
+                <Button variant="outline" onClick={fetchPricing} disabled={pricingLoading} className="border-white/10 text-gray-300 hover:bg-[#0b151f]">
                   <RotateCcw className={`h-4 w-4 ${pricingLoading ? "animate-spin" : ""}`} /> بازخوانی
                 </Button>
-                <Button onClick={savePricing} disabled={pricingSaving} className="bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#030712] font-bold hover:opacity-90">
+                <Button onClick={savePricing} disabled={pricingSaving} className="bg-[#0b151f] text-[#030712] font-bold hover:opacity-90">
                   <Save className="h-4 w-4" /> {pricingSaving ? "در حال ذخیره..." : "ذخیره تغییرات"}
                 </Button>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 sm:p-6">
+            <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 sm:p-6">
               {/* 🔴 فیلد قیمت پایه یک ماهه */}
               <div className="mb-6 rounded-xl border border-[#d6ad60]/30 bg-[#d6ad60]/5 p-4">
                 <label className="text-xs font-bold text-[#d6ad60] mb-2 block">
@@ -2449,7 +2502,7 @@ const deleteOverride = async (key: string) => {
 
       {/* ═══ مودال افزودن کاربر ═══ */}
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="border-white/10 bg-[#051118] text-white">
+        <DialogContent className="border-white/10 bg-[#0b151f] text-white">
           <DialogHeader>
             <DialogTitle className="text-[#d6ad60]">
               افزودن کاربر جدید
@@ -2523,7 +2576,7 @@ const deleteOverride = async (key: string) => {
 {/* ═══ مودال جزئیات کاربر ═══ */}
 <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
   <DialogContent 
-    className="max-h-[95vh] w-[95vw] overflow-y-auto border-white/10 bg-[#030712] p-0 gap-0 text-white shadow-2xl"
+    className="max-h-[95vh] w-[95vw] overflow-y-auto border-white/10 bg-[#030712] p-0 gap-0 text-white shadow-lg"
     style={{ maxWidth: "1200px" }}
   >
     {/* هدر ثابت (Sticky) */}
@@ -2547,7 +2600,7 @@ const deleteOverride = async (key: string) => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           
           {/* ۱. مشخصات کاربر */}
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col justify-between h-[240px]">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm flex flex-col justify-between h-[240px]">
             <div>
               <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
                 <UserIcon className="h-4 w-4 text-[#d6ad60]" /> مشخصات کاربر
@@ -2570,7 +2623,7 @@ const deleteOverride = async (key: string) => {
                 <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
                   <span className="text-gray-400">آی‌پی:</span>
                   <div className="flex items-center gap-2">
-                    <span className="dir-ltr font-mono text-gray-300 bg-white/5 px-2 py-0.5 rounded">{userDetails.user.last_ip || "نامشخص"}</span>
+                    <span className="dir-ltr font-mono text-gray-300 bg-[#0b151f] px-2 py-0.5 rounded">{userDetails.user.last_ip || "نامشخص"}</span>
                     {userDetails.user.last_ip && (
                       <button onClick={() => navigator.clipboard.writeText(userDetails.user.last_ip)} className="text-[10px] text-[#d6ad60] hover:text-white transition-colors" title="کپی آی‌پی">کپی</button>
                     )}
@@ -2580,14 +2633,14 @@ const deleteOverride = async (key: string) => {
             </div>
             <div className="flex flex-col gap-1 border-t border-white/5 pt-2 text-[10px]">
               <span className="text-gray-400">مرورگر و دستگاه:</span>
-              <span className="text-gray-300 bg-white/5 px-2 py-1 rounded dir-ltr break-all">
+              <span className="text-gray-300 bg-[#0b151f] px-2 py-1 rounded dir-ltr break-all">
                 {parseUserAgent(userDetails.user.last_user_agent).device} / {parseUserAgent(userDetails.user.last_user_agent).browser}
               </span>
             </div>
           </div>
 
           {/* ۲. وضعیت مالی */}
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col h-[240px]">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm flex flex-col h-[240px]">
             <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
               <WalletIcon className="h-4 w-4 text-[#d6ad60]" /> وضعیت مالی
             </h3>
@@ -2608,7 +2661,7 @@ const deleteOverride = async (key: string) => {
           </div>
 
           {/* ۳. تغییرات دستی ادمین */}
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm flex flex-col h-[240px]">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm flex flex-col h-[240px]">
             <h3 className="mb-2 text-sm font-bold text-yellow-500 flex items-center gap-2">
               <HistoryIcon className="h-4 w-4" /> تغییرات ادمین
             </h3>
@@ -2631,46 +2684,55 @@ const deleteOverride = async (key: string) => {
         </div>
 
         {/* ─── ردیف دوم: مدیریت اشتراک ─── */}
-        <div className="rounded-2xl border border-[#d6ad60]/20 bg-[#051118] p-4 sm:p-5 shadow-sm">
+        <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 sm:p-4 shadow-sm">
           <h3 className="mb-4 text-sm font-bold text-[#d6ad60] flex items-center gap-2">
             <ShieldCheck className="h-4 w-4" /> مدیریت اشتراک
           </h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            {/* ردیف اول: تغییر پلن */}
             <div>
               <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر پلن:</h4>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs" onClick={() => handleChangePlan("free")}>دوره رایگان</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs" onClick={() => handleChangePlan("free")}>
+                  دوره رایگان
+                </Button>
                 {["1_month", "3_months", "6_months", "12_months"].map((plan) => (
-                  <Button key={plan} size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs" onClick={() => handleChangePlan(plan)}>
+                  <Button key={plan} size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs" onClick={() => handleChangePlan(plan)}>
                     {getPlanNameFa(plan)}
                   </Button>
                 ))}
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <input type="checkbox" id="sendSmsPlan" checked={sendSmsPlan} onChange={(e) => setSendSmsPlan(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
-                <label htmlFor="sendSmsPlan" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+                <div className="flex items-center gap-2 mr-2">
+                  <input type="checkbox" id="sendSmsPlan" checked={sendSmsPlan} onChange={(e) => setSendSmsPlan(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
+                  <label htmlFor="sendSmsPlan" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-4">
+            {/* ردیف دوم: تنظیم روزها و تاریخ */}
+            <div className="flex flex-col md:flex-row md:items-end gap-4 sm:gap-6 border-t border-white/5 pt-4">
+              
               <div>
                 <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روزها:</h4>
                 <div className="flex items-center gap-2">
-                  <Input type="number" placeholder="30" value={adjustDays || ""} onChange={(e) => setAdjustDays(Number(e.target.value))} className="h-8 w-20 border-white/10 bg-black/30 text-white text-xs" />
-                  <Button size="sm" variant="outline" onClick={handleAdjustDays} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs">اعمال</Button>
+                  <Input type="number" placeholder="30" value={adjustDays || ""} onChange={(e) => setAdjustDays(Number(e.target.value))} className="h-8 w-24 border-white/10 bg-black/30 text-white text-xs" />
+                  <Button size="sm" variant="outline" onClick={handleAdjustDays} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs">اعمال</Button>
                 </div>
               </div>
+
               <div>
                 <h4 className="mb-2 text-[11px] font-bold text-gray-300">تنظیم تاریخ (شمسی):</h4>
                 <div className="flex items-center gap-2">
                   <Input type="text" placeholder="1405/11/25" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} className="h-8 w-28 border-white/10 bg-black/30 text-white text-xs text-left dir-ltr" />
-                  <Button size="sm" variant="outline" onClick={handleSetExpiryDate} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-xs">اعمال</Button>
+                  <Button size="sm" variant="outline" onClick={handleSetExpiryDate} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs">اعمال</Button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="sendSmsDays" checked={sendSmsDays} onChange={(e) => setSendSmsDays(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
-                <label htmlFor="sendSmsDays" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+
+              <div className="pb-1.5 md:pb-1">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="sendSmsDays" checked={sendSmsDays} onChange={(e) => setSendSmsDays(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
+                  <label htmlFor="sendSmsDays" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
+                </div>
               </div>
             </div>
           </div>
@@ -2678,12 +2740,14 @@ const deleteOverride = async (key: string) => {
 
         {/* ─── ردیف سوم: تاریخچه‌ها ─── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm">
             <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
               <ClockIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه اشتراک‌ها
             </h3>
-            <div className="max-h-[220px] overflow-y-auto pr-1">
-              {userDetails.subscriptions.length === 0 ? <p className="text-xs text-gray-500">سابقه‌ای یافت نشد.</p> : (
+            <div className="max-h-[300px] overflow-y-auto pr-1">
+              {userDetails.subscriptions.length === 0 ? (
+                <p className="text-xs text-gray-500">سابقه‌ای یافت نشد.</p>
+              ) : (
                 <table className="w-full text-right text-[11px]">
                   <thead>
                     <tr className="border-b border-white/10 text-gray-400">
@@ -2691,28 +2755,59 @@ const deleteOverride = async (key: string) => {
                       <th className="pb-2 font-medium">شروع</th>
                       <th className="pb-2 font-medium">پایان</th>
                       <th className="pb-2 font-medium">وضعیت</th>
+                      <th className="pb-2 font-medium">عملیات</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {userDetails.subscriptions.map((s: any) => (
-                      <tr key={s.id}>
-                        <td className="py-2 font-bold text-gray-200">{getPlanNameFa(s.plan)}</td>
-                        <td className="py-2 text-gray-400 dir-ltr">{formatFaDate(s.start)}</td>
-                        <td className="py-2 text-gray-400 dir-ltr">{s.end ? formatFaDate(s.end) : "نامحدود"}</td>
-                        <td className="py-2">
-                          <span className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold ${s.status === "active" ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-                            {s.status === "active" ? "فعال" : "منقضی"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {userDetails.subscriptions.map((s: any) => {
+                      const now = new Date();
+                      const endDate = s.end ? new Date(s.end) : null;
+                      const startDate = s.start ? new Date(s.start) : null;
+
+                      let realStatus = "expired";
+                      if (endDate && endDate > now) {
+                        if (startDate && startDate > now) {
+                          realStatus = "reserved";
+                        } else {
+                          realStatus = "active";
+                        }
+                      }
+
+                      return (
+                        <tr key={s.id}>
+                          <td className="py-2 font-bold text-gray-200">{getPlanNameFa(s.plan)}</td>
+                          <td className="py-2 text-gray-400 dir-ltr">{formatFaDate(s.start)}</td>
+                          <td className="py-2 text-gray-400 dir-ltr">{s.end ? formatFaDate(s.end) : "نامحدود"}</td>
+                          <td className="py-2">
+                            <span className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold ${
+                              realStatus === "active"
+                                ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                                : realStatus === "reserved"
+                                  ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                                  : "bg-red-500/10 text-red-400 border border-red-500/20"
+                            }`}>
+                              {realStatus === "active" ? "فعال" : realStatus === "reserved" ? "رزرو" : "منقضی"}
+                            </span>
+                          </td>
+                            <td className="py-2">
+                              <button
+                                onClick={() => handleDeleteSub(s.id)}
+                                className="text-[9px] text-red-400 hover:text-red-300 underline"
+                                title="حذف این اشتراک"
+                              >
+                                حذف
+                              </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm">
             <h3 className="mb-3 text-sm font-bold text-gray-200 flex items-center gap-2">
               <ReceiptIcon className="h-4 w-4 text-[#d6ad60]" /> تاریخچه پرداخت‌ها
             </h3>
@@ -2744,13 +2839,13 @@ const deleteOverride = async (key: string) => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           
           {/* امنیت و دسترسی */}
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm space-y-3">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm space-y-3">
             <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2"><LockIcon className="h-4 w-4 text-[#d6ad60]" /> امنیت</h3>
             <div>
               <h4 className="mb-1 text-[10px] text-gray-400">ریست رمز:</h4>
               <div className="flex gap-2">
                 <Input type="text" placeholder="رمز جدید" value={newPasswordForUser} onChange={(e) => setNewPasswordForUser(e.target.value)} className="h-7 flex-1 border-white/10 bg-black/30 text-[10px] text-left dir-ltr" />
-                <Button size="sm" variant="outline" onClick={handleResetPassword} className="h-7 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white text-[10px]">ثبت</Button>
+                <Button size="sm" variant="outline" onClick={handleResetPassword} className="h-7 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-[10px]">ثبت</Button>
               </div>
             </div>
             
@@ -2772,7 +2867,7 @@ const deleteOverride = async (key: string) => {
           </div>
 
           {/* منطقه خطر */}
-          <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 shadow-sm space-y-2">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 shadow-sm space-y-2">
             <h3 className="text-sm font-bold text-red-400 flex items-center gap-2"><Trash2 className="h-4 w-4" /> منطقه خطر</h3>
             <Button size="sm" variant="outline" onClick={() => setIsRefundModalOpen(true)} className="h-7 w-full gap-1 border-red-500/20 text-red-400 hover:bg-red-500/10 text-[10px]"><DollarSign className="h-3 w-3" /> ثبت عودت</Button>
             <div className="flex items-center gap-2">
@@ -2783,7 +2878,7 @@ const deleteOverride = async (key: string) => {
           </div>
 
           {/* آمار افزونه */}
-          <div className="rounded-2xl border border-white/5 bg-[#051118] p-4 shadow-sm">
+          <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm">
             <h3 className="mb-2 text-sm font-bold text-gray-200 flex items-center gap-2"><DownloadIcon className="h-4 w-4 text-[#d6ad60]" /> آمار افزونه</h3>
             {extStats ? (
               <div className="space-y-2">
@@ -2803,7 +2898,7 @@ const deleteOverride = async (key: string) => {
     )}
 
     <div className="sticky bottom-0 bg-[#030712]/95 backdrop-blur border-t border-white/10 px-4 py-3 sm:px-6 flex justify-end z-20">
-      <DialogClose className="border border-white/10 text-gray-300 hover:bg-white/5 hover:text-white h-8 px-4 rounded-md text-xs transition-colors">
+      <DialogClose className="border border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white h-8 px-4 rounded-md text-xs transition-colors">
         بستن
       </DialogClose>
     </div>
@@ -2815,7 +2910,7 @@ const deleteOverride = async (key: string) => {
 
       {/* ═══ مودال یادداشت ═══ */}
       <Dialog open={isNoteModalOpen} onOpenChange={setIsNoteModalOpen}>
-        <DialogContent className="max-w-md border-white/10 bg-[#051118] text-white">
+        <DialogContent className="max-w-md border-white/10 bg-[#0b151f] text-white">
           <DialogHeader>
             <DialogTitle className="text-[#d6ad60]">
               {noteAction?.type === "approve" ? "تایید پرداخت" : "رد پرداخت"}
@@ -2855,7 +2950,7 @@ const deleteOverride = async (key: string) => {
 
       {/* ═══ مودال تراکنش ═══ */}
       <Dialog open={isTxDetailOpen} onOpenChange={setIsTxDetailOpen}>
-        <DialogContent className="max-w-lg border-white/10 bg-[#051118] text-white">
+        <DialogContent className="max-w-lg border-white/10 bg-[#0b151f] text-white">
           <DialogHeader>
             <DialogTitle className="text-[#d6ad60]">
               جزئیات و ویرایش تراکنش
@@ -2984,7 +3079,7 @@ const deleteOverride = async (key: string) => {
 
       {/* ═══ مودال عودت ═══ */}
       <Dialog open={isRefundModalOpen} onOpenChange={setIsRefundModalOpen}>
-        <DialogContent className="max-w-md border-white/10 bg-[#051118] text-white">
+        <DialogContent className="max-w-md border-white/10 bg-[#0b151f] text-white">
           <DialogHeader>
             <DialogTitle className="text-[#d6ad60]">
               ثبت درخواست عودت
@@ -3053,7 +3148,7 @@ const deleteOverride = async (key: string) => {
 
       {/* ═══ مودال تایید ═══ */}
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-        <DialogContent className="max-w-md border-white/10 bg-[#051118] text-white">
+        <DialogContent className="max-w-md border-white/10 bg-[#0b151f] text-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-[#d6ad60]">
               <AlertTriangle className="h-5 w-5" /> تایید عملیات

@@ -632,33 +632,34 @@ async def change_user_plan(
 
     now = datetime.now(timezone.utc)
 
-    # 🔴 مرحله ۱: غیرفعال کردن تمام اشتراک‌های فعال قبلی (قبل از ساخت جدید)
-    active_subs = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .where(Subscription.status == "active")
-    ).all()
-    for old_sub in active_subs:
-        old_sub.status = "expired"
-        session.add(old_sub)
-    session.commit()  # 🔴 مهم: کامیت قبل از ساخت اشتراک جدید
-
-    # 🔴 مرحله ۲: ساخت اشتراک جدید
-    # محاسبه تاریخ پایان بر اساس آخرین اشتراک
+    # ۱. پیدا کردن آخرین اشتراک (فعال یا رزرو) برای تعیین تاریخ شروع جدید
     last_sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
-        .order_by(Subscription.created_at.desc())
+        .order_by(Subscription.end_date.desc())
     ).first()
-    current_end = last_sub.end_date if last_sub else None
-    new_end = calculate_new_end_date(current_end, plan_info["days"])
 
+    # ۲. اگر اشتراک قبلی وجود داشت و در آینده تموم می‌شه → شروع جدید بعد از اون
+    if last_sub and last_sub.end_date:
+        end = last_sub.end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end > now:
+            new_start = end  # شروع از لحظه‌ای که اشتراک قبلی تموم می‌شه
+        else:
+            new_start = now  # اشتراک قبلی منقضی شده، از الان شروع کن
+    else:
+        new_start = now
+
+    new_end = new_start + timedelta(days=plan_info["days"])
+
+    # ۳. ساخت اشتراک جدید (به عنوان رزرو یا فعال)
     new_sub = Subscription(
         user_id=user.id,
         plan=plan,
-        start_date=now,
+        start_date=new_start,
         end_date=new_end,
-        status="active",
+        status="active",  # وضعیت واقعی در فرانت محاسبه می‌شه
     )
     session.add(new_sub)
     session.commit()
@@ -672,7 +673,33 @@ async def change_user_plan(
         except Exception:
             pass
 
-    return {"ok": True, "message": f"پلن کاربر به {plan_info['title']} تغییر یافت"}
+    return {"ok": True, "message": f"پلن {plan_info['title']} برای کاربر ثبت شد"}
+
+
+@router.delete("/users/{user_id}/subscriptions/{sub_id}")
+async def delete_user_subscription(
+    user_id: int,
+    sub_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """حذف یک اشتراک (فعال، رزرو، یا منقضی) توسط ادمین"""
+    sub = session.get(Subscription, sub_id)
+    if not sub or sub.user_id != user_id:
+        raise HTTPException(404, "اشتراک یافت نشد")
+
+    # 🔴 ثبت لاگ قبل از حذف
+    log = SubscriptionLog(
+        user_id=user_id,
+        admin_phone=admin.phone,
+        action_type="manual_sub_delete",
+        description=f"حذف اشتراک {PLANS.get(sub.plan, {}).get('title', sub.plan)} (از {_to_jalali_str(sub.start_date)} تا {_to_jalali_str(sub.end_date)})",
+    )
+    session.add(log)
+
+    session.delete(sub)
+    session.commit()
+    return {"ok": True, "message": "اشتراک با موفقیت حذف شد و در تاریخچه ثبت گردید"}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1145,63 +1172,72 @@ async def export_transactions_excel(
 @router.post("/payments/{payment_id}/approve")
 async def approve_payment(
     payment_id: int,
-    admin_note: str = Body(None, embed=True),  # 🔴 embed=True
+    admin_note: str = Body(None, embed=True),
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
     payment = session.get(PaymentRequest, payment_id)
+    if not payment:
+        raise HTTPException(404, "پرداخت یافت نشد")
+
     user = session.get(User, payment.user_id)
+    if not user:
+        raise HTTPException(404, "کاربر یافت نشد")
+
     plan_info = PLANS.get(payment.plan)
     if not plan_info:
         raise HTTPException(status_code=400, detail="پلن نامعتبر است")
 
-    sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .order_by(Subscription.created_at.desc())
-    ).first()
     now = datetime.now(timezone.utc)
-    current_end = sub.end_date if sub else None
-    new_end = calculate_new_end_date(current_end, plan_info["days"])
 
-    # در approve_payment، قبل از ساخت اشتراک جدید:
-    active_subs = session.exec(
+    # 🔴 ۱. پیدا کردن آخرین اشتراک (فعال یا رزرو) برای تعیین تاریخ شروع جدید
+    last_sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
-        .where(Subscription.status == "active")
-    ).all()
-    for old_sub in active_subs:
-        old_sub.status = "expired"
-        session.add(old_sub)
-    session.commit()
+        .order_by(Subscription.end_date.desc())
+    ).first()
 
-    if sub:
-        sub.plan = payment.plan
-        sub.start_date = now
-        sub.end_date = new_end
-        sub.status = "active"
-        session.add(sub)
+    # 🔴 ۲. اگر اشتراک قبلی در آینده تموم می‌شه → شروع جدید بعد از اون
+    if last_sub and last_sub.end_date:
+        end = last_sub.end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end > now:
+            new_start = end
+        else:
+            new_start = now
     else:
-        sub = Subscription(
-            user_id=user.id,
-            plan=payment.plan,
-            start_date=now,
-            end_date=new_end,
-            status="active",
-        )
-        session.add(sub)
+        new_start = now
 
+    new_end = new_start + timedelta(days=plan_info["days"])
+
+    # 🔴 ۳. ساخت اشتراک جدید (به عنوان رزرو یا فعال)
+    new_sub = Subscription(
+        user_id=user.id,
+        plan=payment.plan,
+        start_date=new_start,
+        end_date=new_end,
+        status="active",
+    )
+    session.add(new_sub)
+
+    # 🔴 ۴. آپدیت وضعیت پرداخت
     payment.status = "approved"
     payment.reviewed_at = now
     payment.reviewed_by = admin.phone
-    payment.admin_note = admin_note  # 🔴 ذخیره یادداشت
+    payment.admin_note = admin_note
     session.add(payment)
+
     session.commit()
 
+    # 🔴 ۵. ارسال پیامک
     try:
-        send_subscription_activated_sms(user.phone, plan_info["title"], sub.end_date)
+        send_subscription_activated_sms(
+            user.phone, plan_info["title"], new_sub.end_date
+        )
     except Exception:
         pass
+
     return {"ok": True, "message": "پرداخت تایید و اشتراک فعال شد"}
 
 

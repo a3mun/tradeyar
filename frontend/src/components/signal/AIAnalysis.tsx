@@ -22,7 +22,7 @@ import { useSignalData } from "@/hooks/useSignalData";
 
 // تنظیمات
 const MAX_HISTORY = 5;
-const HISTORY_TTL = 5 * 24 * 60 * 60 * 1000;
+const HISTORY_TTL = 24 * 60 * 60 * 1000;
 const DAILY_LIMIT = 10;
 
 type CachedAnalysis = {
@@ -129,7 +129,7 @@ function saveHistory(
   }
 }
 
-// اعتبارسنجی و پاک‌سازی تاریخچه پنج روزه
+// اعتبارسنجی و پاک‌سازی تاریخچه یک‌روزه
 function cleanHistory(items: unknown): CachedAnalysis[] {
   if (!Array.isArray(items)) return [];
 
@@ -171,6 +171,58 @@ function formatDate(date: string) {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+// نمایش امن Markdown ساده‌ی پاسخ AI؛ به‌ویژه تیترهای **بولد** بدون نمایش ستاره‌ها
+function renderInlineMarkdown(text: string) {
+  const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g);
+
+  return tokens.map((token, index) => {
+    if (
+      (token.startsWith("**") && token.endsWith("**")) ||
+      (token.startsWith("__") && token.endsWith("__"))
+    ) {
+      return <strong key={index} className="font-bold text-gray-100">{token.slice(2, -2)}</strong>;
+    }
+
+    if (
+      (token.startsWith("*") && token.endsWith("*")) ||
+      (token.startsWith("_") && token.endsWith("_"))
+    ) {
+      return <em key={index} className="italic text-gray-200">{token.slice(1, -1)}</em>;
+    }
+
+    return <span key={index}>{token}</span>;
+  });
+}
+
+function renderAIResponse(response: string) {
+  return response.split(/\r?\n/).map((rawLine, index) => {
+    const line = rawLine.trim();
+
+    if (!line) return <div key={index} className="h-2" />;
+
+    const heading = line.match(/^#{1,3}\s+(.+)$/);
+    if (heading) {
+      return (
+        <h4 key={index} className="pt-2 pb-1 text-sm font-bold text-[#e2c17e]">
+          {renderInlineMarkdown(heading[1])}
+        </h4>
+      );
+    }
+
+    const bullet = line.match(/^(?:[-*+]\s+)(.+)$/);
+    if (bullet) {
+      return (
+        <div key={index} className="flex items-start gap-2 pr-1">
+          <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#d6ad60]" />
+          <p className="min-w-0 flex-1">{renderInlineMarkdown(bullet[1])}</p>
+        </div>
+      );
+    }
+
+    return <p key={index}>{renderInlineMarkdown(line)}</p>;
   });
 }
 
@@ -309,8 +361,15 @@ export function AIAnalysis({
     }
   }, [aiResult]);
 
-  // انتخاب تحلیل قبلی
+  // انتخاب یا بستن تحلیل قبلی با کلیک مجدد روی همان مورد
   const handleViewHistory = (item: CachedAnalysis) => {
+    if (selectedId === item.id) {
+      setAiResult("");
+      setSelectedId(null);
+      setCopiedResult(false);
+      return;
+    }
+
     setAiResult(item.response);
     setAiError("");
     setCopiedResult(false);
@@ -499,7 +558,7 @@ export function AIAnalysis({
               </div>
 
               <span className="text-[9px] text-gray-500">
-                نگهداری ۵ روزه
+                نگهداری ۱ روزه
               </span>
             </div>
 
@@ -622,9 +681,9 @@ export function AIAnalysis({
             </div>
 
             <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-300 text-justify">
-                {aiResult}
-              </p>
+              <div className="space-y-1 whitespace-pre-wrap text-xs leading-7 text-gray-300 text-justify">
+                {renderAIResponse(aiResult)}
+              </div>
             </div>
           </div>
         )}

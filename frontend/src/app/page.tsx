@@ -184,7 +184,7 @@ export default function HomePage() {
                   id="ai-analysis"
                   title="مشاور هوشمند"
                   icon="🧠"
-                  subtitle="تحلیل با هوش مصنوعی — کلیک کن تا باز بشه"
+                  subtitle="تحلیل و بررسی با هوش مصنوعی"
                   isLocked={!isPro}
                 >
                   <ProOverlay feature="مشاور هوشمند">
@@ -198,13 +198,13 @@ export default function HomePage() {
                   id="deep-analysis"
                   title="تحلیل تکنیکال"
                   icon="💬"
-                  subtitle="بررسی عمیق سیگنال — کلیک کن تا باز بشه"
+                  subtitle="بررسی عمیق سیگنال"
                 >
                   <DeepAnalysis />
                 </CollapsibleSection>
               </div>
 
-              <div className="order-7 lg:order-none min-w-0">
+              <div className="order-8 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="fundamental-analysis"
                   title="تحلیل بنیادین (فاندامنتال)"
@@ -215,13 +215,13 @@ export default function HomePage() {
                 </CollapsibleSection>
               </div>
 
-              <div className="order-8 lg:order-none min-w-0">
+              <div className="order-9 lg:order-none min-w-0">
                 {coherent ? (
                   <CollapsibleSection
                     id="scanner"
                     title="اسکنر فرصت‌ها"
                     icon="🔍"
-                    subtitle="پیدا کردن پرسودترین نمادها — کلیک کن تا باز بشه"
+                    subtitle="شناسایی فرصت‌های بازار"
                     isLocked={!isPro}
                   >
                     <ProOverlay feature="اسکنر فرصت‌ها">
@@ -249,12 +249,12 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="order-9 lg:order-none min-w-0">
+              <div className="order-7 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="checklist"
                   title="چک‌لیست اندیکاتورها"
                   icon="✅"
-                  subtitle="بررسی نهایی اندیکاتورها — کلیک کن تا باز بشه"
+                  subtitle="بررسی نهایی وضعیت اندیکاتورها"
                 >
                   {data ? (
                     <Checklist data={data.checklist} />
@@ -271,7 +271,7 @@ export default function HomePage() {
                   id="price-comparison"
                   title="مقایسه قیمت صرافی‌ها"
                   icon="💰"
-                  subtitle="قیمت لحظه‌ای ۴ صرافی — کلیک کن تا باز بشه"
+                  subtitle="مقایسه قیمت لحظه‌ای ۴ صرافی"
                 >
                   <PriceComparison />
                 </CollapsibleSection>
@@ -304,7 +304,7 @@ export default function HomePage() {
                   id="statistics"
                   title="آمار عملکرد"
                   icon="📊"
-                  subtitle="خلاصه‌ی عملکرد و دقت پیش‌بینی — کلیک کن تا باز بشه"
+                  subtitle="خلاصه عملکرد و دقت پیش‌بینی"
                 >
                   <StatisticsBox />
                 </CollapsibleSection>

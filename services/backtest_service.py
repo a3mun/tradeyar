@@ -173,19 +173,20 @@ def _check_one(log: SignalLog) -> Optional[str]:
         return None
 
     tp_levels = _parse_tp_levels(log)
-    tp_hit_level = _compute_tp_hit_level(df_after, log, tp_levels)
-    log.tp_hit_level = tp_hit_level
-
     is_long = log.direction == "long"
 
     # پیدا کردن زمان برخورد با TP1، TP2، TP3 و SL
     tp1_time = None
     if tp_levels and "tp1" in tp_levels:
-        tp1_val = float(tp_levels["tp1"])
-        mask_tp1 = (
-            df_after["high"] >= tp1_val if is_long else df_after["low"] <= tp1_val
-        )
-        tp1_time = df_after[mask_tp1].index[0] if mask_tp1.any() else None
+        try:
+            tp1_val = float(tp_levels["tp1"])
+        except (TypeError, ValueError):
+            tp1_val = None
+        if tp1_val is not None:
+            mask_tp1 = (
+                df_after["high"] >= tp1_val if is_long else df_after["low"] <= tp1_val
+            )
+            tp1_time = df_after[mask_tp1].index[0] if mask_tp1.any() else None
 
     tp_time = None
     win_mask = df_after["high"] >= log.tp if is_long else df_after["low"] <= log.tp
@@ -195,36 +196,36 @@ def _check_one(log: SignalLog) -> Optional[str]:
     loss_mask = df_after["low"] <= log.sl if is_long else df_after["high"] >= log.sl
     sl_time = df_after[loss_mask].index[0] if loss_mask.any() else None
 
-    # منطق خروج:
-    # 1. اگر TP اصلی زده شد (چه قبل چه بعد از SL): win
-    # 2. اگر SL زده شد ولی TP1 زده شده بود: loss (ولی tp_hit_level ثبت می‌شود)
-    # 3. اگر SL زده شد و TP1 هم نزده بود: loss
-    # 4. اگر فقط TP1 زده شد (نه TP اصلی): win (چون TP1 = برد واقعی)
+    # سطوح هدفی که بعد از برخورد به SL لمس شده‌اند نباید در نتیجه ثبت شوند.
+    df_before_sl = (
+        df_after[df_after.index < sl_time] if sl_time is not None else df_after
+    )
+    log.tp_hit_level = _compute_tp_hit_level(df_before_sl, log, tp_levels)
 
-    if tp_time and (not sl_time or tp_time < sl_time):
+    # ترتیب زمانی برخوردها مهم است: TP1 که قبل از SL لمس شده، برد TP1 محسوب می‌شود.
+    # اگر TP کامل قبل از SL لمس شده باشد، نتیجه TP کامل است.
+    if tp_time is not None and (sl_time is None or tp_time < sl_time):
         log.result = "win"
         log.exit_reason = "tp_hit"
         log.exit_price = log.tp
         log.result_time = _to_utc_dt(tp_time)
-        if log.tp_hit_level is None:
-            log.tp_hit_level = 3
+        log.tp_hit_level = max(int(log.tp_hit_level or 0), 3)
         return "win"
 
-    if sl_time:
+    if tp1_time is not None and (sl_time is None or tp1_time < sl_time):
+        log.result = "win"
+        log.exit_reason = "tp1_hit"
+        log.exit_price = float(tp_levels["tp1"])
+        log.result_time = _to_utc_dt(tp1_time)
+        log.tp_hit_level = max(int(log.tp_hit_level or 0), 1)
+        return "win"
+
+    if sl_time is not None:
         log.result = "loss"
         log.exit_reason = "sl_hit"
         log.exit_price = log.sl
         log.result_time = _to_utc_dt(sl_time)
         return "loss"
-
-    # اگر فقط TP1 زده شده (بدون TP اصلی و بدون SL)
-    if tp1_time:
-        log.result = "win"
-        log.exit_reason = "tp1_hit"
-        log.exit_price = float(tp_levels["tp1"])
-        log.result_time = _to_utc_dt(tp1_time)
-        log.tp_hit_level = 1
-        return "win"
 
     if elapsed_min >= timeout_min:
         current_price = float(df_after["close"].iloc[-1])
@@ -514,74 +515,282 @@ def compute_stats_by_tf(
     return result
 
 
-def get_site_stats() -> dict:
-    """آمار نمایشی سایت — با override ادمین (۱۰۰ سیگنال اخیر)."""
+def get_site_stats(
+    time_filter: str = "all",
+    tf: str = "",
+    risk_profile: str = "",
+    confidence_bucket: str = "",
+    limit: int = 200,
+) -> dict:
+    """
+    آمار عمومی سایت بر پایه حداکثر ۲۰۰ سیگنال بسته‌شده اخیر.
+    شاخص اصلی: لمس TP1 یا TP کامل؛ خروج‌های timeout جدا گزارش می‌شوند.
+    overrideهای قدیمی فقط در نمای کلی و بدون فیلتر اعمال می‌شوند.
+    """
+    limit = max(50, min(int(limit or 200), 200))
     with Session(engine) as session:
-        rows = _fetch_closed_rows(session, "", "", "all", "", 100)
-    core = _compute_core_stats(rows)
-    real_total_signals = core["total"]
+        rows = _fetch_closed_rows(
+            session,
+            tf=tf,
+            time_filter=time_filter,
+            risk_profile=risk_profile,
+            limit=limit,
+        )
+        # فیلتر درصد اطمینان در پایتون انجام می‌شود تا با نسخه فعلی مدل سازگار بماند.
+        if confidence_bucket:
 
-    by_strategy = {"scalp": [], "swing": [], "position": []}
-    for r in rows:
-        strat = r.strategy or "swing"
-        if strat in by_strategy:
-            by_strategy[strat].append(r)
+            def in_bucket(value: int) -> bool:
+                if confidence_bucket == "lt40":
+                    return value < 40
+                if confidence_bucket == "40_49":
+                    return 40 <= value < 50
+                if confidence_bucket == "50_59":
+                    return 50 <= value < 60
+                if confidence_bucket == "60_69":
+                    return 60 <= value < 70
+                if confidence_bucket == "70p":
+                    return value >= 70
+                return True
 
-    stats_by_strat = {}
-    for strat, strat_rows in by_strategy.items():
-        strat_core = _compute_core_stats(strat_rows)
-        stats_by_strat[strat] = {
-            "real_win_rate": strat_core["win_rate"],
-            "real_direction_accuracy": strat_core["direction_accuracy"],
-            "real_loss_rate": strat_core["loss_rate"],
-            "total": strat_core["total"],
-            "win_rate": strat_core["win_rate"],
-            "loss_rate": strat_core["loss_rate"],
-            "direction_accuracy": strat_core["direction_accuracy"],
-            "has_override": {"win_rate": False, "direction_accuracy": False},
-        }
+            rows = [r for r in rows if in_bucket(int(r.confidence or 0))]
 
-    with Session(engine) as session:
+        pending_stmt = (
+            select(func.count(SignalLog.id))
+            .where(SignalLog.result.is_(None))
+            .where(SignalLog.expired == False)
+        )
+        if tf:
+            pending_stmt = pending_stmt.where(SignalLog.tf == tf)
+        if risk_profile:
+            pending_stmt = pending_stmt.where(SignalLog.risk_profile == risk_profile)
+        if confidence_bucket == "lt40":
+            pending_stmt = pending_stmt.where(SignalLog.confidence < 40)
+        elif confidence_bucket == "40_49":
+            pending_stmt = pending_stmt.where(SignalLog.confidence >= 40).where(
+                SignalLog.confidence < 50
+            )
+        elif confidence_bucket == "50_59":
+            pending_stmt = pending_stmt.where(SignalLog.confidence >= 50).where(
+                SignalLog.confidence < 60
+            )
+        elif confidence_bucket == "60_69":
+            pending_stmt = pending_stmt.where(SignalLog.confidence >= 60).where(
+                SignalLog.confidence < 70
+            )
+        elif confidence_bucket == "70p":
+            pending_stmt = pending_stmt.where(SignalLog.confidence >= 70)
+        if time_filter != "all":
+            days = {"7d": 7, "30d": 30}.get(time_filter)
+            if days:
+                pending_stmt = pending_stmt.where(
+                    SignalLog.timestamp >= _utcnow() - timedelta(days=days)
+                )
+        pending_count = session.exec(pending_stmt).one()
+
         overrides = session.exec(select(SiteStatsOverride)).all()
         override_dict = {o.key: o.value for o in overrides}
 
-    display_win_rate = override_dict.get("win_rate", core["win_rate"])
-    display_direction_acc = override_dict.get(
-        "direction_accuracy", core["direction_accuracy"]
+    core = _compute_core_stats(rows)
+    tp1_hits = sum(
+        1 for r in rows if r.exit_reason == "tp1_hit" or (r.tp_hit_level or 0) >= 1
     )
-    if "win_rate" in override_dict:
-        display_loss_rate = 100 - display_win_rate
-    else:
-        display_loss_rate = core["loss_rate"]
+    tp_full_hits = sum(
+        1 for r in rows if r.exit_reason == "tp_hit" or (r.tp_hit_level or 0) >= 3
+    )
+    # tp_hits is the count of signals that reached at least TP1, not the sum of ladder levels.
+    tp_any_hits = sum(
+        1
+        for r in rows
+        if r.exit_reason in ("tp1_hit", "tp_hit")
+        or (r.tp_hit_level or 0) >= 1
+        or r.result == "win"
+    )
+    sl_hits = sum(1 for r in rows if r.exit_reason == "sl_hit" or r.result == "loss")
+    timeout_wins = sum(1 for r in rows if r.expired and r.expired_bias == "win")
+    timeout_losses = sum(1 for r in rows if r.expired and r.expired_bias == "loss")
+    timeout_flats = sum(1 for r in rows if r.expired and r.expired_bias == "flat")
+    directional_denominator = tp_any_hits + sl_hits + timeout_wins + timeout_losses
+    tp1_rate = (
+        (tp_any_hits / directional_denominator * 100)
+        if directional_denominator
+        else 0.0
+    )
 
-    display_total_signals = int(override_dict.get("total_signals", real_total_signals))
+    # Daily performance series; only closed records in the selected sample are included.
+    daily: dict[str, dict] = {}
+    for r in rows:
+        day = _ensure_utc(r.timestamp).date().isoformat()
+        item = daily.setdefault(
+            day,
+            {
+                "date": day,
+                "tp1": 0,
+                "tp_full": 0,
+                "sl": 0,
+                "timeout_win": 0,
+                "timeout_loss": 0,
+                "flat": 0,
+                "total": 0,
+            },
+        )
+        item["total"] += 1
+        if r.exit_reason == "tp_hit" or (r.tp_hit_level or 0) >= 3:
+            item["tp_full"] += 1
+            item["tp1"] += 1
+        elif (
+            r.exit_reason == "tp1_hit"
+            or (r.tp_hit_level or 0) >= 1
+            or r.result == "win"
+        ):
+            item["tp1"] += 1
+        elif r.exit_reason == "sl_hit" or r.result == "loss":
+            item["sl"] += 1
+        elif r.expired and r.expired_bias == "win":
+            item["timeout_win"] += 1
+        elif r.expired and r.expired_bias == "loss":
+            item["timeout_loss"] += 1
+        elif r.expired:
+            item["flat"] += 1
 
-    for strat in stats_by_strat:
-        if f"win_rate_{strat}" in override_dict:
-            stats_by_strat[strat]["win_rate"] = override_dict[f"win_rate_{strat}"]
-            stats_by_strat[strat]["loss_rate"] = (
-                100 - override_dict[f"win_rate_{strat}"]
+    def summarize(subset: list[SignalLog]) -> dict:
+        n = len(subset)
+        tp = sum(
+            1
+            for r in subset
+            if r.exit_reason in ("tp1_hit", "tp_hit")
+            or (r.tp_hit_level or 0) >= 1
+            or r.result == "win"
+        )
+        sl = sum(1 for r in subset if r.exit_reason == "sl_hit" or r.result == "loss")
+        tw = sum(1 for r in subset if r.expired and r.expired_bias == "win")
+        tl = sum(1 for r in subset if r.expired and r.expired_bias == "loss")
+        flat = sum(1 for r in subset if r.expired and r.expired_bias == "flat")
+        den = tp + sl + tw + tl
+        return {
+            "total": n,
+            "tp1_hits": tp,
+            "sl_hits": sl,
+            "timeout_wins": tw,
+            "timeout_losses": tl,
+            "flat": flat,
+            "success_rate": round(tp / den * 100, 2) if den else 0.0,
+        }
+
+    by_tf: dict[str, list[SignalLog]] = {}
+    by_risk: dict[str, list[SignalLog]] = {}
+    by_confidence: dict[str, list[SignalLog]] = {
+        "lt40": [],
+        "40_49": [],
+        "50_59": [],
+        "60_69": [],
+        "70p": [],
+    }
+    for r in rows:
+        by_tf.setdefault(r.tf or "نامشخص", []).append(r)
+        by_risk.setdefault(r.risk_profile or "نامشخص", []).append(r)
+        c = int(r.confidence or 0)
+        key = (
+            "lt40"
+            if c < 40
+            else (
+                "40_49"
+                if c < 50
+                else "50_59" if c < 60 else "60_69" if c < 70 else "70p"
             )
-            stats_by_strat[strat]["has_override"]["win_rate"] = True
-        if f"direction_accuracy_{strat}" in override_dict:
-            stats_by_strat[strat]["direction_accuracy"] = override_dict[
-                f"direction_accuracy_{strat}"
-            ]
-            stats_by_strat[strat]["has_override"]["direction_accuracy"] = True
+        )
+        by_confidence[key].append(r)
+
+    # Preserve legacy manual values, but never apply them to a filtered or time-scoped sample.
+    use_legacy_override = (
+        time_filter == "all" and not tf and not risk_profile and not confidence_bucket
+    )
+
+    # رکوردهای قدیمی SiteStatsOverride با مقدار پیش‌فرض صفر ممکن است صرفاً
+    # به‌خاطر ساخته‌شدن ردیف در دیتابیس وجود داشته باشند؛ صفر را «ورود دستی» ندان.
+    # فقط مقدار مثبت و واقعاً ثبت‌شده، حالت دستی را فعال می‌کند.
+    def manual_value(key: str):
+        if not use_legacy_override:
+            return None
+        value = override_dict.get(key)
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        return numeric if numeric > 0 else None
+
+    manual_win = manual_value("win_rate")
+    manual_direction = manual_value("direction_accuracy")
+    manual_total = manual_value("total_signals")
+
+    legacy_by_strategy = {}
+    for strat in ("scalp", "swing", "position"):
+        subset = [r for r in rows if (r.strategy or "swing") == strat]
+        c = _compute_core_stats(subset)
+        legacy_by_strategy[strat] = {
+            "real_win_rate": c["win_rate"],
+            "real_direction_accuracy": c["direction_accuracy"],
+            "real_loss_rate": c["loss_rate"],
+            "total": c["total"],
+            "win_rate": (
+                manual_value(f"win_rate_{strat}")
+                if manual_value(f"win_rate_{strat}") is not None
+                else c["win_rate"]
+            ),
+            "loss_rate": c["loss_rate"],
+            "direction_accuracy": (
+                manual_value(f"direction_accuracy_{strat}")
+                if manual_value(f"direction_accuracy_{strat}") is not None
+                else c["direction_accuracy"]
+            ),
+            "has_override": {
+                "win_rate": manual_value(f"win_rate_{strat}") is not None,
+                "direction_accuracy": manual_value(f"direction_accuracy_{strat}")
+                is not None,
+            },
+        }
 
     return {
-        "total_signals": display_total_signals,
-        "win_rate": round(display_win_rate, 2),
-        "loss_rate": round(display_loss_rate, 2),
-        "direction_accuracy": round(display_direction_acc, 2),
+        "total_signals": int(manual_total if manual_total is not None else len(rows)),
+        "real_total_signals": len(rows),
+        "pending": int(pending_count),
+        "tp1_hits": tp_any_hits,
+        "tp1_only_hits": sum(
+            1
+            for r in rows
+            if r.exit_reason == "tp1_hit" or ((r.tp_hit_level or 0) == 1)
+        ),
+        "tp_full_hits": tp_full_hits,
+        "sl_hits": sl_hits,
+        "timeout_wins": timeout_wins,
+        "timeout_losses": timeout_losses,
+        "timeout_flats": timeout_flats,
+        "tp1_rate": round(tp1_rate, 2),
         "real_win_rate": round(core["win_rate"], 2),
         "real_loss_rate": round(core["loss_rate"], 2),
         "real_direction_accuracy": round(core["direction_accuracy"], 2),
-        "real_total_signals": real_total_signals,
+        "win_rate": round(
+            float(manual_win if manual_win is not None else core["win_rate"]), 2
+        ),
+        "direction_accuracy": round(
+            float(
+                manual_direction
+                if manual_direction is not None
+                else core["direction_accuracy"]
+            ),
+            2,
+        ),
         "has_override": {
-            "win_rate": "win_rate" in override_dict,
-            "direction_accuracy": "direction_accuracy" in override_dict,
-            "total_signals": "total_signals" in override_dict,
+            "win_rate": manual_win is not None,
+            "direction_accuracy": manual_direction is not None,
+            "total_signals": manual_total is not None,
         },
-        "by_strategy": stats_by_strat,
+        "by_timeframe": {k: summarize(v) for k, v in by_tf.items()},
+        "by_risk": {k: summarize(v) for k, v in by_risk.items()},
+        "by_confidence": {k: summarize(v) for k, v in by_confidence.items()},
+        "series": sorted(daily.values(), key=lambda x: x["date"]),
+        "sample_limit": limit,
+        "time_filter": time_filter,
+        "by_strategy": legacy_by_strategy,
     }

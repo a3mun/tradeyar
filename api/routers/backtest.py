@@ -55,7 +55,7 @@ async def backtest_stats(
 
 @router.get("/history")
 async def backtest_history(
-    limit: int = Query(default=100, ge=10, le=100),
+    limit: int = Query(default=200, ge=10, le=200),
     status: str = "all",
     tf: str = "",
     source: str = "",
@@ -184,9 +184,24 @@ async def backtest_stats_by_tf(
 
 
 @router.get("/site-stats")
-async def backtest_site_stats():
-    """آمار نمایشی سایت — با override ادمین."""
-    data = await run_in_threadpool(get_site_stats)
+async def backtest_site_stats(
+    time_filter: str = Query(default="all", pattern="^(all|7d|30d)$"),
+    tf: str = "",
+    risk_profile: str = "",
+    confidence_bucket: str = Query(
+        default="", pattern="^(|lt40|40_49|50_59|60_69|70p)$"
+    ),
+    limit: int = Query(default=200, ge=50, le=200),
+):
+    """آمار عمومی تجمیعی؛ فقط داده آماری، بدون افشای رکوردهای منفرد."""
+    data = await run_in_threadpool(
+        get_site_stats,
+        time_filter=time_filter,
+        tf=tf,
+        risk_profile=risk_profile,
+        confidence_bucket=confidence_bucket,
+        limit=limit,
+    )
     return {"ok": True, **data}
 
 
