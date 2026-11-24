@@ -144,6 +144,7 @@ def _add_missing_columns_sqlite(inspector, conn):
                     logger.debug(f"  - ستون users.{col_name}: {e}")
 
     # 🔴 فاز ۱۶.۶ — ستون‌های جدول payment_requests در SQLite
+
     if "payment_requests" in inspector.get_table_names():
         existing_pay_cols = {
             col["name"] for col in inspector.get_columns("payment_requests")
@@ -153,7 +154,10 @@ def _add_missing_columns_sqlite(inspector, conn):
             ("payment_time", "VARCHAR"),
             ("payment_method", "VARCHAR"),
             ("plan_price_at_purchase", "INTEGER"),
+            ("zibal_track_id", "VARCHAR"),  # 🔴 جدید
+            ("zibal_ref_id", "VARCHAR"),  # 🔴 جدید
         ]
+
         for col_name, col_type in pay_new_columns:
             if col_name not in existing_pay_cols:
                 try:
@@ -252,6 +256,8 @@ def _add_missing_columns_postgres(inspector, conn):
             ("payment_time", "VARCHAR"),
             ("payment_method", "VARCHAR"),
             ("plan_price_at_purchase", "INTEGER"),
+            ("zibal_track_id", "VARCHAR"),  # 🔴 جدید
+            ("zibal_ref_id", "VARCHAR"),  # 🔴 جدید
         ]
         for col_name, col_type in pay_cols:
             if col_name not in cols:
@@ -380,12 +386,12 @@ try:
 except Exception as e:
     logger.warning(f"[Migration] extension_tokens: {e}")
 
-# ═══ جدول site_stats_override ═══
+# ═══ جدول site_stats_overrides ═══
 try:
     with engine.begin() as conn:
         if is_sqlite:
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS site_stats_override (
+                CREATE TABLE IF NOT EXISTS site_stats_overrides (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     key VARCHAR NOT NULL UNIQUE,
                     value REAL DEFAULT 0.0,
@@ -395,7 +401,7 @@ try:
             """))
         else:
             conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS site_stats_override (
+                CREATE TABLE IF NOT EXISTS site_stats_overrides (
                     id SERIAL PRIMARY KEY,
                     key VARCHAR NOT NULL UNIQUE,
                     value DOUBLE PRECISION DEFAULT 0.0,
@@ -405,9 +411,9 @@ try:
             """))
         conn.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS idx_site_stats_key ON site_stats_override(key);"
+                "CREATE INDEX IF NOT EXISTS idx_site_stats_key ON site_stats_overrides(key);"
             )
         )
-    logger.info("[Migration] ✅ جدول site_stats_override آماده است")
+    logger.info("[Migration] ✅ جدول site_stats_overrides آماده است")
 except Exception as e:
-    logger.warning(f"[Migration] site_stats_override: {e}")
+    logger.warning(f"[Migration] site_stats_overrides: {e}")

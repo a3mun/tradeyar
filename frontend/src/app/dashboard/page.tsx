@@ -60,11 +60,11 @@ export default function DashboardPage() {
   const [allSubs, setAllSubs] = useState<any[]>([]);
   const [ticketStats, setTicketStats] = useState<any>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  const [isPending, setIsPending] = useState(false);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [txLoading, setTxLoading] = useState(true);
   const [subsLoading, setSubsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  const [swipeDirection, setSwipeDirection] = useState<1 | -1>(1);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -80,6 +80,17 @@ export default function DashboardPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
 
+  // 🔴 تشخیص درخواست در حال بررسی
+  const hasPendingTransaction = useMemo(() => {
+    const localPending = typeof window !== "undefined" && localStorage.getItem(PENDING_KEY) === "true";
+    const zibalPending = transactions.some((tx) => tx.payment_method === "zibal" && tx.status === "pending");
+    return localPending || zibalPending;
+  }, [transactions]);
+
+  const pendingTransaction = useMemo(() => {
+    return transactions.find((tx) => tx.status === "pending");
+  }, [transactions]);
+
   // 🔴 ref برای سوایپ
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
@@ -91,10 +102,6 @@ export default function DashboardPage() {
     setUserData(u);
     setNewName(u.full_name || "");
     setNewEmail(u.email || "");
-
-    if (typeof window !== "undefined") {
-      setIsPending(localStorage.getItem(PENDING_KEY) === "true");
-    }
 
     fetch(`${apiUrl}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => (res.ok ? res.json() : null))
@@ -112,7 +119,6 @@ export default function DashboardPage() {
         setSub(data.subscription);
         if (data.subscription?.status === "active" && typeof window !== "undefined") {
           localStorage.removeItem(PENDING_KEY);
-          setIsPending(false);
         }
       }).catch((err) => console.error(err));
 
@@ -133,6 +139,18 @@ export default function DashboardPage() {
       .catch(() => setTransactions([]))
       .finally(() => setTxLoading(false));
   }, [router, apiUrl, token]);
+
+  // 🔴 polling تراکنش‌ها هر ۳۰ ثانیه
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      fetch(`${apiUrl}/subscription/my-transactions`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => (res.ok ? res.json() : { items: [] }))
+        .then((data) => setTransactions(data.items || []))
+        .catch(() => {});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [apiUrl, token]);
 
   const handleLogout = () => { removeToken(); router.replace("/login"); };
 
@@ -174,7 +192,6 @@ export default function DashboardPage() {
     finally { setEditLoading(false); }
   };
 
-  // ═══ محاسبات وضعیت اشتراک ═══
   const subStatus = useMemo(() => {
     if (!sub) return { active: false, text: "نامشخص", daysLeft: null };
     const endDate = sub.end_date ? new Date(sub.end_date) : null;
@@ -187,7 +204,6 @@ export default function DashboardPage() {
     return { active: false, text: "منقضی", daysLeft: 0 };
   }, [sub]);
 
-  // ═══ تفکیک اشتراک‌ها ═══
   const { activeSubs, reservedSubs, expiredSubs } = useMemo(() => {
     const now = new Date();
     const active: any[] = [];
@@ -210,7 +226,6 @@ export default function DashboardPage() {
     return { activeSubs: active, reservedSubs: reserved, expiredSubs: expired };
   }, [allSubs]);
 
-  // ═══ هندلرهای سوایپ ═══
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.targetTouches[0].clientX;
   };
@@ -221,17 +236,20 @@ export default function DashboardPage() {
 
   const handleTouchEnd = () => {
     if (touchStartX.current === null || touchEndX.current === null) return;
+
     const distance = touchStartX.current - touchEndX.current;
-    const isLeftSwipe = distance > minSwipeDistance;
-    const isRightSwipe = distance < -minSwipeDistance;
+    const isSwipeLeft = distance > minSwipeDistance;
+    const isSwipeRight = distance < -minSwipeDistance;
 
     const tabs: TabKey[] = ["dashboard", "financial", "account"];
     const currentIndex = tabs.indexOf(activeTab);
 
-    if (isLeftSwipe && currentIndex < tabs.length - 1) {
-      setActiveTab(tabs[currentIndex + 1]);
-    } else if (isRightSwipe && currentIndex > 0) {
+    if (isSwipeLeft && currentIndex > 0) {
+      setSwipeDirection(-1);
       setActiveTab(tabs[currentIndex - 1]);
+    } else if (isSwipeRight && currentIndex < tabs.length - 1) {
+      setSwipeDirection(1);
+      setActiveTab(tabs[currentIndex + 1]);
     }
 
     touchStartX.current = null;
@@ -247,6 +265,19 @@ export default function DashboardPage() {
   }
 
   const displayName = user.full_name || user.phone;
+
+  // 🔴 انیمیشن مشترک
+  const slideVariants = {
+    enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? -60 : 60, opacity: 0 }),
+  };
+
+  const slideTransition = {
+    duration: 0.28,
+    ease: [0.32, 0.72, 0, 1] as [number, number, number, number],
+    opacity: { duration: 0.2 },
+  };
 
   return (
     <div className="relative isolate flex min-h-screen flex-col overflow-hidden bg-[#030811] text-white">
@@ -288,17 +319,30 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* ═══ هشدار در انتظار تایید ═══ */}
-        {isPending && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-2.5 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 sm:gap-3 sm:rounded-2xl sm:p-4">
-            <div className="shrink-0 rounded-lg bg-yellow-500/10 p-1.5 sm:p-2">
-              <Hourglass className="h-4 w-4 animate-pulse text-yellow-500 sm:h-5 sm:w-5" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-bold text-yellow-500 sm:text-sm">درخواست اشتراک شما در حال بررسی است</p>
-              <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400 sm:mt-1 sm:text-[11px]">تیم پشتیبانی ظرف ۲۴ ساعت آینده درخواست شما را بررسی می‌کند.</p>
-            </div>
-          </motion.div>
-        )}
+        <AnimatePresence>
+          {hasPendingTransaction && (
+            <motion.div 
+              initial={{ opacity: 0, y: -8, height: 0 }} 
+              animate={{ opacity: 1, y: 0, height: "auto" }} 
+              exit={{ opacity: 0, y: -8, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-start gap-2.5 rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3 sm:gap-3 sm:rounded-2xl sm:p-4">
+                <div className="shrink-0 rounded-lg bg-yellow-500/10 p-1.5 sm:p-2">
+                  <Hourglass className="h-4 w-4 animate-pulse text-yellow-500 sm:h-5 sm:w-5" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-yellow-500 sm:text-sm">درخواست اشتراک شما در حال بررسی است</p>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400 sm:mt-1 sm:text-[11px]">
+                    {pendingTransaction?.payment_method === "zibal"
+                      ? "پرداخت شما در درگاه در حال بررسی است و حداکثر ۱۵ دقیقه دیگه وضعیت آن مشخص می‌شه."
+                      : "تیم پشتیبانی ظرف ۲۴ ساعت آینده درخواست شما را بررسی می‌کند."}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ═══ تب‌ها ═══ */}
         <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-white/[0.09] bg-[#0c141e]/90 p-2 shadow-[0_5px_16px_rgba(0,0,0,0.16)] backdrop-blur-xl sm:gap-2.5 sm:p-2.5">
@@ -309,10 +353,17 @@ export default function DashboardPage() {
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
+            const tabsArr: TabKey[] = ["dashboard", "financial", "account"];
+            const currentIndex = tabsArr.indexOf(activeTab);
+            const tabIndex = tabsArr.indexOf(tab.id as TabKey);
+            
             return (
               <button 
                 key={tab.id} 
-                onClick={() => setActiveTab(tab.id as TabKey)} 
+                onClick={() => {
+                  setSwipeDirection(tabIndex > currentIndex ? 1 : -1);
+                  setActiveTab(tab.id as TabKey);
+                }} 
                 className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-2 py-3 text-[11px] font-bold transition-all duration-300 sm:min-h-12 sm:px-3 sm:text-[13px] ${isActive ? "bg-[#c6a15b] text-[#111720] shadow-[0_3px_10px_rgba(0,0,0,0.18)]" : "text-slate-400 hover:bg-white/[0.07] hover:text-white"}`}
               >
                 <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -329,9 +380,18 @@ export default function DashboardPage() {
           onTouchEnd={handleTouchEnd}
           className="touch-pan-y"
         >
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait" custom={swipeDirection} initial={false}>
             {activeTab === "dashboard" && (
-              <motion.div key="dashboard" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 sm:space-y-5">
+              <motion.div 
+                key="dashboard" 
+                custom={swipeDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={slideTransition}
+                className="space-y-4 sm:space-y-5"
+              >
                 
                 {/* بنر اشتراک فعال */}
                 {sub && (
@@ -360,9 +420,9 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </div>
-                      <Link href="/subscription" className="w-full sm:w-auto">
-                        <Button className="h-9 w-full sm:w-auto gap-2 bg-[#c6a15b] hover:bg-[#d0ad6c] text-[#030712] font-bold shadow-none text-xs sm:text-sm sm:h-10">
-                          <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> {subStatus.active ? "تمدید" : "خرید"}
+                      <Link href="/subscription" className="w-full sm:w-auto sm:min-w-[130px]">
+                        <Button className="h-10 w-full sm:h-11 gap-2 bg-[#c6a15b] hover:bg-[#d0ad6c] text-[#030712] font-bold shadow-none text-sm px-5">
+                          <Zap className="h-4 w-4" /> {subStatus.active ? "تمدید اشتراک" : "خرید اشتراک"}
                         </Button>
                       </Link>
                     </div>
@@ -424,7 +484,16 @@ export default function DashboardPage() {
 
             {/* ═══ تب مالی ═══ */}
             {activeTab === "financial" && (
-              <motion.div key="financial" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+              <motion.div 
+                key="financial" 
+                custom={swipeDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={slideTransition}
+                className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5"
+              >
                 
                 {/* ─── ستون ۱: تراکنش‌های مالی ─── */}
                 <div className="rounded-2xl border border-white/[0.09] bg-[#101923] p-4 shadow-[0_6px_20px_rgba(0,0,0,0.16)] sm:p-5">
@@ -491,7 +560,7 @@ export default function DashboardPage() {
                       <Crown className="mx-auto mb-2 h-8 w-8 text-gray-600 sm:h-10 sm:w-10" />
                       <p className="text-xs text-gray-400 mb-3">هنوز اشتراکی نخریده‌اید.</p>
                       <Link href="/subscription">
-                        <Button className="h-8 gap-2 bg-[#c6a15b] hover:bg-[#d0ad6c] text-[#030712] font-bold text-xs">
+                        <Button className="h-9 gap-2 bg-[#c6a15b] hover:bg-[#d0ad6c] text-[#030712] font-bold text-xs">
                           <Zap className="h-3.5 w-3.5" /> خرید اشتراک
                         </Button>
                       </Link>
@@ -607,7 +676,16 @@ export default function DashboardPage() {
 
             {/* ═══ تب حساب کاربری ═══ */}
             {activeTab === "account" && (
-              <motion.div key="account" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 sm:space-y-5">
+              <motion.div 
+                key="account" 
+                custom={swipeDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={slideTransition}
+                className="space-y-4 sm:space-y-5"
+              >
                 <div className="rounded-2xl border border-white/[0.09] bg-[#101923] p-4 shadow-[0_6px_20px_rgba(0,0,0,0.16)] sm:p-5">
                   <div className="mb-3 flex items-center justify-between sm:mb-4">
                     <h2 className="font-display flex items-center gap-2 text-sm font-semibold text-white sm:text-base">
@@ -668,7 +746,7 @@ export default function DashboardPage() {
           </AnimatePresence>
         </div>
 
-        {/* ═══ کارت تیکت پشتیبانی (در انتهای محتوا) ═══ */}
+        {/* ═══ کارت تیکت پشتیبانی ═══ */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pt-2">
           <Link href="/dashboard/tickets">
             <div className="group relative flex items-center justify-between overflow-hidden rounded-2xl border border-[#d6ad60]/14 bg-[#081923] p-3 shadow-xl transition-all hover:border-[#d6ad60]/50 sm:p-4">
@@ -694,17 +772,33 @@ export default function DashboardPage() {
       <Footer />
 
       {/* ═══ دانلود خطا ═══ */}
-      <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 transition-opacity ${!downloadError ? "pointer-events-none opacity-0" : "opacity-100"}`} onClick={() => setDownloadError(null)}>
-        <div className="w-full max-w-sm scale-100 rounded-2xl border border-red-500/20 bg-[#081923] p-6 text-center shadow-2xl transition-transform" onClick={(e) => e.stopPropagation()}>
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10"><AlertTriangle className="h-8 w-8 text-red-500" /></div>
-          <h3 className="mb-2 text-lg font-bold text-white">خطا در دانلود</h3>
-          <p className="mb-6 text-sm leading-relaxed text-gray-400">{downloadError}</p>
-          <div className="flex gap-2">
-            <Link href="/subscription" className="flex-1"><Button className="w-full bg-[#c6a15b] hover:bg-[#d0ad6c] text-sm font-bold text-[#030712]">ارتقا اشتراک</Button></Link>
-            <Button variant="outline" onClick={() => setDownloadError(null)} className="flex-1 border-white/20 text-sm text-white hover:bg-white/10">بستن</Button>
-          </div>
-        </div>
-      </div>
+      <AnimatePresence>
+        {downloadError && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" 
+            onClick={() => setDownloadError(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm rounded-2xl border border-red-500/20 bg-[#081923] p-6 text-center shadow-2xl" 
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10"><AlertTriangle className="h-8 w-8 text-red-500" /></div>
+              <h3 className="mb-2 text-lg font-bold text-white">خطا در دانلود</h3>
+              <p className="mb-6 text-sm leading-relaxed text-gray-400">{downloadError}</p>
+              <div className="flex gap-2">
+                <Link href="/subscription" className="flex-1"><Button className="w-full bg-[#c6a15b] hover:bg-[#d0ad6c] text-sm font-bold text-[#030712]">ارتقا اشتراک</Button></Link>
+                <Button variant="outline" onClick={() => setDownloadError(null)} className="flex-1 border-white/20 text-sm text-white hover:bg-white/10">بستن</Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ═══ مدال تراکنش ═══ */}
       <Dialog open={isUserTxDetailOpen} onOpenChange={setIsUserTxDetailOpen}>
@@ -715,6 +809,14 @@ export default function DashboardPage() {
               <div className="flex justify-between text-xs"><span className="text-gray-400">پلن:</span><span className="font-bold text-white">{getPlanNameFa(selectedUserTx.plan)}</span></div>
               <div className="flex justify-between text-xs"><span className="text-gray-400">مبلغ اصلی پلن:</span><span className="font-bold text-[#d6ad60]" dir="ltr">{selectedUserTx.plan_price ? selectedUserTx.plan_price.toLocaleString("fa-IR") : "—"} تومان</span></div>
               <div className="flex justify-between text-xs"><span className="text-gray-400">مبلغ پرداختی شما:</span><span className="font-bold text-white" dir="ltr">{(selectedUserTx.amount || 0).toLocaleString("fa-IR")} تومان</span></div>
+              {selectedUserTx.zibal_ref_id && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-400">شماره پیگیری:</span>
+                  <span className="font-mono text-[#d6ad60]" dir="ltr">
+                    {selectedUserTx.zibal_ref_id}
+                  </span>
+                </div>
+              )}
               {selectedUserTx.type === "refund" && (
                 <div className="rounded border border-purple-500/20 bg-purple-500/10 p-2 text-xs text-purple-400">
                   <div>وضعیت عودت: <b className="text-white">{selectedUserTx.status === "pending" ? "در حال بررسی" : selectedUserTx.status === "refunded" ? "عودت شده" : "رد شده"}</b></div>

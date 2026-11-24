@@ -243,6 +243,9 @@ export default function AdminPage() {
   const [newUserSendSms, setNewUserSendSms] = useState(true);
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  // 🔴 وضعیت نمایش آمار عمومی
+  const [isStatsHidden, setIsStatsHidden] = useState(false);
+  const [statsToggleLoading, setStatsToggleLoading] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
    // 🔴 Stateهای تب مدیریت قیمت‌ها
   const [pricingPlans, setPricingPlans] = useState<any[]>([]);
@@ -331,41 +334,24 @@ export default function AdminPage() {
     } catch {}
   };
 
-  // 🔴 فاز ۱۴.۹.۱۲ — fetch آمار نمایشی
-  const fetchSiteStats = async () => {
-    try {
-      const res = await fetch(`${apiUrl}/admin/site-stats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSiteStats(data);
-                const newWinRateDict: Record<string, string> = {};
-        const newDirAccDict: Record<string, string> = {};
-        ["scalp", "swing", "position"].forEach((strat) => {
-          if (data.by_strategy?.[strat]?.has_override?.win_rate) {
-            newWinRateDict[strat] = String(data.by_strategy[strat].win_rate);
-          }
-          if (data.by_strategy?.[strat]?.has_override?.direction_accuracy) {
-            newDirAccDict[strat] = String(data.by_strategy[strat].direction_accuracy);
-          }
-        });
-        setInputWinRateDict(newWinRateDict);
-        setInputDirAccDict(newDirAccDict);
-        setInputWinRate(
-          data.has_override?.win_rate ? String(data.win_rate) : ""
-        );
-        setInputDirAcc(
-          data.has_override?.direction_accuracy
-            ? String(data.direction_accuracy)
-            : ""
-        );
-        setInputTotalSignals(data.has_override?.total_signals ? String(data.total_signals) : "");
 
-      }
-    } catch {}
-  };
+const fetchSiteStats = async () => {
+  try {
+    const res = await fetch(`${apiUrl}/admin/site-stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
+    if (res.ok) {
+      const data = await res.json();
+      setSiteStats(data);
+      setIsStatsHidden(data.is_hidden === true);
+    }
+  } catch (err) {
+    console.error("خطا در دریافت وضعیت آمار:", err);
+  }
+};
+
+  
 
   // 🔴 دریافت قیمت‌ها از بک‌اند
 const fetchPricing = async () => {
@@ -477,22 +463,41 @@ const recalcPrices = (base: number, currentPlans: any[]) => {
     }
   };
 
-const deleteOverride = async (key: string) => {
-  if (!confirm("برگشت به مقدار واقعی؟")) return;
-    setOverrideSaving(true);
-    try {
-      const res = await fetch(`${apiUrl}/admin/site-stats/override/${key}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("خطا در حذف");
-      await fetchSiteStats();
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setOverrideSaving(false);
+
+
+const toggleStatsVisibility = async () => {
+  setStatsToggleLoading(true);
+
+  try {
+    const newState = !isStatsHidden;
+
+    const res = await fetch(
+      `${apiUrl}/admin/site-stats/toggle-visibility`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ hidden: newState }),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data.detail || "خطا در تغییر وضعیت نمایش آمار");
     }
-  };
+
+    await fetchSiteStats();
+
+  } catch (err: any) {
+    alert(err.message || "خطای نامشخص");
+  } finally {
+    setStatsToggleLoading(false);
+  }
+};
+  
 
 
 const handleDeleteSub = async (subId: number) => {
@@ -2281,104 +2286,29 @@ const handleDeleteSub = async (subId: number) => {
               </div>
             </details>
 
-            {/* ۲. کنترل آمار نمایشی (بخش تنظیمات مدیر) - کشویی و پیش‌فرض بسته */}
-            <details className="group rounded-xl border border-[#d6ad60]/30 bg-[#0b151f] shadow-sm [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer items-center justify-between p-4">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
-                  <Target className="h-4 w-4" />
-                  کنترل آمار نمایشی سایت (تنظیمات مدیر)
-                </h3>
-                <ChevronDown className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" />
-              </summary>
-              <div className="border-t border-[#d6ad60]/20 p-4">
-                <p className="mb-4 text-[10px] leading-relaxed text-gray-400">
-                  این اعداد در صفحه اصلی به کاربران نمایش داده می‌شوند. می‌تونی برای هر استراتژی، نرخ برد و دقت پیش‌بینی رو به صورت جداگانه و خوش‌بینانه تنظیم کنی.
-                </p>
-
-                {!siteStats ? (
-                  <p className="py-2 text-center text-xs text-gray-500">
-                    در حال بارگذاری...
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    
-                    {/* بخش استراتژی‌ها */}
-                    {["scalp", "swing", "position"].map((strat) => {
-                      const sData = siteStats.by_strategy?.[strat];
-                      if (!sData) return null;
-                      const stratName = strat === "scalp" ? "اسکالپ" : strat === "swing" ? "سوئینگ" : "پوزیشن";
-                      
-                      return (
-                        <div key={strat} className="rounded-lg border border-white/10 bg-black/20 p-4 space-y-3">
-                          <h4 className="text-xs font-bold text-[#d6ad60]">استراتژی: {stratName} (کل: {sData.total} سیگنال)</h4>
-                          
-                          {/* نرخ برد */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex-1">
-                              <p className="text-[10px] text-gray-400">نرخ برد (واقعی: {sData.real_win_rate.toFixed(1)}٪)</p>
-                              <Input
-                                type="number" step="0.1"
-                                value={inputWinRateDict[strat] || ""}
-                                onChange={(e) => setInputWinRateDict({...inputWinRateDict, [strat]: e.target.value})}
-                                className="h-7 text-xs bg-black/40 mt-1" dir="ltr" placeholder="مثلا 75"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1 mt-4">
-                              <Button size="sm" onClick={() => saveOverride(`win_rate_${strat}`, parseFloat(inputWinRateDict[strat]))} className="h-6 text-[10px] bg-green-600">ذخیره</Button>
-                              {sData.has_override?.win_rate && (
-                                <Button size="sm" variant="outline" onClick={() => deleteOverride(`win_rate_${strat}`)} className="h-6 text-[10px] text-red-400 border-red-500/30">واقعی</Button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* دقت پیش‌بینی */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex-1">
-                              <p className="text-[10px] text-gray-400">دقت پیش‌بینی (واقعی: {sData.real_direction_accuracy.toFixed(1)}٪)</p>
-                              <Input
-                                type="number" step="0.1"
-                                value={inputDirAccDict[strat] || ""}
-                                onChange={(e) => setInputDirAccDict({...inputDirAccDict, [strat]: e.target.value})}
-                                className="h-7 text-xs bg-black/40 mt-1" dir="ltr" placeholder="مثلا 80"
-                              />
-                            </div>
-                            <div className="flex flex-col gap-1 mt-4">
-                              <Button size="sm" onClick={() => saveOverride(`direction_accuracy_${strat}`, parseFloat(inputDirAccDict[strat]))} className="h-6 text-[10px] bg-purple-600">ذخیره</Button>
-                              {sData.has_override?.direction_accuracy && (
-                                <Button size="sm" variant="outline" onClick={() => deleteOverride(`direction_accuracy_${strat}`)} className="h-6 text-[10px] text-red-400 border-red-500/30">واقعی</Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* مجموع کل سیگنال‌ها */}
-                    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-medium text-white">مجموع سیگنال نمایشی</p>
-                          <p className="text-[10px] text-gray-400 mt-1">مقدار واقعی: {siteStats.real_total_signals} سیگنال (۱۰۰ اخیر)</p>
-                        </div>
-                        <div className="flex gap-2 items-center">
-                          <Input
-                            type="number" min="0"
-                            value={inputTotalSignals || ""}
-                            onChange={(e) => setInputTotalSignals(e.target.value)}
-                            className="h-8 w-24 bg-black/40" dir="ltr" placeholder="450"
-                          />
-                          <Button size="sm" onClick={() => saveOverride("total_signals", parseFloat(inputTotalSignals))} className="h-8 bg-blue-600">ذخیره</Button>
-                          {siteStats.has_override?.total_signals && (
-                            <Button size="sm" variant="outline" onClick={() => deleteOverride("total_signals")} className="h-8 text-red-400 border-red-500/30">واقعی</Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-                )}
+{/* ۲. کنترل نمایش آمار عمومی */}
+            <div className="rounded-xl border border-[#d6ad60]/30 bg-[#0b151f] shadow-sm p-4">
+              <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60] mb-3">
+                <Target className="h-4 w-4" />
+                نمایش آمار عمومی
+              </h3>
+              <p className="mb-4 text-[10px] leading-relaxed text-gray-400">
+                اگر غیرفعال باشد، کاربران به جای دیدن آمار، پیام «در حال بررسی و بهینه‌سازی داده‌های راستی‌آزمایی» را مشاهده می‌کنند.
+              </p>
+              
+              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 p-3">
+                <span className="text-xs font-medium text-white">
+                  {isStatsHidden ? "غیرفعال (نمایش پیام بررسی جهت آنالیز و همچنین عدم نمایش آمار برای کاربران )" : "فعال (نمایش آمار واقعی برای همه کاربزان فعال است)"}
+                </span>
+                <Button 
+                  onClick={toggleStatsVisibility} 
+                  disabled={statsToggleLoading}
+                  className={`h-8 px-4 text-xs font-bold ${isStatsHidden ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+                >
+                  {statsToggleLoading ? "در حال تغییر..." : isStatsHidden ? "فعال‌سازی" : "غیرفعال‌سازی"}
+                </Button>
               </div>
-            </details>
+            </div>
 
           </div>
         )}
@@ -2692,7 +2622,7 @@ const handleDeleteSub = async (subId: number) => {
           <div className="space-y-4">
             {/* ردیف اول: تغییر پلن */}
             <div>
-              <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر پلن:</h4>
+              <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر/ رزرو  پلن:</h4>
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs" onClick={() => handleChangePlan("free")}>
                   دوره رایگان
@@ -2713,7 +2643,7 @@ const handleDeleteSub = async (subId: number) => {
             <div className="flex flex-col md:flex-row md:items-end gap-4 sm:gap-6 border-t border-white/5 pt-4">
               
               <div>
-                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روزها:</h4>
+                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روز پایان اشتراک:</h4>
                 <div className="flex items-center gap-2">
                   <Input type="number" placeholder="30" value={adjustDays || ""} onChange={(e) => setAdjustDays(Number(e.target.value))} className="h-8 w-24 border-white/10 bg-black/30 text-white text-xs" />
                   <Button size="sm" variant="outline" onClick={handleAdjustDays} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs">اعمال</Button>
@@ -2721,7 +2651,7 @@ const handleDeleteSub = async (subId: number) => {
               </div>
 
               <div>
-                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تنظیم تاریخ (شمسی):</h4>
+                <h4 className="mb-2 text-[11px] font-bold text-gray-300">تنظیم تاریخ پایان اشتراک:</h4>
                 <div className="flex items-center gap-2">
                   <Input type="text" placeholder="1405/11/25" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} className="h-8 w-28 border-white/10 bg-black/30 text-white text-xs text-left dir-ltr" />
                   <Button size="sm" variant="outline" onClick={handleSetExpiryDate} className="h-8 gap-1 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs">اعمال</Button>
@@ -2874,7 +2804,7 @@ const handleDeleteSub = async (subId: number) => {
               <input type="checkbox" id="deleteHard" checked={deleteHard} onChange={(e) => setDeleteHard(e.target.checked)} className="accent-red-500 h-3 w-3 cursor-pointer" />
               <label htmlFor="deleteHard" className="text-[9px] text-red-400 cursor-pointer">حذف کامل</label>
             </div>
-            <Button size="sm" variant="destructive" onClick={handleDeleteUser} className="h-7 w-full gap-1 text-[10px]"><Trash2 className="h-3 w-3" /> حذف کاربر</Button>
+            <Button size="sm" variant="destructive" onClick={handleDeleteUser} className="h-7 w-full gap-1 text-[10px]"><Trash2 className="h-3 w-3" /> حذف / غیر فعال‌سازی کاربر</Button>
           </div>
 
           {/* آمار افزونه */}
@@ -2983,6 +2913,16 @@ const handleDeleteSub = async (subId: number) => {
                     {formatFaDateTime(selectedTx.created_at)}
                   </span>
                 </div>
+
+                {selectedTx?.zibal_ref_id && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">شماره پیگیری:</span>
+                    <span className="font-mono text-[#d6ad60]" dir="ltr">
+                      {selectedTx.zibal_ref_id}
+                    </span>
+                  </div>
+                )}
+
                 {selectedTx.payment_time && (
                   <div className="flex justify-between">
                     <span className="text-gray-400">زمان واریز:</span>
@@ -3010,6 +2950,7 @@ const handleDeleteSub = async (subId: number) => {
                     type="number"
                     value={txNewAmount}
                     onChange={(e) => setTxNewAmount(Number(e.target.value))}
+                    disabled={selectedTx?.payment_method === "zibal"}  // 🔴 غیرفعال برای زیبال
                     className="border-white/10 bg-black/30 text-white"
                     dir="ltr"
                   />
@@ -3021,6 +2962,7 @@ const handleDeleteSub = async (subId: number) => {
                   <select
                     value={txNewStatus}
                     onChange={(e) => setTxNewStatus(e.target.value)}
+
                     className="h-10 w-full rounded-md border-white/10 bg-black/30 px-2 text-sm"
                   >
                     <option value="pending">در حال بررسی</option>

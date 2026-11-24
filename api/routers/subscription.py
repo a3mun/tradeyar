@@ -1,18 +1,32 @@
 import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
-from api.plans import PLANS
+import uuid
+
+from api.plans import PLANS, calculate_new_end_date
 from api.database import get_session
 from api.auth import get_current_user
-from api.models import User, Subscription, PaymentRequest
+from api.models import User, Subscription, PaymentRequest, SubscriptionLog
 from api.schemas import PaymentRequestCreate
 from api.config import settings
+from services.sms import send_subscription_activated_sms
+from services.payment_zibal import (
+    create_payment_request as zibal_create_request,
+    verify_payment as zibal_verify_payment,
+)
+from services.subscription_service import activate_or_reserve_subscription
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/subscription", tags=["Subscription"])
 
+FRONTEND_URL = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
 
+
+# ═══════════════════════════════════════════════════════════
+# ۱. اشتراک فعلی
+# ═══════════════════════════════════════════════════════════
 @router.get("/my")
 async def get_my_subscription(
     user: User = Depends(get_current_user),
@@ -58,24 +72,22 @@ async def get_my_subscription(
     }
 
 
-# 🔴 اندپوینت جدید برای تاریخچه تراکنش‌های کاربر
+# ═══════════════════════════════════════════════════════════
+# ۲. تاریخچه تراکنش‌ها
+# ═══════════════════════════════════════════════════════════
 @router.get("/my-transactions")
 async def get_my_transactions(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     from api.models import PaymentRequest, RefundRequest
-    from api.plans import PLANS
-    from sqlmodel import select
 
-    # ۱. تراکنش‌های پرداخت
     payments = session.exec(
         select(PaymentRequest)
         .where(PaymentRequest.user_id == user.id)
         .order_by(PaymentRequest.created_at.desc())
     ).all()
 
-    # ۲. درخواست‌های عودت
     refunds = session.exec(
         select(RefundRequest)
         .where(RefundRequest.user_id == user.id)
@@ -84,7 +96,6 @@ async def get_my_transactions(
 
     items = []
 
-    # اضافه کردن پرداخت‌ها
     for p in payments:
         items.append(
             {
@@ -92,7 +103,7 @@ async def get_my_transactions(
                 "source": "payment",
                 "plan": p.plan,
                 "plan_price": p.plan_price_at_purchase
-                or PLANS.get(p.plan, {}).get("price", 0),  # 🔴
+                or PLANS.get(p.plan, {}).get("price", 0),
                 "amount": p.amount or 0,
                 "status": p.status,
                 "payment_method": p.payment_method or "card",
@@ -100,10 +111,10 @@ async def get_my_transactions(
                 "admin_note": p.admin_note,
                 "receipt_note": p.receipt_note,
                 "payment_time": p.payment_time,
+                "zibal_ref_id": p.zibal_ref_id,
             }
         )
 
-    # اضافه کردن درخواست‌های عودت
     for r in refunds:
         status_map = {
             "pending": "pending",
@@ -123,24 +134,22 @@ async def get_my_transactions(
                 "admin_note": r.admin_note,
                 "receipt_note": None,
                 "payment_time": None,
+                "zibal_ref_id": None,
             }
         )
 
-    # مرتب‌سازی بر اساس تاریخ
     items.sort(key=lambda x: x["created_at"] or "", reverse=True)
-
     return {"items": items}
 
 
-# 🔴 اندپوینت جدید برای تاریخچه اشتراک‌ها
+# ═══════════════════════════════════════════════════════════
+# ۳. تاریخچه اشتراک‌ها
+# ═══════════════════════════════════════════════════════════
 @router.get("/history")
 async def get_my_subscriptions_history(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """
-    لیست تمام اشتراک‌های کاربر (شامل فعال‌شده توسط ادمین و خریدهای پرداخت‌شده)
-    """
     subs = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
@@ -148,10 +157,8 @@ async def get_my_subscriptions_history(
     ).all()
 
     now = datetime.now(timezone.utc)
-
     items = []
     for s in subs:
-        # تشخیص وضعیت واقعی
         actual_status = "active"
         if s.end_date:
             end = s.end_date
@@ -160,60 +167,290 @@ async def get_my_subscriptions_history(
             if end < now:
                 actual_status = "expired"
 
+        display_status = s.status if s.status == "reserved" else actual_status
+
         items.append(
             {
                 "id": s.id,
                 "plan": s.plan,
                 "start_date": s.start_date.isoformat() if s.start_date else None,
                 "end_date": s.end_date.isoformat() if s.end_date else None,
-                "status": actual_status,
+                "status": display_status,
             }
         )
 
     return {"ok": True, "total": len(items), "items": items}
 
 
-@router.post("/request")
-async def create_payment_request(
+# ═══════════════════════════════════════════════════════════
+# ۴. درگاه زیبال (پرداخت آنلاین)
+# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+# ۴. درگاه زیبال (پرداخت آنلاین)
+# ═══════════════════════════════════════════════════════════
+@router.post("/pay/zibal")
+async def pay_with_zibal(
     req: PaymentRequestCreate,
-    request: Request,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    """ثبت درخواست پرداخت و هدایت به درگاه زیبال"""
 
-    # 🔴 چک قانون: سقف ۳۶۵ روز و جلوگیری از خرید تکراری هم‌پوشان
+    # 🔴 ۱. چک رزرو قبلی (قبل از رفتن به درگاه)
+    existing_reserved = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "reserved")
+    ).first()
+
+    if existing_reserved:
+        raise HTTPException(
+            status_code=400,
+            detail="شما یک اشتراک رزرو دارید. ابتدا آن را مصرف کنید یا با پشتیبانی تماس بگیرید.",
+        )
+
+    # 🔴 ۲. چک سقف ۳۶۵ روز
     current_sub = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "active")
         .order_by(Subscription.created_at.desc())
     ).first()
 
-    if current_sub and current_sub.end_date:
+    if current_sub and current_sub.end_date and current_sub.plan != "free":
         now = datetime.now(timezone.utc)
         end = current_sub.end_date
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
         days_left = (end - now).days
-
-        # محاسبه روزهای پلن جدید
-        from api.plans import PLANS
-
         new_plan_days = PLANS.get(req.plan, {}).get("days", 0)
 
-        # اگر روزهای باقی‌مانده > 30 و پلن جدید (ارتقا) نیست:
-        if days_left > 30 and new_plan_days <= days_left:
+        if end > now and days_left + new_plan_days > 365:
+            raise HTTPException(
+                status_code=400,
+                detail=f"مجموع اشتراک شما بیش از ۳۶۵ روز می‌شود (فعلی: {days_left} روز + جدید: {new_plan_days} روز). لطفاً پلن کوتاه‌تری انتخاب کنید.",
+            )
+
+    # 🔴 ۳. چک درخواست pending قبلی
+    existing_pending = session.exec(
+        select(PaymentRequest)
+        .where(PaymentRequest.user_id == user.id)
+        .where(PaymentRequest.status == "pending")
+    ).first()
+    if existing_pending:
+        raise HTTPException(
+            status_code=400,
+            detail="شما یک درخواست در حال بررسی دارید. لطفاً تا تکمیل آن صبر کنید.",
+        )
+
+    # 🔴 ۴. ثبت درخواست و هدایت به درگاه
+    pr = PaymentRequest(
+        user_id=user.id,
+        plan=req.plan,
+        amount=req.amount or 0,
+        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,
+        payment_method="zibal",
+        status="pending",
+        receipt_note=req.receipt_note,
+        full_name=req.full_name,
+        payment_time="online",
+    )
+    session.add(pr)
+    session.commit()
+    session.refresh(pr)
+
+    order_id = f"trademun_{pr.id}_{uuid.uuid4().hex[:8]}"
+    result = zibal_create_request(
+        amount=req.amount * 10,  # تومان به ریال
+        description=f"خرید {req.plan} - تریدمون",
+        mobile=user.phone,
+        order_id=order_id,
+    )
+
+    if not result["ok"]:
+        pr.status = "rejected"
+        pr.admin_note = f"خطای درگاه: {result['error']}"
+        session.add(pr)
+        session.commit()
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    pr.zibal_track_id = result["track_id"]
+    session.add(pr)
+    session.commit()
+
+    return {
+        "ok": True,
+        "payment_url": result["payment_url"],
+        "track_id": result["track_id"],
+        "payment_request_id": pr.id,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# ۵. کال‌بک زیبال (تایید پرداخت)
+# ═══════════════════════════════════════════════════════════
+@router.get("/verify-zibal")
+async def verify_zibal_payment(
+    trackId: str,
+    success: str,
+    status: str = None,
+    session: Session = Depends(get_session),
+):
+    """کال‌بک زیبال: بعد از پرداخت کاربر برمی‌گردد."""
+    pr = session.exec(
+        select(PaymentRequest).where(PaymentRequest.zibal_track_id == trackId)
+    ).first()
+
+    if not pr:
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason=not_found"
+        )
+
+    # 🔴 اگه قبلاً تایید شده، دوباره پردازش نکن
+    if pr.status == "approved":
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=success&ref={pr.zibal_ref_id or trackId}"
+        )
+
+    # بررسی وضعیت پرداخت
+    if success != "1" or status != "2":
+        pr.status = "rejected"
+        pr.admin_note = f"پرداخت ناموفق. success={success}, status={status}"
+        session.add(pr)
+        session.commit()
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason=cancelled"
+        )
+
+    # تایید پرداخت از زیبال
+    result = zibal_verify_payment(trackId)
+
+    if not result["ok"]:
+        pr.status = "rejected"
+        pr.admin_note = f"خطای تایید: {result['error']}"
+        session.add(pr)
+        session.commit()
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason=verify_failed"
+        )
+
+    # 🔴 ثبت کد پیگیری
+    ref_id = str(result.get("ref_id") or trackId)
+    pr.status = "approved"
+    pr.zibal_ref_id = ref_id
+    pr.reviewed_at = datetime.now(timezone.utc)
+    pr.reviewed_by = "zibal_gateway"
+
+    # 🔴 فعال‌سازی یا رزرو با تابع مشترک
+    activation = activate_or_reserve_subscription(session, pr.user_id, pr.plan)
+
+    user_obj = session.get(User, pr.user_id)
+
+    if not activation["ok"]:
+        # 🔴 پرداخت موفق ولی فعال‌سازی ناموفق!
+        pr.status = "rejected"
+        pr.admin_note = (
+            f"⚠️ پرداخت موفق ولی فعال‌سازی ناموفق: {activation['error']}. "
+            f"نیاز به بررسی و عودت وجه دارد. Ref: {ref_id}"
+        )
+        session.add(pr)
+        session.commit()
+
+        # 🔴 اطلاع فوری به ادمین
+        try:
+            from api.routers.admin_ws import notify_admins
+
+            await notify_admins(
+                {
+                    "type": "payment_activation_failed",
+                    "user_phone": user_obj.phone if user_obj else "?",
+                    "amount": pr.amount,
+                    "ref_id": ref_id,
+                    "reason": activation["error"],
+                    "message": (
+                        f"🚨 پرداخت موفق ولی فعال‌سازی ناموفق!\n"
+                        f"کاربر: {user_obj.phone if user_obj else '?'}\n"
+                        f"مبلغ: {pr.amount:,} تومان\n"
+                        f"کد پیگیری: {ref_id}\n"
+                        f"دلیل: {activation['error']}"
+                    ),
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[Notify] WebSocket admin failed: {e}")
+
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason={activation.get('reason', 'unknown')}"
+        )
+
+    # 🔴 فعال‌سازی موفق
+    session.add(pr)
+    session.commit()
+
+    # ارسال پیامک موفقیت
+    try:
+        if user_obj and activation.get("new_sub_end"):
+            send_subscription_activated_sms(
+                user_obj.phone,
+                activation["plan_info"]["title"],
+                activation["new_sub_end"],
+            )
+    except Exception:
+        pass
+
+    return RedirectResponse(
+        url=f"{FRONTEND_URL}/payment-result?status=success&ref={ref_id}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+# ۶. درخواست دستی (کارت به کارت)
+# ═══════════════════════════════════════════════════════════
+@router.post("/request")
+async def create_manual_payment_request(
+    req: PaymentRequestCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    # 🔴 چک: کاربر از قبل رزرو داره؟
+    existing_reserved = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "reserved")
+    ).first()
+
+    if existing_reserved:
+        raise HTTPException(
+            status_code=400,
+            detail="شما یک اشتراک رزرو دارید. ابتدا آن را مصرف کنید.",
+        )
+
+    # 🔴 چک سقف ۳۶۵ روز
+    current_sub = session.exec(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .where(Subscription.status == "active")
+        .order_by(Subscription.created_at.desc())
+    ).first()
+
+    if current_sub and current_sub.end_date and current_sub.plan != "free":
+        now = datetime.now(timezone.utc)
+        end = current_sub.end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+
+        days_left = (end - now).days
+        new_plan_days = PLANS.get(req.plan, {}).get("days", 0)
+
+        if end > now and days_left + new_plan_days > 365:
             raise HTTPException(
                 400,
-                detail="شما اشتراک فعال دارید. برای تمدید، فقط در ۳۰ روز آخر می‌توانید اقدام کنید.",
+                detail=f"مجموع اشتراک شما بیش از ۳۶۵ روز می‌شود (فعلی: {days_left} روز + جدید: {new_plan_days} روز)",
             )
 
-        # سقف ۳۶۵ روز
-        if days_left + new_plan_days > 365:
-            raise HTTPException(
-                400, detail="مجموع اشتراک شما نمی‌تواند بیش از ۳۶۵ روز باشد."
-            )
-
+    # 🔴 چک درخواست pending قبلی
     existing = session.exec(
         select(PaymentRequest)
         .where(PaymentRequest.user_id == user.id)
@@ -225,12 +462,11 @@ async def create_payment_request(
     ip = request.client.host if request.client else "نامشخص"
     user_agent = request.headers.get("user-agent", "نامشخص")
 
-    # 🔴 اضافه شدن مبلغ و روش پرداخت
     pr = PaymentRequest(
         user_id=user.id,
         plan=req.plan,
         amount=req.amount or 0,
-        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,  # 🔴 جدید
+        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,
         payment_method=req.payment_method or "card",
         status="pending",
         receipt_note=req.receipt_note,

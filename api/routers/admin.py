@@ -13,14 +13,14 @@ import time
 import sys
 from api.models import SignalLog, SiteStatsOverride, User
 from fastapi import Body
-
+from datetime import datetime, timezone
 from api.plans import PLANS, calculate_new_end_date
 from sqlalchemy import func
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import jdatetime
-
+from services.subscription_service import activate_or_reserve_subscription
 from pydantic import BaseModel
 from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -566,6 +566,8 @@ async def get_user_details(
             # 🔴 استفاده از قیمت جدید (اگر در جدول نبود، از PLANS قدیمی)
             "plan_price": p.plan_price_at_purchase
             or pricing_map.get(p.plan, PLANS.get(p.plan, {}).get("price", 0)),
+            "zibal_ref_id": p.zibal_ref_id,  # 🔴 اضافه شد
+            "zibal_track_id": p.zibal_track_id,  # 🔴 اضافه شد
         }
         for p in payments
     ]
@@ -1067,6 +1069,8 @@ async def list_all_transactions_merged(
                 "payment_time": p.payment_time,
                 "admin_note": p.admin_note,
                 "full_name": p.full_name,
+                "zibal_ref_id": p.zibal_ref_id,  # 🔴 اضافه شد
+                "zibal_track_id": p.zibal_track_id,  # 🔴 اضافه شد
             }
         )
     return {"ok": True, "items": result}
@@ -1178,67 +1182,35 @@ async def approve_payment(
 ):
     payment = session.get(PaymentRequest, payment_id)
     if not payment:
-        raise HTTPException(404, "پرداخت یافت نشد")
-
+        raise HTTPException(404, "تراکنش یافت نشد")
     user = session.get(User, payment.user_id)
     if not user:
         raise HTTPException(404, "کاربر یافت نشد")
 
-    plan_info = PLANS.get(payment.plan)
-    if not plan_info:
-        raise HTTPException(status_code=400, detail="پلن نامعتبر است")
+    # 🔴 استفاده از تابع مشترک
+    activation = activate_or_reserve_subscription(session, user.id, payment.plan)
 
-    now = datetime.now(timezone.utc)
+    if not activation["ok"]:
+        raise HTTPException(status_code=400, detail=activation["error"])
 
-    # 🔴 ۱. پیدا کردن آخرین اشتراک (فعال یا رزرو) برای تعیین تاریخ شروع جدید
-    last_sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .order_by(Subscription.end_date.desc())
-    ).first()
-
-    # 🔴 ۲. اگر اشتراک قبلی در آینده تموم می‌شه → شروع جدید بعد از اون
-    if last_sub and last_sub.end_date:
-        end = last_sub.end_date
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-        if end > now:
-            new_start = end
-        else:
-            new_start = now
-    else:
-        new_start = now
-
-    new_end = new_start + timedelta(days=plan_info["days"])
-
-    # 🔴 ۳. ساخت اشتراک جدید (به عنوان رزرو یا فعال)
-    new_sub = Subscription(
-        user_id=user.id,
-        plan=payment.plan,
-        start_date=new_start,
-        end_date=new_end,
-        status="active",
-    )
-    session.add(new_sub)
-
-    # 🔴 ۴. آپدیت وضعیت پرداخت
     payment.status = "approved"
-    payment.reviewed_at = now
+    payment.reviewed_at = datetime.now(timezone.utc)
     payment.reviewed_by = admin.phone
     payment.admin_note = admin_note
     session.add(payment)
-
     session.commit()
 
-    # 🔴 ۵. ارسال پیامک
     try:
         send_subscription_activated_sms(
-            user.phone, plan_info["title"], new_sub.end_date
+            user.phone,
+            activation["plan_info"]["title"],
+            activation["new_sub_end"],
         )
     except Exception:
         pass
 
-    return {"ok": True, "message": "پرداخت تایید و اشتراک فعال شد"}
+    msg = "اشتراک رزرو شد" if activation["is_reserved"] else "اشتراک فعال شد"
+    return {"ok": True, "message": f"پرداخت تایید و {msg}"}
 
 
 @router.post("/payments/{payment_id}/reject")
@@ -1385,40 +1357,20 @@ async def update_transaction_status(
         p.reviewed_at = datetime.now(timezone.utc)
         p.reviewed_by = admin.phone
 
-        # فعال‌سازی اشتراک در صورت تایید
+        # 🔴 فعال‌سازی اشتراک در صورت تایید (با تابع مشترک)
         if new_status == "approved":
             user = session.get(User, p.user_id)
-            plan_info = PLANS.get(p.plan)
-            if plan_info and user:
-                sub = session.exec(
-                    select(Subscription)
-                    .where(Subscription.user_id == user.id)
-                    .order_by(Subscription.created_at.desc())
-                ).first()
-                now = datetime.now(timezone.utc)
-                current_end = sub.end_date if sub else None
-                new_end = calculate_new_end_date(current_end, plan_info["days"])
-                if sub:
-                    sub.plan = p.plan
-                    sub.start_date = now
-                    sub.end_date = new_end
-                    sub.status = "active"
-                    session.add(sub)
-                else:
-                    sub = Subscription(
-                        user_id=user.id,
-                        plan=p.plan,
-                        start_date=now,
-                        end_date=new_end,
-                        status="active",
-                    )
-                    session.add(sub)
+            if user:
+                activation = activate_or_reserve_subscription(session, user.id, p.plan)
+                if not activation["ok"]:
+                    raise HTTPException(status_code=400, detail=activation["error"])
 
-                # ارسال پیامک (فقط اگر انتخاب شده باشه)
                 if send_sms:
                     try:
                         send_subscription_activated_sms(
-                            user.phone, plan_info["title"], new_end
+                            user.phone,
+                            activation["plan_info"]["title"],
+                            activation["new_sub_end"],
                         )
                     except Exception:
                         pass
@@ -1676,8 +1628,19 @@ class SiteStatsOverrideRequest(_PydanticBase):
 
 
 @router.get("/site-stats")
-async def admin_get_site_stats(_admin=Depends(require_admin)):
-    return {"ok": True, **_get_site_stats()}
+async def admin_get_site_stats(
+    _admin=Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    data = _get_site_stats()
+
+    override = session.exec(
+        select(SiteStatsOverride).where(SiteStatsOverride.key == "is_hidden")
+    ).first()
+
+    data["is_hidden"] = bool(override.is_hidden) if override else False
+
+    return {"ok": True, **data}
 
 
 @router.post("/site-stats/override")
@@ -1719,6 +1682,39 @@ async def admin_set_site_stats_override(
 
 
 from api.models import PricingSettings  # به importها اضافه کن
+
+
+class SiteStatsVisibilityRequest(BaseModel):
+    hidden: bool
+
+
+@router.post("/site-stats/toggle-visibility")
+async def toggle_site_stats_visibility(
+    req: SiteStatsVisibilityRequest,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    override = session.exec(
+        select(SiteStatsOverride).where(SiteStatsOverride.key == "is_hidden")
+    ).first()
+
+    if not override:
+        override = SiteStatsOverride(
+            key="is_hidden",
+            value=0.0,
+            is_hidden=req.hidden,
+            updated_by=admin.phone,
+            updated_at=datetime.now(timezone.utc),
+        )
+    else:
+        override.is_hidden = req.hidden
+        override.updated_by = admin.phone
+        override.updated_at = datetime.now(timezone.utc)
+
+    session.add(override)
+    session.commit()
+
+    return {"ok": True, "is_hidden": req.hidden}
 
 
 # ─── خواندن قیمت‌ها (برای صفحه اشتراک) ───

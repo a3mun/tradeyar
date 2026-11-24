@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
-
+from api.models import SignalLog, SiteStatsOverride
 from api.database import get_session
 from api.deps import rate_limit_for
 from api.models import SignalLog
@@ -192,8 +192,10 @@ async def backtest_site_stats(
         default="", pattern="^(|lt40|40_49|50_59|60_69|70p)$"
     ),
     limit: int = Query(default=200, ge=50, le=200),
+    session: Session = Depends(get_session),
 ):
     """آمار عمومی تجمیعی؛ فقط داده آماری، بدون افشای رکوردهای منفرد."""
+
     data = await run_in_threadpool(
         get_site_stats,
         time_filter=time_filter,
@@ -202,7 +204,18 @@ async def backtest_site_stats(
         confidence_bucket=confidence_bucket,
         limit=limit,
     )
-    return {"ok": True, **data}
+
+    visibility = session.exec(
+        select(SiteStatsOverride).where(SiteStatsOverride.key == "is_hidden")
+    ).first()
+
+    is_hidden = visibility.is_hidden if visibility else False
+
+    return {
+        "ok": True,
+        **data,
+        "is_hidden": is_hidden,
+    }
 
 
 class RecordRequest(BaseModel):

@@ -1,16 +1,22 @@
 """
-api/routers/tickets.py
-سیستم تیکتینگ — فاز ۱۳ (با آپلود فایل)
+TradeMun Ticket API
+نسخه محافظه‌کارانه ارتقای سیستم تیکت
+- حفظ مسیرها و قراردادهای فعلی API
+- حفظ مدل‌های Ticket و TicketMessage و بدون Migration
+- اعتبارسنجی واقعی فایل‌های JPEG/PNG و محدودیت حجم
+- اعتبارسنجی مسیر پیوست قبل از اتصال به پیام
+- اصلاح شمارش پیام‌های متوالی
+- حذف فایل فقط از پوشه اختصاصی تیکت‌ها
 """
 
 import logging
 import os
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from datetime import timedelta  # ⬅️ اضافه شد
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func
 
 from api.auth import get_current_user, is_admin_phone
@@ -28,14 +34,18 @@ from api.schemas import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Tickets"])
 
-# ─── تنظیمات آپلود ───
-MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB — بعد از فشرده‌سازی فرانت
+MAX_FILE_SIZE = 2 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 UPLOAD_DIR = Path("data/tickets")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# ─── محدودیت تیکت باز ───
 MAX_OPEN_TICKETS_PER_USER = 1
+MAX_CONSECUTIVE_USER_MESSAGES = 10
+MESSAGE_COOLDOWN_SECONDS = 1
+
+# مسیر عمومی فعلی حفظ شده تا با فرانت‌اند موجود سازگار بماند.
+PUBLIC_UPLOAD_PREFIX = "/data/tickets/"
+_ATTACHMENT_NAME_RE = re.compile(r"^[a-f0-9]{32}\.(?:jpg|jpeg|png)$", re.IGNORECASE)
 
 
 def _utcnow() -> datetime:
@@ -47,23 +57,41 @@ def _require_admin(user: User) -> None:
         raise HTTPException(status_code=403, detail="دسترسی ادمین لازم است")
 
 
+def _ticket_or_404(session: Session, ticket_id: int) -> Ticket:
+    ticket = session.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    return ticket
+
+
+def _get_owned_ticket(session: Session, ticket_id: int, user: User) -> Ticket:
+    ticket = session.get(Ticket, ticket_id)
+    if not ticket or ticket.user_id != user.id:
+        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    return ticket
+
+
+def _ticket_messages(session: Session, ticket_id: int) -> list[TicketMessage]:
+    return session.exec(
+        select(TicketMessage)
+        .where(TicketMessage.ticket_id == ticket_id)
+        .order_by(TicketMessage.created_at.asc(), TicketMessage.id.asc())
+    ).all()
+
+
 def _build_ticket_read(
     session: Session, ticket: Ticket, user: User | None = None
 ) -> dict:
-    messages = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .order_by(TicketMessage.created_at.asc())
-    ).all()
-
+    messages = _ticket_messages(session, ticket.id)
     last = messages[-1] if messages else None
 
-    # unread: پیام‌هایی که مخاطب نخونده
     unread = 0
     if user:
-        is_admin_viewer = is_admin_phone(user.phone)
+        viewer_is_admin = is_admin_phone(user.phone)
         unread = sum(
-            1 for m in messages if not m.is_read and m.is_admin != is_admin_viewer
+            1
+            for message in messages
+            if not message.is_read and message.is_admin != viewer_is_admin
         )
 
     data = {
@@ -78,35 +106,31 @@ def _build_ticket_read(
         "last_message": last.message if last else None,
         "last_message_at": last.created_at if last else None,
     }
+
     if user and is_admin_phone(user.phone):
         owner = session.get(User, ticket.user_id)
         data["user_phone"] = owner.phone if owner else None
-        data["user_name"] = (
-            owner.full_name if owner and owner.full_name else None
-        )  # ⬅️ این خط رو اضافه کن
+        data["user_name"] = owner.full_name if owner and owner.full_name else None
+
     return data
 
 
 def _build_ticket_detail(session: Session, ticket: Ticket, user: User) -> dict:
-    messages = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .order_by(TicketMessage.created_at.asc())
-    ).all()
-
+    messages = _ticket_messages(session, ticket.id)
     msg_reads = []
-    for m in messages:
-        sender = session.get(User, m.sender_id)
+
+    for message in messages:
+        sender = session.get(User, message.sender_id)
         msg_reads.append(
             TicketMessageRead(
-                id=m.id,
-                sender_id=m.sender_id,
-                is_admin=m.is_admin,
-                message=m.message,
-                attachment_path=m.attachment_path,
-                attachment_name=m.attachment_name,
-                is_read=m.is_read,
-                created_at=m.created_at,
+                id=message.id,
+                sender_id=message.sender_id,
+                is_admin=message.is_admin,
+                message=message.message,
+                attachment_path=message.attachment_path,
+                attachment_name=message.attachment_name,
+                is_read=message.is_read,
+                created_at=message.created_at,
                 sender_name=(sender.full_name or sender.phone) if sender else None,
             )
         )
@@ -116,35 +140,198 @@ def _build_ticket_detail(session: Session, ticket: Ticket, user: User) -> dict:
     return data
 
 
+def _validate_attachment_reference(path_value: str | None, name_value: str | None):
+    """
+    فقط فایل‌هایی پذیرفته می‌شوند که از endpoint آپلود همین سیستم آمده باشند.
+    مسیر نسبی/مطلق دلخواه از کلاینت هرگز به فایل‌سیستم تبدیل نمی‌شود.
+    """
+    if not path_value and not name_value:
+        return None, None
+    if not path_value or not name_value:
+        raise HTTPException(status_code=400, detail="اطلاعات پیوست ناقص است")
+
+    if not path_value.startswith(PUBLIC_UPLOAD_PREFIX):
+        raise HTTPException(status_code=400, detail="مسیر پیوست نامعتبر است")
+
+    stored_name = path_value[len(PUBLIC_UPLOAD_PREFIX) :]
+    if (
+        "/" in stored_name
+        or "\\" in stored_name
+        or not _ATTACHMENT_NAME_RE.fullmatch(stored_name)
+    ):
+        raise HTTPException(status_code=400, detail="نام فایل پیوست نامعتبر است")
+
+    ext = Path(stored_name).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="نوع فایل پیوست مجاز نیست")
+
+    root = UPLOAD_DIR.resolve()
+    candidate = (root / stored_name).resolve()
+    if candidate.parent != root or not candidate.is_file():
+        raise HTTPException(status_code=400, detail="فایل پیوست پیدا نشد")
+
+    # نام نمایشی صرفاً متن است؛ کنترل طول و حذف مسیرهای احتمالی.
+    safe_display_name = Path(str(name_value).replace("\\", "/")).name[:180].strip()
+    if not safe_display_name:
+        safe_display_name = "attachment" + ext
+
+    return path_value, safe_display_name
+
+
+def _has_valid_image_signature(contents: bytes, extension: str) -> bool:
+    if extension in {".jpg", ".jpeg"}:
+        return len(contents) >= 3 and contents[:3] == b"\xff\xd8\xff"
+    if extension == ".png":
+        return contents.startswith(b"\x89PNG\r\n\x1a\n")
+    return False
+
+
 async def _save_attachment(file: UploadFile) -> tuple[str, str]:
-    """ذخیره فایل و برگرداندن (path, name)"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="نام فایل نامعتبر")
-    ext = os.path.splitext(file.filename)[1].lower()
+
+    original_name = Path(file.filename.replace("\\", "/")).name
+    ext = Path(original_name).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail="فقط JPG و PNG مجاز است")
 
-    contents = await file.read()
+    # یک بایت بیشتر می‌خوانیم تا فایل بزرگ بدون بارگذاری کامل شناسایی شود.
+    contents = await file.read(MAX_FILE_SIZE + 1)
     if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="حجم فایل حداکثر ۲ مگابایت")
+        raise HTTPException(status_code=400, detail="حجم فایل حداکثر ۲ مگابایت است")
+
+    if not _has_valid_image_signature(contents, ext):
+        raise HTTPException(
+            status_code=400, detail="محتوای فایل با پسوند آن مطابقت ندارد"
+        )
 
     unique_name = f"{uuid.uuid4().hex}{ext}"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     file_path = UPLOAD_DIR / unique_name
-    with open(file_path, "wb") as f:
-        f.write(contents)
-    return f"/data/tickets/{unique_name}", file.filename
+
+    try:
+        with file_path.open("xb") as handle:
+            handle.write(contents)
+    except OSError:
+        logger.exception("[Tickets] Failed to save attachment")
+        raise HTTPException(status_code=500, detail="ذخیره فایل انجام نشد")
+
+    return f"{PUBLIC_UPLOAD_PREFIX}{unique_name}", original_name[:180]
 
 
-# ═══════════════════════════════════════════════════════════
+def _validate_message_or_attachment(
+    req: TicketMessageCreate,
+) -> tuple[str | None, str | None]:
+    message = (req.message or "").strip()
+    path_value, name_value = _validate_attachment_reference(
+        req.attachment_path, req.attachment_name
+    )
+    if not message and not path_value:
+        raise HTTPException(status_code=400, detail="متن پیام یا فایل پیوست لازم است")
+    if len(message) > 2000:
+        raise HTTPException(status_code=400, detail="متن پیام بیش از حد مجاز است")
+    return path_value, name_value
+
+
+def _check_user_message_limits(session: Session, ticket_id: int, user_id: int) -> None:
+    last_user_message = session.exec(
+        select(TicketMessage)
+        .where(TicketMessage.ticket_id == ticket_id)
+        .where(TicketMessage.sender_id == user_id)
+        .order_by(TicketMessage.created_at.desc(), TicketMessage.id.desc())
+    ).first()
+
+    now = _utcnow()
+    if last_user_message:
+        created_at = last_user_message.created_at
+        # سازگاری با datetimeهای قدیمی بدون timezone
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        if now - created_at < timedelta(seconds=MESSAGE_COOLDOWN_SECONDS):
+            raise HTTPException(
+                status_code=429,
+                detail="لطفاً کمی صبر کنید و سپس پیام بعدی را ارسال کنید.",
+            )
+
+    recent_messages = session.exec(
+        select(TicketMessage)
+        .where(TicketMessage.ticket_id == ticket_id)
+        .order_by(TicketMessage.created_at.desc(), TicketMessage.id.desc())
+        .limit(MAX_CONSECUTIVE_USER_MESSAGES)
+    ).all()
+
+    consecutive_user_messages = 0
+    for message in recent_messages:
+        if message.is_admin:
+            break
+        if message.sender_id != user_id:
+            # پیام غیرادمین از کاربر دیگری نباید به عنوان پیام همین کاربر شمرده شود.
+            break
+        consecutive_user_messages += 1
+
+    if consecutive_user_messages >= MAX_CONSECUTIVE_USER_MESSAGES:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"شما {MAX_CONSECUTIVE_USER_MESSAGES} پیام متوالی ارسال کرده‌اید. "
+                "لطفاً تا پاسخ تیم پشتیبانی صبر کنید."
+            ),
+        )
+
+
+def _mark_messages_read(
+    session: Session, ticket_id: int, messages_from_admin: bool
+) -> None:
+    unread_messages = session.exec(
+        select(TicketMessage)
+        .where(TicketMessage.ticket_id == ticket_id)
+        .where(TicketMessage.is_admin == messages_from_admin)
+        .where(TicketMessage.is_read == False)
+    ).all()
+
+    if not unread_messages:
+        return
+
+    for message in unread_messages:
+        message.is_read = True
+        session.add(message)
+    session.commit()
+
+
+def _safe_delete_attachment(path_value: str | None) -> None:
+    if not path_value or not path_value.startswith(PUBLIC_UPLOAD_PREFIX):
+        return
+
+    stored_name = path_value[len(PUBLIC_UPLOAD_PREFIX) :]
+    if (
+        "/" in stored_name
+        or "\\" in stored_name
+        or not _ATTACHMENT_NAME_RE.fullmatch(stored_name)
+    ):
+        logger.warning("[Tickets] Skipping unsafe attachment path during deletion")
+        return
+
+    root = UPLOAD_DIR.resolve()
+    candidate = (root / stored_name).resolve()
+    if candidate.parent != root:
+        logger.warning("[Tickets] Skipping attachment outside upload directory")
+        return
+
+    try:
+        candidate.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("[Tickets] Could not delete attachment %s", stored_name)
+
+
+# ─────────────────────────────────────────────────────────
 # کاربر
-# ═══════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────
 @router.post("/tickets", response_model=TicketDetail)
 async def create_ticket(
     req: TicketCreate,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """ایجاد تیکت جدید — حداکثر 1 تیکت باز همزمان"""
     open_count = session.exec(
         select(func.count())
         .select_from(Ticket)
@@ -158,30 +345,35 @@ async def create_ticket(
             detail="شما یک تیکت باز دارید. لطفاً تا بسته شدن آن صبر کنید.",
         )
 
+    attachment_path, attachment_name = (
+        _validate_attachment_reference(req.attachment_path, req.attachment_name)
+        if req.attachment_path or req.attachment_name
+        else (None, None)
+    )
+
+    now = _utcnow()
     ticket = Ticket(
         user_id=user.id,
-        subject=req.subject,
+        subject=req.subject.strip(),
         status="open",
-        created_at=_utcnow(),
-        updated_at=_utcnow(),
+        created_at=now,
+        updated_at=now,
     )
     session.add(ticket)
     session.commit()
     session.refresh(ticket)
 
-    # 🔴 فاز ۱۶.۵ — پیام اول با پیوست
-    msg = TicketMessage(
+    message = TicketMessage(
         ticket_id=ticket.id,
         sender_id=user.id,
         is_admin=False,
-        message=req.message,
-        attachment_path=req.attachment_path,  # 🔴 جدید
-        attachment_name=req.attachment_name,  # 🔴 جدید
+        message=req.message.strip(),
+        attachment_path=attachment_path,
+        attachment_name=attachment_name,
         is_read=False,
-        created_at=_utcnow(),
+        created_at=now,
     )
-
-    session.add(msg)
+    session.add(message)
     session.commit()
 
     try:
@@ -196,8 +388,8 @@ async def create_ticket(
                 "message": f"🎫 تیکت جدید از {user.phone}: {req.subject}",
             }
         )
-    except Exception as e:
-        logger.warning(f"[Tickets] WebSocket notify failed: {e}")
+    except Exception as exc:
+        logger.warning("[Tickets] WebSocket notify failed: %s", exc)
 
     return _build_ticket_detail(session, ticket, user)
 
@@ -210,9 +402,9 @@ async def list_my_tickets(
     tickets = session.exec(
         select(Ticket)
         .where(Ticket.user_id == user.id)
-        .order_by(Ticket.updated_at.desc())
+        .order_by(Ticket.updated_at.desc(), Ticket.id.desc())
     ).all()
-    return [_build_ticket_read(session, t, user) for t in tickets]
+    return [_build_ticket_read(session, ticket, user) for ticket in tickets]
 
 
 @router.get("/tickets/stats", response_model=TicketStats)
@@ -220,28 +412,27 @@ async def get_my_ticket_stats(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """آمار تیکت‌های کاربر برای داشبورد"""
-    all_tickets = session.exec(select(Ticket).where(Ticket.user_id == user.id)).all()
+    tickets = session.exec(select(Ticket).where(Ticket.user_id == user.id)).all()
 
-    open_count = sum(1 for t in all_tickets if t.status == "open")
-    closed_count = sum(1 for t in all_tickets if t.status == "closed")
+    open_count = sum(ticket.status == "open" for ticket in tickets)
+    closed_count = sum(ticket.status == "closed" for ticket in tickets)
 
-    # پیام‌های خونده‌نشده (که ادمین فرستاده)
     unread_count = 0
-    for t in all_tickets:
-        msgs = session.exec(
-            select(TicketMessage)
-            .where(TicketMessage.ticket_id == t.id)
+    ticket_ids = [ticket.id for ticket in tickets]
+    if ticket_ids:
+        unread_count = session.exec(
+            select(func.count())
+            .select_from(TicketMessage)
+            .where(TicketMessage.ticket_id.in_(ticket_ids))
             .where(TicketMessage.is_admin == True)
             .where(TicketMessage.is_read == False)
-        ).all()
-        unread_count += len(msgs)
+        ).one()
 
     return TicketStats(
         open_count=open_count,
         closed_count=closed_count,
         unread_count=unread_count,
-        total_count=len(all_tickets),
+        total_count=len(tickets),
     )
 
 
@@ -251,22 +442,8 @@ async def get_my_ticket(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket or ticket.user_id != user.id:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
-
-    # علامت‌گذاری پیام‌های ادمین به عنوان خوانده‌شده
-    admin_msgs = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .where(TicketMessage.is_admin == True)
-        .where(TicketMessage.is_read == False)
-    ).all()
-    for m in admin_msgs:
-        m.is_read = True
-        session.add(m)
-    session.commit()
-
+    ticket = _get_owned_ticket(session, ticket_id, user)
+    _mark_messages_read(session, ticket.id, messages_from_admin=True)
     return _build_ticket_detail(session, ticket, user)
 
 
@@ -277,62 +454,29 @@ async def reply_to_my_ticket(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket or ticket.user_id != user.id:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _get_owned_ticket(session, ticket_id, user)
     if ticket.status == "closed":
         raise HTTPException(status_code=400, detail="این تیکت بسته شده است")
 
-        # ⬅️ چک ضد اسپم
-    last_msg = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .where(TicketMessage.sender_id == user.id)
-        .order_by(TicketMessage.created_at.desc())
-    ).first()
+    attachment_path, attachment_name = _validate_message_or_attachment(req)
+    _check_user_message_limits(session, ticket.id, user.id)
 
-    if last_msg:
-        time_diff = _utcnow() - last_msg.created_at
-        if time_diff < timedelta(seconds=3):
-            raise HTTPException(
-                status_code=429,
-                detail="لطفاً کمی صبر کنید. ارسال پیام متوالی مجاز نیست.",
-            )
-    # ⬅️ چک تعداد پیام‌های متوالی (حداکثر ۵ پیام بدون پاسخ ادمین)
-    recent_messages = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .order_by(TicketMessage.created_at.desc())
-        .limit(6)  # ۵ پیام کاربر + ۱ پیام ادمین
-    ).all()
-
-    consecutive_user_messages = 0
-    for msg in recent_messages:
-        if msg.is_admin:
-            break  # اگه به پیام ادمین رسیدیم، متوقف شو
-        consecutive_user_messages += 1
-
-    if consecutive_user_messages >= 10:
-        raise HTTPException(
-            status_code=429,
-            detail="شما ۵ پیام متوالی ارسال کرده‌اید. لطفاً تا پاسخ تیم پشتیبانی صبر کنید.",
-        )
-
-    msg = TicketMessage(
+    now = _utcnow()
+    message = TicketMessage(
         ticket_id=ticket.id,
         sender_id=user.id,
         is_admin=False,
-        message=req.message,
-        attachment_path=req.attachment_path,
-        attachment_name=req.attachment_name,
+        message=(req.message or "").strip(),
+        attachment_path=attachment_path,
+        attachment_name=attachment_name,
         is_read=False,
-        created_at=_utcnow(),
+        created_at=now,
     )
-    ticket.updated_at = _utcnow()
-    session.add(msg)
+    ticket.updated_at = now
+    session.add(message)
     session.add(ticket)
     session.commit()
-    session.refresh(msg)
+    session.refresh(message)
 
     try:
         from api.routers.admin_ws import notify_admins
@@ -346,25 +490,22 @@ async def reply_to_my_ticket(
                 "message": f"💬 پاسخ کاربر {user.phone} در تیکت #{ticket.id}",
             }
         )
-    except Exception as e:
-        logger.warning(f"[Tickets] WS notify failed: {e}")
+    except Exception as exc:
+        logger.warning("[Tickets] WebSocket notify failed: %s", exc)
 
     return TicketMessageRead(
-        id=msg.id,
-        sender_id=msg.sender_id,
-        is_admin=msg.is_admin,
-        message=msg.message,
-        attachment_path=msg.attachment_path,
-        attachment_name=msg.attachment_name,
-        is_read=msg.is_read,
-        created_at=msg.created_at,
+        id=message.id,
+        sender_id=message.sender_id,
+        is_admin=message.is_admin,
+        message=message.message,
+        attachment_path=message.attachment_path,
+        attachment_name=message.attachment_name,
+        is_read=message.is_read,
+        created_at=message.created_at,
         sender_name=user.full_name or user.phone,
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# آپلود فایل (کاربر)
-# ═══════════════════════════════════════════════════════════
 @router.post("/tickets/{ticket_id}/upload")
 async def upload_attachment(
     ticket_id: int,
@@ -372,10 +513,7 @@ async def upload_attachment(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """آپلود فایل (JPG/PNG، حداکثر ۵MB) به تیکت"""
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket or ticket.user_id != user.id:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _get_owned_ticket(session, ticket_id, user)
     if ticket.status == "closed":
         raise HTTPException(status_code=400, detail="تیکت بسته شده است")
 
@@ -383,9 +521,9 @@ async def upload_attachment(
     return {"ok": True, "path": path, "name": name}
 
 
-# ═══════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────
 # ادمین
-# ═══════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────
 @router.get("/admin/tickets", response_model=list[TicketRead])
 async def admin_list_tickets(
     status: str | None = None,
@@ -393,15 +531,13 @@ async def admin_list_tickets(
     session: Session = Depends(get_session),
 ):
     _require_admin(user)
-    stmt = select(Ticket).order_by(Ticket.updated_at.desc())
+    statement = select(Ticket)
     if status in ("open", "closed"):
-        stmt = (
-            select(Ticket)
-            .where(Ticket.status == status)
-            .order_by(Ticket.updated_at.desc())
-        )
-    tickets = session.exec(stmt).all()
-    return [_build_ticket_read(session, t, user) for t in tickets]
+        statement = statement.where(Ticket.status == status)
+    tickets = session.exec(
+        statement.order_by(Ticket.updated_at.desc(), Ticket.id.desc())
+    ).all()
+    return [_build_ticket_read(session, ticket, user) for ticket in tickets]
 
 
 @router.get("/admin/tickets/stats", response_model=TicketStats)
@@ -409,27 +545,26 @@ async def admin_ticket_stats(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """آمار کل تیکت‌ها برای ادمین"""
     _require_admin(user)
-    all_tickets = session.exec(select(Ticket)).all()
-    open_count = sum(1 for t in all_tickets if t.status == "open")
-    closed_count = sum(1 for t in all_tickets if t.status == "closed")
-
-    unread_count = 0
-    for t in all_tickets:
-        msgs = session.exec(
-            select(TicketMessage)
-            .where(TicketMessage.ticket_id == t.id)
-            .where(TicketMessage.is_admin == False)
-            .where(TicketMessage.is_read == False)
-        ).all()
-        unread_count += len(msgs)
+    total_count = session.exec(select(func.count()).select_from(Ticket)).one()
+    open_count = session.exec(
+        select(func.count()).select_from(Ticket).where(Ticket.status == "open")
+    ).one()
+    closed_count = session.exec(
+        select(func.count()).select_from(Ticket).where(Ticket.status == "closed")
+    ).one()
+    unread_count = session.exec(
+        select(func.count())
+        .select_from(TicketMessage)
+        .where(TicketMessage.is_admin == False)
+        .where(TicketMessage.is_read == False)
+    ).one()
 
     return TicketStats(
         open_count=open_count,
         closed_count=closed_count,
         unread_count=unread_count,
-        total_count=len(all_tickets),
+        total_count=total_count,
     )
 
 
@@ -440,22 +575,8 @@ async def admin_get_ticket(
     session: Session = Depends(get_session),
 ):
     _require_admin(user)
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
-
-    # علامت‌گذاری پیام‌های کاربر به عنوان خوانده‌شده
-    user_msgs = session.exec(
-        select(TicketMessage)
-        .where(TicketMessage.ticket_id == ticket.id)
-        .where(TicketMessage.is_admin == False)
-        .where(TicketMessage.is_read == False)
-    ).all()
-    for m in user_msgs:
-        m.is_read = True
-        session.add(m)
-    session.commit()
-
+    ticket = _ticket_or_404(session, ticket_id)
+    _mark_messages_read(session, ticket.id, messages_from_admin=False)
     return _build_ticket_detail(session, ticket, user)
 
 
@@ -467,37 +588,37 @@ async def admin_reply_to_ticket(
     session: Session = Depends(get_session),
 ):
     _require_admin(user)
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _ticket_or_404(session, ticket_id)
     if ticket.status == "closed":
         raise HTTPException(status_code=400, detail="این تیکت بسته شده است")
 
-    msg = TicketMessage(
+    attachment_path, attachment_name = _validate_message_or_attachment(req)
+    now = _utcnow()
+    message = TicketMessage(
         ticket_id=ticket.id,
         sender_id=user.id,
         is_admin=True,
-        message=req.message,
-        attachment_path=req.attachment_path,  # 🔴 جدید
-        attachment_name=req.attachment_name,  # 🔴 جدید
+        message=(req.message or "").strip(),
+        attachment_path=attachment_path,
+        attachment_name=attachment_name,
         is_read=False,
-        created_at=_utcnow(),
+        created_at=now,
     )
-    ticket.updated_at = _utcnow()
-    session.add(msg)
+    ticket.updated_at = now
+    session.add(message)
     session.add(ticket)
     session.commit()
-    session.refresh(msg)
+    session.refresh(message)
 
     return TicketMessageRead(
-        id=msg.id,
-        sender_id=msg.sender_id,
-        is_admin=msg.is_admin,
-        message=msg.message,
-        attachment_path=msg.attachment_path,
-        attachment_name=msg.attachment_name,
-        is_read=msg.is_read,
-        created_at=msg.created_at,
+        id=message.id,
+        sender_id=message.sender_id,
+        is_admin=message.is_admin,
+        message=message.message,
+        attachment_path=message.attachment_path,
+        attachment_name=message.attachment_name,
+        is_read=message.is_read,
+        created_at=message.created_at,
         sender_name=user.full_name or user.phone,
     )
 
@@ -509,19 +630,17 @@ async def admin_close_ticket(
     session: Session = Depends(get_session),
 ):
     _require_admin(user)
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _ticket_or_404(session, ticket_id)
     if ticket.status == "closed":
         raise HTTPException(status_code=400, detail="این تیکت قبلاً بسته شده است")
 
+    now = _utcnow()
     ticket.status = "closed"
-    ticket.closed_at = _utcnow()
+    ticket.closed_at = now
     ticket.closed_by = user.phone
-    ticket.updated_at = _utcnow()
+    ticket.updated_at = now
     session.add(ticket)
     session.commit()
-
     return {"ok": True, "message": "تیکت بسته شد"}
 
 
@@ -532,20 +651,13 @@ async def admin_upload_attachment(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """آپلود فایل توسط ادمین"""
     _require_admin(user)
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _ticket_or_404(session, ticket_id)
     if ticket.status == "closed":
         raise HTTPException(status_code=400, detail="تیکت بسته شده است")
 
     path, name = await _save_attachment(file)
     return {"ok": True, "path": path, "name": name}
-
-
-import os
-from pathlib import Path  # (اگه Path قبلا import نشده بود)
 
 
 @router.delete("/admin/tickets/{ticket_id}")
@@ -555,30 +667,30 @@ async def admin_delete_ticket(
     session: Session = Depends(get_session),
 ):
     _require_admin(user)
-    ticket = session.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="تیکت یافت نشد")
+    ticket = _ticket_or_404(session, ticket_id)
 
-    # ⬅️ ۱. پاک کردن فایل‌های پیوست
     messages = session.exec(
         select(TicketMessage).where(TicketMessage.ticket_id == ticket.id)
     ).all()
-    for m in messages:
-        if m.attachment_path:
-            file_path = Path(".") / m.attachment_path.lstrip("/")
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except:
-                    pass
 
-    # ⬅️ ۲. اول پیام‌ها رو پاک کن و کامیت کن
-    for m in messages:
-        session.delete(m)
-    session.commit()
+    # فایل‌ها فقط پس از حذف موفق رکوردها پاک می‌شوند؛ مسیرها نیز محدود شده‌اند.
+    attachment_paths = [
+        message.attachment_path for message in messages if message.attachment_path
+    ]
 
-    # ⬅️ ۳. بعد خود تیکت رو پاک کن
-    session.delete(ticket)
-    session.commit()
+    try:
+        for message in messages:
+            session.delete(message)
+        session.commit()
 
-    return {"ok": True, "message": "تیکت و پیوست‌ها برای همیشه حذف شدند."}
+        session.delete(ticket)
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception("[Tickets] Ticket deletion failed for ticket_id=%s", ticket_id)
+        raise HTTPException(status_code=500, detail="حذف تیکت انجام نشد")
+
+    for attachment_path in attachment_paths:
+        _safe_delete_attachment(attachment_path)
+
+    return {"ok": True, "message": "تیکت و پیوست‌های آن حذف شدند."}

@@ -589,6 +589,8 @@ def get_site_stats(
 
         overrides = session.exec(select(SiteStatsOverride)).all()
         override_dict = {o.key: o.value for o in overrides}
+        hidden_override = next((o for o in overrides if o.key == "is_hidden"), None)
+        is_hidden = hidden_override.is_hidden if hidden_override else False
 
     core = _compute_core_stats(rows)
     tp1_hits = sum(
@@ -785,6 +787,7 @@ def get_site_stats(
             "win_rate": manual_win is not None,
             "direction_accuracy": manual_direction is not None,
             "total_signals": manual_total is not None,
+            "is_hidden": is_hidden,  # 🔴 اضافه شد
         },
         "by_timeframe": {k: summarize(v) for k, v in by_tf.items()},
         "by_risk": {k: summarize(v) for k, v in by_risk.items()},

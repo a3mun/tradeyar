@@ -17,6 +17,7 @@ from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from services.payment_cleanup import cleanup_stale_zibal_payments
 
 # ایمپورت‌های پایه
 from api.config import settings
@@ -263,6 +264,11 @@ def main():
         id="auto_backup",
         max_instances=1,
         coalesce=True,
+    )
+
+    # توی بخش jobs:
+    scheduler.add_job(
+        cleanup_stale_zibal_payments, "interval", minutes=5, id="cleanup_zibal_payments"
     )
 
     logger.info("✅ Registered jobs: %s", [j.id for j in scheduler.get_jobs()])

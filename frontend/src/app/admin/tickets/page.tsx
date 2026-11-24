@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken, getUser } from "@/lib/auth";
@@ -9,9 +9,13 @@ import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { motion } from "framer-motion";
-import { ArrowRight, MessageSquare, Clock, Loader2, AlertCircle, CheckCircle2, Search, Inbox } from "lucide-react";
+import { ArrowRight, MessageSquare, Clock, Loader2, AlertCircle, CheckCircle2, Search, Inbox, RefreshCw } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+function getError(data: any) {
+  return typeof data?.detail === "string" ? data.detail : "دریافت اطلاعات تیکت‌ها ناموفق بود.";
+}
 
 export default function AdminTicketsPage() {
   const router = useRouter();
@@ -19,142 +23,90 @@ export default function AdminTicketsPage() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filter, setFilter] = useState<"open" | "closed">("open");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
       const [ticketsRes, statsRes] = await Promise.all([
-        fetch(`${apiUrl}/admin/tickets?status=${filter}`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${apiUrl}/admin/tickets/stats`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${apiUrl}/admin/tickets?status=${filter}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+        fetch(`${apiUrl}/admin/tickets/stats`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
       ]);
-      if (ticketsRes.ok) setTickets(await ticketsRes.json());
-      if (statsRes.ok) setStats(await statsRes.json());
-    } catch {}
-    setLoading(false);
-  };
+      const ticketsData = await ticketsRes.json().catch(() => []);
+      const statsData = await statsRes.json().catch(() => ({}));
+      if (!ticketsRes.ok) throw new Error(getError(ticketsData));
+      if (!statsRes.ok) throw new Error(getError(statsData));
+      setTickets(Array.isArray(ticketsData) ? ticketsData : []);
+      setStats(statsData);
+    } catch (err: any) {
+      setError(err?.message || "ارتباط با سرور برقرار نشد.");
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, token]);
 
   useEffect(() => {
-    const u = getUser();
-    if (!u || !u.is_admin) { router.replace("/login"); return; }
-    fetchData();
-  }, [filter, router]);
+    const user = getUser();
+    if (!user || !user.is_admin) {
+      router.replace("/login");
+      return;
+    }
+    void fetchData();
+  }, [fetchData, router]);
 
-  const filteredTickets = tickets.filter(t => 
-    (t.user_phone && t.user_phone.includes(searchQuery)) || 
-    (t.user_name && t.user_name.includes(searchQuery)) || 
-    (t.subject && t.subject.includes(searchQuery))
-  );
+  const filteredTickets = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase();
+    if (!query) return tickets;
+    return tickets.filter((ticket) =>
+      [ticket.user_phone, ticket.user_name, ticket.subject, ticket.last_message, String(ticket.id)]
+        .some((value) => String(value ?? "").toLocaleLowerCase().includes(query))
+    );
+  }, [tickets, searchQuery]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#030712] text-white">
+    <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#030811] text-white">
       <Header />
-      <main className="flex-1 container mx-auto p-4 py-8 max-w-5xl space-y-5">
-        
-        {/* ═══ هدر ═══ */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <main className="container mx-auto max-w-6xl flex-1 space-y-4 p-3 py-5 sm:p-5">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2 font-display">
-              <MessageSquare className="h-6 w-6 text-[#d6ad60]" /> مدیریت تیکت‌ها
-            </h1>
-            <p className="text-sm text-gray-400 mt-1">پاسخ به تیکت‌های کاربران</p>
+            <h1 className="flex items-center gap-2 font-display text-2xl font-extrabold tracking-tight sm:text-3xl"><MessageSquare className="h-6 w-6 text-[#d6ad60]" /> مدیریت تیکت‌ها</h1>
+            <p className="mt-1 text-sm text-gray-400">پاسخ‌گویی و پیگیری درخواست‌های کاربران</p>
           </div>
-          <Link href="/admin">
-            <Button variant="outline" className="gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white h-10">
-              پنل ادمین <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Link href="/admin"><Button variant="outline" className="h-10 gap-2 border-white/10 text-gray-300 hover:bg-white/5 hover:text-white">پنل ادمین <ArrowRight className="h-4 w-4" /></Button></Link>
         </div>
 
-        {/* ═══ کارت‌های آمار ═══ */}
-        {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><MessageSquare className="h-3.5 w-3.5" /> کل</div>
-              <p className="text-2xl font-bold text-gray-100">{stats.total_count}</p>
-            </div>
-            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><AlertCircle className="h-3.5 w-3.5" /> باز</div>
-              <p className="text-2xl font-bold text-gray-100">{stats.open_count}</p>
-            </div>
-            <div className="rounded-xl border border-white/5 bg-[#051118] p-4">
-              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2"><CheckCircle2 className="h-3.5 w-3.5" /> بسته</div>
-              <p className="text-2xl font-bold text-gray-100">{stats.closed_count}</p>
-            </div>
-            <div className={`rounded-xl border p-4 ${stats.unread_count > 0 ? "border-[#d6ad60]/20 bg-[#d6ad60]/5" : "border-white/5 bg-[#051118]"}`}>
-              <div className={`flex items-center gap-2 text-xs mb-2 ${stats.unread_count > 0 ? "text-[#d6ad60]/80" : "text-gray-500"}`}><MessageSquare className="h-3.5 w-3.5" /> خوانده‌نشده</div>
-              <p className={`text-2xl font-bold ${stats.unread_count > 0 ? "text-[#d6ad60]" : "text-gray-500"}`}>{stats.unread_count}</p>
-            </div>
-          </div>
-        )}
+        {stats && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-2xl border border-white/[0.09] bg-[#101923] p-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-all duration-200 hover:border-[#d6ad60]/25"><div className="mb-1 flex items-center gap-2 text-[11px] text-gray-500"><MessageSquare className="h-3.5 w-3.5" /> کل</div><p className="text-xl font-bold text-gray-100">{stats.total_count ?? 0}</p></div>
+          <div className="rounded-2xl border border-white/[0.09] bg-[#101923] p-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-all duration-200 hover:border-[#d6ad60]/25"><div className="mb-1 flex items-center gap-2 text-[11px] text-gray-500"><AlertCircle className="h-3.5 w-3.5" /> باز</div><p className="text-xl font-bold text-gray-100">{stats.open_count ?? 0}</p></div>
+          <div className="rounded-2xl border border-white/[0.09] bg-[#101923] p-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-all duration-200 hover:border-[#d6ad60]/25"><div className="mb-1 flex items-center gap-2 text-[11px] text-gray-500"><CheckCircle2 className="h-3.5 w-3.5" /> بسته</div><p className="text-xl font-bold text-gray-100">{stats.closed_count ?? 0}</p></div>
+          <div className={`rounded-2xl border p-3 shadow-[0_10px_28px_rgba(0,0,0,0.16)] ${stats.unread_count > 0 ? "border-[#d6ad60]/25 bg-[linear-gradient(135deg,rgba(214,173,96,0.12),rgba(8,19,33,0.95))]" : "border-white/10 bg-[#0a1727]"}`}><div className={`mb-2 flex items-center gap-2 text-xs ${stats.unread_count > 0 ? "text-[#d6ad60]/80" : "text-gray-500"}`}><MessageSquare className="h-3.5 w-3.5" /> خوانده‌نشده</div><p className={`text-2xl font-bold ${stats.unread_count > 0 ? "text-[#d6ad60]" : "text-gray-500"}`}>{stats.unread_count ?? 0}</p></div>
+        </div>}
 
-        {/* ═══ جستجو و فیلتر ═══ */}
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <Input 
-              placeholder="جستجوی شماره، نام یا موضوع..." 
-              value={searchQuery} 
-              onChange={(e) => setSearchQuery(e.target.value)} 
-              className="pr-10 bg-[#051118] border-white/10 text-white h-10 rounded-lg text-sm" 
-            />
-          </div>
-          <div className="flex gap-1 bg-[#051118] p-1 rounded-lg border border-white/5">
-            <Button 
-              variant={filter === "open" ? "default" : "ghost"} 
-              onClick={() => setFilter("open")} 
-              className={`h-8 text-xs ${filter === "open" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
-            >
-              باز
-            </Button>
-            <Button 
-              variant={filter === "closed" ? "default" : "ghost"} 
-              onClick={() => setFilter("closed")} 
-              className={`h-8 text-xs ${filter === "closed" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
-            >
-              بسته
-            </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1"><Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" /><Input placeholder="جستجوی شماره، نام، موضوع یا شناسه..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} className="h-10 rounded-lg border-white/10 bg-[#051118] pr-10 text-sm text-white" /></div>
+          <div className="flex gap-1 rounded-lg border border-white/5 bg-[#051118] p-1">
+            <Button variant={filter === "open" ? "default" : "ghost"} onClick={() => setFilter("open")} className={`h-8 text-xs ${filter === "open" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}>باز</Button>
+            <Button variant={filter === "closed" ? "default" : "ghost"} onClick={() => setFilter("closed")} className={`h-8 text-xs ${filter === "closed" ? "bg-[#d6ad60] text-[#101827] hover:bg-[#d6ad60]/90" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}>بسته</Button>
           </div>
         </div>
 
-        {/* ═══ لیست تیکت‌ها ═══ */}
-        {loading ? (
-          <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-[#d6ad60]" /></div>
-        ) : filteredTickets.length === 0 ? (
-          <div className="rounded-xl border border-white/5 bg-[#051118] p-16 text-center">
-            <Inbox className="h-12 w-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400">تیکتی با این مشخصات یافت نشد.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filteredTickets.map((t, idx) => (
-              <motion.div key={t.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.03 }}>
-                <Link href={`/admin/tickets/${t.id}`}>
-                  <div className="group flex items-center justify-between gap-4 rounded-xl border border-white/5 bg-[#051118] p-4 transition-all hover:border-[#d6ad60]/30 hover:bg-[#0a1526]">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                        <span className="text-[10px] text-gray-500 font-mono">#{t.id}</span>
-                        <span className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded font-mono text-gray-300">{t.user_phone}</span>
-                        {t.user_name && <span className="text-[10px] text-gray-300 font-bold">{t.user_name}</span>}
-                        {t.unread_count > 0 && (
-                          <span className="rounded bg-[#d6ad60]/15 text-[#d6ad60] text-[9px] font-bold px-1.5 py-0.5">{t.unread_count} جدید</span>
-                        )}
-                      </div>
-                      <h3 className="font-bold text-sm text-gray-100 truncate">{t.subject}</h3>
-                      <p className="text-xs text-gray-400 truncate mt-1">{t.last_message}</p>
-                      <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-500">
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(t.updated_at).toLocaleString("fa-IR")}</span>
-                        <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {t.messages_count} پیام</span>
-                      </div>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-gray-600 group-hover:text-[#d6ad60] transition-all group-hover:-translate-x-1" />
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        )}
+        {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300"><span>{error}</span><Button variant="outline" size="sm" onClick={() => void fetchData()} className="gap-2 border-red-500/20"><RefreshCw className="h-3.5 w-3.5" /> تلاش مجدد</Button></div>}
+
+        {loading ? <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-[#d6ad60]" /></div> :
+          filteredTickets.length === 0 ? <div className="rounded-3xl border border-white/10 bg-[linear-gradient(135deg,#112238,#071321)] p-12 text-center shadow-[0_16px_45px_rgba(0,0,0,0.2)] sm:p-16"><Inbox className="mx-auto mb-3 h-12 w-12 text-gray-600" /><p className="text-gray-400">{searchQuery ? "نتیجه‌ای برای جستجوی شما پیدا نشد." : "در این بخش تیکتی وجود ندارد."}</p></div> :
+          <div className="space-y-1.5">{filteredTickets.map((ticket, index) => <motion.div key={ticket.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(index * 0.02, 0.15) }}>
+            <Link href={`/admin/tickets/${ticket.id}`} className="group flex items-center justify-between gap-4 rounded-2xl border border-white/[0.09] bg-[#101923] p-3 shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#d6ad60]/30 hover:from-[#14243a] hover:to-[#091522]">
+              <div className="min-w-0 flex-1">
+                <div className="mb-1.5 flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-gray-500">#{ticket.id}</span><span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-gray-300">{ticket.user_phone}</span>{ticket.user_name && <span className="text-[10px] font-bold text-gray-300">{ticket.user_name}</span>}{ticket.unread_count > 0 && <span className="rounded bg-[#d6ad60]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#d6ad60]">{ticket.unread_count} جدید</span>}</div>
+                <h3 className="truncate text-sm font-bold text-gray-100">{ticket.subject}</h3><p className="mt-1 truncate text-xs text-gray-400">{ticket.last_message || "بدون پیام"}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-gray-500"><span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {ticket.updated_at ? new Date(ticket.updated_at).toLocaleString("fa-IR") : "—"}</span><span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {ticket.messages_count ?? 0} پیام</span></div>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-gray-600 transition-all group-hover:-translate-x-1 group-hover:text-[#d6ad60]" />
+            </Link>
+          </motion.div>)}</div>}
       </main>
       <Footer />
     </div>

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
+from datetime import datetime, timezone
 
 
 def _utcnow() -> datetime:
@@ -146,6 +147,8 @@ class PaymentRequest(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
     reviewed_at: Optional[datetime] = None
     plan_price_at_purchase: Optional[int] = None  # 🔴 فیلد جدید
+    zibal_track_id: Optional[str] = None  # 🔴 جدید: شناسه تراکنش زیبال
+    zibal_ref_id: Optional[str] = None    # 🔴 جدید: شماره پیگیری زیبال
 
 
 class Ticket(SQLModel, table=True):
@@ -207,14 +210,14 @@ class RefundRequest(SQLModel, table=True):
 
 
 class SiteStatsOverride(SQLModel, table=True):
-    """آمار نمایشی سایت — قابل override توسط ادمین."""
+    __tablename__ = "site_stats_overrides"
 
-    __tablename__ = "site_stats_override"
     id: Optional[int] = Field(default=None, primary_key=True)
-    key: str = Field(unique=True, index=True)
-    value: float = 0.0
-    updated_at: datetime = Field(default_factory=_utcnow)
+    key: str = Field(index=True, unique=True)
+    value: float = Field(default=0.0)
+    is_hidden: bool = Field(default=False)
     updated_by: Optional[str] = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SubscriptionLog(SQLModel, table=True):
