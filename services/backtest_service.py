@@ -728,13 +728,21 @@ def get_site_stats(
 
     legacy_by_strategy = {}
     for strat in ("scalp", "swing", "position"):
-        subset = [r for r in rows if (r.strategy or "swing") == strat]
+        # Normalize stored strategy values so capitalization/whitespace does not
+        # silently exclude otherwise valid records from the strategy breakdown.
+        subset = [
+            r for r in rows if str(r.strategy or "swing").strip().lower() == strat
+        ]
         c = _compute_core_stats(subset)
+        # The public frontend's Breakdown component consumes the same keys as
+        # timeframe/risk/confidence summaries. Keep the legacy fields below too
+        # because older clients may still depend on them.
+        strategy_summary = summarize(subset)
         legacy_by_strategy[strat] = {
+            **strategy_summary,
             "real_win_rate": c["win_rate"],
             "real_direction_accuracy": c["direction_accuracy"],
             "real_loss_rate": c["loss_rate"],
-            "total": c["total"],
             "win_rate": (
                 manual_value(f"win_rate_{strat}")
                 if manual_value(f"win_rate_{strat}") is not None

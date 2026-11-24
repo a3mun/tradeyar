@@ -91,6 +91,7 @@ def _add_missing_columns_sqlite(inspector, conn):
     """migration برای SQLite — ستون‌های جدید signallog."""
     if "signals_log" not in inspector.get_table_names():
         return
+
     existing_cols = {col["name"] for col in inspector.get_columns("signals_log")}
     new_columns = [
         ("rr_net", "REAL"),
@@ -144,7 +145,6 @@ def _add_missing_columns_sqlite(inspector, conn):
                     logger.debug(f"  - ستون users.{col_name}: {e}")
 
     # 🔴 فاز ۱۶.۶ — ستون‌های جدول payment_requests در SQLite
-
     if "payment_requests" in inspector.get_table_names():
         existing_pay_cols = {
             col["name"] for col in inspector.get_columns("payment_requests")
@@ -154,8 +154,8 @@ def _add_missing_columns_sqlite(inspector, conn):
             ("payment_time", "VARCHAR"),
             ("payment_method", "VARCHAR"),
             ("plan_price_at_purchase", "INTEGER"),
-            ("zibal_track_id", "VARCHAR"),  # 🔴 جدید
-            ("zibal_ref_id", "VARCHAR"),  # 🔴 جدید
+            ("zibal_track_id", "VARCHAR"),
+            ("zibal_ref_id", "VARCHAR"),
         ]
 
         for col_name, col_type in pay_new_columns:
@@ -169,6 +169,22 @@ def _add_missing_columns_sqlite(inspector, conn):
                     logger.info(f"  + ستون payment_requests.{col_name} اضافه شد")
                 except Exception as e:
                     logger.debug(f"  - ستون payment_requests.{col_name}: {e}")
+
+    # 🔴 فاز ۱۶.۷ — ستون is_hidden در جدول site_stats_overrides (SQLite)
+    if "site_stats_overrides" in inspector.get_table_names():
+        existing_stats_cols = {
+            col["name"] for col in inspector.get_columns("site_stats_overrides")
+        }
+        if "is_hidden" not in existing_stats_cols:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE site_stats_overrides ADD COLUMN is_hidden BOOLEAN DEFAULT FALSE"
+                    )
+                )
+                logger.info("  + ستون site_stats_overrides.is_hidden اضافه شد")
+            except Exception as e:
+                logger.debug(f"  - ستون site_stats_overrides.is_hidden: {e}")
 
     for col_name, col_type in new_columns:
         if col_name not in existing_cols:
@@ -237,7 +253,7 @@ def _add_missing_columns_postgres(inspector, conn):
         for col_name, col_type in [
             ("email", "VARCHAR"),
             ("hashed_password", "VARCHAR"),
-            ("last_seen_at", "TIMESTAMP"),  # ✅ اضافه شد
+            ("last_seen_at", "TIMESTAMP"),
         ]:
             if col_name not in cols:
                 try:
@@ -256,8 +272,8 @@ def _add_missing_columns_postgres(inspector, conn):
             ("payment_time", "VARCHAR"),
             ("payment_method", "VARCHAR"),
             ("plan_price_at_purchase", "INTEGER"),
-            ("zibal_track_id", "VARCHAR"),  # 🔴 جدید
-            ("zibal_ref_id", "VARCHAR"),  # 🔴 جدید
+            ("zibal_track_id", "VARCHAR"),
+            ("zibal_ref_id", "VARCHAR"),
         ]
         for col_name, col_type in pay_cols:
             if col_name not in cols:
@@ -269,6 +285,20 @@ def _add_missing_columns_postgres(inspector, conn):
                     )
                 except Exception:
                     pass
+
+    # 🔴 فاز ۱۶.۷ — ستون is_hidden در جدول site_stats_overrides (PostgreSQL)
+    if "site_stats_overrides" in existing_tables:
+        cols = {col["name"] for col in inspector.get_columns("site_stats_overrides")}
+        if "is_hidden" not in cols:
+            try:
+                conn.execute(
+                    text(
+                        "ALTER TABLE site_stats_overrides ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT FALSE"
+                    )
+                )
+                logger.info("  + ستون site_stats_overrides.is_hidden اضافه شد")
+            except Exception as e:
+                logger.debug(f"  - ستون site_stats_overrides.is_hidden: {e}")
 
 
 def migrate_db():

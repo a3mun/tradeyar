@@ -49,10 +49,10 @@ function count(value: number | undefined): string {
 
 // 🔴 رنگ‌بندی بر اساس درصد موفقیت
 function getBarColor(rate: number) {
-  if (rate < 20) return "bg-red-500";
-  if (rate < 30) return "bg-orange-500";
-  if (rate < 40) return "bg-yellow-500";
-  if (rate < 50) return "bg-green-500/60";
+  if (rate < 20) return "bg-green-500/60";
+  if (rate < 30) return "bg-green-500/70";
+  if (rate < 40) return "bg-green-500/80";
+  if (rate < 50) return "bg-green-500/90";
   return "bg-green-500";
 }
 
