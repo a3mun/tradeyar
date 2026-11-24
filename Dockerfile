@@ -16,7 +16,6 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until \
     && printf 'deb https://repo.abrha.net/debian trixie main contrib non-free\ndeb https://repo.abrha.net/debian trixie-updates main contrib non-free\ndeb https://repo.abrha.net/debian-security trixie-security main contrib non-free\n' > /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
