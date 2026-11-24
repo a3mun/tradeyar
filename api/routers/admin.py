@@ -917,78 +917,85 @@ async def delete_user(
 ):
     if admin.phone != MAIN_ADMIN_PHONE:
         raise HTTPException(status_code=403, detail="فقط مدیر اصلی")
+
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.phone == MAIN_ADMIN_PHONE:
         raise HTTPException(status_code=400, detail="نمی‌توانید ادمین اصلی را حذف کنید")
 
-    if hard_delete:
-        # ۱. تیکت‌ها و پیام‌های تیکت
-        user_tickets = session.exec(
-            select(Ticket).where(Ticket.user_id == user_id)
-        ).all()
-        ticket_ids = [t.id for t in user_tickets]
-
-        if ticket_ids:
-            for msg in session.exec(
-                select(TicketMessage).where(TicketMessage.ticket_id.in_(ticket_ids))
-            ).all():
-                session.delete(msg)
-            session.commit()
-
-            for t in user_tickets:
-                session.delete(t)
-            session.commit()
-
-        # ۲. اشتراک‌ها
-        for sub in session.exec(
-            select(Subscription).where(Subscription.user_id == user_id)
-        ).all():
-            session.delete(sub)
-
-        # ۳. پرداخت‌ها
-        for pay in session.exec(
-            select(PaymentRequest).where(PaymentRequest.user_id == user_id)
-        ).all():
-            session.delete(pay)
-
-        # ۴. توکن‌های اکستنشن
-        from api.models import ExtensionToken
-
-        for tok in session.exec(
-            select(ExtensionToken).where(ExtensionToken.user_id == user_id)
-        ).all():
-            session.delete(tok)
-
-        # ۵. لاگ دانلود اکستنشن
-        from api.models import ExtensionDownloadLog
-
-        for log in session.exec(
-            select(ExtensionDownloadLog).where(ExtensionDownloadLog.user_id == user_id)
-        ).all():
-            session.delete(log)
-
-        # ۶. درخواست‌های عودت وجه
-        for req in session.exec(
-            select(RefundRequest).where(RefundRequest.user_id == user_id)
-        ).all():
-            session.delete(req)
-
-        session.commit()
-
-        # ۷. در نهایت خود کاربر
-        session.delete(user)
-        session.commit()
-        return {
-            "ok": True,
-            "message": "کاربر و تمام داده‌های مرتبط حذف شدند (غیرقابل بازگشت).",
-        }
-    else:
+    if not hard_delete:
         user.is_active = False
         session.add(user)
         session.commit()
         return {"ok": True, "message": "کاربر غیرفعال شد (قابل بازگشت)."}
+
+    # حذف کامل در یک تراکنش؛ در صورت هر خطا همه تغییرات rollback می‌شوند.
+    from api.models import ExtensionToken
+
+    try:
+        # 1) وابستگی مستقیم RefundRequest به Subscription باید قبل از اشتراک حذف شود.
+        refund_requests = session.exec(
+            select(RefundRequest).where(RefundRequest.user_id == user_id)
+        ).all()
+        for item in refund_requests:
+            session.delete(item)
+
+        # 2) پیام‌های تیکت‌های متعلق به کاربر، سپس خود تیکت‌ها.
+        user_tickets = session.exec(
+            select(Ticket).where(Ticket.user_id == user_id)
+        ).all()
+        ticket_ids = [ticket.id for ticket in user_tickets if ticket.id is not None]
+
+        if ticket_ids:
+            ticket_messages = session.exec(
+                select(TicketMessage).where(TicketMessage.ticket_id.in_(ticket_ids))
+            ).all()
+            for message in ticket_messages:
+                session.delete(message)
+
+        # TicketMessage.sender_id نیز FK به users.id است.
+        # پیام‌هایی که این کاربر فرستاده، حتی اگر در تیکت دیگری باشند،
+        # نباید بعد از حذف کاربر باقی بمانند.
+        sent_messages = session.exec(
+            select(TicketMessage).where(TicketMessage.sender_id == user_id)
+        ).all()
+        sent_ids = {message.id for message in sent_messages}
+        for message in sent_messages:
+            session.delete(message)
+
+        for ticket in user_tickets:
+            session.delete(ticket)
+
+        # 3) سایر جدول‌های دارای FK به کاربر.
+        for model in (
+            Subscription,
+            PaymentRequest,
+            ExtensionToken,
+            ExtensionDownloadLog,
+            SubscriptionLog,
+        ):
+            records = session.exec(select(model).where(model.user_id == user_id)).all()
+            for record in records:
+                session.delete(record)
+
+        # اجرای DELETEها پیش از حذف کاربر و سپس commit واحد.
+        session.flush()
+        session.delete(user)
+        session.commit()
+
+        return {
+            "ok": True,
+            "message": "کاربر و تمام داده‌های وابسته با موفقیت حذف شدند.",
+        }
+
+    except Exception:
+        session.rollback()
+        logger.exception("Hard delete failed for user_id=%s", user_id)
+        raise HTTPException(
+            status_code=500,
+            detail="حذف کامل کاربر انجام نشد؛ تمام تغییرات برگشت داده شدند. لاگ سرور را بررسی کنید.",
+        )
 
 
 # ═══════════════════════════════════════════════════════════
