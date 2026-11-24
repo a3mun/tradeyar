@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, getToken, removeToken } from "@/lib/auth";
 import { Header } from "@/components/layout/Header";
@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import { 
   User as UserIcon, Wallet as WalletIcon, ShieldCheck, Lock as LockIcon, 
-  Clock as ClockIcon, History as HistoryIcon, Receipt as ReceiptIcon, 
+  Clock as ClockIcon, History as HistoryIcon, Receipt as ReceiptIcon, Activity, Server,
   Download as DownloadIcon, X as XIcon, ShieldAlert, Trash2, DollarSign, UserCheck 
 } from "lucide-react";
 import {  DialogClose } from "@/components/ui/dialog";
@@ -75,6 +75,7 @@ const getPlanNameFa = (plan: string) => {
     "بدون اشتراک": "بدون اشتراک",
     "نامحدود (مدیر)": "نامحدود (مدیر)",
     refund: "عودت وجه",
+    no_change: "بدون تغییر (فقط عودت وجه)",
   };
   return map[plan] || plan || "نامشخص";
 };
@@ -110,6 +111,8 @@ const statusDot = (status: string) => {
       return "bg-yellow-500 shadow-[0_0_8px_#eab308]";
     case "expired":
       return "bg-red-500 shadow-[0_0_8px_#ef4444]";
+    case "reserved":
+      return "bg-yellow-500 shadow-[0_0_8px_#eab308]";
     case "free":
       return "bg-red-500/60";
     case "admin":
@@ -154,6 +157,29 @@ const paymentStatusBadge = (s: string) => {
   }
 };
 
+function AdminPagination({ page, total, pageSize, onPageChange, onPageSizeChange }: {
+  page: number; total: number; pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#0b151f] px-3 py-2.5 text-xs">
+      <span className="text-gray-400">نمایش {((page - 1) * pageSize + 1).toLocaleString("fa-IR")} تا {Math.min(page * pageSize, total).toLocaleString("fa-IR")} از {total.toLocaleString("fa-IR")}</span>
+      <div className="flex items-center gap-2">
+        <label className="text-gray-500">تعداد در صفحه</label>
+        <select value={pageSize} onChange={(e) => { onPageSizeChange(Number(e.target.value)); onPageChange(1); }} className="h-8 rounded-md border border-white/10 bg-black/30 px-2 text-white">
+          {[10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="h-8 border-white/10">قبلی</Button>
+        <span className="min-w-[74px] text-center text-gray-300">صفحه {page.toLocaleString("fa-IR")} از {pages.toLocaleString("fa-IR")}</span>
+        <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => onPageChange(page + 1)} className="h-8 border-white/10">بعدی</Button>
+      </div>
+    </div>
+  );
+}
+
 type TabKey =
   | "users"
   | "payments"
@@ -195,6 +221,21 @@ const isUserOnline = (lastSeen: string | null) => {
   return (now - last) < 5 * 60 * 1000;
 };
 
+const formatBytes = (bytes: number | null | undefined) => {
+  if (bytes == null || !Number.isFinite(Number(bytes))) return "نامشخص";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = Number(bytes), unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+};
+
+const formatDuration = (seconds: number | null | undefined) => {
+  if (seconds == null) return "نامشخص";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  return days ? `${days} روز و ${hours} ساعت` : `${hours} ساعت و ${Math.floor((seconds % 3600) / 60)} دقیقه`;
+};
+
 
 export default function AdminPage() {
   const router = useRouter();
@@ -226,6 +267,7 @@ export default function AdminPage() {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userDetails, setUserDetails] = useState<any>(null);
+  const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [adjustDays, setAdjustDays] = useState<number>(0);
   const [basePrice, setBasePrice] = useState<number>(390000); // 🔴 قیمت پایه یک ماهه
@@ -277,15 +319,30 @@ export default function AdminPage() {
   const [txDetailLoading, setTxDetailLoading] = useState(false);
   const [newExpiryDate, setNewExpiryDate] = useState("");
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
-  const [refundNewPlan, setRefundNewPlan] = useState("no_change");
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundNote, setRefundNote] = useState("");
   const [refundLoading, setRefundLoading] = useState(false);
+  const [refundApprovalTarget, setRefundApprovalTarget] = useState<any>(null);
+  const [refundApprovalNote, setRefundApprovalNote] = useState("");
+  const [refundApprovalLoading, setRefundApprovalLoading] = useState(false);
+  const [pendingRefundCount, setPendingRefundCount] = useState(0);
+  const seenRefundIdsRef = useRef<Set<number> | null>(null);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPageSize, setUsersPageSize] = useState(20);
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [paymentsPageSize, setPaymentsPageSize] = useState(10);
+  const [transactionsPage, setTransactionsPage] = useState(1);
+  const [transactionsPageSize, setTransactionsPageSize] = useState(20);
+  const [refundsPage, setRefundsPage] = useState(1);
+  const [refundsPageSize, setRefundsPageSize] = useState(10);
 
   const [notifications, setNotifications] = useState<any[]>([]);
   const [backups, setBackups] = useState<any[]>([]);
   const [selectedBackups, setSelectedBackups] = useState<string[]>([]);
   const [backupLoading, setBackupLoading] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [systemHealthError, setSystemHealthError] = useState("");
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
   const token = getToken();
@@ -323,6 +380,23 @@ export default function AdminPage() {
     } catch {}
   };
 
+  const fetchSystemHealth = async (quiet = false) => {
+    if (!quiet) setSystemHealthLoading(true);
+    try {
+      const res = await fetch(`${apiUrl}/admin/system-health`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "دریافت وضعیت سیستم ناموفق بود");
+      setSystemHealth(data);
+      setSystemHealthError("");
+    } catch (err: any) {
+      setSystemHealthError(err.message || "ارتباط با سرویس مانیتورینگ برقرار نشد");
+    } finally {
+      if (!quiet) setSystemHealthLoading(false);
+    }
+  };
 
   
     const fetchStats = async () => {
@@ -518,7 +592,11 @@ const handleDeleteSub = async (subId: number) => {
     const detailsRes = await fetch(`${apiUrl}/admin/users/${selectedUser.id}/details`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (detailsRes.ok) setUserDetails(await detailsRes.json());
+    if (detailsRes.ok) {
+      const details = await detailsRes.json();
+      setUserDetails(details);
+      setSelectedSubscriptionId(String(details.subscriptions?.[0]?.id ?? ""));
+    }
   } catch (err: any) {
     alert(err.message);
   }
@@ -540,6 +618,13 @@ const handleDeleteSub = async (subId: number) => {
     fetchSiteStats();
   }, [apiUrl, token]);
       
+  useEffect(() => {
+    if (activeTab !== "tools") return;
+    fetchSystemHealth();
+    const timer = setInterval(() => fetchSystemHealth(true), 30000);
+    return () => clearInterval(timer);
+  }, [activeTab, apiUrl, token]);
+
   useEffect(() => {
     const u = getUser();
     if (!u || !u.is_admin) {
@@ -564,7 +649,7 @@ const handleDeleteSub = async (subId: number) => {
           setPayments(data.items || []);
           setPendingCount((data.items || []).length);
         }
-      } else if (activeTab === "transactions") {
+      } else if (activeTab === "transactions" || activeTab === "zibal") {
         const res = await fetch(`${apiUrl}/admin/all-transactions`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -598,7 +683,48 @@ const handleDeleteSub = async (subId: number) => {
     setNotifications((prev) => [n, ...prev].slice(0, 5));
     fetchData();
     if (n.type === "new_ticket" || n.type === "ticket_reply") fetchTicketStats();
+    if (n.type === "new_refund") {
+      if (n.id != null) {
+        if (seenRefundIdsRef.current === null) seenRefundIdsRef.current = new Set<number>();
+        seenRefundIdsRef.current.add(Number(n.id));
+      }
+      fetchStats();
+      fetch(`${apiUrl}/admin/refunds`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : null).then((d) => { if (d) setRefunds(d.items || []); }).catch(() => {});
+    }
   });
+
+  // پایش سبک درخواست‌های عودت؛ حتی اگر رویداد WebSocket سمت سرور ارسال نشود،
+  // درخواست تازه در پنل مدیر با اعلان و شمارنده مشخص می‌شود.
+  useEffect(() => {
+    let alive = true;
+    const checkRefunds = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/admin/refunds/notification-summary`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!alive) return;
+        const items = data.items || [];
+        setPendingRefundCount(Number(data.pending_count || 0));
+        const currentIds = new Set<number>(items.map((r: any) => Number(r.id)));
+        if (seenRefundIdsRef.current === null) {
+          seenRefundIdsRef.current = currentIds;
+        } else {
+          const fresh = items.filter((r: any) => !seenRefundIdsRef.current!.has(Number(r.id)));
+          if (fresh.length) {
+            setNotifications((prev) => [
+              ...fresh.slice(0, 3).map((r: any) => ({ type: "new_refund", message: `درخواست عودت جدید — ${Number(r.refund_amount || 0).toLocaleString("fa-IR")} تومان`, user_phone: r.user_phone, id: r.id })),
+              ...prev,
+            ].slice(0, 5));
+            fetchStats();
+          }
+          seenRefundIdsRef.current = currentIds;
+        }
+      } catch {}
+    };
+    checkRefunds();
+    const timer = setInterval(checkRefunds, 20000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [apiUrl, token, activeTab]);
 
   const dismissNotification = (idx: number) =>
     setNotifications((prev) => prev.filter((_, i) => i !== idx));
@@ -648,6 +774,16 @@ const handleDeleteSub = async (subId: number) => {
     );
   }, [transactions, txSearchQuery]);
 
+  const paginatedUsers = useMemo(() => sortedUsers.slice((usersPage - 1) * usersPageSize, usersPage * usersPageSize), [sortedUsers, usersPage, usersPageSize]);
+  const paginatedPayments = useMemo(() => payments.slice((paymentsPage - 1) * paymentsPageSize, paymentsPage * paymentsPageSize), [payments, paymentsPage, paymentsPageSize]);
+  const paginatedTransactions = useMemo(() => filteredTransactions.slice((transactionsPage - 1) * transactionsPageSize, transactionsPage * transactionsPageSize), [filteredTransactions, transactionsPage, transactionsPageSize]);
+  const paginatedRefunds = useMemo(() => refunds.slice((refundsPage - 1) * refundsPageSize, refundsPage * refundsPageSize), [refunds, refundsPage, refundsPageSize]);
+  const zibalTransactions = useMemo(() => transactions.filter((t) => t.payment_method === "zibal"), [transactions]);
+  const zibalApproved = useMemo(() => zibalTransactions.filter((t) => t.status === "approved"), [zibalTransactions]);
+  const zibalPending = useMemo(() => zibalTransactions.filter((t) => t.status === "pending"), [zibalTransactions]);
+  const zibalRejected = useMemo(() => zibalTransactions.filter((t) => t.status === "rejected"), [zibalTransactions]);
+  const zibalApprovedAmount = useMemo(() => zibalApproved.reduce((sum, t) => sum + Number(t.amount || 0), 0), [zibalApproved]);
+
   const requestSort = (key: string) => {
     let direction: "asc" | "desc" = "asc";
     if (
@@ -663,6 +799,8 @@ const handleDeleteSub = async (subId: number) => {
     setSelectedUser(u);
     setIsModalOpen(true);
     setUserDetails(null);
+    setExtStats(null);
+    setSelectedSubscriptionId("");
     setAdjustDays(0);
     setNewPasswordForUser("");
     try {
@@ -670,7 +808,10 @@ const handleDeleteSub = async (subId: number) => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (res.ok) setUserDetails(data);
+      if (res.ok) {
+        setUserDetails(data);
+        setSelectedSubscriptionId(String(data.subscriptions?.[0]?.id ?? ""));
+      }
 
       fetch(`${apiUrl}/admin/users/${u.id}/extension-stats`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -779,16 +920,29 @@ const handleDeleteSub = async (subId: number) => {
   };
 
   const handleAdjustDays = () => {
+    if (!selectedUser) return;
+    if (!selectedSubscriptionId && (userDetails?.subscriptions?.length || 0) > 0) {
+      alert("ابتدا اشتراک موردنظر را انتخاب کنید");
+      return;
+    }
+    if (!adjustDays) {
+      alert("تعداد روز باید غیرصفر باشد");
+      return;
+    }
     requestConfirm(
       "action",
-      `تعداد ${adjustDays} روز به اشتراک کاربر اضافه/کم شود؟`,
+      `تعداد ${adjustDays} روز به اشتراک شماره ${selectedSubscriptionId} اضافه/کم شود؟`,
       selectedUser.id,
-      `/admin/users/${selectedUser.id}/adjust-days?days=${adjustDays}&send_sms=${sendSmsDays}`
+      `/admin/users/${selectedUser.id}/adjust-days?days=${adjustDays}${selectedSubscriptionId ? `&sub_id=${selectedSubscriptionId}` : ""}&send_sms=${sendSmsDays}`
     );
   };
 
   const handleSetExpiryDate = async () => {
     if (!selectedUser || !newExpiryDate) return;
+    if (!selectedSubscriptionId && (userDetails?.subscriptions?.length || 0) > 0) {
+      alert("ابتدا اشتراک موردنظر را انتخاب کنید");
+      return;
+    }
     if (!/^\d{4}\/\d{2}\/\d{2}$/.test(newExpiryDate)) {
       alert("فرمت تاریخ باید به صورت ۱۴۰۵/۰۸/۱۷ باشد");
       return;
@@ -805,7 +959,8 @@ const handleDeleteSub = async (subId: number) => {
         },
         body: JSON.stringify({
           new_date_jalali: newExpiryDate,
-          send_sms: sendSmsDays,  // 🔴 این خط مهمه
+          send_sms: sendSmsDays,
+          sub_id: selectedSubscriptionId ? Number(selectedSubscriptionId) : null,
         }),
       });
 
@@ -814,7 +969,12 @@ const handleDeleteSub = async (subId: number) => {
 
       alert(data.message || "تاریخ با موفقیت تغییر کرد");
       setNewExpiryDate("");
-      // رفرش اطلاعات کاربر
+      // Refresh both the user list and the selected user's subscription history.
+      const detailsRes = await fetch(
+        `${apiUrl}/admin/users/${selectedUser.id}/details`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (detailsRes.ok) setUserDetails(await detailsRes.json());
       await fetchData();
       
     } catch (err: any) {
@@ -1064,6 +1224,15 @@ const handleDeleteSub = async (subId: number) => {
   };
 
   const handleCreateRefund = async () => {
+    if (!selectedUser) return;
+    if (!selectedSubscriptionId) {
+      alert("ابتدا اشتراک موردنظر برای عودت را انتخاب کنید");
+      return;
+    }
+    if (refundAmount <= 0) {
+      alert("مبلغ عودت باید بیشتر از صفر باشد");
+      return;
+    }
     setRefundLoading(true);
     try {
       const res = await fetch(
@@ -1075,7 +1244,8 @@ const handleDeleteSub = async (subId: number) => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            new_plan: refundNewPlan,
+            sub_id: Number(selectedSubscriptionId),
+            new_plan: "no_change",
             refund_amount: refundAmount,
             admin_note: refundNote || undefined,
           }),
@@ -1091,6 +1261,34 @@ const handleDeleteSub = async (subId: number) => {
       alert(err.message);
     } finally {
       setRefundLoading(false);
+    }
+  };
+
+  const handleApproveRefund = async () => {
+    if (!refundApprovalTarget || refundApprovalLoading) return;
+    setRefundApprovalLoading(true);
+    try {
+      const res = await fetch(
+        `${apiUrl}/admin/refunds/${refundApprovalTarget.id}/approve`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ admin_note: refundApprovalNote.trim() }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "تایید عودت ناموفق بود");
+      setRefundApprovalTarget(null);
+      setRefundApprovalNote("");
+      alert(data.message);
+      fetchData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setRefundApprovalLoading(false);
     }
   };
 
@@ -1129,16 +1327,17 @@ const handleDeleteSub = async (subId: number) => {
               initial={{ opacity: 0, x: 50 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 50 }}
-              className="pointer-events-auto flex items-start gap-3 rounded-xl border border-[#d6ad60]/40 bg-[#0b151f] p-4 shadow-lg backdrop-blur-sm"
+              onClick={() => { if (n.type === "new_refund") setActiveTab("refunds"); }}
+              className={`pointer-events-auto flex items-start gap-3 rounded-xl border bg-[#0b151f] p-4 shadow-lg backdrop-blur-sm ${n.type === "new_refund" ? "cursor-pointer border-purple-400/60 shadow-purple-950/40" : "border-[#d6ad60]/40"}`}
             >
               <div
                 className={`rounded-lg p-2 ${
-                  n.type === "new_user" ? "bg-blue-500/20" : "bg-[#d6ad60]/20"
+                  n.type === "new_refund" ? "bg-purple-500/20" : n.type === "new_user" ? "bg-blue-500/20" : "bg-[#d6ad60]/20"
                 }`}
               >
                 <Bell
                   className={`h-5 w-5 ${
-                    n.type === "new_user" ? "text-blue-400" : "text-[#d6ad60]"
+                    n.type === "new_refund" ? "text-purple-300" : n.type === "new_user" ? "text-blue-400" : "text-[#d6ad60]"
                   }`}
                 />
               </div>
@@ -1374,7 +1573,8 @@ const handleDeleteSub = async (subId: number) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8 }}
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-[#0b151f] p-3 text-right shadow-sm sm:gap-4 sm:p-4"
+            onClick={() => setActiveTab("refunds")}
+            className="flex cursor-pointer items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-950/20 p-3 text-right shadow-sm transition hover:border-purple-400/60 sm:gap-4 sm:p-4"
           >
             <div className="rounded-xl bg-yellow-500/10 p-2 text-yellow-400 sm:p-3">
               <Hourglass className="h-4 w-4 sm:h-6 sm:w-6" />
@@ -1384,7 +1584,7 @@ const handleDeleteSub = async (subId: number) => {
                 درخواست‌های عودت
               </p>
               <p className="text-lg font-bold text-white sm:text-xl">
-                {stats?.pending_refunds || 0}
+                {Math.max(pendingRefundCount, stats?.pending_refunds || 0)}
                 <span className="mr-1 text-[8px] text-gray-500 sm:text-[10px]">
                   مورد
                 </span>
@@ -1468,10 +1668,11 @@ const handleDeleteSub = async (subId: number) => {
             >
               <RefreshCw className="h-4 w-4" />
               <span className="hidden sm:inline">عودت‌ها</span>
+              {pendingRefundCount > 0 && <span className="absolute -top-1 -left-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-purple-500 px-1 text-[9px] font-bold text-white shadow-[0_0_12px_rgba(168,85,247,0.55)]">{pendingRefundCount > 99 ? "99+" : pendingRefundCount}</span>}
             </Button>
             <Button
               variant="ghost"
-              onClick={() => setActiveTab("zibal")}
+              onClick={() => { setTransactionsPage(1); setActiveTab("zibal"); }}
               className={`shrink-0 gap-2 ${
                 activeTab === "zibal"
                   ? "bg-[#d6ad60] text-[#101827]"
@@ -1480,9 +1681,6 @@ const handleDeleteSub = async (subId: number) => {
             >
               <Wallet className="h-4 w-4" />
               <span className="hidden sm:inline">زیبال</span>
-              <span className="rounded bg-yellow-500/20 px-1 text-[8px] text-yellow-400">
-                به زودی
-              </span>
             </Button>
 
             <Link href="/admin/tickets">
@@ -1548,13 +1746,13 @@ const handleDeleteSub = async (subId: number) => {
                   <Input
                     placeholder="جستجوی شماره یا نام..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => { setSearchQuery(e.target.value); setUsersPage(1); }}
                     className="h-11 rounded-xl border-white/10 bg-[#0b151f] pl-4 pr-10 text-white"
                   />
                 </div>
                 <select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  onChange={(e) => { setStatusFilter(e.target.value as any); setUsersPage(1); }}
                   className="h-11 rounded-xl border border-white/10 bg-[#0b151f] px-4 text-sm text-white"
                 >
                   <option value="all">همه ({usersList.length})</option>
@@ -1665,7 +1863,7 @@ const handleDeleteSub = async (subId: number) => {
                         </td>
                       </tr>
                     ) : (
-                      sortedUsers.map((u) => (
+                      paginatedUsers.map((u) => (
                         <tr
                           key={u.id}
                           className="transition-colors hover:bg-[#0b151f]"
@@ -1750,6 +1948,7 @@ const handleDeleteSub = async (subId: number) => {
                 </table>
               </div>
             )}
+            <AdminPagination page={usersPage} total={sortedUsers.length} pageSize={usersPageSize} onPageChange={setUsersPage} onPageSizeChange={setUsersPageSize} />
           </div>
         )}
 
@@ -1763,7 +1962,7 @@ const handleDeleteSub = async (subId: number) => {
                 هیچ درخواستی نیست.
               </div>
             ) : (
-              payments.map((p) => (
+              paginatedPayments.map((p) => (
                 <motion.div
                   key={p.id}
                   initial={{ opacity: 0, y: 10 }}
@@ -1835,6 +2034,7 @@ const handleDeleteSub = async (subId: number) => {
                 </motion.div>
               ))
             )}
+            <AdminPagination page={paymentsPage} total={payments.length} pageSize={paymentsPageSize} onPageChange={setPaymentsPage} onPageSizeChange={setPaymentsPageSize} />
           </div>
         )}
 
@@ -1847,7 +2047,7 @@ const handleDeleteSub = async (subId: number) => {
                 <Input
                   placeholder="جستجو در شماره، پلن، وضعیت، روش پرداخت..."
                   value={txSearchQuery}
-                  onChange={(e) => setTxSearchQuery(e.target.value)}
+                  onChange={(e) => { setTxSearchQuery(e.target.value); setTransactionsPage(1); }}
                   className="h-11 rounded-xl border-white/10 bg-[#0b151f] pl-4 pr-10 text-white"
                 />
               </div>
@@ -1888,7 +2088,7 @@ const handleDeleteSub = async (subId: number) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {filteredTransactions.map((t) => {
+                    {paginatedTransactions.map((t) => {
                       const st = paymentStatusBadge(t.status);
                       const MethodIcon =
                         t.payment_method === "zibal"
@@ -1912,7 +2112,12 @@ const handleDeleteSub = async (subId: number) => {
                           <td
                             className={`px-3 py-3 text-xs ${isRefund ? "font-bold text-purple-400" : "text-gray-300"}`}
                           >
-                            {getPlanNameFa(t.plan)}
+                            <div className="flex flex-col items-start gap-1">
+                              <span>{getPlanNameFa(t.plan)}</span>
+                              {t.payment_method === "refund" && (
+                                <span className="rounded-md border border-purple-500/25 bg-purple-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-purple-300">عودت وجه توسط مدیر</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-3">
                             <span className="inline-flex items-center gap-1 text-[10px] text-gray-300">
@@ -1965,6 +2170,7 @@ const handleDeleteSub = async (subId: number) => {
                 </table>
               </div>
             )}
+            <AdminPagination page={transactionsPage} total={filteredTransactions.length} pageSize={transactionsPageSize} onPageChange={setTransactionsPage} onPageSizeChange={setTransactionsPageSize} />
           </div>
         )}
 
@@ -1978,12 +2184,12 @@ const handleDeleteSub = async (subId: number) => {
                 هیچ درخواست عودتی نیست.
               </div>
             ) : (
-              refunds.map((r) => (
+              paginatedRefunds.map((r) => (
                 <motion.div
                   key={r.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="flex flex-col items-start justify-between gap-3 rounded-xl border border-purple-500/30 bg-[#0b151f] p-4 shadow-lg md:flex-row md:items-center"
+                  className={`flex flex-col items-start justify-between gap-3 rounded-xl border bg-[#0b151f] p-4 shadow-lg md:flex-row md:items-center ${r.status === "pending" ? "border-purple-400/70 bg-purple-950/20 shadow-purple-950/30 ring-1 ring-purple-500/20" : "border-purple-500/20"}`}
                 >
                   <div className="w-full min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1992,6 +2198,17 @@ const handleDeleteSub = async (subId: number) => {
                       </div>
                       <span className="dir-ltr font-mono text-sm font-bold text-white">
                         {r.user_phone}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-mono text-gray-300" dir="ltr">
+                        {r.reference_code || `RF-${String(r.id).padStart(6, "0")}`}
+                      </span>
+                      {r.subscription_id && (
+                        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-mono text-blue-300" dir="ltr">
+                          SUB-{String(r.subscription_id).padStart(6, "0")}
+                        </span>
+                      )}
+                      <span className="rounded-full border border-purple-500/25 bg-purple-500/10 px-2 py-0.5 text-[10px] font-bold text-purple-300">
+                        درخواست عودت وجه توسط کاربر
                       </span>
                       <span className="rounded-full bg-[#d6ad60]/10 px-2 py-0.5 text-[10px] font-bold text-[#d6ad60]">
                         {getPlanNameFa(r.old_plan)} → {getPlanNameFa(r.new_plan)}
@@ -2028,7 +2245,7 @@ const handleDeleteSub = async (subId: number) => {
                     </div>
                     {r.admin_note && (
                       <div className="rounded border border-yellow-500/20 bg-yellow-500/10 p-1.5 text-[10px] text-yellow-400">
-                        <b>توضیحات:</b> {r.admin_note}
+                        <b>توضیح ثبت اولیه:</b> {r.admin_note}
                       </div>
                     )}
                   </div>
@@ -2038,12 +2255,8 @@ const handleDeleteSub = async (subId: number) => {
                       <Button
                         size="sm"
                         onClick={() => {
-                          setConfirmAction({
-                            type: "action",
-                            message: "تایید عودت وجه؟",
-                            endpoint: `/admin/refunds/${r.id}/approve`,
-                          });
-                          setIsConfirmOpen(true);
+                          setRefundApprovalTarget(r);
+                          setRefundApprovalNote("");
                         }}
                         className="h-8 flex-1 gap-1 bg-purple-600 text-xs text-white hover:bg-purple-700 md:flex-none"
                       >
@@ -2069,26 +2282,27 @@ const handleDeleteSub = async (subId: number) => {
                 </motion.div>
               ))
             )}
+            <AdminPagination page={refundsPage} total={refunds.length} pageSize={refundsPageSize} onPageChange={setRefundsPage} onPageSizeChange={setRefundsPageSize} />
           </div>
         )}
 
-        {/* ═══ تب zibal ═══ */}
+        {/* ═══ تب زیبال: گزارش و جمع‌بندی تراکنش‌های درگاه ═══ */}
         {activeTab === "zibal" && (
-          <div className="rounded-xl border border-dashed border-white/10 bg-[#0b151f] p-10 text-center">
-            <Wallet className="mx-auto mb-3 h-12 w-12 text-gray-500" />
-            <h3 className="mb-2 text-lg font-bold text-white">
-              اتصال به درگاه زیبال
-            </h3>
-            <p className="mx-auto mb-4 max-w-md text-xs leading-relaxed text-gray-400">
-              این تب برای بررسی و تطبیق تراکنش‌های درگاه زیبال با سیستم است. پس از
-              راه‌اندازی درگاه، تراکنش‌ها به‌طور خودکار اینجا نمایش داده می‌شوند.
-            </p>
-            <div className="inline-flex items-center gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-1.5">
-              <Clock className="h-3.5 w-3.5 text-yellow-400" />
-              <span className="text-[10px] font-bold text-yellow-400">
-                در حال توسعه
-              </span>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div><h3 className="text-sm font-bold text-white">گزارش تراکنش‌های زیبال</h3><p className="mt-1 text-[10px] text-gray-500">اطلاعات از تراکنش‌های ثبت‌شده در سیستم خوانده می‌شود؛ این گزارش جایگزین تسویه‌حساب رسمی در پنل زیبال نیست.</p></div>
+              <Button variant="outline" size="sm" onClick={() => fetchData()} className="h-8 gap-2 border-white/10 text-gray-300"><RotateCcw className="h-3.5 w-3.5"/> بروزرسانی</Button>
             </div>
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              {[{label:"کل تراکنش‌های زیبال",value:zibalTransactions.length,unit:"تراکنش"},{label:"موفق / تاییدشده",value:zibalApproved.length,unit:"تراکنش"},{label:"در انتظار بررسی",value:zibalPending.length,unit:"تراکنش"},{label:"ردشده",value:zibalRejected.length,unit:"تراکنش"}].map((item) => (
+                <div key={item.label} className="rounded-xl border border-white/10 bg-[#0b151f] p-4"><p className="text-[10px] text-gray-400">{item.label}</p><p className="mt-2 text-xl font-bold text-white">{item.value.toLocaleString("fa-IR")} <span className="text-[10px] font-normal text-gray-500">{item.unit}</span></p></div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4"><p className="text-[10px] text-emerald-300">مجموع مبالغ تراکنش‌های تاییدشده زیبال (ناخالص)</p><p className="mt-1 text-2xl font-bold text-white">{zibalApprovedAmount.toLocaleString("fa-IR")} <span className="text-xs font-normal text-gray-400">تومان</span></p><p className="mt-1 text-[10px] text-gray-500">کارمزد، مبلغ تسویه‌شده و مغایرت بانکی در داده‌های موجود ثبت نشده‌اند و در این عدد کسر نشده‌اند.</p></div>
+            {zibalTransactions.length === 0 ? <div className="rounded-xl border border-white/10 bg-[#0b151f] py-10 text-center text-gray-400">تراکنشی با روش پرداخت زیبال ثبت نشده است.</div> : (
+              <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0b151f]"><table className="w-full text-right text-sm"><thead className="text-gray-400"><tr><th className="px-3 py-3">شناسه</th><th className="px-3 py-3">کاربر</th><th className="px-3 py-3">مبلغ</th><th className="px-3 py-3">وضعیت</th><th className="px-3 py-3">کد پیگیری زیبال</th><th className="px-3 py-3">تاریخ</th><th className="px-3 py-3">جزئیات</th></tr></thead><tbody className="divide-y divide-white/5">{zibalTransactions.slice((transactionsPage - 1) * transactionsPageSize, transactionsPage * transactionsPageSize).map((t) => { const st = paymentStatusBadge(t.status); return <tr key={t.id}><td className="px-3 py-3 font-mono text-xs" dir="ltr">{t.id}</td><td className="px-3 py-3 font-mono text-xs" dir="ltr">{t.user_phone}</td><td className="px-3 py-3 text-xs font-bold">{Number(t.amount || 0).toLocaleString("fa-IR")} تومان</td><td className="px-3 py-3"><span className={`rounded-full border px-2 py-0.5 text-[10px] ${st.color}`}>{st.text}</span></td><td className="px-3 py-3 font-mono text-xs" dir="ltr">{t.zibal_track_id || t.zibal_ref_id || "—"}</td><td className="px-3 py-3 text-[10px] text-gray-400">{formatFaDateTime(t.created_at)}</td><td className="px-3 py-3"><Button size="sm" variant="outline" onClick={() => openTxDetail(t)} className="h-7 border-white/10 text-[10px]">مشاهده</Button></td></tr>; })}</tbody></table></div>
+            )}
+            <AdminPagination page={transactionsPage} total={zibalTransactions.length} pageSize={transactionsPageSize} onPageChange={setTransactionsPage} onPageSizeChange={setTransactionsPageSize} />
           </div>
         )}
 
@@ -2243,26 +2457,87 @@ const handleDeleteSub = async (subId: number) => {
                 </Button>
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm backdrop-blur-sm">
-              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
-                <Wrench className="h-4 w-4" /> ابزارهای مدیریت (به‌زودی)
-              </h3>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {[
-                  "پاکسازی کش",
-                  "بازسازی آمار",
-                  "ارسال پیام",
-                  "واچ‌لیست",
-                  "گزارش مالی",
-                  "لاگ ادمین",
-                ].map((t, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-lg border border-white/5 bg-[#0b151f] p-2 text-center opacity-40"
-                  >
-                    <p className="text-[10px] text-gray-400">{t}</p>
+            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-[#d6ad60]">
+                    <Activity className="h-4 w-4" /> مرکز پایش سلامت TradeMun
+                  </h3>
+                  <p className="mt-1 text-[10px] text-gray-500">اطلاعات فقط‌خواندنی؛ بروزرسانی خودکار هر ۳۰ ثانیه</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => fetchSystemHealth()} disabled={systemHealthLoading} className="h-8 gap-2 border-white/10 text-xs">
+                  <RefreshCw className={`h-3.5 w-3.5 ${systemHealthLoading ? "animate-spin" : ""}`} /> بروزرسانی
+                </Button>
+              </div>
+              {systemHealthError && (
+                <div className="mb-3 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{systemHealthError}</div>
+              )}
+              {!systemHealth && systemHealthLoading ? (
+                <div className="py-8 text-center text-xs text-gray-500">در حال دریافت اطلاعات سیستم...</div>
+              ) : systemHealth ? (
+                <>
+                  <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    {[
+                      { key: "api", label: "API", value: systemHealth.checks?.api?.ok, detail: "سرویس فعلی" },
+                      { key: "database", label: "دیتابیس", value: systemHealth.checks?.database?.ok, detail: systemHealth.checks?.database?.ok ? "پاسخ SELECT 1 موفق" : "اتصال ناموفق" },
+                      { key: "disk", label: "فضای دیسک", value: systemHealth.checks?.disk?.ok, detail: `${formatBytes(systemHealth.disk?.free_bytes)} آزاد` },
+                      { key: "backup", label: "بک‌آپ", value: systemHealth.checks?.backup?.ok, detail: systemHealth.backups?.latest_name ? `آخرین بک‌آپ: ${formatDuration(systemHealth.backups?.latest_age_seconds)}` : "بک‌آپ ثبت نشده" },
+                    ].map((item) => (
+                      <div key={item.key} className={`rounded-lg border p-3 ${item.value ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/20 bg-amber-500/5"}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-white">{item.label}</span>
+                          <span className={`h-2 w-2 rounded-full ${item.value ? "bg-emerald-400" : "bg-amber-400"}`} />
+                        </div>
+                        <p className={`mt-2 text-[11px] font-semibold ${item.value ? "text-emerald-300" : "text-amber-300"}`}>{item.value ? "سالم" : "نیازمند بررسی"}</p>
+                        <p className="mt-1 truncate text-[9px] text-gray-500">{item.detail}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+                      <div className="mb-3 flex items-center gap-2 text-xs font-bold text-gray-200"><Server className="h-4 w-4 text-blue-300"/> منابع محیط اجرا</div>
+                      <div className="space-y-3 text-[10px]">
+                        <div>
+                          <div className="mb-1 flex justify-between gap-2 text-gray-400"><span>حافظه {systemHealth.memory?.scope === "container" ? "(کانتینر)" : "(میزبان)"}</span><span className="text-white">{systemHealth.memory?.percent == null ? "نامشخص" : `${systemHealth.memory.percent}٪`} · {formatBytes(systemHealth.memory?.used_bytes)} / {formatBytes(systemHealth.memory?.limit_bytes)}</span></div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-sky-400" style={{width: `${Math.min(100, Math.max(0, Number(systemHealth.memory?.percent || 0)))}%`}} /></div>
+                        </div>
+                        <div>
+                          <div className="mb-1 flex justify-between gap-2 text-gray-400"><span>فضای دیسک محیط API</span><span className="text-white">{systemHealth.disk?.percent ?? "—"}٪ · {formatBytes(systemHealth.disk?.free_bytes)} آزاد</span></div>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-violet-400" style={{width: `${Math.min(100, Math.max(0, Number(systemHealth.disk?.percent || 0)))}%`}} /></div>
+                        </div>
+                        <div className="flex flex-wrap justify-between gap-2 text-gray-400"><span>مصرف حافظه پردازش API</span><b className="text-white">{formatBytes(systemHealth.process?.rss_bytes)}</b></div>
+                        <div className="flex flex-wrap justify-between gap-2 text-gray-400"><span>تعداد هسته قابل مشاهده</span><b className="text-white">{systemHealth.host?.cpu_count ?? "—"}</b></div>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+                      <div className="mb-3 flex items-center gap-2 text-xs font-bold text-gray-200"><Clock className="h-4 w-4 text-amber-300"/> وضعیت و نگهداری</div>
+                      <div className="space-y-2 text-[10px]">
+                        <div className="flex justify-between gap-2 text-gray-400"><span>مدت روشن بودن میزبان</span><b className="text-white">{formatDuration(systemHealth.host?.uptime_seconds)}</b></div>
+                        <div className="flex justify-between gap-2 text-gray-400"><span>Load average (۱ / ۵ / ۱۵ دقیقه)</span><b className="text-white" dir="ltr">{systemHealth.host?.load_average?.map((v: number) => v.toFixed(2)).join(" / ") || "—"}</b></div>
+                        <div className="flex justify-between gap-2 text-gray-400"><span>حالت تعمیرات</span><b className={systemHealth.maintenance ? "text-red-300" : "text-emerald-300"}>{systemHealth.maintenance ? "فعال" : "غیرفعال"}</b></div>
+                        <div className="flex justify-between gap-2 text-gray-400"><span>تعداد بک‌آپ‌ها</span><b className="text-white">{Number(systemHealth.backups?.count || 0).toLocaleString("fa-IR")}</b></div>
+                        <div className="flex justify-between gap-2 text-gray-400"><span>حجم کل بک‌آپ‌ها</span><b className="text-white">{formatBytes(systemHealth.backups?.total_bytes)}</b></div>
+                        <div className="border-t border-white/5 pt-2 text-gray-500">آخرین بررسی: {formatFaDateTime(systemHealth.checked_at)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-3 rounded-lg border border-sky-500/10 bg-sky-500/5 p-2 text-[9px] leading-5 text-sky-200/70">{systemHealth.scope_note}</p>
+                </>
+              ) : (
+                <div className="py-6 text-center text-xs text-gray-500">اطلاعات پایش در دسترس نیست.</div>
+              )}
+            </div>
+            <div className="rounded-xl border border-white/10 bg-[#0b151f] p-4 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-[#d6ad60]"><Wrench className="h-4 w-4"/> ابزارهای عملیاتی امن</h3>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+                  <p className="text-xs font-semibold text-white">بررسی اتصال دیتابیس</p>
+                  <p className="mt-1 text-[10px] text-gray-500">در هر بار بروزرسانی، کوئری سبک SELECT 1 اجرا می‌شود.</p>
+                </div>
+                <div className="rounded-lg border border-white/5 bg-black/20 p-3">
+                  <p className="text-xs font-semibold text-white">کنترل بک‌آپ</p>
+                  <p className="mt-1 text-[10px] text-gray-500">سن آخرین فایل بک‌آپ و فضای اشغال‌شده در همین بخش نمایش داده می‌شود.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -2619,9 +2894,9 @@ const handleDeleteSub = async (subId: number) => {
             <ShieldCheck className="h-4 w-4" /> مدیریت اشتراک
           </h3>
           
-          <div className="space-y-4">
-            {/* ردیف اول: تغییر پلن */}
-            <div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {/* کارت اول: تغییر پلن */}
+            <div className="rounded-xl border border-white/5 bg-black/15 p-3">
               <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر/ رزرو  پلن:</h4>
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" className="h-8 border-white/10 text-gray-300 hover:bg-[#0b151f] hover:text-white text-xs" onClick={() => handleChangePlan("free")}>
@@ -2639,8 +2914,25 @@ const handleDeleteSub = async (subId: number) => {
               </div>
             </div>
 
-            {/* ردیف دوم: تنظیم روزها و تاریخ */}
-            <div className="flex flex-col md:flex-row md:items-end gap-4 sm:gap-6 border-t border-white/5 pt-4">
+            {/* ردیف دوم: انتخاب اشتراک هدف و تنظیم روزها/تاریخ */}
+            <div className="rounded-xl border border-white/5 bg-black/15 p-3">
+              <div className="mb-3 max-w-sm">
+                <h4 className="mb-2 text-[11px] font-bold text-gray-300">اشتراک موردنظر برای ویرایش:</h4>
+                <select
+                  value={selectedSubscriptionId}
+                  onChange={(e) => setSelectedSubscriptionId(e.target.value)}
+                  className="h-9 w-full rounded-md border border-white/10 bg-black/30 px-2 text-xs text-white"
+                >
+                  <option value="">انتخاب اشتراک...</option>
+                  {(userDetails?.subscriptions || []).map((item: any) => (
+                    <option key={item.id} value={String(item.id)}>
+                      #{item.id} - {getPlanNameFa(item.plan)} ({formatFaDate(item.start)} تا {formatFaDate(item.end)})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-gray-500">تغییر روز یا تاریخ فقط روی همین اشتراک اعمال می‌شود.</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-3 sm:gap-5">
               
               <div>
                 <h4 className="mb-2 text-[11px] font-bold text-gray-300">تغییر روز پایان اشتراک:</h4>
@@ -2663,6 +2955,7 @@ const handleDeleteSub = async (subId: number) => {
                   <input type="checkbox" id="sendSmsDays" checked={sendSmsDays} onChange={(e) => setSendSmsDays(e.target.checked)} className="accent-[#d6ad60] h-3.5 w-3.5 cursor-pointer" />
                   <label htmlFor="sendSmsDays" className="text-[10px] text-gray-400 cursor-pointer">ارسال پیامک</label>
                 </div>
+              </div>
               </div>
             </div>
           </div>
@@ -2695,12 +2988,15 @@ const handleDeleteSub = async (subId: number) => {
                       const startDate = s.start ? new Date(s.start) : null;
 
                       let realStatus = "expired";
-                      if (endDate && endDate > now) {
-                        if (startDate && startDate > now) {
-                          realStatus = "reserved";
-                        } else {
-                          realStatus = "active";
-                        }
+                      if (endDate && endDate <= now) {
+                        realStatus = "expired";
+                      } else if (
+                        s.status === "reserved" ||
+                        (startDate && startDate > now)
+                      ) {
+                        realStatus = "reserved";
+                      } else if (s.status === "active" && (!endDate || endDate > now)) {
+                        realStatus = "active";
                       }
 
                       return (
@@ -2748,7 +3044,10 @@ const handleDeleteSub = async (subId: number) => {
                   return (
                     <div key={p.id} className={`flex items-center justify-between rounded-lg border p-2 text-[11px] ${isRefund ? "border-purple-500/20 bg-purple-500/5" : "border-white/5 bg-black/20"}`}>
                       <div className="flex items-center gap-2">
-                        <span className={`font-bold ${isRefund ? "text-purple-400" : "text-gray-200"}`}>{getPlanNameFa(p.plan)}</span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`font-bold ${isRefund ? "text-purple-400" : "text-gray-200"}`}>{getPlanNameFa(p.plan)}</span>
+                          {isRefund && <span className="text-[9px] text-purple-300">عودت وجه توسط مدیر</span>}
+                        </div>
                         <span className="text-[10px] text-gray-400 dir-ltr">{p.amount.toLocaleString("fa-IR")}</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2811,13 +3110,39 @@ const handleDeleteSub = async (subId: number) => {
           <div className="rounded-xl border border-white/5 bg-[#0b151f] p-4 shadow-sm">
             <h3 className="mb-2 text-sm font-bold text-gray-200 flex items-center gap-2"><DownloadIcon className="h-4 w-4 text-[#d6ad60]" /> آمار افزونه</h3>
             {extStats ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-white/5 bg-black/30 p-2 text-[11px]">
-                  <span className="text-gray-400">تعداد کل:</span>
-                  <span className="font-bold text-white">{extStats.total_downloads} بار</span>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-white/5 bg-black/30 p-2">
+                    <p className="text-[10px] text-gray-400">کل دانلودها</p>
+                    <p className="mt-1 text-lg font-bold text-white">{(extStats.total_downloads || 0).toLocaleString("fa-IR")}</p>
+                  </div>
+                  <div className="rounded-lg border border-white/5 bg-black/30 p-2">
+                    <p className="text-[10px] text-gray-400">IPهای متمایز ثبت‌شده</p>
+                    <p className="mt-1 text-lg font-bold text-[#d6ad60]">{(extStats.unique_ip_count || 0).toLocaleString("fa-IR")}</p>
+                  </div>
+                </div>
+                <p className="text-[9px] leading-5 text-gray-500">تعداد IP شاخص تقریبیِ اشتراک‌گذاری است و معادل تعداد افراد نیست؛ چند دستگاه ممکن است IP مشترک داشته باشند.</p>
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {(extStats.logs || []).length === 0 ? (
+                    <p className="rounded-lg border border-white/5 bg-black/20 p-3 text-center text-[10px] text-gray-500">هنوز سابقه دانلودی ثبت نشده است.</p>
+                  ) : extStats.logs.map((log: any) => {
+                    const parsed = parseUserAgent(log.user_agent || "");
+                    return (
+                      <div key={log.id} className="rounded-lg border border-white/5 bg-black/20 p-2.5 text-[10px]">
+                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono font-bold text-[#d6ad60]" dir="ltr">{log.ip_address || "IP نامشخص"}</span>
+                          <span className="text-gray-500">{formatFaDateTime(log.downloaded_at)}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-gray-300">
+                          <span>{parsed.device}</span><span>{parsed.browser}</span>
+                        </div>
+                        <p className="mt-1 break-all text-[9px] leading-4 text-gray-500" dir="ltr">{log.user_agent || "User-Agent ثبت نشده"}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            ) : <p className="text-xs text-gray-500">...</p>}
+            ) : <p className="text-xs text-gray-500">در حال دریافت تاریخچه دانلود...</p>}
           </div>
         </div>
       </div>
@@ -3030,20 +3355,23 @@ const handleDeleteSub = async (subId: number) => {
           <div className="space-y-4 py-2">
             <div>
               <label className="mb-1 block text-xs text-gray-400">
-                نوع اقدام (فقط جهت اطلاع)
+                عودت وجه برای کدام اشتراک ثبت می‌شود؟
               </label>
               <select
-                value={refundNewPlan}
-                onChange={(e) => setRefundNewPlan(e.target.value)}
-                className="h-10 w-full rounded-md border-white/10 bg-black/30 px-2 text-sm"
+                value={selectedSubscriptionId}
+                onChange={(e) => setSelectedSubscriptionId(e.target.value)}
+                className="h-10 w-full rounded-md border border-white/10 bg-black/30 px-2 text-sm text-white"
               >
-                <option value="no_change">بدون تغییر (فقط عودت وجه)</option>
-                <option value="deactivate">غیرفعال‌سازی اشتراک</option>
-                <option value="1_month">تغییر به یک ماهه</option>
-                <option value="3_months">تغییر به سه ماهه</option>
-                <option value="6_months">تغییر به شش ماهه</option>
-                <option value="12_months">تغییر به یک ساله</option>
+                <option value="">انتخاب اشتراک...</option>
+                {(userDetails?.subscriptions || []).filter((item: any) => item.plan !== "free").map((item: any) => (
+                  <option key={item.id} value={String(item.id)}>
+                    #{item.id} - {getPlanNameFa(item.plan)} ({formatFaDate(item.start)} تا {formatFaDate(item.end)}){item.status === "reserved" ? " - رزرو شده" : item.status === "active" ? " - فعال" : " - " + (item.status || "")}
+                  </option>
+                ))}
               </select>
+              <p className="mt-1 text-[10px] text-gray-500">
+                سوابق عودت دقیقاً به همین اشتراک متصل می‌شود؛ حتی اگر اشتراک رزرو شده باشد.
+              </p>
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-400">
@@ -3078,13 +3406,62 @@ const handleDeleteSub = async (subId: number) => {
               </Button>
               <Button
                 onClick={handleCreateRefund}
-                disabled={refundLoading}
+                disabled={refundLoading || !selectedSubscriptionId || refundAmount <= 0}
                 className="flex-1 bg-[#d6ad60] font-bold text-[#101827]"
               >
                 {refundLoading ? "..." : "ثبت درخواست"}
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ مودال تایید و توضیح مستقل عودت وجه ═══ */}
+      <Dialog
+        open={!!refundApprovalTarget}
+        onOpenChange={(open) => {
+          if (!open && !refundApprovalLoading) {
+            setRefundApprovalTarget(null);
+            setRefundApprovalNote("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-purple-500/20 bg-[#0b151f] text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-purple-300">
+              <CheckCircle2 className="h-5 w-5" /> تایید نهایی عودت وجه
+            </DialogTitle>
+          </DialogHeader>
+          {refundApprovalTarget && (
+            <div className="space-y-3 py-2">
+              <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3 text-xs">
+                <div className="flex justify-between gap-3"><span className="text-gray-400">کد پیگیری</span><b className="font-mono text-purple-300" dir="ltr">{refundApprovalTarget.reference_code || `RF-${String(refundApprovalTarget.id).padStart(6, "0")}`}</b></div>
+                <div className="mt-2 flex justify-between gap-3"><span className="text-gray-400">اشتراک مورد عودت</span><b className="font-mono text-blue-300" dir="ltr">{refundApprovalTarget.subscription_id ? `SUB-${String(refundApprovalTarget.subscription_id).padStart(6, "0")}` : "شناسه ثبت نشده"}</b></div>
+                <div className="mt-2 flex justify-between gap-3"><span className="text-gray-400">مبلغ</span><b className="text-white">{Number(refundApprovalTarget.refund_amount || 0).toLocaleString("fa-IR")} تومان</b></div>
+                <div className="mt-2 flex justify-between gap-3"><span className="text-gray-400">کاربر</span><b dir="ltr">{refundApprovalTarget.user_phone}</b></div>
+              </div>
+              {refundApprovalTarget.admin_note && (
+                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-xs">
+                  <div className="mb-1 font-bold text-yellow-300">توضیح ثبت اولیه درخواست</div>
+                  <p className="leading-6 text-gray-300">{refundApprovalTarget.admin_note}</p>
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-xs font-bold text-gray-300">توضیح مستقل مدیر هنگام تایید</label>
+                <textarea
+                  value={refundApprovalNote}
+                  onChange={(e) => setRefundApprovalNote(e.target.value)}
+                  placeholder="مثلاً عودت به کارت ثبت‌شده انجام شد..."
+                  className="min-h-24 w-full rounded-lg border border-white/10 bg-black/30 p-3 text-sm text-white outline-none focus:border-purple-400"
+                />
+                <p className="mt-1 text-[10px] leading-5 text-gray-500">این توضیح جدا از توضیح ثبت اولیه ذخیره می‌شود و در سوابق تراکنش عودت همین کد پیگیری نمایش داده خواهد شد.</p>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" disabled={refundApprovalLoading} onClick={() => setRefundApprovalTarget(null)} className="flex-1 border-white/10 text-gray-300">انصراف</Button>
+                <Button disabled={refundApprovalLoading} onClick={handleApproveRefund} className="flex-1 bg-purple-600 font-bold text-white hover:bg-purple-700">{refundApprovalLoading ? "در حال ثبت..." : "تایید و ثبت عودت"}</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

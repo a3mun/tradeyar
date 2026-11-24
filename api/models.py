@@ -148,7 +148,7 @@ class PaymentRequest(SQLModel, table=True):
     reviewed_at: Optional[datetime] = None
     plan_price_at_purchase: Optional[int] = None  # 🔴 فیلد جدید
     zibal_track_id: Optional[str] = None  # 🔴 جدید: شناسه تراکنش زیبال
-    zibal_ref_id: Optional[str] = None    # 🔴 جدید: شماره پیگیری زیبال
+    zibal_ref_id: Optional[str] = None  # 🔴 جدید: شماره پیگیری زیبال
 
 
 class Ticket(SQLModel, table=True):
@@ -198,7 +198,12 @@ class RefundRequest(SQLModel, table=True):
     __tablename__ = "refund_requests"
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id", index=True)
-    subscription_id: int = Field(foreign_key="subscriptions.id", index=True)
+    # Nullable so an admin can physically delete a subscription while keeping
+    # the financial/refund record. The original identifier is retained below.
+    subscription_id: Optional[int] = Field(
+        default=None, foreign_key="subscriptions.id", index=True
+    )
+    subscription_id_snapshot: Optional[int] = Field(default=None, index=True)
     old_plan: str
     new_plan: str
     refund_amount: int = 0

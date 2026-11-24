@@ -158,10 +158,9 @@ def get_current_user(
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    """کنترل دسترسی بدون تغییر نقش — فقط ادمین اصلی"""
-    allowed_by_config = is_admin_phone(user.phone)
-    if not allowed_by_config or not bool(user.is_admin):
-        raise HTTPException(status_code=403, detail="دسترسی فقط برای مدیران اصلی")
+    """دسترسی پنل برای هر کاربری که نقش ادمین آن در دیتابیس فعال است."""
+    if not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="دسترسی فقط برای مدیران")
     return user
 
 

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlmodel import Session, select
 import uuid
+import math
+import re
 
 from api.plans import PLANS, calculate_new_end_date
 from api.database import get_session
@@ -16,7 +18,7 @@ from services.payment_zibal import (
     create_payment_request as zibal_create_request,
     verify_payment as zibal_verify_payment,
 )
-from services.subscription_service import activate_or_reserve_subscription
+from services.subscription_service import activate_or_reserve_subscription, sync_subscription_status, get_current_paid_subscription
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/subscription", tags=["Subscription"])
@@ -32,14 +34,45 @@ async def get_my_subscription(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    sub = session.exec(
+    now = datetime.now(timezone.utc)
+    if sync_subscription_status(session, user.id, now):
+        session.commit()
+
+    rows = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
         .order_by(Subscription.created_at.desc())
-    ).first()
+    ).all()
 
-    if not sub:
-        now = datetime.now(timezone.utc)
+    def as_utc(value):
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+    active_rows = [
+        item for item in rows
+        if item.status == "active"
+        and (as_utc(item.start_date) is None or as_utc(item.start_date) <= now)
+        and (as_utc(item.end_date) is None or as_utc(item.end_date) > now)
+    ]
+    reserved_rows = [
+        item for item in rows
+        if item.status == "reserved"
+        and (as_utc(item.start_date) is None or as_utc(item.start_date) > now)
+        and (as_utc(item.end_date) is None or as_utc(item.end_date) > now)
+    ]
+
+    paid_active_rows = [item for item in active_rows if item.plan != "free"]
+    if paid_active_rows:
+        active_rows = paid_active_rows
+
+    if active_rows:
+        sub = max(active_rows, key=lambda item: (as_utc(item.start_date) or now, item.id or 0))
+    elif reserved_rows:
+        sub = min(reserved_rows, key=lambda item: (as_utc(item.start_date) or now, item.id or 0))
+    elif rows:
+        sub = rows[0]
+    else:
         sub = Subscription(
             user_id=user.id,
             plan="free",
@@ -51,23 +84,14 @@ async def get_my_subscription(
         session.commit()
         session.refresh(sub)
 
-    now = datetime.now(timezone.utc)
-    actual_status = "active"
-    if sub.end_date:
-        end = sub.end_date
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-        if end < now:
-            actual_status = "expired"
-
     return {
         "ok": True,
         "subscription": {
             "id": sub.id,
             "plan": sub.plan,
-            "start_date": sub.start_date.isoformat(),
+            "start_date": sub.start_date.isoformat() if sub.start_date else None,
             "end_date": sub.end_date.isoformat() if sub.end_date else None,
-            "status": actual_status,
+            "status": sub.status,
         },
     }
 
@@ -97,10 +121,20 @@ async def get_my_transactions(
     items = []
 
     for p in payments:
+        refund_reference = None
+        refund_subscription_code = None
+        if p.payment_method == "refund":
+            reference_match = re.search(r"RF-\d{6}", p.admin_note or "")
+            subscription_match = re.search(r"SUB-\d{6}", p.admin_note or "")
+            refund_reference = reference_match.group(0) if reference_match else None
+            refund_subscription_code = subscription_match.group(0) if subscription_match else None
         items.append(
             {
                 "id": f"pay_{p.id}",
+                "reference_code": refund_reference,
+                "subscription_code": refund_subscription_code,
                 "source": "payment",
+                "stage_label": "عودت وجه توسط مدیر" if p.payment_method == "refund" else None,
                 "plan": p.plan,
                 "plan_price": p.plan_price_at_purchase
                 or PLANS.get(p.plan, {}).get("price", 0),
@@ -125,6 +159,13 @@ async def get_my_transactions(
             {
                 "id": f"refund_{r.id}",
                 "source": "refund_request",
+                "reference_code": f"RF-{r.id:06d}",
+                "subscription_id": r.subscription_id or getattr(r, "subscription_id_snapshot", None),
+                "stage_label": "درخواست عودت وجه توسط کاربر",
+                "old_plan": r.old_plan,
+                "new_plan": r.new_plan,
+                "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                "processed_by": r.processed_by,
                 "plan": "refund",
                 "plan_price": r.refund_amount,
                 "amount": r.refund_amount,
@@ -150,6 +191,9 @@ async def get_my_subscriptions_history(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    if sync_subscription_status(session, user.id):
+        session.commit()
+
     subs = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
@@ -158,24 +202,27 @@ async def get_my_subscriptions_history(
 
     now = datetime.now(timezone.utc)
     items = []
-    for s in subs:
-        actual_status = "active"
-        if s.end_date:
-            end = s.end_date
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
-            if end < now:
-                actual_status = "expired"
+    for sub in subs:
+        start = sub.start_date
+        end = sub.end_date
+        if start and start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end and end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
 
-        display_status = s.status if s.status == "reserved" else actual_status
+        status = sub.status
+        if end and end <= now:
+            status = "expired"
+        elif start and start > now and status in ("active", "reserved"):
+            status = "reserved"
 
         items.append(
             {
-                "id": s.id,
-                "plan": s.plan,
-                "start_date": s.start_date.isoformat() if s.start_date else None,
-                "end_date": s.end_date.isoformat() if s.end_date else None,
-                "status": display_status,
+                "id": sub.id,
+                "plan": sub.plan,
+                "start_date": sub.start_date.isoformat() if sub.start_date else None,
+                "end_date": sub.end_date.isoformat() if sub.end_date else None,
+                "status": status,
             }
         )
 
@@ -196,6 +243,10 @@ async def pay_with_zibal(
 ):
     """ثبت درخواست پرداخت و هدایت به درگاه زیبال"""
 
+    # وضعیت اشتراک‌های منقضی/رزروهای سررسیدشده را قبل از اعتبارسنجی همگام کن.
+    if sync_subscription_status(session, user.id):
+        session.commit()
+
     # 🔴 ۱. چک رزرو قبلی (قبل از رفتن به درگاه)
     existing_reserved = session.exec(
         select(Subscription)
@@ -210,12 +261,7 @@ async def pay_with_zibal(
         )
 
     # 🔴 ۲. چک سقف ۳۶۵ روز
-    current_sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .where(Subscription.status == "active")
-        .order_by(Subscription.created_at.desc())
-    ).first()
+    current_sub = get_current_paid_subscription(session, user.id)
 
     if current_sub and current_sub.end_date and current_sub.plan != "free":
         now = datetime.now(timezone.utc)
@@ -223,7 +269,7 @@ async def pay_with_zibal(
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
-        days_left = (end - now).days
+        days_left = math.ceil((end - now).total_seconds() / 86400)
         new_plan_days = PLANS.get(req.plan, {}).get("days", 0)
 
         if end > now and days_left + new_plan_days > 365:
@@ -414,6 +460,10 @@ async def create_manual_payment_request(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    # وضعیت اشتراک‌های منقضی/رزروهای سررسیدشده را قبل از اعتبارسنجی همگام کن.
+    if sync_subscription_status(session, user.id):
+        session.commit()
+
     # 🔴 چک: کاربر از قبل رزرو داره؟
     existing_reserved = session.exec(
         select(Subscription)
@@ -428,12 +478,7 @@ async def create_manual_payment_request(
         )
 
     # 🔴 چک سقف ۳۶۵ روز
-    current_sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .where(Subscription.status == "active")
-        .order_by(Subscription.created_at.desc())
-    ).first()
+    current_sub = get_current_paid_subscription(session, user.id)
 
     if current_sub and current_sub.end_date and current_sub.plan != "free":
         now = datetime.now(timezone.utc)
@@ -441,7 +486,7 @@ async def create_manual_payment_request(
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
 
-        days_left = (end - now).days
+        days_left = math.ceil((end - now).total_seconds() / 86400)
         new_plan_days = PLANS.get(req.plan, {}).get("days", 0)
 
         if end > now and days_left + new_plan_days > 365:

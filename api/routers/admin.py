@@ -11,6 +11,7 @@ import gzip
 import threading
 import time
 import sys
+import re
 from api.models import SignalLog, SiteStatsOverride, User
 from fastapi import Body
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import jdatetime
-from services.subscription_service import activate_or_reserve_subscription
+from services.subscription_service import activate_or_reserve_subscription, sync_subscription_status
 from pydantic import BaseModel
 from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -71,22 +72,123 @@ MAIN_ADMIN_PHONE = "09129630901"
 MAINTENANCE_FLAG = BASE_DIR / "data" / "maintenance.flag"
 
 
+def _require_main_admin(admin: User) -> None:
+    """محدودسازی عملیات حساس به مدیر اصلی."""
+    if not admin or admin.phone != MAIN_ADMIN_PHONE:
+        raise HTTPException(status_code=403, detail="این عملیات فقط در اختیار مدیر اصلی است")
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _subscription_status_for_dates(sub: Subscription, now: datetime | None = None) -> str:
+    now = _as_utc(now or datetime.now(timezone.utc))
+    start = _as_utc(sub.start_date)
+    end = _as_utc(sub.end_date)
+    if end and end <= now:
+        return "expired"
+    if start and start > now:
+        return "reserved"
+    if sub.status == "reserved":
+        return "reserved" if start and start > now else "active"
+    if sub.status == "expired":
+        # Legacy adjust-days could mark all active rows expired while their
+        # valid date interval remained in the future.
+        return "active" if (end is not None and end > now) else "expired"
+    if sub.status != "active":
+        return "expired"
+    return "active"
+
+
+def _representative_subscription_from_rows(
+    rows: list[Subscription], now: datetime | None = None
+) -> Subscription | None:
+    """Prefer a valid active subscription over a newer reservation."""
+    now = _as_utc(now or datetime.now(timezone.utc))
+    active = [
+        s for s in rows
+        if s.status == "active"
+        and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
+        and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
+    ]
+    paid_active = [s for s in active if s.plan != "free"]
+    if paid_active:
+        active = paid_active
+    if active:
+        return max(active, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+    recoverable_expired = [
+        s for s in rows
+        if s.status == "expired"
+        and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
+        and _as_utc(s.end_date) is not None
+        and _as_utc(s.end_date) > now
+    ]
+    if recoverable_expired:
+        return max(recoverable_expired, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+    due_reserved = [
+        s for s in rows
+        if s.status == "reserved"
+        and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
+        and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
+    ]
+    if due_reserved:
+        return min(due_reserved, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+    reserved = [
+        s for s in rows
+        if s.status == "reserved"
+        and (_as_utc(s.start_date) or now) > now
+        and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
+    ]
+    if reserved:
+        return min(reserved, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+    return max(rows, key=lambda s: (_as_utc(s.created_at) or datetime.min.replace(tzinfo=timezone.utc), s.id or 0), default=None)
+
+
+def _get_representative_subscription(
+    session: Session, user_id: int, now: datetime | None = None
+) -> Subscription | None:
+    rows = session.exec(select(Subscription).where(Subscription.user_id == user_id)).all()
+    return _representative_subscription_from_rows(rows, now)
+
+
 def _calc_sub_status(sub: Subscription | None, is_admin: bool) -> tuple[str, bool]:
     if is_admin:
         return "admin", True
     if not sub:
         return "free", False
-    if not sub.end_date:
-        return "active", True
-    end = sub.end_date
-    if end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
-    if end > now:
-        if sub.plan == "free":
-            return "free_active", True
-        return "active", True
-    return "expired", False
+    status = _subscription_status_for_dates(sub)
+    if status == "reserved":
+        return "reserved", False
+    if status != "active":
+        return "expired", False
+    if sub.plan == "free":
+        return "free_active", True
+    return "active", True
+
+
+def _resolve_target_subscription(
+    session: Session, user_id: int, sub_id: int | None
+) -> Subscription | None:
+    if sub_id is not None:
+        sub = session.get(Subscription, sub_id)
+        if not sub or sub.user_id != user_id:
+            raise HTTPException(status_code=404, detail="اشتراک موردنظر یافت نشد")
+        return sub
+
+    rows = session.exec(
+        select(Subscription).where(Subscription.user_id == user_id)
+    ).all()
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="برای جلوگیری از تغییر اشتباه، شناسه اشتراک موردنظر را مشخص کنید",
+        )
+    return rows[0] if rows else None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -99,6 +201,7 @@ async def get_maintenance_status(admin: User = Depends(require_admin)):
 
 @router.post("/maintenance/enable")
 async def enable_maintenance(admin: User = Depends(require_admin)):
+    _require_main_admin(admin)
     MAINTENANCE_FLAG.parent.mkdir(parents=True, exist_ok=True)
     MAINTENANCE_FLAG.touch()
     return {"ok": True, "message": "حالت تعمیرات فعال شد."}
@@ -106,9 +209,134 @@ async def enable_maintenance(admin: User = Depends(require_admin)):
 
 @router.post("/maintenance/disable")
 async def disable_maintenance(admin: User = Depends(require_admin)):
+    _require_main_admin(admin)
     if MAINTENANCE_FLAG.exists():
         MAINTENANCE_FLAG.unlink()
     return {"ok": True, "message": "حالت تعمیرات غیرفعال شد."}
+
+
+# ═══════════════════════════════════════════════════════════
+# وضعیت سیستم و مانیتورینگ فقط‌خواندنی (بدون نیاز به سرویس خارجی)
+# ═══════════════════════════════════════════════════════════
+@router.get("/system-health")
+async def get_system_health(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """گزارش سبک سلامت API، دیتابیس، حافظه و دیسک؛ فقط‌خواندنی."""
+    def read_int(path: str):
+        try:
+            value = Path(path).read_text().strip()
+            return int(value) if value and value != "max" else None
+        except (OSError, ValueError):
+            return None
+
+    # اولویت با محدودیت واقعی کانتینر در cgroup v2 است.
+    mem_limit = read_int("/sys/fs/cgroup/memory.max")
+    mem_used = read_int("/sys/fs/cgroup/memory.current")
+    if mem_limit is None:
+        mem_limit = read_int("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        mem_used = read_int("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+
+    if mem_limit is None or mem_limit > (1 << 60):
+        try:
+            meminfo = Path("/proc/meminfo").read_text()
+            values = {
+                key: int(value) * 1024
+                for key, value in re.findall(r"^(MemTotal|MemAvailable):\s+(\d+)\s+kB", meminfo, re.M)
+            }
+            mem_limit = values.get("MemTotal")
+            mem_used = (
+                max(0, mem_limit - values.get("MemAvailable", mem_limit))
+                if mem_limit is not None else None
+            )
+            memory_scope = "host"
+        except OSError:
+            memory_scope = "unavailable"
+    else:
+        memory_scope = "container"
+
+    if "memory_scope" not in locals():
+        memory_scope = "container"
+
+    disk = shutil.disk_usage("/")
+    db_ok = False
+    db_error = None
+    try:
+        session.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception as exc:
+        db_error = type(exc).__name__
+        session.rollback()
+
+    process_rss = None
+    try:
+        status_text = Path("/proc/self/status").read_text()
+        match = re.search(r"^VmRSS:\s+(\d+)\s+kB", status_text, re.M)
+        if match:
+            process_rss = int(match.group(1)) * 1024
+    except OSError:
+        pass
+
+    uptime_seconds = None
+    try:
+        uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        pass
+
+    try:
+        load_average = list(os.getloadavg())
+    except (AttributeError, OSError):
+        load_average = None
+
+    backup_dir = BASE_DIR / "data" / "backups"
+    backup_files = list(backup_dir.glob("Trademun_Backup_*.gz")) if backup_dir.exists() else []
+    latest_backup = max(backup_files, key=lambda item: item.stat().st_mtime, default=None)
+    latest_backup_age = (
+        max(0, int(time.time() - latest_backup.stat().st_mtime))
+        if latest_backup else None
+    )
+
+    checks = {
+        "api": {"ok": True, "label": "API"},
+        "database": {"ok": db_ok, "label": "دیتابیس", "error": db_error},
+        "disk": {"ok": disk.free > 512 * 1024 * 1024, "label": "فضای دیسک"},
+        "backup": {
+            "ok": latest_backup_age is not None and latest_backup_age < 7 * 86400,
+            "label": "بک‌آپ",
+        },
+    }
+    return {
+        "ok": db_ok and checks["disk"]["ok"],
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "maintenance": MAINTENANCE_FLAG.exists(),
+        "checks": checks,
+        "memory": {
+            "used_bytes": mem_used,
+            "limit_bytes": mem_limit,
+            "percent": round(mem_used * 100 / mem_limit, 1) if mem_used is not None and mem_limit else None,
+            "scope": memory_scope,
+        },
+        "disk": {
+            "total_bytes": disk.total,
+            "used_bytes": disk.used,
+            "free_bytes": disk.free,
+            "percent": round(disk.used * 100 / disk.total, 1) if disk.total else None,
+        },
+        "process": {"rss_bytes": process_rss},
+        "host": {
+            "uptime_seconds": int(uptime_seconds) if uptime_seconds is not None else None,
+            "load_average": load_average,
+            "cpu_count": os.cpu_count(),
+        },
+        "backups": {
+            "count": len(backup_files),
+            "latest_name": latest_backup.name if latest_backup else None,
+            "latest_age_seconds": latest_backup_age,
+            "total_bytes": sum(item.stat().st_size for item in backup_files),
+        },
+        "scope_note": "شاخص‌های حافظه/دیسک و load بر اساس محیطی هستند که API در آن اجرا می‌شود؛ وضعیت سایر کانتینرها و CPU لحظه‌ای از این endpoint قابل مشاهده نیست.",
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -199,6 +427,7 @@ async def backup_database(admin: User = Depends(require_admin)):
 async def restore_backup(
     file: UploadFile = File(...), admin: User = Depends(require_admin)
 ):
+    _require_main_admin(admin)
     from api.database import is_sqlite
     import gzip, shutil, os, threading, time, sys
 
@@ -250,6 +479,7 @@ async def list_backups(admin: User = Depends(require_admin)):
 @router.get("/backups/{name}/download")
 async def download_backup(name: str, admin: User = Depends(require_admin)):
     # جلوگیری از path traversal
+    _require_main_admin(admin)
     if ".." in name or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="نام فایل نامعتبر")
     file_path = BASE_DIR / "data" / "backups" / name
@@ -270,6 +500,7 @@ class DeleteBackupsRequest(BaseModel):
 async def delete_backups(
     req: DeleteBackupsRequest, admin: User = Depends(require_admin)
 ):
+    _require_main_admin(admin)
     backup_dir = BASE_DIR / "data" / "backups"
     deleted = []
     for name in req.names:
@@ -361,11 +592,7 @@ async def export_users_excel(
         cell.fill = PatternFill("solid", fgColor="14213D")
         cell.alignment = Alignment(horizontal="center", vertical="center")
     for u in users:
-        sub = session.exec(
-            select(Subscription)
-            .where(Subscription.user_id == u.id)
-            .order_by(Subscription.created_at.desc())
-        ).first()
+        sub = _get_representative_subscription(session, u.id)
         subs = session.exec(
             select(Subscription)
             .where(Subscription.user_id == u.id)
@@ -451,25 +678,27 @@ async def list_users(
     from sqlalchemy import func
 
     users = session.exec(select(User).order_by(User.created_at.desc())).all()
+    user_ids = [u.id for u in users if u.id is not None]
+    subscriptions_by_user: dict[int, list[Subscription]] = {}
+    download_counts: dict[int, int] = {}
+    if user_ids:
+        all_subscriptions = session.exec(
+            select(Subscription).where(Subscription.user_id.in_(user_ids))
+        ).all()
+        for sub_row in all_subscriptions:
+            subscriptions_by_user.setdefault(sub_row.user_id, []).append(sub_row)
+        download_rows = session.exec(
+            select(ExtensionDownloadLog.user_id, func.count())
+            .where(ExtensionDownloadLog.user_id.in_(user_ids))
+            .group_by(ExtensionDownloadLog.user_id)
+        ).all()
+        download_counts = {int(uid): int(count) for uid, count in download_rows if uid is not None}
+
     result = []
     for u in users:
-        sub = session.exec(
-            select(Subscription)
-            .where(Subscription.user_id == u.id)
-            .order_by(Subscription.created_at.desc())
-        ).first()
-
+        sub = _representative_subscription_from_rows(subscriptions_by_user.get(u.id, []))
         status_text, is_active = _calc_sub_status(sub, u.is_admin)
-
-        # 🔴 چک کردن اینکه آیا کاربر افزونه رو دانلود کرده یا نه
-        has_downloaded = (
-            session.exec(
-                select(func.count())
-                .select_from(ExtensionDownloadLog)
-                .where(ExtensionDownloadLog.user_id == u.id)
-            ).one()
-            > 0
-        )
+        has_downloaded = download_counts.get(u.id, 0) > 0
 
         result.append(
             {
@@ -514,6 +743,9 @@ async def get_user_details(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
+    if sync_subscription_status(session, user_id):
+        session.commit()
 
     subs = session.exec(
         select(Subscription)
@@ -633,49 +865,49 @@ async def change_user_plan(
         raise HTTPException(status_code=400, detail="پلن نامعتبر است")
 
     now = datetime.now(timezone.utc)
-
-    # ۱. پیدا کردن آخرین اشتراک (فعال یا رزرو) برای تعیین تاریخ شروع جدید
-    last_sub = session.exec(
+    sync_subscription_status(session, user.id, now)
+    rows = session.exec(
         select(Subscription)
         .where(Subscription.user_id == user.id)
-        .order_by(Subscription.end_date.desc())
-    ).first()
+        .where(Subscription.status.in_(["active", "reserved"]))
+    ).all()
+    future_rows = [
+        row for row in rows
+        if row.plan != "free"
+        and _as_utc(row.end_date) is not None
+        and _as_utc(row.end_date) > now
+    ]
+    last_sub = max(future_rows, key=lambda row: _as_utc(row.end_date)) if future_rows else None
+    new_start = _as_utc(last_sub.end_date) if last_sub else now
+    new_end = (new_start + timedelta(days=int(plan_info["days"]))).replace(
+        hour=23, minute=59, second=59, microsecond=0
+    )
 
-    # ۲. اگر اشتراک قبلی وجود داشت و در آینده تموم می‌شه → شروع جدید بعد از اون
-    if last_sub and last_sub.end_date:
-        end = last_sub.end_date
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=timezone.utc)
-        if end > now:
-            new_start = end  # شروع از لحظه‌ای که اشتراک قبلی تموم می‌شه
-        else:
-            new_start = now  # اشتراک قبلی منقضی شده، از الان شروع کن
-    else:
-        new_start = now
-
-    new_end = new_start + timedelta(days=plan_info["days"])
-
-    # ۳. ساخت اشتراک جدید (به عنوان رزرو یا فعال)
     new_sub = Subscription(
         user_id=user.id,
         plan=plan,
         start_date=new_start,
         end_date=new_end,
-        status="active",  # وضعیت واقعی در فرانت محاسبه می‌شه
+        status="reserved" if new_start > now else "active",
     )
-    session.add(new_sub)
-    session.commit()
-    session.refresh(new_sub)
+    try:
+        session.add(new_sub)
+        session.commit()
+        session.refresh(new_sub)
+    except Exception:
+        session.rollback()
+        raise
 
-    if send_sms:
+    if send_sms and new_sub.status == "active":
         try:
             send_subscription_activated_sms(
                 user.phone, plan_info["title"], new_sub.end_date
             )
         except Exception:
-            pass
+            logger.exception("Failed to send subscription activation SMS")
 
-    return {"ok": True, "message": f"پلن {plan_info['title']} برای کاربر ثبت شد"}
+    message = "رزرو شد" if new_sub.status == "reserved" else "فعال شد"
+    return {"ok": True, "message": f"پلن {plan_info['title']} برای کاربر {message}"}
 
 
 @router.delete("/users/{user_id}/subscriptions/{sub_id}")
@@ -685,23 +917,47 @@ async def delete_user_subscription(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """حذف یک اشتراک (فعال، رزرو، یا منقضی) توسط ادمین"""
+    """حذف فیزیکی اشتراک انتخاب‌شده با حفظ سوابق مالی و درخواست‌های عودت."""
     sub = session.get(Subscription, sub_id)
     if not sub or sub.user_id != user_id:
-        raise HTTPException(404, "اشتراک یافت نشد")
+        raise HTTPException(status_code=404, detail="اشتراک یافت نشد")
 
-    # 🔴 ثبت لاگ قبل از حذف
+    plan_title = PLANS.get(sub.plan, {}).get("title", sub.plan)
+    description = (
+        f"حذف اشتراک #{sub.id} - {plan_title} "
+        f"(از {_to_jalali_str(sub.start_date)} تا {_to_jalali_str(sub.end_date)})"
+    )
     log = SubscriptionLog(
         user_id=user_id,
         admin_phone=admin.phone,
         action_type="manual_sub_delete",
-        description=f"حذف اشتراک {PLANS.get(sub.plan, {}).get('title', sub.plan)} (از {_to_jalali_str(sub.start_date)} تا {_to_jalali_str(sub.end_date)})",
+        description=description[:255],
     )
-    session.add(log)
 
-    session.delete(sub)
-    session.commit()
-    return {"ok": True, "message": "اشتراک با موفقیت حذف شد و در تاریخچه ثبت گردید"}
+    try:
+        # Keep refund rows and their original subscription identity, but detach
+        # the FK before deleting the subscription row.
+        refund_rows = session.exec(
+            select(RefundRequest).where(RefundRequest.subscription_id == sub_id)
+        ).all()
+        for refund in refund_rows:
+            if refund.subscription_id_snapshot is None:
+                refund.subscription_id_snapshot = sub_id
+            refund.subscription_id = None
+            session.add(refund)
+
+        session.flush()
+        session.add(log)
+        session.delete(sub)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return {
+        "ok": True,
+        "message": "اشتراک حذف شد؛ سوابق پرداخت، درخواست‌های عودت و لاگ حذف حفظ شدند",
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -711,6 +967,7 @@ async def delete_user_subscription(
 async def adjust_user_days(
     user_id: int,
     days: int,
+    sub_id: int | None = None,
     send_sms: bool = True,
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
@@ -720,54 +977,52 @@ async def adjust_user_days(
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.is_admin:
         raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
+    if days == 0:
+        raise HTTPException(status_code=400, detail="تعداد روز باید غیرصفر باشد")
 
-    # در approve_payment، قبل از ساخت اشتراک جدید:
-    active_subs = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .where(Subscription.status == "active")
-    ).all()
-    for old_sub in active_subs:
-        old_sub.status = "expired"
-        session.add(old_sub)
-    session.commit()
-
-    sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .order_by(Subscription.created_at.desc())
-    ).first()
-
+    sub = _resolve_target_subscription(session, user_id, sub_id)
     now = datetime.now(timezone.utc)
-    current_end = sub.end_date if sub else None
-
-    if days > 0:
-        new_end = calculate_new_end_date(current_end, days)
-    else:
-        if current_end:
-            new_end = current_end + timedelta(days=days)
-            new_end = new_end.replace(hour=23, minute=59, second=59, microsecond=0)
-        else:
-            new_end = now + timedelta(days=days)
-
-    if sub:
-        sub.end_date = new_end
-        if new_end < now:
-            sub.status = "expired"
-        else:
-            sub.status = "active"
-        session.add(sub)
-    else:
+    if sub is None:
         sub = Subscription(
-            user_id=user.id,
+            user_id=user_id,
             plan="free",
             start_date=now,
-            end_date=new_end,
-            status="active" if new_end > now else "expired",
+            end_date=now,
+            status="expired",
         )
-        session.add(sub)
 
-    session.commit()
+    current_end = _as_utc(sub.end_date)
+    if days > 0:
+        base = current_end if current_end and current_end > now else now
+        new_end = calculate_new_end_date(base, days)
+    else:
+        base = current_end or now
+        new_end = base + timedelta(days=days)
+        new_end = new_end.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    sub.end_date = new_end
+    sub_start = _as_utc(sub.start_date)
+    sub.status = (
+        "expired" if new_end <= now or (sub_start is not None and new_end <= sub_start)
+        else "reserved" if sub_start and sub_start > now
+        else "active"
+    )
+
+    try:
+        session.add(sub)
+        session.flush()
+        action = "افزایش" if days > 0 else "کاهش"
+        log = SubscriptionLog(
+            user_id=user_id,
+            admin_phone=admin.phone,
+            action_type="manual_date_adjust",
+            description=f"{action} {abs(days)} روز برای اشتراک #{sub.id}",
+        )
+        session.add(log)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     if send_sms:
         try:
@@ -775,98 +1030,87 @@ async def adjust_user_days(
                 user.phone, f"تغییر اعتبار ({days} روز)", sub.end_date
             )
         except Exception:
-            pass
+            logger.exception("Failed to send subscription adjustment SMS")
 
-    # 🔴 ثبت لاگ تغییر تاریخ
-    action = "افزایش" if days > 0 else "کاهش"
-    log = SubscriptionLog(
-        user_id=user_id,
-        admin_phone=admin.phone,
-        action_type="manual_date_adjust",
-        description=f"{action} {abs(days)} روز به تاریخ انقضا",
-    )
-    session.add(log)
-    session.commit()
-
-    return {"ok": True, "message": f"{days} روز به اشتراک کاربر اضافه شد"}
+    return {"ok": True, "message": f"تاریخ پایان اشتراک #{sub.id} به‌روزرسانی شد"}
 
 
 @router.post("/users/{user_id}/set-expiry-date")
 async def set_user_expiry_date(
     user_id: int,
     new_date_jalali: str = Body(...),
-    send_sms: bool = Body(False),  # 🔴 از Body بگیره، پیش‌فرض False
+    send_sms: bool = Body(False),
+    sub_id: int | None = Body(None),
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """
-    تنظیم مستقیم تاریخ انقضا با تاریخ شمسی (مثلاً 1405/11/25)
-    """
+    """تنظیم تاریخ پایان اشتراک مشخص‌شده با تاریخ شمسی."""
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر یافت نشد")
     if user.is_admin:
         raise HTTPException(status_code=400, detail="مدیران اشتراک دائمی دارند")
 
-    # تبدیل تاریخ شمسی به میلادی
     try:
         from jdatetime import datetime as jdatetime_cls
 
-        parts = new_date_jalali.strip().split("/")
+        parts = new_date_jalali.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")).split("/")
         if len(parts) != 3:
-            raise ValueError("فرمت تاریخ اشتباه است")
-        jy, jm, jd = int(parts[0]), int(parts[1]), int(parts[2])
+            raise ValueError("فرمت تاریخ باید YYYY/MM/DD باشد")
+        jy, jm, jd = (int(part) for part in parts)
         gdate = jdatetime_cls(jy, jm, jd).togregorian()
-        # تنظیم ساعت به 23:59:59 به وقت تهران
-        new_end = gdate.replace(hour=23, minute=59, second=59, microsecond=0)
-        # تبدیل به UTC
-        new_end = new_end.replace(tzinfo=ZoneInfo("Asia/Tehran")).astimezone(
-            timezone.utc
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"تاریخ نامعتبر: {e}")
+        new_end = gdate.replace(
+            hour=23, minute=59, second=59, microsecond=0
+        ).replace(tzinfo=ZoneInfo("Asia/Tehran")).astimezone(timezone.utc)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"تاریخ نامعتبر: {exc}")
 
-    sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user.id)
-        .order_by(Subscription.created_at.desc())
-    ).first()
-
+    sub = _resolve_target_subscription(session, user_id, sub_id)
     now = datetime.now(timezone.utc)
-
-    if sub:
-        sub.end_date = new_end
-        sub.status = "active" if new_end > now else "expired"
-        session.add(sub)
-    else:
+    if sub is None:
         sub = Subscription(
-            user_id=user.id,
+            user_id=user_id,
             plan="free",
             start_date=now,
             end_date=new_end,
             status="active" if new_end > now else "expired",
         )
-        session.add(sub)
+    else:
+        sub.end_date = new_end
+        start_date = _as_utc(sub.start_date)
+        sub.status = (
+            "expired" if new_end <= now or (start_date is not None and new_end <= start_date)
+            else "reserved" if start_date and start_date > now
+            else "active"
+        )
 
-    session.commit()
+    try:
+        session.add(sub)
+        session.flush()
+        log = SubscriptionLog(
+            user_id=user_id,
+            admin_phone=admin.phone,
+            action_type="manual_date_set",
+            description=f"تنظیم تاریخ پایان اشتراک #{sub.id} به {new_date_jalali}"[:255],
+        )
+        session.add(log)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     if send_sms:
         try:
-            send_subscription_activated_sms(user.phone, "تغییر تاریخ انقضا", new_end)
+            send_subscription_activated_sms(
+                user.phone, "تغییر تاریخ انقضا", new_end
+            )
         except Exception:
-            pass
+            logger.exception("Failed to send subscription expiry SMS")
 
-    # 🔴 ثبت لاگ تغییر تاریخ
-    log = SubscriptionLog(
-        user_id=user_id,
-        admin_phone=admin.phone,
-        action_type="manual_date_set",
-        description=f"تنظیم دستی تاریخ انقضا به {new_date_jalali}",
-    )
-    session.add(log)
-    session.commit()
-
-    return {"ok": True, "message": f"تاریخ انقضا به {new_date_jalali} تغییر یافت"}
+    return {
+        "ok": True,
+        "message": f"تاریخ پایان اشتراک #{sub.id} به {new_date_jalali} تغییر یافت",
+    }
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1010,9 +1254,11 @@ async def list_payments(
         .where(PaymentRequest.status == "pending")
         .order_by(PaymentRequest.created_at.desc())
     ).all()
+    payment_user_ids = list({p.user_id for p in payments if p.user_id is not None})
+    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(payment_user_ids))).all()} if payment_user_ids else {}
     result = []
     for p in payments:
-        user = session.get(User, p.user_id)
+        user = users_by_id.get(p.user_id)
         result.append(
             {
                 "id": p.id,
@@ -1050,9 +1296,11 @@ async def list_all_transactions_merged(
     pricing_settings = session.exec(select(PricingSettings)).all()
     pricing_map = {s.plan_id: s.price for s in pricing_settings}
 
+    payment_user_ids = list({p.user_id for p in payments if p.user_id is not None})
+    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(payment_user_ids))).all()} if payment_user_ids else {}
     result = []
     for p in payments:
-        user = session.get(User, p.user_id)
+        user = users_by_id.get(p.user_id)
 
         # 🔴 استفاده از قیمت جدید (اگر در جدول نبود، از PLANS قدیمی)
         current_price = p.plan_price_at_purchase or pricing_map.get(
@@ -1063,6 +1311,7 @@ async def list_all_transactions_merged(
             {
                 "id": f"pay_{p.id}",
                 "source": "payment_request",
+                "stage_label": "عودت وجه توسط مدیر" if p.payment_method == "refund" else None,
                 "user_phone": user.phone if user else "ناشناس",
                 "plan": p.plan,
                 "plan_price": current_price,  # 🔴 قیمت به‌روز شده
@@ -1091,9 +1340,12 @@ async def update_transaction_amount(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
+    _require_main_admin(admin)
     if tx_id.startswith("pay_"):
         pid = int(tx_id.replace("pay_", ""))
-        p = session.get(PaymentRequest, pid)
+        p = session.exec(
+            select(PaymentRequest).where(PaymentRequest.id == pid).with_for_update()
+        ).first()
         if not p:
             raise HTTPException(404, "تراکنش یافت نشد")
         p.amount = amount
@@ -1187,9 +1439,13 @@ async def approve_payment(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    payment = session.get(PaymentRequest, payment_id)
+    payment = session.exec(
+        select(PaymentRequest).where(PaymentRequest.id == payment_id).with_for_update()
+    ).first()
     if not payment:
         raise HTTPException(404, "تراکنش یافت نشد")
+    if payment.status != "pending":
+        raise HTTPException(409, "این پرداخت قبلاً بررسی شده است")
     user = session.get(User, payment.user_id)
     if not user:
         raise HTTPException(404, "کاربر یافت نشد")
@@ -1227,7 +1483,13 @@ async def reject_payment(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    payment = session.get(PaymentRequest, payment_id)
+    payment = session.exec(
+        select(PaymentRequest).where(PaymentRequest.id == payment_id).with_for_update()
+    ).first()
+    if not payment:
+        raise HTTPException(404, "تراکنش یافت نشد")
+    if payment.status != "pending":
+        raise HTTPException(409, "این پرداخت قبلاً بررسی شده است")
     payment.status = "rejected"
     payment.reviewed_at = datetime.now(timezone.utc)
     payment.reviewed_by = admin.phone
@@ -1262,6 +1524,7 @@ async def reset_user_password(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
+    _require_main_admin(admin)
     from api.auth import get_password_hash
 
     user = session.get(User, user_id)
@@ -1286,14 +1549,23 @@ async def get_extension_stats(
     from api.models import ExtensionDownloadLog
     from sqlalchemy import func
 
-    # تعداد کل
+    if not session.get(User, user_id):
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد")
+
+    # تعداد رویدادهای دانلود و IPهای متمایز ثبت‌شده
     total = session.exec(
         select(func.count())
         .select_from(ExtensionDownloadLog)
         .where(ExtensionDownloadLog.user_id == user_id)
     ).one()
+    unique_ip_count = session.exec(
+        select(func.count(func.distinct(ExtensionDownloadLog.ip_address)))
+        .where(ExtensionDownloadLog.user_id == user_id)
+        .where(ExtensionDownloadLog.ip_address.is_not(None))
+        .where(ExtensionDownloadLog.ip_address != "")
+    ).one()
 
-    # لیست کامل لاگ‌ها (مرتب از جدید به قدیم)
+    # تاریخچه کامل دانلودها؛ مستقل از آنلاین/آفلاین بودن کاربر
     logs = session.exec(
         select(ExtensionDownloadLog)
         .where(ExtensionDownloadLog.user_id == user_id)
@@ -1302,6 +1574,7 @@ async def get_extension_stats(
 
     return {
         "total_downloads": total or 0,
+        "unique_ip_count": unique_ip_count or 0,
         "logs": [
             {
                 "id": log.id,
@@ -1355,10 +1628,17 @@ async def update_transaction_status(
     session: Session = Depends(get_session),
 ):
     if tx_id.startswith("pay_"):
-        pid = int(tx_id.replace("pay_", ""))
+        try:
+            pid = int(tx_id.removeprefix("pay_"))
+        except ValueError:
+            raise HTTPException(400, "شناسه تراکنش نامعتبر است")
+        if new_status not in {"approved", "rejected"}:
+            raise HTTPException(400, "وضعیت جدید نامعتبر است")
         p = session.get(PaymentRequest, pid)
         if not p:
             raise HTTPException(404, "تراکنش یافت نشد")
+        if p.status != "pending":
+            raise HTTPException(409, "این تراکنش قبلاً بررسی شده و امکان پردازش مجدد ندارد")
 
         p.status = new_status
         p.reviewed_at = datetime.now(timezone.utc)
@@ -1427,7 +1707,8 @@ async def update_transaction_note(
 @router.post("/users/{user_id}/refund")
 async def create_refund_request(
     user_id: int,
-    new_plan: str = Body(...),
+    sub_id: int = Body(...),
+    new_plan: str = Body("no_change"),
     refund_amount: int = Body(...),
     admin_note: str = Body(None),
     admin: User = Depends(require_admin),
@@ -1436,15 +1717,24 @@ async def create_refund_request(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(404, "کاربر یافت نشد")
+    if refund_amount <= 0:
+        raise HTTPException(400, "مبلغ عودت باید بیشتر از صفر باشد")
 
+    # وضعیت اشتراک‌ها را همگام می‌کنیم، اما هدف عودت را فقط از شناسه
+    # صریح انتخاب‌شده می‌خوانیم؛ نه از آخرین/نماینده‌ترین اشتراک کاربر.
+    if sync_subscription_status(session, user_id):
+        session.flush()
     sub = session.exec(
-        select(Subscription)
-        .where(Subscription.user_id == user_id)
-        .order_by(Subscription.created_at.desc())
+        select(Subscription).where(
+            Subscription.id == sub_id,
+            Subscription.user_id == user_id,
+        )
     ).first()
 
-    if not sub or sub.plan == "free":
-        raise HTTPException(400, "کاربر اشتراک فعال ندارد")
+    if not sub:
+        raise HTTPException(404, "اشتراک انتخاب‌شده برای این کاربر یافت نشد")
+    if sub.plan == "free":
+        raise HTTPException(400, "برای پلن رایگان امکان ثبت عودت وجود ندارد")
 
     # 🔴 فقط درخواست عودت ثبت می‌شه (تغییر پلن دستی توسط ادمین انجام شده)
     req = RefundRequest(
@@ -1457,9 +1747,8 @@ async def create_refund_request(
         status="pending",
     )
     session.add(req)
-    session.commit()
 
-    # 🔴 ثبت لاگ عودت وجه
+    # ثبت درخواست و لاگ در یک تراکنش تا نیمه‌کاره باقی نماند
     log = SubscriptionLog(
         user_id=user_id,
         admin_phone=admin.phone,
@@ -1469,7 +1758,36 @@ async def create_refund_request(
     session.add(log)
     session.commit()
 
-    return {"ok": True, "message": "درخواست عودت ثبت شد (تغییر پلن را دستی بررسی کنید)"}
+    return {"ok": True, "message": f"درخواست عودت برای اشتراک شماره {sub.id} ثبت شد"}
+
+
+@router.get("/refunds/notification-summary")
+async def refund_notification_summary(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """Small polling payload for the admin bell; avoids loading full refund history."""
+    pending_count = session.exec(
+        select(func.count()).select_from(RefundRequest).where(RefundRequest.status == "pending")
+    ).one() or 0
+    latest = session.exec(
+        select(RefundRequest)
+        .where(RefundRequest.status == "pending")
+        .order_by(RefundRequest.created_at.desc())
+        .limit(20)
+    ).all()
+    owner_ids = list({request.user_id for request in latest if request.user_id is not None})
+    owners_by_id = {owner.id: owner for owner in session.exec(select(User).where(User.id.in_(owner_ids))).all()} if owner_ids else {}
+    items = []
+    for request in latest:
+        owner = owners_by_id.get(request.user_id)
+        items.append({
+            "id": request.id,
+            "user_phone": owner.phone if owner else "ناشناس",
+            "refund_amount": request.refund_amount or 0,
+            "created_at": request.created_at.isoformat() if request.created_at else None,
+        })
+    return {"ok": True, "pending_count": int(pending_count), "items": items}
 
 
 @router.get("/refunds")
@@ -1480,19 +1798,26 @@ async def list_refunds(
     reqs = session.exec(
         select(RefundRequest).order_by(RefundRequest.created_at.desc())
     ).all()
+    refund_user_ids = list({r.user_id for r in reqs if r.user_id is not None})
+    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(refund_user_ids))).all()} if refund_user_ids else {}
     result = []
     for r in reqs:
-        user = session.get(User, r.user_id)
+        user = users_by_id.get(r.user_id)
         result.append(
             {
                 "id": r.id,
+                "reference_code": f"RF-{r.id:06d}",
+                "subscription_id": r.subscription_id or getattr(r, "subscription_id_snapshot", None),
                 "user_phone": user.phone if user else "ناشناس",
                 "old_plan": r.old_plan,
                 "new_plan": r.new_plan,
                 "refund_amount": r.refund_amount,
                 "admin_note": r.admin_note,
                 "status": r.status,
-                "created_at": r.created_at.isoformat(),
+                "stage_label": "درخواست عودت وجه توسط کاربر",
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                "processed_by": r.processed_by,
             }
         )
 
@@ -1502,26 +1827,41 @@ async def list_refunds(
 @router.post("/refunds/{req_id}/approve")
 async def approve_refund(
     req_id: int,
+    admin_note: str = Body("", embed=True),
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    req = session.get(RefundRequest, req_id)
+    _require_main_admin(admin)
+    req = session.exec(
+        select(RefundRequest).where(RefundRequest.id == req_id).with_for_update()
+    ).first()
     if not req or req.status != "pending":
-        raise HTTPException(404, "درخواست یافت نشد")
+        raise HTTPException(404, "درخواست یافت نشد یا قبلاً رسیدگی شده است")
 
     req.status = "refunded"
     req.processed_at = datetime.now(timezone.utc)
     req.processed_by = admin.phone
     session.add(req)
 
-    # 🔴 ثبت تراکنش عودت
+    # کد پیگیری مشترک بدون افزودن ستون/جدول جدید؛ در درخواست و تراکنش عودت تکرار می‌شود.
+    reference_code = f"RF-{req.id:06d}"
+    subscription_id = req.subscription_id or getattr(req, "subscription_id_snapshot", None)
+    subscription_code = f"SUB-{subscription_id:06d}" if subscription_id else "SUB-نامشخص"
+    review_note = (admin_note or "").strip()
+    transaction_note = (
+        f"کد پیگیری: {reference_code} | اشتراک: {subscription_code} | "
+        f"توضیح رسیدگی مدیر: {review_note or '—'}"
+    )
+
+    # توضیح ثبت اولیه RefundRequest.admin_note دست‌نخورده می‌ماند؛
+    # توضیح مستقل تایید مدیر فقط روی تراکنش مالی ذخیره می‌شود.
     new_payment = PaymentRequest(
         user_id=req.user_id,
         plan="refund",
         amount=req.refund_amount,
         status="approved",
         payment_method="refund",
-        admin_note=f"عودت وجه - {req.admin_note or ''}",
+        admin_note=transaction_note,
         created_at=datetime.now(timezone.utc),
         reviewed_at=datetime.now(timezone.utc),
         reviewed_by=admin.phone,
@@ -1538,9 +1878,12 @@ async def reject_refund(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    req = session.get(RefundRequest, req_id)
+    _require_main_admin(admin)
+    req = session.exec(
+        select(RefundRequest).where(RefundRequest.id == req_id).with_for_update()
+    ).first()
     if not req or req.status != "pending":
-        raise HTTPException(404, "درخواست یافت نشد")
+        raise HTTPException(404, "درخواست یافت نشد یا قبلاً رسیدگی شده است")
 
     req.status = "rejected"
     req.processed_at = datetime.now(timezone.utc)

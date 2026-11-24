@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel import Session, select, func
 
-from api.auth import get_current_user, is_admin_phone
+from api.auth import get_current_user
 from api.database import get_session
 from api.models import Ticket, TicketMessage, User
 from api.schemas import (
@@ -53,7 +53,7 @@ def _utcnow() -> datetime:
 
 
 def _require_admin(user: User) -> None:
-    if not is_admin_phone(user.phone):
+    if not bool(user.is_admin):
         raise HTTPException(status_code=403, detail="دسترسی ادمین لازم است")
 
 
@@ -87,7 +87,7 @@ def _build_ticket_read(
 
     unread = 0
     if user:
-        viewer_is_admin = is_admin_phone(user.phone)
+        viewer_is_admin = bool(user.is_admin)
         unread = sum(
             1
             for message in messages
@@ -107,7 +107,7 @@ def _build_ticket_read(
         "last_message_at": last.created_at if last else None,
     }
 
-    if user and is_admin_phone(user.phone):
+    if user and bool(user.is_admin):
         owner = session.get(User, ticket.user_id)
         data["user_phone"] = owner.phone if owner else None
         data["user_name"] = owner.full_name if owner and owner.full_name else None
@@ -149,6 +149,8 @@ def _validate_attachment_reference(path_value: str | None, name_value: str | Non
         return None, None
     if not path_value or not name_value:
         raise HTTPException(status_code=400, detail="اطلاعات پیوست ناقص است")
+
+
 
     if not path_value.startswith(PUBLIC_UPLOAD_PREFIX):
         raise HTTPException(status_code=400, detail="مسیر پیوست نامعتبر است")

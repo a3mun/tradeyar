@@ -24,7 +24,7 @@ const getPlanNameFa = (plan: string) => {
   const map: Record<string, string> = {
     free: "پلن آشنایی رایگان", "1_month": "اشتراک یک ماهه", "3_months": "اشتراک سه ماهه",
     "6_months": "اشتراک شش ماهه", "12_months": "اشتراک یک ساله",
-    "نامحدود (مدیر)": "نامحدود (مدیر)", refund: "عودت وجه",
+    "نامحدود (مدیر)": "نامحدود (مدیر)", refund: "عودت وجه", no_change: "بدون تغییر (فقط عودت وجه)",
   };
   return map[plan] || plan || "نامشخص";
 };
@@ -140,6 +140,32 @@ export default function DashboardPage() {
       .finally(() => setTxLoading(false));
   }, [router, apiUrl, token]);
 
+  // Refresh subscription status while the dashboard stays open.
+  // The API synchronizes a due reservation when these endpoints are read.
+  useEffect(() => {
+    if (!token) return;
+    const refreshSubscription = async () => {
+      try {
+        const [currentRes, historyRes] = await Promise.all([
+          fetch(`${apiUrl}/subscription/my`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+          fetch(`${apiUrl}/subscription/history`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+        ]);
+        if (currentRes.ok) {
+          const currentData = await currentRes.json();
+          setSub(currentData.subscription || null);
+        }
+        if (historyRes.ok) {
+          const historyData = await historyRes.json();
+          setAllSubs(historyData.items || []);
+        }
+      } catch {
+        // Retain the last known state on transient network failures.
+      }
+    };
+    const timer = window.setInterval(refreshSubscription, 60000);
+    return () => window.clearInterval(timer);
+  }, [apiUrl, token]);
+
   // 🔴 polling تراکنش‌ها هر ۳۰ ثانیه
   useEffect(() => {
     if (!token) return;
@@ -194,9 +220,20 @@ export default function DashboardPage() {
 
   const subStatus = useMemo(() => {
     if (!sub) return { active: false, text: "نامشخص", daysLeft: null };
-    const endDate = sub.end_date ? new Date(sub.end_date) : null;
     const now = new Date();
-    const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
+    const startDate = sub.start_date ? new Date(sub.start_date) : null;
+    const endDate = sub.end_date ? new Date(sub.end_date) : null;
+    const isExpired = endDate ? endDate.getTime() <= now.getTime() : false;
+    const isReserved =
+      !isExpired &&
+      (sub.status === "reserved" ||
+        (startDate !== null && startDate.getTime() > now.getTime()));
+    if (isReserved) {
+      const daysUntilStart = startDate
+        ? Math.max(0, Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+        : null;
+      return { active: false, text: "در انتظار شروع", daysLeft: daysUntilStart };
+    }
     if (sub.status === "active" && !isExpired) {
       const daysLeft = endDate ? Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : null;
       return { active: true, text: "فعال", daysLeft };
@@ -213,13 +250,20 @@ export default function DashboardPage() {
     allSubs.forEach((s) => {
       const endDate = s.end_date ? new Date(s.end_date) : null;
       const startDate = s.start_date ? new Date(s.start_date) : null;
-      
-      if (endDate && endDate < now) {
+      const isExpired = !!endDate && endDate.getTime() <= now.getTime();
+      const isReserved =
+        !isExpired &&
+        (s.status === "reserved" ||
+          (startDate !== null && startDate.getTime() > now.getTime()));
+
+      if (isExpired || s.status === "expired") {
         expired.push(s);
-      } else if (startDate && startDate > now) {
+      } else if (isReserved) {
         reserved.push(s);
-      } else {
+      } else if (s.status === "active") {
         active.push(s);
+      } else {
+        expired.push(s);
       }
     });
 
@@ -406,8 +450,8 @@ export default function DashboardPage() {
                         <div>
                           <div className="flex items-center gap-2">
                             <h2 className="text-sm font-bold text-white sm:text-base">{getPlanNameFa(sub.plan)}</h2>
-                            <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold sm:px-2 sm:text-[10px] ${subStatus.active ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-                              <span className={`h-1 w-1 rounded-full sm:h-1.5 sm:w-1.5 ${subStatus.active ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
+                            <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold sm:px-2 sm:text-[10px] ${subStatus.active ? "bg-green-500/10 text-green-400 border border-green-500/20" : subStatus.text === "در انتظار شروع" ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+                              <span className={`h-1 w-1 rounded-full sm:h-1.5 sm:w-1.5 ${subStatus.active ? "bg-green-500 animate-pulse" : subStatus.text === "در انتظار شروع" ? "bg-yellow-500" : "bg-red-500"}`} />
                               {subStatus.text}
                             </span>
                           </div>
@@ -422,7 +466,7 @@ export default function DashboardPage() {
                       </div>
                       <Link href="/subscription" className="w-full sm:w-auto sm:min-w-[130px]">
                         <Button className="h-10 w-full sm:h-11 gap-2 bg-[#c6a15b] hover:bg-[#d0ad6c] text-[#030712] font-bold shadow-none text-sm px-5">
-                          <Zap className="h-4 w-4" /> {subStatus.active ? "تمدید اشتراک" : "خرید اشتراک"}
+                          <Zap className="h-4 w-4" /> {subStatus.active ? "تمدید اشتراک" : subStatus.text === "در انتظار شروع" ? "مشاهده اشتراک" : "خرید اشتراک"}
                         </Button>
                       </Link>
                     </div>
@@ -531,6 +575,7 @@ export default function DashboardPage() {
                                   <p className={`text-[11px] font-bold sm:text-xs ${isRefund ? "text-purple-400" : "text-white"}`}>{getPlanNameFa(tx.plan)}</p>
                                   <span className={`rounded-full px-1 py-0.5 text-[8px] font-bold sm:px-1.5 sm:text-[9px] ${isRefund ? "border-purple-500/20 bg-purple-500/10 text-purple-400" : st.bg + " " + st.color + " " + st.border}`}>{st.text}</span>
                                 </div>
+                                {isRefund && <p className="mt-1 text-[9px] font-medium text-purple-300">{tx.stage_label || (tx.source === "refund_request" ? "درخواست عودت وجه توسط کاربر" : "عودت وجه توسط مدیر")}</p>}
                                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[9px] text-gray-400 sm:mt-1 sm:gap-3 sm:text-[10px]">
                                   <span className="flex items-center gap-1"><MethodIcon className="h-2.5 w-2.5 sm:h-3 sm:w-3" />{getPaymentMethodFa(tx.payment_method)}</span>
                                   <span className="flex items-center gap-1"><Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3" />{new Date(tx.created_at).toLocaleDateString("fa-IR")}</span>
@@ -817,10 +862,17 @@ export default function DashboardPage() {
                   </span>
                 </div>
               )}
-              {selectedUserTx.type === "refund" && (
-                <div className="rounded border border-purple-500/20 bg-purple-500/10 p-2 text-xs text-purple-400">
-                  <div>وضعیت عودت: <b className="text-white">{selectedUserTx.status === "pending" ? "در حال بررسی" : selectedUserTx.status === "refunded" ? "عودت شده" : "رد شده"}</b></div>
-                  {selectedUserTx.admin_note && <div className="mt-1">توضیحات ادمین: {selectedUserTx.admin_note}</div>}
+              {(selectedUserTx.source === "refund_request" || selectedUserTx.payment_method === "refund") && (
+                <div className="rounded-xl border border-purple-500/20 bg-purple-500/10 p-3 text-xs text-purple-200">
+                  <div className="mb-2 font-bold text-purple-300">{selectedUserTx.stage_label || (selectedUserTx.source === "refund_request" ? "درخواست عودت وجه توسط کاربر" : "عودت وجه توسط مدیر")}</div>
+                  {selectedUserTx.reference_code && <div className="flex justify-between"><span>کد پیگیری مشترک:</span><b className="font-mono text-purple-300" dir="ltr">{selectedUserTx.reference_code}</b></div>}
+                  {selectedUserTx.subscription_id && <div className="flex justify-between"><span>شناسه اشتراک:</span><b className="font-mono text-blue-300" dir="ltr">SUB-{String(selectedUserTx.subscription_id).padStart(6, "0")}</b></div>}
+                  {selectedUserTx.subscription_code && <div className="flex justify-between"><span>شناسه اشتراک:</span><b className="font-mono text-blue-300" dir="ltr">{selectedUserTx.subscription_code}</b></div>}
+                  <div className="flex justify-between"><span>وضعیت عودت:</span><b className="text-white">{selectedUserTx.status === "pending" ? "در حال بررسی" : selectedUserTx.status === "refunded" || selectedUserTx.status === "approved" ? "عودت شده" : "رد شده"}</b></div>
+                  {selectedUserTx.old_plan && <div className="mt-1">پلن قبلی: <b>{getPlanNameFa(selectedUserTx.old_plan)}</b></div>}
+                  {selectedUserTx.new_plan && <div className="mt-1">پلن جدید: <b>{getPlanNameFa(selectedUserTx.new_plan)}</b></div>}
+                  {selectedUserTx.processed_at && <div className="mt-1">تاریخ رسیدگی: <b>{new Date(selectedUserTx.processed_at).toLocaleString("fa-IR")}</b></div>}
+                  {selectedUserTx.admin_note && <div className="mt-2 border-t border-purple-500/20 pt-2"><b>{selectedUserTx.source === "refund_request" ? "توضیح ثبت اولیه درخواست:" : "توضیح رسیدگی مدیر:"}</b> {selectedUserTx.admin_note}</div>}
                 </div>
               )}
               <div className="flex justify-between text-xs"><span className="text-gray-400">وضعیت:</span><span className={`font-bold ${getPaymentStatus(selectedUserTx.status).color}`}>{getPaymentStatus(selectedUserTx.status).text}</span></div>

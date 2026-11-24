@@ -324,7 +324,7 @@ export default function SubscriptionPage() {
               </div>
 
               <Button onClick={openConfirm} disabled={loading} className="w-full h-12 text-sm font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#07111f] hover:opacity-90 shadow-lg shadow-[#d6ad60]/20">
-                {loading ? "در حال پردازش..." : `پرداخت و خرید ${selectedPlanData?.title || ""}`}
+                {loading ? "در حال پردازش..." : `پرداخت و خرید اشتراک ${selectedPlanData?.title || ""}`}
               </Button>
             </>
           )}
@@ -344,7 +344,7 @@ export default function SubscriptionPage() {
           {selectedPlanData && (
             <div className="space-y-4 py-2">
               <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-center">
-                <p className="text-xs text-gray-400 mb-2">شما در حال خرید</p>
+                <p className="text-xs text-gray-400 mb-2">شما در حال خرید اشتراک</p>
                 <p className="text-lg font-bold text-white">{selectedPlanData.title}</p>
                 <p className="text-2xl font-bold text-[#d6ad60] mt-2" dir="ltr">
                   {selectedPlanData.price.toLocaleString("fa-IR")}

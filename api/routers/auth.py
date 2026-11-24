@@ -121,7 +121,8 @@ async def verify_otp_endpoint(
             logger.warning(f"[Notify] WebSocket admin failed: {e}")
 
     else:
-        user.is_admin = admin_by_config
+        # نقش ادمین کاربران موجود فقط از مسیر مدیریت نقش توسط مدیر اصلی تغییر می‌کند.
+        # ورود مجدد با OTP نباید مدیر دوم را به کاربر عادی تنزل دهد یا نقش حذف‌شده را برگرداند.
         user.last_login = now
         user.last_ip = ip
         user.last_user_agent = user_agent
@@ -129,7 +130,7 @@ async def verify_otp_endpoint(
         session.commit()
         session.refresh(user)
 
-    token = create_access_token(user.phone, is_admin=admin_by_config)
+    token = create_access_token(user.phone, is_admin=bool(user.is_admin))
     return TokenResponse(
         access_token=token,
         user=UserRead.model_validate(user, from_attributes=True),

@@ -255,18 +255,28 @@ export function Footer() {
                 </a>
               </div>
             </div>
-
-            {/* کپی‌رایت وسط */}
+            {/* کپی‌رایت و نسخه */}
             <div className="border-t border-white/5 pt-3">
-              <div className="flex flex-col items-center gap-0.5 text-gray-400">
+              <div className="relative flex flex-col items-center gap-0.5 text-gray-400">
                 <span className="text-[10px]">
                   طراحی و توسعه: <span className="font-medium text-[#d6ad60]">آسمون</span> | © {year} تریدمون
                 </span>
+
                 <span className="text-[8px] text-gray-500" dir="ltr">
-                  Designed by Asemun · © {year} Trademun
+                  Designed by Asemun · © 2026 Trademun
+                </span>
+
+                <span
+                  className="mt-1 text-[9px] text-gray-500 md:absolute md:right-0 md:top-1 md:mt-0"
+                  dir="rtl"
+                >
+                  نسخه <span className="font-medium text-[#d6ad60]">1.17.1</span>
+                  <span className="mx-1 text-gray-600">·</span>
+                  به‌روزرسانی 1405/09/03
                 </span>
               </div>
             </div>
+
           </div>
         </div>
       </footer>
