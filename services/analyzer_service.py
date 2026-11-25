@@ -856,12 +856,26 @@ def deep_analysis(
         return "خطا در تولید تحلیل."
 
 
-def checklist(tfs, main_tf="۵ دقیقه"):
+def checklist(tfs, main_tf="۵ دقیقه", strategy="swing"):
     try:
-        items, pct, final, color = build_checklist_weighted(tfs, main_tf)
-        return {"items": items, "percentage": pct, "final": final, "final_color": color}
+        items, pct, final, color = build_checklist_weighted(
+            tfs,
+            main_tf,
+            strategy,
+        )
+        return {
+            "items": items,
+            "percentage": pct,
+            "final": final,
+            "final_color": color,
+        }
     except Exception:
-        return {"items": [], "percentage": 0, "final": "", "final_color": "yellow"}
+        return {
+            "items": [],
+            "percentage": 0,
+            "final": "",
+            "final_color": "yellow",
+        }
 
 
 def fear_greed(ticker, source="nobitex"):

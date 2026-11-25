@@ -22,61 +22,49 @@ const lalezar = Lalezar({
 });
 
 const SITE_URL = "https://trademun.ir";
-const OG_IMAGE = `${SITE_URL}/og-image.jpg`; // 🔴 نام فایل رو دقیقاً همین گذاشتید
+const OG_IMAGE = `${SITE_URL}/og-image.jpg`;
 
 export const metadata: Metadata = {
-  // ═══ سئو پایه (گوگل) ═══
-  // 🔴 تیتر شامل شعار شما + کلمات کلیدی سئو
+  metadataBase: new URL(SITE_URL),
+
   title: {
-    default: "تریدمون | معامله هوشمند از اینجا شروع میشه!",
+    default: "تریدمون | تحلیل هوشمند بازارهای مالی",
     template: "%s | تریدمون",
   },
   description:
-    "تریدمون، دستیار هوشمند تحلیل بازارهای مالی؛ بررسی لحظه‌ای طلا، ارز دیجیتال، فارکس و بورس با تحلیل تکنیکال، فاندامنتال، ۳۲ اندیکاتور تخصصی و هوش مصنوعی با مقایسه بهترین صرافی ایرانی برای معامله.",
-  keywords: [
-    "تریدمون", "تحلیل تکنیکال", "تحلیل فاندامنتال", "تحلیل بازار",
-    "کریپتو", "فارکس", "بورس", "طلا", "ارز دیجیتال", "هوش مصنوعی",
-    "نوبیتکس", "بیت پین", "تبدیل", "والکس", "صرافی ایرانی", "مقایسه بازار",
-    "سیگنال", "Trademun", "trading", "crypto", "forex", "technical analysis",
-  ],
+    "تریدمون دستیار تحلیل بازارهای مالی است؛ تحلیل تکنیکال ارزهای دیجیتال در صرافی‌های ایرانی، بررسی طلا و فارکس، بورس تهران، بیش از ۲۵ اندیکاتور، سیگنال‌ها، اسکنر فرصت‌ها و مشاور هوشمند.",
+  applicationName: "تریدمون",
   authors: [{ name: "Trademun" }],
   creator: "Trademun",
   publisher: "Trademun",
-  metadataBase: new URL(SITE_URL),
-  alternates: {
-    canonical: SITE_URL,
-  },
 
-  // ═══ Open Graph (تلگرام، فیسبوک، لینکدین) ═══
+  // Canonical را در metadata هر صفحه تعیین کنید؛ canonical سراسری باعث
+  // می‌شود همه صفحات به صفحه اصلی canonical شوند.
   openGraph: {
-    // 🔴 شعار شما به عنوان تیتر اصلی
-    title: "معامله هوشمند از اینجا شروع میشه! | تریدمون",
-    description:
-      "تحلیل هوشمند ارز دیجیتال، طلا، فارکس و بورس تهران در صرافی های ایرانی.",
-    url: SITE_URL,
-    siteName: "تریدمون",
-    locale: "fa_IR",
     type: "website",
+    locale: "fa_IR",
+    siteName: "تریدمون",
+    title: "تریدمون | تحلیل هوشمند بازارهای مالی",
+    description:
+      "تحلیل بازارهای مالی، ارز دیجیتال، طلا، فارکس و بورس تهران با ابزارهای تحلیلی و مشاور هوشمند تریدمون.",
     images: [
       {
         url: OG_IMAGE,
         width: 1200,
         height: 630,
-        alt: "تریدمون - معامله هوشمند از اینجا شروع میشه!",
+        alt: "تریدمون؛ تحلیل هوشمند بازارهای مالی",
       },
     ],
   },
 
-  // ═══ Twitter Card ═══
   twitter: {
     card: "summary_large_image",
-    title: "معامله هوشمند از اینجا شروع میشه! | تریدمون",
+    title: "تریدمون | تحلیل هوشمند بازارهای مالی",
     description:
-      "تحلیل هوشمند ارز دیجیتال، طلا، فارکس و بورس تهران در صرافی های ایرانی.",
+      "تحلیل بازارهای مالی، ارز دیجیتال، طلا، فارکس و بورس تهران با ابزارهای تحلیلی تریدمون.",
     images: [OG_IMAGE],
   },
 
-  // ═══ PWA و آیکون‌ها ═══
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -88,7 +76,6 @@ export const metadata: Metadata = {
     apple: "/icon-148.png",
   },
 
-  // ═══ تنظیمات ربات‌های جستجو ═══
   robots: {
     index: true,
     follow: true,
@@ -106,8 +93,34 @@ export const viewport: Viewport = {
   themeColor: "#0a0e1a",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // بزرگ‌نمایی را برای دسترس‌پذیری کاربران غیرفعال نکنید.
+  userScalable: true,
+};
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_URL}/#organization`,
+      name: "تریدمون",
+      alternateName: "Trademun",
+      url: SITE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/icon-148.png`,
+      },
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      url: SITE_URL,
+      name: "تریدمون",
+      alternateName: "Trademun",
+      inLanguage: "fa-IR",
+      publisher: { "@id": `${SITE_URL}/#organization` },
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -116,7 +129,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fa" dir="rtl" className={`dark ${vazirmatn.variable} ${lalezar.variable}`}>
+    <html
+      lang="fa"
+      dir="rtl"
+      className={`dark ${vazirmatn.variable} ${lalezar.variable}`}
+    >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        />
+      </head>
       <body className="font-sans antialiased bg-background text-foreground">
         <MaintenanceGuard>
           <WebSocketProvider>

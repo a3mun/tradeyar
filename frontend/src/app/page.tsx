@@ -1,8 +1,10 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { getToken, getUser } from "@/lib/auth";
 import { motion } from "framer-motion";
 import {
@@ -19,6 +21,7 @@ import {
   Calendar,
   BarChart3,
 } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { TradingPsychologyBanner } from "@/components/signal/TradingPsychologyBanner";
 import { Header } from "@/components/layout/Header";
@@ -28,26 +31,97 @@ import { Footer } from "@/components/layout/Footer";
 import { SymbolSelector } from "@/components/signal/SymbolSelector";
 import { SignalCard } from "@/components/signal/SignalCard";
 import { TFTable } from "@/components/signal/TFTable";
-import { Checklist } from "@/components/signal/Checklist";
-import { DeepAnalysis } from "@/components/signal/DeepAnalysis";
 import { FearGreed } from "@/components/signal/FearGreed";
-import { PriceComparison } from "@/components/signal/PriceComparison";
 import { OrderBookPanel } from "@/components/signal/OrderBookPanel";
 import { WatchlistCard } from "@/components/signal/WatchlistCard";
-import { Scanner } from "@/components/scan/Scanner";
-import { StatisticsBox } from "@/components/signal/StatisticsBox";
 import { SupportResistance } from "@/components/signal/SupportResistance";
-import { AIAnalysis } from "@/components/signal/AIAnalysis";
-import { EconomicCalendarPlaceholder } from "@/components/signal/EconomicCalendarPlaceholder";
-import { PositionSizeCalculatorPlaceholder } from "@/components/signal/PositionSizeCalculatorPlaceholder";
-import { FundamentalAnalysisPlaceholder } from "@/components/signal/FundamentalAnalysisPlaceholder";
 
 import { useSignalData } from "@/hooks/useSignalData";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import { StickyMiniHeader } from "@/components/layout/StickyMiniHeader";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { ProOverlay } from "@/components/ui/pro-overlay";
+
+// نمایش هنگام دریافت فایل هر بخش
+const SectionChunkLoading = () => (
+  <div className="p-5 text-center text-xs text-slate-400">
+    در حال بارگذاری بخش...
+  </div>
+);
+
+// بارگذاری تنبل کامپوننت‌های داخل منوهای کشویی
+
+const AIAnalysis = dynamic(
+  () =>
+    import("@/components/signal/AIAnalysis").then(
+      (mod) => mod.AIAnalysis
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const DeepAnalysis = dynamic(
+  () =>
+    import("@/components/signal/DeepAnalysis").then(
+      (mod) => mod.DeepAnalysis
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const FundamentalAnalysisPlaceholder = dynamic(
+  () =>
+    import("@/components/signal/FundamentalAnalysisPlaceholder").then(
+      (mod) => mod.FundamentalAnalysisPlaceholder
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const Scanner = dynamic(
+  () =>
+    import("@/components/scan/Scanner").then(
+      (mod) => mod.Scanner
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const Checklist = dynamic(
+  () =>
+    import("@/components/signal/Checklist").then(
+      (mod) => mod.Checklist
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const PriceComparison = dynamic(
+  () =>
+    import("@/components/signal/PriceComparison").then(
+      (mod) => mod.PriceComparison
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const PositionSizeCalculator = dynamic(
+  () =>
+    import("@/components/signal/PositionSizeCalculatorPlaceholder").then(
+      (mod) => mod.PositionSizeCalculatorPlaceholder
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const EconomicCalendarPlaceholder = dynamic(
+  () =>
+    import("@/components/signal/EconomicCalendarPlaceholder").then(
+      (mod) => mod.EconomicCalendarPlaceholder
+    ),
+  { loading: SectionChunkLoading }
+);
+
+const StatisticsBox = dynamic(
+  () =>
+    import("@/components/signal/StatisticsBox").then(
+      (mod) => mod.StatisticsBox
+    ),
+  { loading: SectionChunkLoading }
+);
 
 export default function HomePage() {
   const router = useRouter();
@@ -78,7 +152,8 @@ export default function HomePage() {
       return;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const apiUrl =
+      process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
     fetch(`${apiUrl}/subscription/my`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -89,14 +164,21 @@ export default function HomePage() {
         const endDate = sub?.end_date ? new Date(sub.end_date) : null;
         const now = new Date();
 
-        const isExpired = endDate ? endDate.getTime() < now.getTime() : false;
+        const isExpired = endDate
+          ? endDate.getTime() < now.getTime()
+          : false;
 
         if (sub && sub.status === "active" && !isExpired) {
           setHasAccess(true);
+
           if (sub.plan && sub.plan !== "free") {
             setPlan("pro");
           }
-          localStorage.setItem("trademun_subscription", JSON.stringify(sub));
+
+          localStorage.setItem(
+            "trademun_subscription",
+            JSON.stringify(sub)
+          );
         } else {
           setHasAccess(false);
           localStorage.removeItem("trademun_subscription");
@@ -125,6 +207,7 @@ export default function HomePage() {
     return (
       <div className="min-h-screen bg-[#07111f] text-white">
         <Header />
+
         <main className="container mx-auto max-w-2xl px-4 py-12 sm:py-20">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -135,13 +218,16 @@ export default function HomePage() {
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#d6ad60]/10">
               <Lock className="h-8 w-8 text-[#d6ad60]" />
             </div>
+
             <h2 className="mb-3 text-2xl sm:text-3xl font-bold">
               دسترسی به تحلیل‌ها نیازمند اشتراک فعال است
             </h2>
+
             <p className="mb-6 text-sm leading-relaxed text-gray-400">
               برای مشاهده سیگنال‌ها، تحلیل هوش مصنوعی، اسکنر بازار و بررسی قیمت لحظه‌ای،
               از داشبورد خود اشتراک تهیه کن یا درخواست تمدید بده.
             </p>
+
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
               <Link href="/dashboard">
                 <Button className="h-11 w-full sm:w-auto gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
@@ -149,6 +235,7 @@ export default function HomePage() {
                   خرید / تمدید اشتراک
                 </Button>
               </Link>
+
               <Link href="/dashboard">
                 <Button
                   variant="outline"
@@ -161,6 +248,7 @@ export default function HomePage() {
             </div>
           </motion.div>
         </main>
+
         <Footer />
       </div>
     );
@@ -170,6 +258,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-background">
       <Header />
       <StickyMiniHeader />
+
       <div className="w-full overflow-hidden">
         <Marquee />
       </div>
@@ -182,8 +271,10 @@ export default function HomePage() {
           <WatchlistCard />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 sm:gap-6">
-            {/* ═══════════════ LEFT COLUMN ═══════════════ */}
+
+            {/* ستون چپ */}
             <div className="contents lg:flex lg:flex-col lg:gap-4 lg:min-w-0">
+
               <div className="order-1 lg:order-none min-w-0">
                 <SignalCard />
               </div>
@@ -192,7 +283,6 @@ export default function HomePage() {
                 <OrderBookPanel />
               </div>
 
-              {/* 🔴 یادآوری روانشناسی معامله‌گری (بالای مشاور هوشمند) */}
               <div className="order-4 lg:order-none min-w-0">
                 <TradingPsychologyBanner />
               </div>
@@ -203,11 +293,8 @@ export default function HomePage() {
                   title="مشاور هوشمند"
                   icon={<Brain className="h-4 w-4" />}
                   subtitle="تحلیل و بررسی با هوش مصنوعی"
-                  isLocked={!isPro}
                 >
-                  <ProOverlay feature="مشاور هوشمند">
                     <AIAnalysis />
-                  </ProOverlay>
                 </CollapsibleSection>
               </div>
 
@@ -227,7 +314,7 @@ export default function HomePage() {
                   id="fundamental-analysis"
                   title="تحلیل بنیادین (فاندامنتال)"
                   icon={<Landmark className="h-4 w-4" />}
-                  subtitle="بررسی بنیادین بازار — به زودی"
+                  subtitle="بررسی عوامل اقتصادی و محرک‌های بازار - به زودی"
                 >
                   <FundamentalAnalysisPlaceholder />
                 </CollapsibleSection>
@@ -240,11 +327,8 @@ export default function HomePage() {
                     title="اسکنر فرصت‌ها"
                     icon={<Search className="h-4 w-4" />}
                     subtitle="شناسایی فرصت‌های بازار"
-                    isLocked={!isPro}
                   >
-                    <ProOverlay feature="اسکنر فرصت‌ها">
                       <Scanner />
-                    </ProOverlay>
                   </CollapsibleSection>
                 ) : (
                   <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 text-[11px] text-yellow-500">
@@ -254,8 +338,9 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* ═══════════════ RIGHT COLUMN ═══════════════ */}
+            {/* ستون راست */}
             <div className="contents lg:flex lg:flex-col lg:gap-4 lg:min-w-0">
+
               <div className="order-2 lg:order-none min-w-0">
                 <TFTable />
               </div>
@@ -300,9 +385,9 @@ export default function HomePage() {
                   id="position-calculator"
                   title="ماشین‌حساب سود و ضرر"
                   icon={<Calculator className="h-4 w-4" />}
-                  subtitle="محاسبه حجم پوزیشن — به زودی"
+                  subtitle="مدیریت سرمایه، حجم معامله و محاسبه سود و زیان"
                 >
-                  <PositionSizeCalculatorPlaceholder />
+                  <PositionSizeCalculator />
                 </CollapsibleSection>
               </div>
 
@@ -311,7 +396,7 @@ export default function HomePage() {
                   id="economic-calendar"
                   title="تقویم اقتصادی فارکس"
                   icon={<Calendar className="h-4 w-4" />}
-                  subtitle="رویدادهای مهم اقتصادی — به زودی"
+                  subtitle="رویدادهای مهم اقتصاد جهان"
                 >
                   <EconomicCalendarPlaceholder />
                 </CollapsibleSection>
@@ -327,10 +412,12 @@ export default function HomePage() {
                   <StatisticsBox />
                 </CollapsibleSection>
               </div>
+
             </div>
           </div>
         </main>
       </div>
+
       <Footer />
     </div>
   );

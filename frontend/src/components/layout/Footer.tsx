@@ -14,7 +14,7 @@ import {
   Ticket,
 } from "lucide-react";
 
-const VERSION = "V1.17.4";
+const VERSION = "V1.17.9";
 const UPDATE_DATE = "۱۴۰۵/۰۹/۰۴";
 const DISCLAIMER_KEY = "trademun_hide_disclaimer_forever";
 
@@ -53,20 +53,25 @@ function TrustBadges() {
         />
       </a>
 
+
       {/* اینماد */}
       <a
-        href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
+        referrerPolicy="origin"
         target="_blank"
-        rel="noopener noreferrer"
+        href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
         title="نماد اعتماد الکترونیکی"
         className="flex h-14 w-24 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white p-2 transition-transform hover:scale-105"
       >
         <img
+          referrerPolicy="origin"
           src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
           alt="نماد اعتماد الکترونیکی"
+          style={{ cursor: "pointer" }}
           className="max-h-10 max-w-full object-contain"
+          {...{ code: "jUOINjWjTAjOBPnz52mIxW9RrL578POs" }}
         />
       </a>
+
     </div>
   );
 }

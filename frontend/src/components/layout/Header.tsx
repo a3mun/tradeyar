@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,39 +10,43 @@ import {
   LogOut,
   LayoutDashboard,
   ShieldCheck,
+  House,
   LogIn,
   ChevronDown,
-  HelpCircle,
 } from "lucide-react";
+
 import { HelpPanel } from "./HelpPanel";
 import { getUser, getToken, removeToken } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { AnimatedLogo } from "@/components/ui/animated-logo";
 
-// 🔴 استایل مشترک برای دکمه‌های هدر (مدرن و یکدست)
+// استایل مشترک دکمه‌های هدر
 const HEADER_BTN_CLASS =
   "flex items-center justify-center gap-1.5 h-9 rounded-xl border border-white/5 bg-white/5 text-[11px] font-medium text-gray-300 transition-all duration-200 hover:bg-white/10 hover:border-white/10 hover:text-white";
 
-// 🔴 تابع ترجمه نام پلن‌ها
+// ترجمه نام پلن‌ها
 function getPlanName(plan: string) {
   const map: Record<string, string> = {
     "1_month": "یک ماهه",
     "3_months": "سه ماهه",
     "6_months": "شش ماهه",
     "12_months": "یک ساله",
-    "free": "رایگان",
-    "monthly": "ماهانه",
+    free: "رایگان",
+    monthly: "ماهانه",
   };
+
   return map[plan] || plan;
 }
 
+// نمایش ساعت تهران
 function ClockDisplay() {
-  const [time, setTime] = useState<string>("");
+  const [time, setTime] = useState("");
 
   useEffect(() => {
     const tick = () => {
       const now = new Date();
+
       setTime(
         new Intl.DateTimeFormat("en-GB", {
           hour: "2-digit",
@@ -52,45 +57,131 @@ function ClockDisplay() {
         }).format(now)
       );
     };
+
     tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
+
+    const id = window.setInterval(tick, 1000);
+
+    return () => window.clearInterval(id);
   }, []);
 
   return (
     <div className={`${HEADER_BTN_CLASS} px-2.5 md:px-3 cursor-default`}>
       <Clock className="h-3 w-3 md:h-3.5 md:w-3.5 text-[#d6ad60]/80" />
-      <span className="num tabular-nums text-gray-200" style={{ fontFamily: "monospace" }}>
+
+      <span
+        className="num tabular-nums text-gray-200"
+        style={{ fontFamily: "monospace" }}
+      >
         {time || "--:--:--"}
       </span>
+
       <span className="text-[9px] text-gray-500">TEH</span>
     </div>
   );
 }
 
+// بررسی اعتبار تاریخ
+function isValidDate(value: string | Date) {
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+}
+
+// کامپوننت هدر
 export function Header() {
   const router = useRouter();
+
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [user, setUserData] = useState<any>(null);
-  const [subData, setSubData] = useState<any>(null); // 🔴 برای اطلاعات اشتراک
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const isLoggedIn = !!getToken();
+  const [subData, setSubData] = useState<any>(null);
+  const [accountLoaded, setAccountLoaded] = useState(false);
 
-  useEffect(() => {
-    const u = getUser();
-    setUserData(u);
-    
-    // 🔴 خواندن اطلاعات اشتراک از localStorage
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // وضعیت ورود را بعد از بارگذاری کلاینت بررسی می‌کنیم
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // دریافت و به‌روزرسانی اطلاعات حساب
+  const loadAccountData = useCallback(() => {
+    const token = getToken();
+    const currentUser = getUser();
+
+    setIsLoggedIn(!!token);
+    setUserData(currentUser);
+
+    if (!token || !currentUser) {
+      setSubData(null);
+      setAccountLoaded(true);
+      return;
+    }
+
     try {
-      const subStr = localStorage.getItem("trademun_subscription");
-      if (subStr) {
-        setSubData(JSON.parse(subStr));
+      const storedSubscription = localStorage.getItem(
+        "trademun_subscription"
+      );
+
+      if (storedSubscription) {
+        const parsedSubscription = JSON.parse(storedSubscription);
+
+        setSubData(
+          parsedSubscription &&
+            typeof parsedSubscription === "object"
+            ? parsedSubscription
+            : null
+        );
+      } else {
+        setSubData(null);
       }
     } catch {
-      // نادیده گرفتن خطای JSON
+      setSubData(null);
     }
+
+    setAccountLoaded(true);
   }, []);
-  
+
+  // بارگذاری اولیه و همگام‌سازی اطلاعات
+  useEffect(() => {
+    loadAccountData();
+
+    const handleFocus = () => {
+      loadAccountData();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadAccountData();
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key === "trademun_subscription" ||
+        event.key === null
+      ) {
+        loadAccountData();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("storage", handleStorage);
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("storage", handleStorage);
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+    };
+  }, [loadAccountData]);
+
+  // بستن منو با کلیک خارج از آن
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -100,35 +191,61 @@ export function Header() {
         setIsAccountOpen(false);
       }
     };
+
     document.addEventListener("mousedown", handleClickOutside);
-    return () =>
-      document.removeEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+    };
   }, []);
 
+  // رفتن به داشبورد
   const handleGoToDashboard = () => {
     setIsAccountOpen(false);
     router.push("/dashboard");
   };
 
+  // رفتن به پنل مدیریت
   const handleGoToAdmin = () => {
     setIsAccountOpen(false);
     router.push("/admin");
   };
 
+  // ورود
   const handleLogin = () => {
     setIsAccountOpen(false);
     router.push("/login");
   };
 
+  // خروج
   const handleLogout = () => {
     removeToken();
+
+    setIsLoggedIn(false);
+    setUserData(null);
+    setSubData(null);
     setIsAccountOpen(false);
+
     router.push("/login");
   };
+
+  // بررسی اطلاعات اشتراک
+  const hasActiveSubscription =
+    subData?.status === "active" &&
+    !!subData?.end_date &&
+    isValidDate(subData.end_date);
+
+  const subscriptionEndDate = hasActiveSubscription
+    ? new Date(subData.end_date)
+    : null;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-white/5 bg-[#051118]/80 backdrop-blur-xl transition-all duration-300">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
+
         {/* لوگو */}
         <Link
           href="/"
@@ -142,10 +259,12 @@ export function Header() {
             src="/icon-192.png"
             showParticles={true}
           />
+
           <div className="flex flex-col justify-center leading-none">
             <h1 className="font-display text-[18px] font-bold leading-none text-white transition-colors group-hover:text-[#d6ad60]">
               تریدمون
             </h1>
+
             <p className="mt-1 text-[10px] font-medium tracking-[0.03em] leading-none text-[#d6ad60]/90">
               Trademun.ir
             </p>
@@ -154,19 +273,29 @@ export function Header() {
 
         {/* ابزارها */}
         <div className="flex items-center gap-2">
-          {/* راهنما */}
-          <div className="hidden md:flex">
-            <HelpPanel />
-          </div>
+
+
+          {/* راهنما - فقط برای کاربران واردشده */}
+          {isLoggedIn && (
+            <div className="hidden md:flex">
+              <HelpPanel />
+            </div>
+          )}
 
           {/* حساب کاربری */}
-          <div className="relative hidden md:block" ref={dropdownRef}>
+          <div
+            className="relative hidden md:block"
+            ref={dropdownRef}
+          >
             <button
-              onClick={() => setIsAccountOpen(!isAccountOpen)}
+              type="button"
+              onClick={() => setIsAccountOpen((prev) => !prev)}
               className={`${HEADER_BTN_CLASS} px-3`}
             >
               <User className="h-3.5 w-3.5 text-[#d6ad60]/80" />
+
               <span>حساب کاربری</span>
+
               <ChevronDown
                 className={`h-3 w-3 transition-transform duration-200 ${
                   isAccountOpen ? "rotate-180" : ""
@@ -177,48 +306,92 @@ export function Header() {
             <AnimatePresence>
               {isAccountOpen && (
                 <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  initial={{
+                    opacity: 0,
+                    y: 8,
+                    scale: 0.96,
+                  }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    scale: 1,
+                  }}
+                  exit={{
+                    opacity: 0,
+                    y: 8,
+                    scale: 0.96,
+                  }}
+                  transition={{
+                    duration: 0.15,
+                    ease: "easeOut",
+                  }}
                   className="absolute left-0 z-50 mt-2 w-64 rounded-xl border border-white/10 bg-[#051118] p-3 shadow-2xl"
                 >
                   {isLoggedIn && user ? (
                     <div className="space-y-3">
+
+                      {/* اطلاعات کاربر */}
                       <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+
                         <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d6ad60]/30 bg-[#d6ad60]/10">
                           <User className="h-5 w-5 text-[#d6ad60]" />
                         </div>
+
                         <div className="min-w-0 flex-1">
+
                           <p className="truncate text-[12px] font-bold text-white">
                             {user.full_name || "کاربر تریدمون"}
                           </p>
+
                           <p className="num mt-0.5 truncate text-[10px] text-gray-400 font-mono dir-ltr">
                             {user.phone}
                           </p>
-                          {/* 🔴 نمایش وضعیت اشتراک (از subData) */}
+
+                          {/* وضعیت اشتراک */}
                           {user.is_admin ? (
                             <p className="mt-1 flex items-center gap-1 text-[9px] text-[#d6ad60]/80">
                               <ShieldCheck className="h-3 w-3" />
                               دسترسی نامحدود (مدیر)
                             </p>
-
-                          ) : subData && subData.status === "active" && subData.end_date ? (
+                          ) : !accountLoaded ? (
+                            <p className="mt-1 text-[9px] text-gray-500">
+                              در حال بررسی اشتراک...
+                            </p>
+                          ) : hasActiveSubscription ? (
                             <p className="mt-1 flex items-center gap-1 text-[9px] text-gray-500">
                               <Clock className="h-3 w-3" />
-                              اشتراک: {getPlanName(subData.plan)} تا {new Intl.DateTimeFormat("fa-IR").format(new Date(subData.end_date))}
+
+                              اشتراک: {getPlanName(subData.plan)} تا{" "}
+
+                              {new Intl.DateTimeFormat("fa-IR").format(
+                                subscriptionEndDate!
+                              )}
                             </p>
                           ) : (
-
                             <p className="mt-1 flex items-center gap-1 text-[9px] text-red-400/80">
                               <Clock className="h-3 w-3" />
                               اشتراک: منقضی شده
                             </p>
                           )}
+
                         </div>
                       </div>
 
+                      {/* دکمه‌های حساب */}
                       <div className="space-y-1.5">
+
+                        <Button
+                          onClick={() => {
+                            setIsAccountOpen(false);
+                            router.push("/");
+                          }}
+                          variant="outline"
+                          className="h-9 w-full justify-start gap-2 border-white/10 text-[12px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+                        >
+                          <House className="h-4 w-4" />
+                          صفحه اصلی
+                        </Button>
+
                         <Button
                           onClick={handleGoToDashboard}
                           className="h-9 w-full justify-start gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[12px] font-bold text-[#101827] hover:opacity-90"
@@ -226,6 +399,7 @@ export function Header() {
                           <LayoutDashboard className="h-4 w-4" />
                           رفتن به داشبورد
                         </Button>
+
                         {user.is_admin && (
                           <Button
                             onClick={handleGoToAdmin}
@@ -236,6 +410,7 @@ export function Header() {
                             پنل مدیریت
                           </Button>
                         )}
+
                         <Button
                           onClick={handleLogout}
                           variant="destructive"
@@ -244,13 +419,16 @@ export function Header() {
                           <LogOut className="h-4 w-4" />
                           خروج از حساب
                         </Button>
+
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3 text-center">
+
                       <p className="text-[11px] text-gray-400 leading-relaxed">
                         برای دسترسی به داشبورد وارد شوید.
                       </p>
+
                       <Button
                         onClick={handleLogin}
                         className="h-9 w-full gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[12px] font-bold text-[#101827] hover:opacity-90"
@@ -258,6 +436,7 @@ export function Header() {
                         <LogIn className="h-4 w-4" />
                         ورود به حساب
                       </Button>
+
                     </div>
                   )}
                 </motion.div>
@@ -267,6 +446,7 @@ export function Header() {
 
           {/* ساعت */}
           <ClockDisplay />
+
         </div>
       </div>
     </header>

@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-
+from api.routers import economic_calendar
 from api.config import settings
 from api.database import init_db, migrate_db
 from api.routers import admin, subscription
@@ -228,7 +228,7 @@ app.include_router(tickets.router)
 app.include_router(extension.router)
 app.include_router(share.router)
 app.include_router(ai.router)
-
+app.include_router(economic_calendar.router)
 
 # ═══════════════════════════════════════════════════════════
 # Mount WebSocket

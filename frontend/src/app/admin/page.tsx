@@ -3306,21 +3306,6 @@ const handleDeleteSub = async (subId: number) => {
                     className="h-24 w-full rounded-md border border-white/10 bg-black/30 p-2 text-sm text-white"
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="txSendSms"
-                    checked={txSendSms}
-                    onChange={(e) => setTxSendSms(e.target.checked)}
-                    className="accent-[#d6ad60]"
-                  />
-                  <label
-                    htmlFor="txSendSms"
-                    className="text-xs text-gray-400"
-                  >
-                    ارسال پیامک اطلاع‌رسانی به کاربر
-                  </label>
-                </div>
               </div>
 
               <div className="flex gap-2 pt-2">

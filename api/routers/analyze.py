@@ -87,7 +87,12 @@ async def analyze_multi_endpoint(req: AnalyzeRequest, request: Request):
     if not tfs:
         raise HTTPException(status_code=404, detail="تحلیل چند TF ناموفق بود")
 
-    cl = await run_in_threadpool(checklist, tfs, req.timeframe)
+    cl = await run_in_threadpool(
+        checklist,
+        tfs,
+        req.timeframe,
+        req.strategy,
+    )
 
     return {
         "ok": True,

@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     CONTACT_TELEGRAM: str = "asemun_1993"
     CONTACT_BALE: str = "asemun_1993"
     CARD_NUMBER: str = "5859-4710-1084-0910"
-    CARD_HOLDER: str = "محمدمهدی"
+    
 
     # 🔴 تنظیمات زیبال
     ZIBAL_MERCHANT: str

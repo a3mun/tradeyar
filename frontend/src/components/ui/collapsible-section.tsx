@@ -26,12 +26,17 @@ export function CollapsibleSection({
   isLocked = false,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
-
+  const [hasOpened, setHasOpened] = useState(defaultOpen);
+  
   return (
     <div className="rounded-xl border border-white/10 bg-[#051118] shadow-md overflow-hidden transition-all hover:bg-[#051117]">
       {/* هدر — همیشه قابل کلیک */}
       <button
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => {
+          if (!isOpen) setHasOpened(true);
+          setIsOpen((v) => !v);
+        }}
+
         className="flex w-full items-center justify-between p-3 text-right transition-colors hover:bg-white/5"
       >
         <div className="flex items-center gap-2">
@@ -77,7 +82,7 @@ export function CollapsibleSection({
             className="overflow-hidden"
           >
             <div className="border-t border-border/30 p-3 min-h-[100px]">
-              {children}
+              {hasOpened && children}
             </div>
           </motion.div>
         )}

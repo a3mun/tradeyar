@@ -1,12 +1,11 @@
+
 "use client";
 
 /**
- * DeepAnalysis — تحلیل و چرایی (نسخه ۱۰.۰ · UI Polish)
+ * DeepAnalysis — تحلیل و چرایی (نسخه ۱۰.۱ · Logic Improved)
  * ============================================================
- * 🔴 تغییرات جدید:
- *   • هماهنگ‌سازی رنگ‌ها با تم طلایی/خاکستری
- *   • حذف رنگ‌های آبی و زرد تند
- *   • استایل شیشه‌ای برای بخش‌های اصلی
+ * بهبود منطق توضیحات و پیشنهاد اقدام
+ * حفظ ساختار و ظاهر نسخه اصلی
  */
 
 import {
@@ -52,76 +51,142 @@ function buildNarrative(data: any): {
   why: string;
   action: string;
 } {
-  const signal = data.signal || "";
-  const conf = data.confidence || 0;
+  const signal = String(data.signal || "");
+  const conf = Number(data.confidence ?? 0);
   const strategy = data.strategy || "swing";
-  const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
-  const isLong = signal.includes("LONG");
-  const isShort = signal.includes("SHORT");
-  const isWeak = signal.includes("ضعیف");
+  const strategyMeta =
+    STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
+
+  // ابتدا وضعیت‌های خاص را تشخیص می‌دهیم تا direction خنثی
+  // باعث اشتباه در تشخیص «در حال تشکیل» یا «دور» نشود.
   const isForming = signal.includes("در حال تشکیل");
   const isFar = signal.includes("دور");
 
+  const isLong = !isForming && !isFar && (
+    data.direction === "long" || signal.includes("LONG")
+  );
+
+  const isShort = !isForming && !isFar && (
+    data.direction === "short" || signal.includes("SHORT")
+  );
+
+  const isWeak = signal.includes("ضعیف");
+
   let headline = "";
-  if (isLong) {
+
+  if (isForming) {
+    headline = "در حال تشکیل — هنوز سیگنال کامل نشده";
+  } else if (isFar) {
+    headline = "دور از ورود — فعلاً صبر کن";
+  } else if (isLong) {
     headline = isWeak
-      ? `خرید ضعیف — بهتره با احتیاط وارد شی`
+      ? "خرید ضعیف — بهتره با احتیاط عمل کنی"
       : conf >= 70
-      ? `خرید قوی — شرایط مساعدِ`
-      : `سیگنال خرید — شرایط مناسبه`;
+      ? "خرید قوی — شرایط مساعدتره"
+      : "سیگنال خرید — هنوز به تأیید بیشتری نیاز داره";
   } else if (isShort) {
     headline = isWeak
-      ? `فروش ضعیف — پرریسکه، با احتیاط`
+      ? "فروش ضعیف — ریسک بالاتره، با احتیاط"
       : conf >= 70
-      ? `فروش قوی — شرایط مساعدِ`
-      : `سیگنال فروش — شرایط مناسبه`;
-  } else if (isForming) {
-    headline = `در حال تشکیل — هنوز سیگنال کامل نشده`;
-  } else if (isFar) {
-    headline = `دور از ورود — فعلاً صبر کن`;
+      ? "فروش قوی — شرایط مساعدتره"
+      : "سیگنال فروش — هنوز به تأیید بیشتری نیاز داره";
   } else {
-    headline = `بدون سیگنال — بهترین کار، صبر کردنه`;
+    headline = "بدون سیگنال — بهترین کار، صبر کردنه";
   }
 
-  const reasons = data.reasons || [];
+  const reasons = Array.isArray(data.reasons)
+    ? data.reasons.filter((r: unknown) => typeof r === "string")
+    : [];
+
   let why = "";
 
   if (isLong || isShort) {
     const dirFa = isLong ? "صعودی" : "نزولی";
+
     const strengths = reasons
-      .filter((r: string) => !r.includes("⚠️") && !r.includes("🚫"))
-      .slice(0, 2)
-      .map((r: string) => r.replace(/[🟢🟡🟠🔴⚡✅💧📈📊🏗💎]/g, "").trim())
-      .filter((r: string) => r.length > 5);
+      .filter(
+        (r: string) =>
+          !r.includes("⚠️") && !r.includes("🚫")
+      )
+      .map((r: string) =>
+        r.replace(/[🟢🟡🟠🔴⚡✅💧📈📊🏗💎]/g, "").trim()
+      )
+      .filter((r: string) => r.length > 5)
+      .slice(0, 2);
 
     if (strengths.length > 0) {
       why = `چند دلیل برای ${dirFa} بودن بازار داریم:\n${strengths
         .map((s: string) => `• ${s}`)
         .join("\n")}`;
     } else {
-      why = `گروه‌های تحلیل به ${dirFa} بودن بازار رأی دادن. اطمینان ${conf}٪.`;
+      why = `جهت تحلیل فعلی ${dirFa} است، اما توضیح مشخصی از دلایل این جهت در داده‌های تحلیل دریافت نشده است.\n• اطمینان فعلی: ${conf}٪`;
+    }
+
+    // هشدارهای موجود در دلایل تحلیل را از کاربر پنهان نمی‌کنیم.
+    const warnings = reasons
+      .filter(
+        (r: string) =>
+          r.includes("⚠️") || r.includes("🚫")
+      )
+      .map((r: string) =>
+        r.replace(/[🟢🟡🟠🔴⚡✅💧📈📊🏗💎]/g, "").trim()
+      )
+      .filter((r: string) => r.length > 3)
+      .slice(0, 2);
+
+    if (warnings.length > 0) {
+      why += `\n\nنکات احتیاطی:\n${warnings
+        .map((s: string) => `• ${s}`)
+        .join("\n")}`;
     }
   } else if (isForming) {
-    why = `شرایط داره آماده می‌شه، ولی هنوز به آستانه‌ی سیگنال معامله‌ای نرسیده.\n• اطمینان فعلی: ${conf}٪\n• استراتژی ${strategyMeta.fa} نیاز به اطمینان بالاتری داره\n• چند دقیقه صبر کن، شاید کامل بشه`;
+    why = `شرایط داره آماده می‌شه، ولی هنوز به آستانه‌ی سیگنال معامله‌ای نرسیده.\n• اطمینان فعلی: ${conf}٪\n• استراتژی ${strategyMeta.fa} نیاز به اطمینان و تأیید متناسب با خودش داره\n• کمی صبر کن و دوباره شرایط رو بررسی کن.`;
   } else if (isFar) {
-    why = `بازار هنوز سیگنال معتبری نمی‌ده.\n• گروه‌ها هم‌جهت نیستن\n• حرکت واضحی شکل نگرفته\n• صبر کن تا شرایط روشن‌تر بشه`;
+    why = `جهت بازار ممکنه در حال شکل‌گیری باشه، اما قیمت هنوز در محدوده مناسبی برای ورود نیست.\n• ورود در این نقطه می‌تونه نسبت ریسک به بازده رو نامناسب کنه\n• بهتره منتظر نزدیک شدن قیمت به محدوده مناسب باشی\n• از تعقیب قیمت بعد از حرکت شدید خودداری کن.`;
   } else {
-    why = `بازار در رژیم رنج یا بی‌جهته.\n• گروه‌های تحلیل هم‌جهت نیستن\n• اندیکاتورها علامت واضحی نمی‌دن\n• صبر، بهترین استراتژی در این شرایطه`;
+    const neutral = data.neutral_explain;
+
+    if (typeof neutral === "string" && neutral.trim()) {
+      why = neutral.trim();
+    } else if (neutral && typeof neutral === "object") {
+      why = [
+        neutral.short,
+        neutral.long,
+        neutral.hint,
+      ]
+        .filter(
+          (v: unknown) =>
+            typeof v === "string" && v.trim().length > 0
+        )
+        .join("\n");
+    }
+
+    if (!why) {
+      why = `بازار در حال حاضر جهت مشخص و قابل اتکایی نداره.\n• گروه‌های تحلیل هنوز هم‌جهت نیستن\n• شواهد کافی برای انتخاب یک جهت معاملاتی وجود نداره\n• صبر می‌تونه تصمیم منطقی‌تری باشه.`;
+    }
   }
 
   let action = "";
-  if (isLong && conf >= 70) {
-    action = `می‌تونی وارد شی — ولی مدیریت سرمایه یادت نره (حداکثر ۲-۳٪).\nحتماً حد ضرر بذار.`;
+
+  // اولویت با وضعیت واقعی سیگنال است، نه صرفاً درصد اطمینان.
+  if (isForming) {
+    action = `فعلاً وارد نشو — سیگنال هنوز کامل نشده.\nچند دقیقه دیگه شرایط رو دوباره بررسی کن یا هماهنگی تایم‌فریم‌های دیگه رو ببین.`;
+  } else if (isFar) {
+    action = `در این قیمت وارد نشو — از نقطه مناسب ورود فاصله داریم.\nمنتظر اصلاح قیمت یا شکل‌گیری موقعیت مناسب‌تر بمون.\nقیمت رو صرفاً به‌خاطر حرکت سریعش تعقیب نکن.`;
   } else if (isLong && isWeak) {
-    action = `با احتیاط وارد شو — فقط ۰.۵-۱٪ سرمایه.\nحرکت ضعیفه، TP رو نزدیک‌تر بذار.`;
-  } else if (isShort && conf >= 70) {
-    action = `SHORT منطقیه — ولی حد ضرر تنگ بذار.\nنوسان ممکنه بالا باشه، مراقب باش.`;
+    action = `برای خرید عجله نکن — حرکت هنوز قدرت کافی نداره.\nمنتظر تأیید بیشتر و تثبیت حرکت صعودی بمون.\nاگر قصد معامله داری، حجم رو متناسب با حد ضرر و ریسک مجازت تعیین کن.`;
   } else if (isShort && isWeak) {
-    action = `با احتیاط SHORT بزن — فقط با حجم کم.\nریسک بالاست، حد ضرر نزدیک بذار.`;
-  } else if (isForming) {
-    action = `صبر کن — سیگنال در حال کامله.\nچند دقیقه دیگه چک کن یا TF رو عوض کن.`;
+    action = `برای فروش عجله نکن — حرکت نزولی هنوز قدرت کافی نداره.\nمنتظر تأیید بیشتر و تثبیت روند نزولی بمون.\nاگر قصد معامله داری، حجم رو متناسب با حد ضرر و ریسک مجازت تعیین کن.`;
+  } else if (isLong && conf >= 70) {
+    action = `جهت تحلیل صعودیه و شواهد قوی‌تری داریم؛ می‌تونی موقعیت خرید رو بررسی کنی.\nقبل از ورود، محدوده ورود و حد ضرر رو بررسی کن و مدیریت سرمایه رو رعایت کن.\nاگر قیمت از نقطه مناسب ورود فاصله گرفته، دنبالش نرو.`;
+  } else if (isLong) {
+    action = `سیگنال خرید داریم، اما اطمینان هنوز به سطح بالایی نرسیده.\nبهتره برای ورود منتظر تأیید بیشتر بمونی.\nاگر شرایط ورود فراهم شد، حد ضرر و مدیریت سرمایه رو رعایت کن.`;
+  } else if (isShort && conf >= 70) {
+    action = `جهت تحلیل نزولیه و شواهد قوی‌تری داریم؛ می‌تونی موقعیت فروش رو بررسی کنی.\nقبل از ورود، محدوده مناسب و حد ضرر رو بررسی کن.\nدر نوسانات شدید از افزایش بی‌رویه حجم معامله خودداری کن.`;
+  } else if (isShort) {
+    action = `سیگنال فروش داریم، اما اطمینان هنوز به سطح بالایی نرسیده.\nبهتره برای ورود منتظر تأیید بیشتر بمونی.\nاگر شرایط ورود فراهم شد، حد ضرر و مدیریت سرمایه رو رعایت کن.`;
   } else {
-    action = `وارد نشو — بهترین معامله، معامله‌ای هست که انجام نشه.\nصبر کن تا سیگنال واضح بیاد.`;
+    action = `وارد معامله جهت‌دار نشو — هنوز سیگنال واضحی نداریم.\nصبر کن تا شرایط بازار روشن‌تر و گروه‌های تحلیل هماهنگ‌تر بشن.\nگاهی بهترین تصمیم، انجام ندادن معامله است.`;
   }
 
   return { headline, why, action };
@@ -139,13 +204,39 @@ function ScenarioCard({
     red: "border-red-500/20 bg-red-500/5 text-red-400/90",
     yellow: "border-[#d6ad60]/20 bg-[#d6ad60]/5 text-[#d6ad60]/90",
   };
+
   const color = scenario.color || "yellow";
-  const probability = Math.round((scenario.probability || 0.5) * 100);
+
+  // صفر یک مقدار معتبر است و نباید با مقدار پیش‌فرض جایگزین شود.
+  const rawProbability = Number(scenario.probability);
+  const hasProbability =
+    scenario.probability !== null &&
+    scenario.probability !== undefined &&
+    Number.isFinite(rawProbability);
+
+  const probability = hasProbability
+    ? Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            rawProbability <= 1
+              ? rawProbability * 100
+              : rawProbability
+          )
+        )
+      )
+    : null;
+
   const condition = scenario.condition || "";
   const action = scenario.action || "";
 
-  const isLongScenario = /\bLONG\b/i.test(action);
-  const isShortScenario = /\bSHORT\b/i.test(action);
+  const isLongScenario =
+    /\bLONG\b/i.test(action) || scenario.type === "long";
+
+  const isShortScenario =
+    /\bSHORT\b/i.test(action) || scenario.type === "short";
+
   const isConflict =
     (mainDirection === "short" && isLongScenario) ||
     (mainDirection === "long" && isShortScenario);
@@ -161,28 +252,35 @@ function ScenarioCard({
           ⚠️ خلاف جهت
         </div>
       )}
+
       <div className="flex items-start gap-2">
         <span className="text-[16px] mt-0.5 shrink-0">
           {scenario.icon || "•"}
         </span>
+
         <div className="min-w-0 flex-1 space-y-1.5">
           <p className="text-[11px] font-medium leading-relaxed text-foreground/90">
             {condition}
           </p>
+
           <p className="text-[10.5px] leading-relaxed text-foreground/75">
             ↪ {action}
           </p>
-          <div className="flex items-center gap-2 pt-1">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/30">
-              <div
-                className="h-full rounded-full bg-current opacity-80"
-                style={{ width: `${probability}%` }}
-              />
+
+          {probability !== null && (
+            <div className="flex items-center gap-2 pt-1">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/30">
+                <div
+                  className="h-full rounded-full bg-current opacity-80"
+                  style={{ width: `${probability}%` }}
+                />
+              </div>
+
+              <span className="num shrink-0 text-[9px] font-bold text-muted-foreground whitespace-nowrap">
+                شانس موفقیت {probability}٪
+              </span>
             </div>
-            <span className="num shrink-0 text-[9px] font-bold text-muted-foreground whitespace-nowrap">
-              شانس موفقیت {probability}٪
-            </span>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -193,8 +291,8 @@ export function DeepAnalysis() {
   const { timeframe, strategy } = useAppStore();
   const { data, loading } = useSignalData();
 
-  const pumpScore = data?.pump_score || 0;
-  const dumpScore = data?.dump_score || 0;
+  const pumpScore = data?.pump_score ?? 0;
+  const dumpScore = data?.dump_score ?? 0;
   const pumpWarning = data?.pump_warning || "none";
   const pumpType = data?.pump_type || "none";
 
@@ -217,13 +315,28 @@ export function DeepAnalysis() {
   }
 
   const traps = data.traps || {};
+
   const activeTraps = Object.entries(traps)
     .filter(([, v]) => (v as { active?: boolean })?.active)
     .map(([k]) => k);
+
   const scenarios = data.scenarios || [];
   const mainDirection = data.direction || "neutral";
-  const strategyMeta = STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
-  const narrative = buildNarrative(data);
+  const strategyMeta =
+    STRATEGY_LABELS[strategy] || STRATEGY_LABELS.swing;
+
+  const narrative = buildNarrative({
+    ...data,
+    strategy: data.strategy || strategy,
+  });
+
+  const actionIsPositive =
+    (mainDirection === "long" || mainDirection === "short") &&
+    !narrative.action.includes("عجله نکن") &&
+    !narrative.action.includes("وارد نشو");
+
+  const actionIsNegative =
+    narrative.action.includes("وارد نشو");
 
   return (
     <div className="space-y-3">
@@ -239,26 +352,39 @@ export function DeepAnalysis() {
           <div className="flex items-center gap-1.5">
             <Zap
               className={`h-3.5 w-3.5 ${
-                pumpWarning === "alert" ? "text-red-500" : "text-[#d6ad60]"
+                pumpWarning === "alert"
+                  ? "text-red-500"
+                  : "text-[#d6ad60]"
               }`}
             />
+
             <span
               className={`text-[10px] font-bold ${
-                pumpWarning === "alert" ? "text-red-500" : "text-[#d6ad60]"
+                pumpWarning === "alert"
+                  ? "text-red-500"
+                  : "text-[#d6ad60]"
               }`}
             >
               {pumpType === "pump" &&
                 `حرکت صعودی غیرعادی (${pumpScore}/100)`}
+
               {pumpType === "dump" &&
                 `حرکت نزولی غیرعادی (${dumpScore}/100)`}
+
               {pumpType === "both" &&
                 `نوسان شدید (صعودی ${pumpScore}، نزولی ${dumpScore})`}
             </span>
           </div>
+
           <p className="mt-1 text-[9px] text-foreground/70">
-            {pumpType === "pump" && "احتمال اصلاح قیمت — با احتیاط وارد شو"}
-            {pumpType === "dump" && "احتمال برگشت قیمت — با احتیاط وارد شو"}
-            {pumpType === "both" && "نوسان دوطرفه شدید — احتیاط بیشتر"}
+            {pumpType === "pump" &&
+              "حرکت صعودی غیرعادی شناسایی شده — مراقب ورود هیجانی و احتمال اصلاح باش."}
+
+            {pumpType === "dump" &&
+              "حرکت نزولی غیرعادی شناسایی شده — مراقب نوسان و احتمال برگشت قیمت باش."}
+
+            {pumpType === "both" &&
+              "نوسان دوطرفه شدید شناسایی شده — با احتیاط بیشتری تصمیم بگیر."}
           </p>
         </div>
       )}
@@ -270,6 +396,7 @@ export function DeepAnalysis() {
             <AlertTriangle className="h-3 w-3" />
             {activeTraps.length} تله فعال
           </p>
+
           <div className="space-y-1.5">
             {activeTraps.map((k) => {
               const trap = traps[k] as {
@@ -277,6 +404,7 @@ export function DeepAnalysis() {
                 reason?: string;
                 severity?: number;
               };
+
               return (
                 <div
                   key={k}
@@ -286,10 +414,12 @@ export function DeepAnalysis() {
                     <span className="text-[10px] font-bold text-red-500/90">
                       {TRAP_LABELS[k] || k}
                     </span>
+
                     <span className="num text-[8px] text-muted-foreground">
-                      شدت {trap.severity || 0}/10
+                      شدت {trap.severity ?? 0}/10
                     </span>
                   </div>
+
                   <p className="mt-0.5 text-[9px] leading-relaxed text-foreground/70">
                     {trap.reason}
                   </p>
@@ -304,10 +434,12 @@ export function DeepAnalysis() {
       <div className="rounded-lg border border-[#d6ad60]/20 bg-[#d6ad60]/5 px-2.5 py-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[12px]">{strategyMeta.icon}</span>
+
           <span className="text-[10px] font-bold text-[#d6ad60]">
             استراتژی: {strategyMeta.fa}
           </span>
         </div>
+
         <p className="text-[9px] text-muted-foreground mt-0.5">
           {strategyMeta.why}
         </p>
@@ -326,6 +458,7 @@ export function DeepAnalysis() {
           <Lightbulb className="h-3 w-3" />
           چرا این سیگنال؟
         </p>
+
         <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
           {narrative.why}
         </p>
@@ -334,16 +467,17 @@ export function DeepAnalysis() {
       {/* چیکار کنم؟ */}
       <div
         className={`rounded-lg border px-2.5 py-2 ${
-          narrative.action.includes("وارد شی") || narrative.action.includes("SHORT منطقیه")
+          actionIsPositive
             ? "border-green-500/20 bg-green-500/5"
-            : narrative.action.includes("صبر کن") || narrative.action.includes("وارد نشو")
+            : actionIsNegative
             ? "border-[#d6ad60]/20 bg-[#d6ad60]/5"
-            : "border-red-500/20 bg-red-500/5"
+            : "border-[#d6ad60]/20 bg-[#d6ad60]/5"
         }`}
       >
         <p className="text-[9px] font-bold text-foreground/80 mb-1">
           🎯 الان چیکار کنم؟
         </p>
+
         <p className="text-[10.5px] leading-[1.8] text-foreground/85 whitespace-pre-line">
           {narrative.action}
         </p>
@@ -356,6 +490,7 @@ export function DeepAnalysis() {
             <GitBranch className="h-3 w-3" />
             سناریوهای پیش‌رو ({scenarios.length})
           </p>
+
           <div className="space-y-2">
             {scenarios.map((sc, i) => (
               <ScenarioCard

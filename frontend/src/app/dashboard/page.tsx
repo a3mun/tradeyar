@@ -82,15 +82,16 @@ export default function DashboardPage() {
 
   // 🔴 تشخیص درخواست در حال بررسی
   const hasPendingTransaction = useMemo(() => {
-    const localPending = typeof window !== "undefined" && localStorage.getItem(PENDING_KEY) === "true";
-    const zibalPending = transactions.some((tx) => tx.payment_method === "zibal" && tx.status === "pending");
-    return localPending || zibalPending;
+    return transactions.some(
+      (tx) => tx.status === "pending" && tx.payment_method !== "refund"
+    );
   }, [transactions]);
 
   const pendingTransaction = useMemo(() => {
-    return transactions.find((tx) => tx.status === "pending");
+    return transactions.find(
+      (tx) => tx.status === "pending" && tx.payment_method !== "refund"
+    );
   }, [transactions]);
-
   // 🔴 ref برای سوایپ
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
