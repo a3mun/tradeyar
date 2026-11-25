@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     CARD_HOLDER: str = "محمدمهدی"
 
     # 🔴 تنظیمات زیبال
-    ZIBAL_MERCHANT: str = "zibal"  # برای تست. بعداً مرچند واقعی
+    ZIBAL_MERCHANT: str
     # ZIBAL_CALLBACK_URL: str = "http://127.0.0.1:8001/subscription/verify-zibal"  # لوکال
     ZIBAL_CALLBACK_URL: str = (
         "https://api.trademun.ir/subscription/verify-zibal"  # سرور
