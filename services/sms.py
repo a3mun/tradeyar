@@ -8,6 +8,7 @@ from farazsms import FarazSMS, FarazError
 from api.config import settings
 from datetime import datetime
 import jdatetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def send_new_user_sms(phone: str) -> bool:
         sms = FarazSMS(settings.FARAZ_API_KEY.strip())
 
         # تاریخ و ساعت شمسی
-        now = datetime.now()
+        now = datetime.now(ZoneInfo("Asia/Tehran"))
         jdate = jdatetime.datetime.fromgregorian(datetime=now)
         date_str = jdate.strftime("%Y/%m/%d - %H:%M")
 

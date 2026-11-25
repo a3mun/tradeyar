@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSignalData } from "@/hooks/useSignalData";
 import { formatNumber } from "@/lib/display";
+import { TrendingUp } from "lucide-react";
 
 export function SupportResistance() {
   const { data } = useSignalData();
@@ -10,7 +11,12 @@ export function SupportResistance() {
   if (!data) {
     return (
       <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
-        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">🎯 حمایت و مقاومت</CardTitle></CardHeader>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">
+            <TrendingUp className="h-3.5 w-3.5 text-[#d6ad60]" />
+            حمایت و مقاومت
+          </CardTitle>
+        </CardHeader>
         <CardContent className="flex-1 flex items-center justify-center pb-3">
           <p className="text-center text-[10px] text-gray-500">در حال دریافت...</p>
         </CardContent>
@@ -43,7 +49,7 @@ export function SupportResistance() {
   const hasData = support > 0 && resistance > 0 && range > 0;
 
   let analysis = "";
-  let analysisColor = "#94a3b8"; // خاکستری برای خنثی
+  let analysisColor = "#94a3b8";
 
   if (hasData) {
     if (clampedPosition <= 15) { analysis = "نزدیک حمایت"; analysisColor = "#22c55e80"; }
@@ -56,7 +62,10 @@ export function SupportResistance() {
   return (
     <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">🎯 حمایت و مقاومت</CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">
+          <TrendingUp className="h-3.5 w-3.5 text-[#d6ad60]" />
+          حمایت و مقاومت
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col justify-center space-y-3 pb-3">
         {hasData ? (

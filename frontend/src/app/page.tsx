@@ -5,9 +5,22 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken, getUser } from "@/lib/auth";
 import { motion } from "framer-motion";
-import { Lock, CreditCard, LayoutDashboard } from "lucide-react";
+import {
+  Lock,
+  CreditCard,
+  LayoutDashboard,
+  Brain,
+  MessageSquare,
+  Landmark,
+  Search,
+  CheckCircle2,
+  Wallet,
+  Calculator,
+  Calendar,
+  BarChart3,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-
+import { TradingPsychologyBanner } from "@/components/signal/TradingPsychologyBanner";
 import { Header } from "@/components/layout/Header";
 import { Marquee } from "@/components/layout/Marquee";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -102,7 +115,7 @@ export default function HomePage() {
 
   if (isChecking) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#051118]">      
+      <div className="flex min-h-screen items-center justify-center bg-[#051118]">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#d6ad60]" />
       </div>
     );
@@ -117,8 +130,8 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="rounded-3xl border border-[#dad60]/20 bg-gradient-to-br from-[#051118] to-[#051118] p-6 sm:p-10 text-center shadow-2xl"
-            >
+            className="rounded-3xl border border-[#d6ad60]/20 bg-gradient-to-br from-[#051118] to-[#051118] p-6 sm:p-10 text-center shadow-2xl"
+          >
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#d6ad60]/10">
               <Lock className="h-8 w-8 text-[#d6ad60]" />
             </div>
@@ -164,11 +177,11 @@ export default function HomePage() {
       <div className="container mx-auto flex flex-col lg:flex-row gap-6 px-4 py-4 sm:py-6">
         <Sidebar />
 
-        <main className="min-w-0 flex-1 space-y-4 sm:space-y-6"> {/* 🔴 space افزایش یافت */}
+        <main className="min-w-0 flex-1 space-y-4 sm:space-y-6">
           <SymbolSelector />
           <WatchlistCard />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 sm:gap-6"> {/* 🔴 gap افزایش یافت */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-4 sm:gap-6">
             {/* ═══════════════ LEFT COLUMN ═══════════════ */}
             <div className="contents lg:flex lg:flex-col lg:gap-4 lg:min-w-0">
               <div className="order-1 lg:order-none min-w-0">
@@ -179,11 +192,16 @@ export default function HomePage() {
                 <OrderBookPanel />
               </div>
 
+              {/* 🔴 یادآوری روانشناسی معامله‌گری (بالای مشاور هوشمند) */}
+              <div className="order-4 lg:order-none min-w-0">
+                <TradingPsychologyBanner />
+              </div>
+
               <div className="order-5 lg:order-none min-w-0">
                 <CollapsibleSection
                   id="ai-analysis"
                   title="مشاور هوشمند"
-                  icon="🧠"
+                  icon={<Brain className="h-4 w-4" />}
                   subtitle="تحلیل و بررسی با هوش مصنوعی"
                   isLocked={!isPro}
                 >
@@ -197,7 +215,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="deep-analysis"
                   title="تحلیل تکنیکال"
-                  icon="💬"
+                  icon={<MessageSquare className="h-4 w-4" />}
                   subtitle="بررسی عمیق سیگنال"
                 >
                   <DeepAnalysis />
@@ -208,7 +226,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="fundamental-analysis"
                   title="تحلیل بنیادین (فاندامنتال)"
-                  icon="🏛️"
+                  icon={<Landmark className="h-4 w-4" />}
                   subtitle="بررسی بنیادین بازار — به زودی"
                 >
                   <FundamentalAnalysisPlaceholder />
@@ -220,7 +238,7 @@ export default function HomePage() {
                   <CollapsibleSection
                     id="scanner"
                     title="اسکنر فرصت‌ها"
-                    icon="🔍"
+                    icon={<Search className="h-4 w-4" />}
                     subtitle="شناسایی فرصت‌های بازار"
                     isLocked={!isPro}
                   >
@@ -253,7 +271,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="checklist"
                   title="چک‌لیست اندیکاتورها"
-                  icon="✅"
+                  icon={<CheckCircle2 className="h-4 w-4" />}
                   subtitle="بررسی نهایی وضعیت اندیکاتورها"
                 >
                   {data ? (
@@ -270,7 +288,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="price-comparison"
                   title="مقایسه قیمت صرافی‌ها"
-                  icon="💰"
+                  icon={<Wallet className="h-4 w-4" />}
                   subtitle="مقایسه قیمت لحظه‌ای ۴ صرافی"
                 >
                   <PriceComparison />
@@ -281,7 +299,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="position-calculator"
                   title="ماشین‌حساب سود و ضرر"
-                  icon="🧮"
+                  icon={<Calculator className="h-4 w-4" />}
                   subtitle="محاسبه حجم پوزیشن — به زودی"
                 >
                   <PositionSizeCalculatorPlaceholder />
@@ -292,7 +310,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="economic-calendar"
                   title="تقویم اقتصادی فارکس"
-                  icon="📅"
+                  icon={<Calendar className="h-4 w-4" />}
                   subtitle="رویدادهای مهم اقتصادی — به زودی"
                 >
                   <EconomicCalendarPlaceholder />
@@ -303,7 +321,7 @@ export default function HomePage() {
                 <CollapsibleSection
                   id="statistics"
                   title="آمار عملکرد"
-                  icon="📊"
+                  icon={<BarChart3 className="h-4 w-4" />}
                   subtitle="خلاصه عملکرد و دقت پیش‌بینی"
                 >
                   <StatisticsBox />

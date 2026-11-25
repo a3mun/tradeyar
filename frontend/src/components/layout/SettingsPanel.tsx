@@ -15,6 +15,10 @@ import {
   Sparkles,
   TrendingUp,
   Building2,
+  Target,
+  Wallet,
+  Zap,
+  Shield,
 } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { SOURCE_BY_KEY } from "@/lib/sources";
@@ -92,7 +96,7 @@ export function SettingsPanel() {
     setStrategy,
     forceSelectSymbol,
   } = useAppStore();
-  
+
   const isTouch = useIsTouchDevice();
   const [toast, setToast] = useState<string | null>(null);
 
@@ -120,7 +124,7 @@ export function SettingsPanel() {
 
   const handleSourceChange = (newSource: Source) => {
     const currentSource = source;
-    
+
     if (newSource === "tsetmc") {
       forceSelectSymbol("فولاد", "فولاد", "tsetmc");
     } else if (newSource === "forex") {
@@ -199,7 +203,6 @@ export function SettingsPanel() {
                   </>
                 );
 
-                // 🔴 گرادیانت و سایه برای حالت فعال
                 const btnClass = `relative flex flex-col items-center justify-center gap-0.5 rounded-lg border py-1.5 px-1 transition-all ${
                   isActive
                     ? "border-[#d6ad60]/50 bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] shadow-[0_2px_10px_rgba(214,173,96,0.3)]"
@@ -212,7 +215,7 @@ export function SettingsPanel() {
                       key={s.value}
                       onClick={() => handleSourceChange(s.value)}
                       className={btnClass}
-                    >                    
+                    >
                       {inner}
                     </button>
                   );
@@ -308,7 +311,7 @@ export function SettingsPanel() {
               </div>
             </div>
             <span className="text-[7px] text-gray-500 whitespace-nowrap font-bold">
-              فقط با نصب  افزونه کروم
+              فقط با نصب افزونه کروم
             </span>
           </div>
 
@@ -332,7 +335,10 @@ export function SettingsPanel() {
           {/* ═══ ۴. استراتژی ═══ */}
           <div className="space-y-1.5">
             <label className="flex items-center justify-between text-[10px] font-medium text-gray-400">
-              <span>📊 استراتژی</span>
+              <span className="flex items-center gap-1">
+                <Target className="h-3 w-3 text-[#d6ad60]" />
+                استراتژی
+              </span>
               <span className="text-[8px] text-[#d6ad60]/70">
                 {allowedTfs.length} TF فعال
               </span>
@@ -397,25 +403,27 @@ export function SettingsPanel() {
                 size="sm"
                 onClick={() => setMarketType("spot")}
                 disabled={isSpotLocked}
-                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   marketType === "spot"
                     ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isSpotLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
-                💵 اسپات
+                <Wallet className="h-3 w-3" />
+                اسپات
               </Button>
               <Button
                 size="sm"
                 onClick={() => setMarketType("futures")}
                 disabled={isTsetmc}
-                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   marketType === "futures"
                     ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isTsetmc ? "opacity-40 cursor-not-allowed" : ""}`}
               >
-                📈 فیوچرز
+                <TrendingUp className="h-3 w-3" />
+                فیوچرز
               </Button>
             </div>
           </div>
@@ -429,25 +437,27 @@ export function SettingsPanel() {
               <Button
                 size="sm"
                 onClick={() => setRiskProfile("aggressive")}
-                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   riskProfile === "aggressive"
                     ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 }`}
               >
-                🚀 جسورانه
+                <Zap className="h-3 w-3" />
+                جسورانه
               </Button>
               <Button
                 size="sm"
                 onClick={() => setRiskProfile("conservative")}
                 disabled={isConservativeLocked}
-                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all ${
+                className={`h-8 text-[10px] font-extrabold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                   riskProfile === "conservative"
                     ? "bg-gradient-to-b from-[#e8c67a] to-[#c4984d] text-[#101827] border-none shadow-[0_2px_10px_rgba(214,173,96,0.3)] hover:opacity-90"
                     : "border border-white/5 text-gray-300 hover:bg-white/10 bg-white/5"
                 } ${isConservativeLocked ? "opacity-40 cursor-not-allowed" : ""}`}
               >
-                🛡️ محتاطانه
+                <Shield className="h-3 w-3" />
+                محتاطانه
               </Button>
             </div>
           </div>

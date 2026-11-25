@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import type { FearGreedResponse } from "@/lib/types";
+import { Gauge  } from "lucide-react";
+
 
 function fearGreedHint(value: number): { text: string } {
   if (value <= 20) return { text: "ترس شدید" };
@@ -73,7 +75,10 @@ export function FearGreed() {
   return (
     <Card className="h-[160px] flex flex-col border-white/10 bg-[#051118] shadow-xl">
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">😐 ترس و طمع</CardTitle>
+        <CardTitle className="flex items-center gap-1.5 text-sm text-gray-300">
+          <Gauge  className="h-3.5 w-3.5 text-[#d6ad60]" />
+          ترس و طمع
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col justify-center space-y-3 pb-3">
         <div className="flex items-center gap-3">
@@ -82,6 +87,9 @@ export function FearGreed() {
           </span>
           <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-white/5">
             <div className="absolute inset-y-0 right-0 rounded-full transition-all duration-500" style={{ width: `${percentage}%`, background: cssColor }} />
+
+
+
           </div>
         </div>
 

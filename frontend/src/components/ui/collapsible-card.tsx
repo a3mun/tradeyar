@@ -35,7 +35,6 @@ export function CollapsibleSection({
           : "border-white/10 hover:border-[#d6ad60]/40 hover:bg-[#0a1a2f] hover:shadow-[0_0_15px_rgba(214,173,96,0.1)]"
       }`}
     >
-      {/* هدر — همیشه قابل کلیک */}
       <button
         onClick={() => setIsOpen((v) => !v)}
         className={`flex w-full items-center justify-between p-3 text-right transition-colors duration-300 ${
@@ -44,7 +43,7 @@ export function CollapsibleSection({
       >
         <div className="flex items-center gap-2">
           {icon && (
-            <span className="text-lg text-[#d6ad60] transition-transform duration-300 group-hover:scale-110">
+            <span className="flex items-center justify-center text-[#d6ad60] transition-transform duration-300 group-hover:scale-110">
               {icon}
             </span>
           )}
@@ -53,7 +52,6 @@ export function CollapsibleSection({
               <h3 className={`text-sm font-bold transition-colors duration-300 ${isOpen ? "text-[#d6ad60]" : "text-foreground group-hover:text-[#d6ad60]"}`}>
                 {title}
               </h3>
-              {/* 🔴 بج Pro برای کاربر رایگان */}
               {isLocked && (
                 <span className="flex items-center gap-1 rounded-md bg-[#d6ad60]/10 px-1.5 py-0.5 text-[9px] font-bold text-[#d6ad60] border border-[#d6ad60]/30">
                   <Lock className="h-2.5 w-2.5" /> Pro
@@ -73,8 +71,7 @@ export function CollapsibleSection({
           }`}
         />
       </button>
-  
-      {/* محتوا */}
+
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
