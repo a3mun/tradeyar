@@ -14,7 +14,7 @@ import {
   Ticket,
 } from "lucide-react";
 
-const VERSION = "1.17.3.0";
+const VERSION = "V1.17.4";
 const UPDATE_DATE = "۱۴۰۵/۰۹/۰۴";
 const DISCLAIMER_KEY = "trademun_hide_disclaimer_forever";
 
@@ -34,6 +34,7 @@ const socialLinks = [
 // TrustBadges — زیبال + اینماد
 // ═══════════════════════════════════════════════════════════
 
+
 function TrustBadges() {
   return (
     <div className="flex flex-row items-center justify-center gap-3">
@@ -42,12 +43,12 @@ function TrustBadges() {
         href="https://gateway.zibal.ir/trustMe/trademun.ir"
         target="_blank"
         rel="noopener noreferrer"
-        title="پرداخت آنلاین زیبال"
-        className="flex h-14 w-24 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] p-2 transition-transform hover:scale-105"
-      >
+        title="تأییدیه پرداخت زیبال"
+        className="flex h-14 w-24 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white p-1 transition-transform hover:scale-105"
+        >
         <img
-          src="https://zibal.ir/trust/assets/2.png"
-          alt="پرداخت آنلاین زیبال"
+          src="/logos/zibal-logo.png"
+          alt="زیبال"
           className="max-h-10 max-w-full object-contain"
         />
       </a>
@@ -57,12 +58,10 @@ function TrustBadges() {
         href="https://trustseal.enamad.ir/?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
         target="_blank"
         rel="noopener noreferrer"
-        referrerPolicy="origin"
         title="نماد اعتماد الکترونیکی"
         className="flex h-14 w-24 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white p-2 transition-transform hover:scale-105"
       >
         <img
-          referrerPolicy="origin"
           src="https://trustseal.enamad.ir/logo.aspx?id=8340385&Code=jUOINjWjTAjOBPnz52mIxW9RrL578POs"
           alt="نماد اعتماد الکترونیکی"
           className="max-h-10 max-w-full object-contain"

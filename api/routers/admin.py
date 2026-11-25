@@ -21,7 +21,10 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import jdatetime
-from services.subscription_service import activate_or_reserve_subscription, sync_subscription_status
+from services.subscription_service import (
+    activate_or_reserve_subscription,
+    sync_subscription_status,
+)
 from pydantic import BaseModel
 from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -75,7 +78,9 @@ MAINTENANCE_FLAG = BASE_DIR / "data" / "maintenance.flag"
 def _require_main_admin(admin: User) -> None:
     """محدودسازی عملیات حساس به مدیر اصلی."""
     if not admin or admin.phone != MAIN_ADMIN_PHONE:
-        raise HTTPException(status_code=403, detail="این عملیات فقط در اختیار مدیر اصلی است")
+        raise HTTPException(
+            status_code=403, detail="این عملیات فقط در اختیار مدیر اصلی است"
+        )
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -86,7 +91,9 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def _subscription_status_for_dates(sub: Subscription, now: datetime | None = None) -> str:
+def _subscription_status_for_dates(
+    sub: Subscription, now: datetime | None = None
+) -> str:
     now = _as_utc(now or datetime.now(timezone.utc))
     start = _as_utc(sub.start_date)
     end = _as_utc(sub.end_date)
@@ -111,7 +118,8 @@ def _representative_subscription_from_rows(
     """Prefer a valid active subscription over a newer reservation."""
     now = _as_utc(now or datetime.now(timezone.utc))
     active = [
-        s for s in rows
+        s
+        for s in rows
         if s.status == "active"
         and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
         and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
@@ -122,37 +130,53 @@ def _representative_subscription_from_rows(
     if active:
         return max(active, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
     recoverable_expired = [
-        s for s in rows
+        s
+        for s in rows
         if s.status == "expired"
         and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
         and _as_utc(s.end_date) is not None
         and _as_utc(s.end_date) > now
     ]
     if recoverable_expired:
-        return max(recoverable_expired, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+        return max(
+            recoverable_expired, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0)
+        )
     due_reserved = [
-        s for s in rows
+        s
+        for s in rows
         if s.status == "reserved"
         and (_as_utc(s.start_date) is None or _as_utc(s.start_date) <= now)
         and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
     ]
     if due_reserved:
-        return min(due_reserved, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
+        return min(
+            due_reserved, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0)
+        )
     reserved = [
-        s for s in rows
+        s
+        for s in rows
         if s.status == "reserved"
         and (_as_utc(s.start_date) or now) > now
         and (_as_utc(s.end_date) is None or _as_utc(s.end_date) > now)
     ]
     if reserved:
         return min(reserved, key=lambda s: (_as_utc(s.start_date) or now, s.id or 0))
-    return max(rows, key=lambda s: (_as_utc(s.created_at) or datetime.min.replace(tzinfo=timezone.utc), s.id or 0), default=None)
+    return max(
+        rows,
+        key=lambda s: (
+            _as_utc(s.created_at) or datetime.min.replace(tzinfo=timezone.utc),
+            s.id or 0,
+        ),
+        default=None,
+    )
 
 
 def _get_representative_subscription(
     session: Session, user_id: int, now: datetime | None = None
 ) -> Subscription | None:
-    rows = session.exec(select(Subscription).where(Subscription.user_id == user_id)).all()
+    rows = session.exec(
+        select(Subscription).where(Subscription.user_id == user_id)
+    ).all()
     return _representative_subscription_from_rows(rows, now)
 
 
@@ -224,6 +248,7 @@ async def get_system_health(
     session: Session = Depends(get_session),
 ):
     """گزارش سبک سلامت API، دیتابیس، حافظه و دیسک؛ فقط‌خواندنی."""
+
     def read_int(path: str):
         try:
             value = Path(path).read_text().strip()
@@ -243,12 +268,15 @@ async def get_system_health(
             meminfo = Path("/proc/meminfo").read_text()
             values = {
                 key: int(value) * 1024
-                for key, value in re.findall(r"^(MemTotal|MemAvailable):\s+(\d+)\s+kB", meminfo, re.M)
+                for key, value in re.findall(
+                    r"^(MemTotal|MemAvailable):\s+(\d+)\s+kB", meminfo, re.M
+                )
             }
             mem_limit = values.get("MemTotal")
             mem_used = (
                 max(0, mem_limit - values.get("MemAvailable", mem_limit))
-                if mem_limit is not None else None
+                if mem_limit is not None
+                else None
             )
             memory_scope = "host"
         except OSError:
@@ -290,11 +318,16 @@ async def get_system_health(
         load_average = None
 
     backup_dir = BASE_DIR / "data" / "backups"
-    backup_files = list(backup_dir.glob("Trademun_Backup_*.gz")) if backup_dir.exists() else []
-    latest_backup = max(backup_files, key=lambda item: item.stat().st_mtime, default=None)
+    backup_files = (
+        list(backup_dir.glob("Trademun_Backup_*.gz")) if backup_dir.exists() else []
+    )
+    latest_backup = max(
+        backup_files, key=lambda item: item.stat().st_mtime, default=None
+    )
     latest_backup_age = (
         max(0, int(time.time() - latest_backup.stat().st_mtime))
-        if latest_backup else None
+        if latest_backup
+        else None
     )
 
     checks = {
@@ -314,7 +347,11 @@ async def get_system_health(
         "memory": {
             "used_bytes": mem_used,
             "limit_bytes": mem_limit,
-            "percent": round(mem_used * 100 / mem_limit, 1) if mem_used is not None and mem_limit else None,
+            "percent": (
+                round(mem_used * 100 / mem_limit, 1)
+                if mem_used is not None and mem_limit
+                else None
+            ),
             "scope": memory_scope,
         },
         "disk": {
@@ -325,7 +362,9 @@ async def get_system_health(
         },
         "process": {"rss_bytes": process_rss},
         "host": {
-            "uptime_seconds": int(uptime_seconds) if uptime_seconds is not None else None,
+            "uptime_seconds": (
+                int(uptime_seconds) if uptime_seconds is not None else None
+            ),
             "load_average": load_average,
             "cpu_count": os.cpu_count(),
         },
@@ -692,11 +731,15 @@ async def list_users(
             .where(ExtensionDownloadLog.user_id.in_(user_ids))
             .group_by(ExtensionDownloadLog.user_id)
         ).all()
-        download_counts = {int(uid): int(count) for uid, count in download_rows if uid is not None}
+        download_counts = {
+            int(uid): int(count) for uid, count in download_rows if uid is not None
+        }
 
     result = []
     for u in users:
-        sub = _representative_subscription_from_rows(subscriptions_by_user.get(u.id, []))
+        sub = _representative_subscription_from_rows(
+            subscriptions_by_user.get(u.id, [])
+        )
         status_text, is_active = _calc_sub_status(sub, u.is_admin)
         has_downloaded = download_counts.get(u.id, 0) > 0
 
@@ -872,12 +915,15 @@ async def change_user_plan(
         .where(Subscription.status.in_(["active", "reserved"]))
     ).all()
     future_rows = [
-        row for row in rows
+        row
+        for row in rows
         if row.plan != "free"
         and _as_utc(row.end_date) is not None
         and _as_utc(row.end_date) > now
     ]
-    last_sub = max(future_rows, key=lambda row: _as_utc(row.end_date)) if future_rows else None
+    last_sub = (
+        max(future_rows, key=lambda row: _as_utc(row.end_date)) if future_rows else None
+    )
     new_start = _as_utc(last_sub.end_date) if last_sub else now
     new_end = (new_start + timedelta(days=int(plan_info["days"]))).replace(
         hour=23, minute=59, second=59, microsecond=0
@@ -1003,9 +1049,9 @@ async def adjust_user_days(
     sub.end_date = new_end
     sub_start = _as_utc(sub.start_date)
     sub.status = (
-        "expired" if new_end <= now or (sub_start is not None and new_end <= sub_start)
-        else "reserved" if sub_start and sub_start > now
-        else "active"
+        "expired"
+        if new_end <= now or (sub_start is not None and new_end <= sub_start)
+        else "reserved" if sub_start and sub_start > now else "active"
     )
 
     try:
@@ -1054,14 +1100,20 @@ async def set_user_expiry_date(
     try:
         from jdatetime import datetime as jdatetime_cls
 
-        parts = new_date_jalali.strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")).split("/")
+        parts = (
+            new_date_jalali.strip()
+            .translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+            .split("/")
+        )
         if len(parts) != 3:
             raise ValueError("فرمت تاریخ باید YYYY/MM/DD باشد")
         jy, jm, jd = (int(part) for part in parts)
         gdate = jdatetime_cls(jy, jm, jd).togregorian()
-        new_end = gdate.replace(
-            hour=23, minute=59, second=59, microsecond=0
-        ).replace(tzinfo=ZoneInfo("Asia/Tehran")).astimezone(timezone.utc)
+        new_end = (
+            gdate.replace(hour=23, minute=59, second=59, microsecond=0)
+            .replace(tzinfo=ZoneInfo("Asia/Tehran"))
+            .astimezone(timezone.utc)
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"تاریخ نامعتبر: {exc}")
 
@@ -1079,9 +1131,9 @@ async def set_user_expiry_date(
         sub.end_date = new_end
         start_date = _as_utc(sub.start_date)
         sub.status = (
-            "expired" if new_end <= now or (start_date is not None and new_end <= start_date)
-            else "reserved" if start_date and start_date > now
-            else "active"
+            "expired"
+            if new_end <= now or (start_date is not None and new_end <= start_date)
+            else "reserved" if start_date and start_date > now else "active"
         )
 
     try:
@@ -1091,7 +1143,9 @@ async def set_user_expiry_date(
             user_id=user_id,
             admin_phone=admin.phone,
             action_type="manual_date_set",
-            description=f"تنظیم تاریخ پایان اشتراک #{sub.id} به {new_date_jalali}"[:255],
+            description=f"تنظیم تاریخ پایان اشتراک #{sub.id} به {new_date_jalali}"[
+                :255
+            ],
         )
         session.add(log)
         session.commit()
@@ -1101,9 +1155,7 @@ async def set_user_expiry_date(
 
     if send_sms:
         try:
-            send_subscription_activated_sms(
-                user.phone, "تغییر تاریخ انقضا", new_end
-            )
+            send_subscription_activated_sms(user.phone, "تغییر تاریخ انقضا", new_end)
         except Exception:
             logger.exception("Failed to send subscription expiry SMS")
 
@@ -1255,7 +1307,16 @@ async def list_payments(
         .order_by(PaymentRequest.created_at.desc())
     ).all()
     payment_user_ids = list({p.user_id for p in payments if p.user_id is not None})
-    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(payment_user_ids))).all()} if payment_user_ids else {}
+    users_by_id = (
+        {
+            u.id: u
+            for u in session.exec(
+                select(User).where(User.id.in_(payment_user_ids))
+            ).all()
+        }
+        if payment_user_ids
+        else {}
+    )
     result = []
     for p in payments:
         user = users_by_id.get(p.user_id)
@@ -1297,7 +1358,16 @@ async def list_all_transactions_merged(
     pricing_map = {s.plan_id: s.price for s in pricing_settings}
 
     payment_user_ids = list({p.user_id for p in payments if p.user_id is not None})
-    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(payment_user_ids))).all()} if payment_user_ids else {}
+    users_by_id = (
+        {
+            u.id: u
+            for u in session.exec(
+                select(User).where(User.id.in_(payment_user_ids))
+            ).all()
+        }
+        if payment_user_ids
+        else {}
+    )
     result = []
     for p in payments:
         user = users_by_id.get(p.user_id)
@@ -1311,7 +1381,9 @@ async def list_all_transactions_merged(
             {
                 "id": f"pay_{p.id}",
                 "source": "payment_request",
-                "stage_label": "عودت وجه توسط مدیر" if p.payment_method == "refund" else None,
+                "stage_label": (
+                    "عودت وجه توسط مدیر" if p.payment_method == "refund" else None
+                ),
                 "user_phone": user.phone if user else "ناشناس",
                 "plan": p.plan,
                 "plan_price": current_price,  # 🔴 قیمت به‌روز شده
@@ -1333,6 +1405,8 @@ async def list_all_transactions_merged(
 
 
 # 🔴 اندپوینت جدید برای ویرایش مبلغ توسط ادمین
+
+
 @router.patch("/transactions/{tx_id}/amount")
 async def update_transaction_amount(
     tx_id: str,
@@ -1341,21 +1415,45 @@ async def update_transaction_amount(
     session: Session = Depends(get_session),
 ):
     _require_main_admin(admin)
-    if tx_id.startswith("pay_"):
-        pid = int(tx_id.replace("pay_", ""))
-        p = session.exec(
-            select(PaymentRequest).where(PaymentRequest.id == pid).with_for_update()
-        ).first()
-        if not p:
-            raise HTTPException(404, "تراکنش یافت نشد")
-        p.amount = amount
-        # 🔴 حفظ یادداشت قبلی
-        old_note = p.admin_note or ""
-        p.admin_note = f"{old_note} (مبلغ توسط مدیر ویرایش شد)"
-        session.add(p)
-        session.commit()
-        return {"ok": True, "message": "مبلغ ویرایش شد", "id": tx_id, "amount": amount}
-    raise HTTPException(400, "شناسه نامعتبر")
+
+    if not tx_id.startswith("pay_"):
+        raise HTTPException(400, "شناسه نامعتبر")
+
+    try:
+        pid = int(tx_id.removeprefix("pay_"))
+    except ValueError:
+        raise HTTPException(400, "شناسه تراکنش نامعتبر است")
+
+    if amount < 0:
+        raise HTTPException(400, "مبلغ نمی‌تواند منفی باشد")
+
+    p = session.exec(
+        select(PaymentRequest).where(PaymentRequest.id == pid).with_for_update()
+    ).first()
+
+    if not p:
+        raise HTTPException(404, "تراکنش یافت نشد")
+
+    if p.payment_method == "refund" or p.plan == "refund":
+        raise HTTPException(400, "ویرایش مبلغ تراکنش عودت وجه مجاز نیست")
+
+    if p.status == "approved":
+        raise HTTPException(409, "مبلغ تراکنش تأییدشده قابل ویرایش نیست")
+
+    old_note = p.admin_note or ""
+    edit_note = "مبلغ توسط مدیر ویرایش شد"
+    p.admin_note = f"{old_note} | {edit_note}" if old_note else edit_note
+    p.amount = amount
+
+    session.add(p)
+    session.commit()
+
+    return {
+        "ok": True,
+        "message": "مبلغ ویرایش شد",
+        "id": tx_id,
+        "amount": amount,
+    }
 
 
 # 🔴 اندپوینت جدید برای اکسل تراکنش‌ها
@@ -1619,6 +1717,8 @@ async def get_extension_logs(
 # ═══════════════════════════════════════════════════════════
 # 🔴 اندپوینت جدید: تغییر وضعیت تراکنش توسط ادمین
 # ═══════════════════════════════════════════════════════════
+
+
 @router.patch("/transactions/{tx_id}/status")
 async def update_transaction_status(
     tx_id: str,
@@ -1627,45 +1727,47 @@ async def update_transaction_status(
     admin: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    if tx_id.startswith("pay_"):
-        try:
-            pid = int(tx_id.removeprefix("pay_"))
-        except ValueError:
-            raise HTTPException(400, "شناسه تراکنش نامعتبر است")
-        if new_status not in {"approved", "rejected"}:
-            raise HTTPException(400, "وضعیت جدید نامعتبر است")
-        p = session.get(PaymentRequest, pid)
-        if not p:
-            raise HTTPException(404, "تراکنش یافت نشد")
-        if p.status != "pending":
-            raise HTTPException(409, "این تراکنش قبلاً بررسی شده و امکان پردازش مجدد ندارد")
+    if not tx_id.startswith("pay_"):
+        raise HTTPException(400, "شناسه نامعتبر")
 
-        p.status = new_status
+    try:
+        pid = int(tx_id.removeprefix("pay_"))
+    except ValueError:
+        raise HTTPException(400, "شناسه تراکنش نامعتبر است")
+
+    if new_status not in {"pending", "approved", "rejected"}:
+        raise HTTPException(400, "وضعیت جدید نامعتبر است")
+
+    p = session.exec(
+        select(PaymentRequest).where(PaymentRequest.id == pid).with_for_update()
+    ).first()
+
+    if not p:
+        raise HTTPException(404, "تراکنش یافت نشد")
+
+    if p.status == new_status:
+        return {"ok": True, "message": "وضعیت تراکنش تغییری نکرد"}
+
+    # تغییر وضعیت تراکنش هیچ اثری روی اشتراک کاربر ندارد.
+    p.status = new_status
+
+    if new_status == "pending":
+        p.reviewed_at = None
+        p.reviewed_by = None
+    else:
         p.reviewed_at = datetime.now(timezone.utc)
         p.reviewed_by = admin.phone
 
-        # 🔴 فعال‌سازی اشتراک در صورت تایید (با تابع مشترک)
-        if new_status == "approved":
-            user = session.get(User, p.user_id)
-            if user:
-                activation = activate_or_reserve_subscription(session, user.id, p.plan)
-                if not activation["ok"]:
-                    raise HTTPException(status_code=400, detail=activation["error"])
+    session.add(p)
+    session.commit()
 
-                if send_sms:
-                    try:
-                        send_subscription_activated_sms(
-                            user.phone,
-                            activation["plan_info"]["title"],
-                            activation["new_sub_end"],
-                        )
-                    except Exception:
-                        pass
+    messages = {
+        "pending": "تراکنش به انتظار بررسی بازگشت",
+        "approved": "تراکنش تأیید شد",
+        "rejected": "تراکنش رد شد",
+    }
 
-        session.add(p)
-        session.commit()
-        return {"ok": True, "message": f"وضعیت تراکنش به {new_status} تغییر یافت"}
-    raise HTTPException(400, "شناسه نامعتبر")
+    return {"ok": True, "message": messages[new_status]}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1767,26 +1869,44 @@ async def refund_notification_summary(
     session: Session = Depends(get_session),
 ):
     """Small polling payload for the admin bell; avoids loading full refund history."""
-    pending_count = session.exec(
-        select(func.count()).select_from(RefundRequest).where(RefundRequest.status == "pending")
-    ).one() or 0
+    pending_count = (
+        session.exec(
+            select(func.count())
+            .select_from(RefundRequest)
+            .where(RefundRequest.status == "pending")
+        ).one()
+        or 0
+    )
     latest = session.exec(
         select(RefundRequest)
         .where(RefundRequest.status == "pending")
         .order_by(RefundRequest.created_at.desc())
         .limit(20)
     ).all()
-    owner_ids = list({request.user_id for request in latest if request.user_id is not None})
-    owners_by_id = {owner.id: owner for owner in session.exec(select(User).where(User.id.in_(owner_ids))).all()} if owner_ids else {}
+    owner_ids = list(
+        {request.user_id for request in latest if request.user_id is not None}
+    )
+    owners_by_id = (
+        {
+            owner.id: owner
+            for owner in session.exec(select(User).where(User.id.in_(owner_ids))).all()
+        }
+        if owner_ids
+        else {}
+    )
     items = []
     for request in latest:
         owner = owners_by_id.get(request.user_id)
-        items.append({
-            "id": request.id,
-            "user_phone": owner.phone if owner else "ناشناس",
-            "refund_amount": request.refund_amount or 0,
-            "created_at": request.created_at.isoformat() if request.created_at else None,
-        })
+        items.append(
+            {
+                "id": request.id,
+                "user_phone": owner.phone if owner else "ناشناس",
+                "refund_amount": request.refund_amount or 0,
+                "created_at": (
+                    request.created_at.isoformat() if request.created_at else None
+                ),
+            }
+        )
     return {"ok": True, "pending_count": int(pending_count), "items": items}
 
 
@@ -1799,7 +1919,16 @@ async def list_refunds(
         select(RefundRequest).order_by(RefundRequest.created_at.desc())
     ).all()
     refund_user_ids = list({r.user_id for r in reqs if r.user_id is not None})
-    users_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(refund_user_ids))).all()} if refund_user_ids else {}
+    users_by_id = (
+        {
+            u.id: u
+            for u in session.exec(
+                select(User).where(User.id.in_(refund_user_ids))
+            ).all()
+        }
+        if refund_user_ids
+        else {}
+    )
     result = []
     for r in reqs:
         user = users_by_id.get(r.user_id)
@@ -1807,7 +1936,8 @@ async def list_refunds(
             {
                 "id": r.id,
                 "reference_code": f"RF-{r.id:06d}",
-                "subscription_id": r.subscription_id or getattr(r, "subscription_id_snapshot", None),
+                "subscription_id": r.subscription_id
+                or getattr(r, "subscription_id_snapshot", None),
                 "user_phone": user.phone if user else "ناشناس",
                 "old_plan": r.old_plan,
                 "new_plan": r.new_plan,
@@ -1845,8 +1975,12 @@ async def approve_refund(
 
     # کد پیگیری مشترک بدون افزودن ستون/جدول جدید؛ در درخواست و تراکنش عودت تکرار می‌شود.
     reference_code = f"RF-{req.id:06d}"
-    subscription_id = req.subscription_id or getattr(req, "subscription_id_snapshot", None)
-    subscription_code = f"SUB-{subscription_id:06d}" if subscription_id else "SUB-نامشخص"
+    subscription_id = req.subscription_id or getattr(
+        req, "subscription_id_snapshot", None
+    )
+    subscription_code = (
+        f"SUB-{subscription_id:06d}" if subscription_id else "SUB-نامشخص"
+    )
     review_note = (admin_note or "").strip()
     transaction_note = (
         f"کد پیگیری: {reference_code} | اشتراک: {subscription_code} | "
