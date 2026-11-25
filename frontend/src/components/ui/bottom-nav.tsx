@@ -348,7 +348,7 @@ export function BottomNav() {
               duration: 0.28,
               ease: [0.22, 1, 0.36, 1],
             }}
-            className="fixed bottom-[calc(4.8rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[70] mx-auto flex max-h-[75vh] w-full max-w-xl flex-col overflow-hidden rounded-t-[28px] border border-white/10 border-b-0 bg-[#071820] shadow-[0_-15px_60px_rgba(0,0,0,0.45)] md:hidden"
+            className="fixed bottom-[calc(4.8rem+env(safe-area-inset-bottom,0px))] left-0 right-0 z-[70] mx-auto flex max-h-[75vh] w-full max-w-xl flex-col overflow-hidden rounded-t-[28px] border border-white/10 border-b-0 bg-[#051118] shadow-[0_-15px_60px_rgba(0,0,0,0.45)] md:hidden"
             role="dialog"
             aria-modal="true"
             aria-label="حساب کاربری"
@@ -383,7 +383,7 @@ export function BottomNav() {
                 <div className="space-y-5">
 
                   {/* اطلاعات کاربر */}
-                  <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/15 bg-gradient-to-br from-[#132b34] to-[#0b1c24] p-4">
+                  <div className="relative overflow-hidden rounded-2xl border border-[#d6ad60]/15 bg-gradient-to-br from-[#051118] to-[#0b1c24] p-4">
                     <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#d6ad60]/5 blur-2xl" />
 
                     <div className="relative flex items-center gap-3">
@@ -593,7 +593,7 @@ export function BottomNav() {
                     stiffness: 320,
                     damping: 18,
                   }}
-                  className={`relative flex h-[62px] w-[62px] items-center justify-center rounded-full border-[4px] border-[#071820] bg-gradient-to-br from-[#f2d697] via-[#d6ad60] to-[#b98234] text-[#102027] shadow-[0_5px_22px_rgba(214,173,96,0.3)] ${
+                  className={`relative flex h-[52px] w-[52px] items-center justify-center rounded-full border-[4px] border-[#071820] bg-gradient-to-br from-[#f2d697] via-[#d6ad60] to-[#b98234] text-[#102027] shadow-[0_5px_22px_rgba(214,173,96,0.3)] ${
                     mobileSheet === "account"
                       ? "ring-2 ring-[#d6ad60]/30"
                       : ""
