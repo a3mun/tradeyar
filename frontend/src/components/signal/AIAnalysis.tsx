@@ -13,7 +13,6 @@ import {
   ArrowUpRight,
   Info,
   History,
-  Clock,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -174,57 +173,138 @@ function formatDate(date: string) {
   });
 }
 
-// نمایش امن Markdown ساده‌ی پاسخ AI؛ به‌ویژه تیترهای **بولد** بدون نمایش ستاره‌ها
+// نمایش امن Markdown ساده
 function renderInlineMarkdown(text: string) {
-  const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g);
+  const tokens = text.split(
+    /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_)/g
+  );
 
   return tokens.map((token, index) => {
     if (
       (token.startsWith("**") && token.endsWith("**")) ||
       (token.startsWith("__") && token.endsWith("__"))
     ) {
-      return <strong key={index} className="font-bold text-gray-100">{token.slice(2, -2)}</strong>;
+      return (
+        <strong
+          key={index}
+          className="font-bold text-gray-100"
+        >
+          {token.slice(2, -2)}
+        </strong>
+      );
     }
 
     if (
       (token.startsWith("*") && token.endsWith("*")) ||
       (token.startsWith("_") && token.endsWith("_"))
     ) {
-      return <em key={index} className="italic text-gray-200">{token.slice(1, -1)}</em>;
+      return (
+        <em
+          key={index}
+          className="italic text-gray-200"
+        >
+          {token.slice(1, -1)}
+        </em>
+      );
     }
 
     return <span key={index}>{token}</span>;
   });
 }
 
+// نمایش ساختار متن تحلیل AI
+
 function renderAIResponse(response: string) {
-  return response.split(/\r?\n/).map((rawLine, index) => {
+  const lines = response.split(/\r?\n/);
+
+  const firstContentIndex = lines.findIndex(
+    (line) => line.trim().length > 0
+  );
+
+  return lines.map((rawLine, index) => {
     const line = rawLine.trim();
 
-    if (!line) return <div key={index} className="h-2" />;
+    if (!line) {
+      return <div key={index} className="h-1" />;
+    }
 
-    const heading = line.match(/^#{1,3}\s+(.+)$/);
-    if (heading) {
+    // حذف نشانه‌های Markdown از ابتدا و انتهای تیتر
+    const cleanHeading = line
+      .replace(/^#{1,3}\s*/, "")
+      .replace(/^(?:\*\*|__|\*|_)([\s\S]*?)(?:\*\*|__|\*|_)$/, "$1")
+      .trim();
+
+    // عنوان اصلی گزارش
+    if (index === firstContentIndex) {
       return (
-        <h4 key={index} className="pt-2 pb-1 text-sm font-bold text-[#e2c17e]">
-          {renderInlineMarkdown(heading[1])}
+        <h3
+          key={index}
+          className="
+            mb-5
+            text-[15px] sm:text-base
+            font-bold
+            leading-8
+            text-[#e7c477]
+          "
+        >
+          {renderInlineMarkdown(cleanHeading)}
+        </h3>
+      );
+    }
+
+    // تشخیص تیترهای بخش‌ها با یا بدون Markdown
+    const isSectionHeading =
+      /^(بخش\s*[۰-۹0-9]+\s*[:：].+)$/.test(cleanHeading);
+
+    const isMarkdownHeading =
+      /^#{1,3}\s+/.test(line);
+
+    if (isSectionHeading || isMarkdownHeading) {
+      return (
+        <h4
+          key={index}
+          className="
+            mt-3 mb-1
+            border-r-[3px] border-[#d6ad60]
+            pr-3 py-1
+            text-[13px] sm:text-sm
+            font-bold
+            leading-8
+            text-[#e7c477]
+          "
+        >
+          {renderInlineMarkdown(cleanHeading)}
         </h4>
       );
     }
 
+    // لیست‌ها
     const bullet = line.match(/^(?:[-*+]\s+)(.+)$/);
+
     if (bullet) {
       return (
-        <div key={index} className="flex items-start gap-2 pr-1">
-          <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#d6ad60]" />
-          <p className="min-w-0 flex-1">{renderInlineMarkdown(bullet[1])}</p>
+        <div
+          key={index}
+          className="flex items-start gap-2 pr-1"
+        >
+          <span className="mt-[13px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#d6ad60]" />
+
+          <p className="min-w-0 flex-1">
+            {renderInlineMarkdown(bullet[1])}
+          </p>
         </div>
       );
     }
 
-    return <p key={index}>{renderInlineMarkdown(line)}</p>;
+    // متن عادی
+    return (
+      <p key={index}>
+        {renderInlineMarkdown(line)}
+      </p>
+    );
   });
 }
+
 
 const CHAT_SERVICES = [
   {
@@ -320,7 +400,6 @@ export function AIAnalysis({
 
       setRecentAnalyses(cleaned);
 
-      // ذخیره مجدد تاریخچه پاک‌سازی‌شده
       saveHistory(historyKey, cleaned);
     } catch (error) {
       console.error("[AI History Load]", error);
@@ -361,7 +440,7 @@ export function AIAnalysis({
     }
   }, [aiResult]);
 
-  // انتخاب یا بستن تحلیل قبلی با کلیک مجدد روی همان مورد
+  // انتخاب یا بستن تحلیل قبلی
   const handleViewHistory = (item: CachedAnalysis) => {
     if (selectedId === item.id) {
       setAiResult("");
@@ -497,17 +576,34 @@ export function AIAnalysis({
     <div className="space-y-4">
 
       {/* تحلیل هوشمند */}
-      <div className="rounded-xl border border-[#d6ad60]/20 bg-[#051118] p-4 shadow-xl space-y-3">
+      <div className="space-y-3 rounded-xl border border-[#d6ad60]/20 bg-[#051118] p-4 shadow-xl">
 
+        {/* عنوان */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="rounded-lg bg-[#d6ad60]/10 p-1.5 text-[#d6ad60]">
               <Sparkles className="h-4 w-4" />
             </div>
 
+          <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-gray-100">
               تحلیل با هوش مصنوعی
             </span>
+
+            <span className="
+              rounded-full
+              border border-amber-400/20
+              bg-amber-400/10
+              px-2 py-0.5
+              text-[9px]
+              font-medium
+              text-amber-300
+              whitespace-nowrap
+            ">
+              در حال توسعه
+            </span>
+          </div>
+
           </div>
 
           <span className="text-[10px] text-gray-500">
@@ -529,24 +625,24 @@ export function AIAnalysis({
             !aiExport ||
             !historyLoaded
           }
-          className="w-full h-10 font-bold bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] hover:opacity-90 transition-all"
+          className="h-10 w-full bg-gradient-to-l from-[#c89a49] to-[#e2c17e] font-bold text-[#101827] transition-all hover:opacity-90"
         >
           {aiLoading ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               در حال تحلیل...
             </>
           ) : (
             <>
-              <Sparkles className="h-4 w-4 mr-2" />
+              <Sparkles className="mr-2 h-4 w-4" />
               دریافت تحلیل هوشمند
             </>
           )}
         </Button>
 
-        {/* تاریخچه جمع و جور */}
+        {/* تاریخچه */}
         {historyLoaded && recentAnalyses.length > 0 && (
-          <div className="pt-2 space-y-1.5">
+          <div className="space-y-1.5 pt-2">
 
             <div className="flex items-center justify-between pb-1">
               <div className="flex items-center gap-1.5">
@@ -572,8 +668,7 @@ export function AIAnalysis({
                   onClick={() => handleViewHistory(item)}
                   aria-pressed={isSelected}
                   className={`
-                    w-full min-h-[36px]
-                    flex items-center justify-between gap-2
+                    flex min-h-[36px] w-full items-center justify-between gap-2
                     rounded-md border px-2.5 py-1.5
                     text-right transition-all
                     ${
@@ -583,7 +678,7 @@ export function AIAnalysis({
                     }
                   `}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
 
                     <span
                       className={`
@@ -604,7 +699,7 @@ export function AIAnalysis({
                     </span>
 
                     <span
-                      className={`text-[10px] font-semibold truncate ${
+                      className={`truncate text-[10px] font-semibold ${
                         isSelected
                           ? "text-[#e2c17e]"
                           : "text-gray-300"
@@ -620,7 +715,7 @@ export function AIAnalysis({
                   </div>
 
                   <span
-                    className={`text-[9px] shrink-0 ${
+                    className={`shrink-0 text-[9px] ${
                       isSelected
                         ? "text-[#e2c17e]"
                         : "text-gray-600"
@@ -646,13 +741,14 @@ export function AIAnalysis({
           </div>
         )}
 
-        {/* نتیجه */}
+        {/* نتیجه تحلیل - طراحی یکپارچه و بدون کارت تو در تو */}
         {aiResult && (
-          <div className="mt-3 rounded-lg border border-white/5 bg-black/20 p-3">
+          <div className="mt-3 min-w-0 border-t border-white/[0.07] pt-3">
 
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
-                <Bot className="h-4 w-4 text-[#d6ad60]" />
+            {/* سربرگ نتیجه */}
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <Bot className="h-4 w-4 shrink-0 text-[#d6ad60]" />
 
                 <span className="text-xs font-bold text-gray-200">
                   تحلیل هوش مصنوعی
@@ -668,7 +764,7 @@ export function AIAnalysis({
               <button
                 type="button"
                 onClick={handleCopyResult}
-                className="text-[10px] flex items-center gap-1 text-gray-500 hover:text-[#d6ad60] transition-colors"
+                className="flex shrink-0 items-center gap-1 text-[10px] text-gray-500 transition-colors hover:text-[#e7c477]"
               >
                 {copiedResult ? (
                   <Check className="h-3 w-3 text-green-500" />
@@ -680,17 +776,48 @@ export function AIAnalysis({
               </button>
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              <div className="space-y-1 whitespace-pre-wrap text-xs leading-7 text-gray-300 text-justify">
+            {/* متن تحلیل */}
+            <div
+              dir="rtl"
+              className="
+                custom-scrollbar
+                max-h-[480px]
+                min-w-0
+                overflow-x-hidden
+                overflow-y-auto
+                px-3 py-1
+              "
+              style={{
+                scrollbarGutter: "stable",
+                scrollbarWidth: "thin",
+                scrollbarColor: "#8c6b36 transparent",
+              }}
+            >
+              <div
+                dir="rtl"
+                className="
+                  min-w-0
+                  space-y-1
+                  whitespace-pre-wrap
+                  break-words
+                  text-justify
+                  text-[12px]
+                  leading-8
+                  text-gray-300
+                  sm:text-[13px]
+                  sm:leading-8
+                "
+              >
                 {renderAIResponse(aiResult)}
               </div>
             </div>
+
           </div>
         )}
       </div>
 
       {/* کپی داده خام */}
-      <div className="rounded-xl border border-white/5 bg-[#051118] p-4 shadow-xl space-y-3">
+      <div className="space-y-3 rounded-xl border border-white/5 bg-[#051118] p-4 shadow-xl">
 
         <div className="flex items-center gap-2">
           <div className="rounded-lg bg-white/5 p-1.5 text-gray-400">
@@ -712,20 +839,20 @@ export function AIAnalysis({
           onClick={handleCopyRaw}
           disabled={!aiExport}
           variant="outline"
-          className={`w-full h-10 border-white/10 font-bold transition-colors ${
+          className={`h-10 w-full border-white/10 font-bold transition-colors ${
             copied
-              ? "bg-green-500/10 text-green-400 border-green-500/30"
+              ? "border-green-500/30 bg-green-500/10 text-green-400"
               : "text-gray-200 hover:bg-white/5"
           }`}
         >
           {copied ? (
             <>
-              <Check className="h-4 w-4 mr-2" />
+              <Check className="mr-2 h-4 w-4" />
               کپی شد — حالا در چت پیست کنید
             </>
           ) : (
             <>
-              <Copy className="h-4 w-4 mr-2" />
+              <Copy className="mr-2 h-4 w-4" />
               کپی داده‌های خام
             </>
           )}
@@ -745,15 +872,15 @@ export function AIAnalysis({
                   href={svc.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="group relative flex flex-col items-start gap-1 rounded-lg border border-white/5 bg-black/20 p-2 hover:border-[#d6ad60]/30 hover:bg-white/5 transition-colors"
+                  className="group relative flex flex-col items-start gap-1 rounded-lg border border-white/5 bg-black/20 p-2 transition-colors hover:border-[#d6ad60]/30 hover:bg-white/5"
                 >
                   {svc.vpnRequired && (
-                    <span className="absolute -top-1.5 -right-1.5 rounded-full bg-orange-500/90 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm">
+                    <span className="absolute -right-1.5 -top-1.5 rounded-full bg-orange-500/90 px-1.5 py-0.5 text-[8px] font-bold text-white shadow-sm">
                       VPN
                     </span>
                   )}
 
-                  <div className="flex items-center gap-1.5 w-full">
+                  <div className="flex w-full items-center gap-1.5">
                     <span className="text-sm">
                       {svc.icon}
                     </span>
@@ -762,7 +889,7 @@ export function AIAnalysis({
                       {svc.name}
                     </span>
 
-                    <ArrowUpRight className="h-3 w-3 ml-auto text-gray-500 group-hover:text-[#d6ad60]" />
+                    <ArrowUpRight className="ml-auto h-3 w-3 text-gray-500 group-hover:text-[#d6ad60]" />
                   </div>
 
                   <p
@@ -783,9 +910,9 @@ export function AIAnalysis({
 
       {/* توضیحات */}
       <div className="flex items-start gap-1.5 px-1">
-        <Info className="h-3 w-3 mt-0.5 shrink-0 text-gray-600" />
+        <Info className="mt-0.5 h-3 w-3 shrink-0 text-gray-600" />
 
-        <p className="text-[9px] leading-relaxed text-gray-500 text-justify">
+        <p className="text-justify text-[9px] leading-relaxed text-gray-500">
           تحلیل‌های هوش مصنوعی صرفاً جنبه کمکی دارند و جایگزین
           تحلیل شخصی شما نیستند. تصمیم نهایی با خودتان است.
         </p>

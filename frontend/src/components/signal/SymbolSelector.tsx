@@ -103,10 +103,14 @@ function SymbolMark({
   ticker: string;
   variant?: "crypto" | "stock";
 }) {
-  const label =
-    variant === "stock"
-      ? ticker.slice(0, 3)
+const label =
+  variant === "stock"
+    ? ticker.slice(0, 3)
+    : ticker === "BTC-IRT"
+      ? "BTC-IRT"
       : getCryptoSymbol(ticker);
+  
+
 
   return (
     <div

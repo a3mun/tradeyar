@@ -133,7 +133,7 @@ export function StickyMiniHeader() {
     >
       <button
         onClick={handleClick}
-        className={`flex w-full flex-col gap-0.5 border-b border-t px-3 py-1.5 text-right shadow-[0_8px_25px_rgba(0,0,0,0.18)] backdrop-blur-2xl backdrop-saturate-150 transition-all duration-300 sm:py-1.5 ${
+        className={`flex w-full flex-col gap-0.5 rounded-b-xl border-b border-t px-3 py-1.5 text-right shadow-[0_8px_25px_rgba(0,0,0,0.18)] backdrop-blur-2xl backdrop-saturate-150 transition-all duration-300 sm:py-1.5 ${
           glassTheme
         } ring-1 ring-white/[0.025]`}
         aria-label="کارت سیگنال"

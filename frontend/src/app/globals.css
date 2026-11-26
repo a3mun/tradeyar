@@ -128,3 +128,37 @@ body {
 .animate-shimmer {
   animation: shimmer 1.5s infinite;
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   AI Analysis — Custom Scrollbar
+   ═══════════════════════════════════════════════════════════ */
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #8c6b36 transparent;
+  scrollbar-gutter: stable;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    #e7c477 0%,
+    #8c6b36 100%
+  );
+  border-radius: 20px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #fff0bd;
+}

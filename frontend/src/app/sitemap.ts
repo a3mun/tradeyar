@@ -1,3 +1,4 @@
+
 import type { MetadataRoute } from "next";
 
 const SITE_URL = "https://trademun.ir";
@@ -36,6 +37,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: `${SITE_URL}/subscription`,
       changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
+      url: `${SITE_URL}/extension/guide`,
+      changeFrequency: "monthly",
       priority: 0.8,
     },
   ];

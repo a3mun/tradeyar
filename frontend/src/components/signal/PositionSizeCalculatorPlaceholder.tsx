@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Calculator,
   TrendingUp,
@@ -12,6 +12,7 @@ import {
   Percent,
   RotateCcw,
   Info,
+  TrendingUp as ChartIcon,
 } from "lucide-react";
 
 type Market = "stock" | "crypto_spot" | "crypto_futures" | "gold";
@@ -37,9 +38,50 @@ type Calculation = {
   capitalLimited: boolean;
 };
 
-const nf = new Intl.NumberFormat("fa-IR", {
-  maximumFractionDigits: 8,
-});
+type StoredValues = {
+  market: Market;
+  direction: Direction;
+  capital: number;
+  riskPercent: number;
+  entry: number;
+  stop: number;
+  target: number;
+  leverage: number;
+  contractSize: number;
+  quantityStep: number;
+  entryFee: number;
+  exitFee: number;
+  sellTax: number;
+  extraCost: number;
+};
+
+const STORAGE_KEY = "compact-position-calculator-v1";
+
+const DEFAULT_VALUES: StoredValues = {
+  market: "crypto_spot",
+  direction: "long",
+  capital: 1000,
+  riskPercent: 1,
+  entry: 100,
+  stop: 95,
+  target: 110,
+  leverage: 1,
+  contractSize: 1,
+  quantityStep: 0.001,
+  entryFee: 0.1,
+  exitFee: 0.1,
+  sellTax: 0,
+  extraCost: 0,
+};
+
+const GOLD = "#e7c477";
+const GOLD_LIGHT = "#fff0bd";
+const GOLD_DARK = "#b88a3b";
+const CARD = "#051118";
+const BACKGROUND = "#030712";
+
+const goldGradient =
+  "linear-gradient(110deg, #b88a3b 0%, #e7c477 48%, #fff0bd 100%)";
 
 function formatNumber(value: number, digits = 2) {
   if (!Number.isFinite(value)) return "—";
@@ -52,8 +94,12 @@ function formatNumber(value: number, digits = 2) {
 
 function normalizeNumber(value: string): number {
   const normalized = value
-    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[۰-۹]/g, (d) =>
+      String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))
+    )
+    .replace(/[٠-٩]/g, (d) =>
+      String("٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    )
     .replace(/٫/g, ".")
     .replace(/[٬،]/g, "")
     .replace(/,/g, "")
@@ -105,16 +151,19 @@ function NumericField({
   const [draft, setDraft] = useState("");
 
   return (
-    <label className="block min-w-0 space-y-1.5">
-      <span className="block text-xs text-slate-400">{label}</span>
+    <label className="block min-w-0">
+      <span className="mb-1 block text-[10px] font-medium text-zinc-400">
+        {label}
+      </span>
 
       <div
         className={[
-          "flex h-11 items-center gap-2 rounded-xl border bg-[#07131e] px-3 transition",
+          "flex h-8 items-center gap-1 rounded-md border px-2 transition",
+          "bg-[#051118]",
           focused
-            ? "border-cyan-400/50 ring-2 ring-cyan-400/10"
-            : "border-white/[0.08]",
-          disabled ? "opacity-50" : "",
+            ? "border-[#e7c477]/60 ring-1 ring-[#e7c477]/15"
+            : "border-white/[0.07]",
+          disabled ? "opacity-40" : "",
         ].join(" ")}
       >
         <input
@@ -136,13 +185,14 @@ function NumericField({
             setDraft(next);
             onChange(Math.max(min, normalizeNumber(next)));
           }}
-          className="w-full min-w-0 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-slate-600 disabled:cursor-not-allowed"
+          className="w-full min-w-0 bg-transparent text-xs font-semibold text-zinc-100 outline-none placeholder:text-zinc-700"
           dir="ltr"
-          step={step}
+          aria-label={label}
+          data-step={step}
         />
 
         {suffix && (
-          <span className="shrink-0 text-[11px] text-slate-500">
+          <span className="shrink-0 text-[9px] text-zinc-500">
             {suffix}
           </span>
         )}
@@ -151,11 +201,36 @@ function NumericField({
   );
 }
 
+function SectionTitle({
+  icon: Icon,
+  title,
+}: {
+  icon: React.ElementType;
+  title: string;
+}) {
+  return (
+    <div className="mb-2 flex items-center gap-1.5">
+      <div
+        className="flex h-6 w-6 items-center justify-center rounded-md"
+        style={{
+          background: "rgba(231,196,119,0.09)",
+        }}
+      >
+        <Icon size={13} style={{ color: GOLD }} />
+      </div>
+
+      <h3 className="text-[11px] font-bold text-zinc-200">
+        {title}
+      </h3>
+    </div>
+  );
+}
+
 function ResultItem({
   label,
   value,
   hint,
-  accent = "text-white",
+  accent = "text-zinc-100",
 }: {
   label: string;
   value: string;
@@ -163,16 +238,20 @@ function ResultItem({
   accent?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-xl border border-white/[0.07] bg-[#081722] p-3">
-      <div className="text-[11px] text-slate-400">{label}</div>
+    <div className="min-w-0 rounded-md border border-white/[0.055] bg-[#051118] px-2 py-1.5">
+      <div className="text-[9px] text-zinc-500">
+        {label}
+      </div>
+
       <div
-        className={`mt-1 break-words text-base font-bold tabular-nums ${accent}`}
+        className={`mt-1 break-words text-xs font-bold tabular-nums ${accent}`}
         dir="ltr"
       >
         {value}
       </div>
+
       {hint && (
-        <div className="mt-1 text-[10px] leading-5 text-slate-500">
+        <div className="mt-1 text-[9px] leading-3 text-zinc-500">
           {hint}
         </div>
       )}
@@ -195,18 +274,113 @@ export function PositionSizeCalculatorPlaceholder() {
   const [contractSize, setContractSize] = useState(1);
   const [quantityStep, setQuantityStep] = useState(0.001);
 
-  // همه نرخ‌ها درصد هستند؛ مثلاً 0.1 یعنی 0.1 درصد
   const [entryFee, setEntryFee] = useState(0.1);
   const [exitFee, setExitFee] = useState(0.1);
   const [sellTax, setSellTax] = useState(0);
   const [extraCost, setExtraCost] = useState(0);
 
+  const [hydrated, setHydrated] = useState(false);
+
+  // بارگذاری مقادیر ذخیره‌شده
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+
+      if (saved) {
+        const data = JSON.parse(saved) as Partial<StoredValues>;
+
+        const validNumber = (
+          value: unknown,
+          fallback: number
+        ) =>
+          typeof value === "number" && Number.isFinite(value)
+            ? value
+            : fallback;
+
+        if (
+          data.market === "stock" ||
+          data.market === "crypto_spot" ||
+          data.market === "crypto_futures" ||
+          data.market === "gold"
+        ) {
+          setMarket(data.market);
+        }
+
+        if (data.direction === "long" || data.direction === "short") {
+          setDirection(data.direction);
+        }
+
+        setCapital(validNumber(data.capital, DEFAULT_VALUES.capital));
+        setRiskPercent(validNumber(data.riskPercent, DEFAULT_VALUES.riskPercent));
+        setEntry(validNumber(data.entry, DEFAULT_VALUES.entry));
+        setStop(validNumber(data.stop, DEFAULT_VALUES.stop));
+        setTarget(validNumber(data.target, DEFAULT_VALUES.target));
+        setLeverage(validNumber(data.leverage, DEFAULT_VALUES.leverage));
+        setContractSize(validNumber(data.contractSize, DEFAULT_VALUES.contractSize));
+        setQuantityStep(validNumber(data.quantityStep, DEFAULT_VALUES.quantityStep));
+        setEntryFee(validNumber(data.entryFee, DEFAULT_VALUES.entryFee));
+        setExitFee(validNumber(data.exitFee, DEFAULT_VALUES.exitFee));
+        setSellTax(validNumber(data.sellTax, DEFAULT_VALUES.sellTax));
+        setExtraCost(validNumber(data.extraCost, DEFAULT_VALUES.extraCost));
+      }
+    } catch {
+      // استفاده از مقادیر پیش‌فرض
+    }
+
+    setHydrated(true);
+  }, []);
+
+  // ذخیره خودکار تغییرات
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const values: StoredValues = {
+      market,
+      direction,
+      capital,
+      riskPercent,
+      entry,
+      stop,
+      target,
+      leverage,
+      contractSize,
+      quantityStep,
+      entryFee,
+      exitFee,
+      sellTax,
+      extraCost,
+    };
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
+    } catch {
+      // محاسبه بدون ذخیره‌سازی هم ادامه پیدا می‌کند.
+    }
+  }, [
+    hydrated,
+    market,
+    direction,
+    capital,
+    riskPercent,
+    entry,
+    stop,
+    target,
+    leverage,
+    contractSize,
+    quantityStep,
+    entryFee,
+    exitFee,
+    sellTax,
+    extraCost,
+  ]);
+
   const isStock = market === "stock";
+
   const isSpot =
     market === "stock" || market === "crypto_spot";
+
   const isFutures = market === "crypto_futures";
 
-  // طلا می‌تواند نقدی یا اهرمی محاسبه شود.
   const isLeveraged =
     market === "crypto_futures" || market === "gold";
 
@@ -214,7 +388,7 @@ export function PositionSizeCalculatorPlaceholder() {
     stock: "بورس ایران",
     crypto_spot: "کریپتو اسپات",
     crypto_futures: "کریپتو فیوچرز",
-    gold: "طلای جهانی (XAUUSD)",
+    gold: "طلای جهانی",
   };
 
   const updateMarket = (next: Market) => {
@@ -258,7 +432,9 @@ export function PositionSizeCalculatorPlaceholder() {
       contractSize <= 0 ||
       quantityStep <= 0
     ) {
-      return invalid("مقادیر سرمایه، قیمت‌ها و اندازه قرارداد باید معتبر و مثبت باشند.");
+      return invalid(
+        "مقادیر سرمایه، قیمت‌ها و اندازه قرارداد باید معتبر و مثبت باشند."
+      );
     }
 
     if (
@@ -338,12 +514,8 @@ export function PositionSizeCalculatorPlaceholder() {
       return invalid("محاسبه زیان هر واحد معتبر نیست.");
     }
 
-    // سقف حجم بر اساس ریسک انتخاب‌شده
     const riskBasedQuantity = riskBudget / lossPerUnit;
 
-    // سقف حجم بر اساس سرمایه
-    // در حالت اهرمی، هزینه‌های دو سمت نیز به‌صورت محافظه‌کارانه
-    // در سرمایه موردنیاز منظور می‌شوند.
     const capitalPerUnit = isLeveraged
       ? entryNotionalPerUnit *
         (
@@ -381,11 +553,15 @@ export function PositionSizeCalculatorPlaceholder() {
     }
 
     const notional = quantity * entryNotionalPerUnit;
-    const margin = isLeveraged ? notional / leverage : notional;
+
+    const margin = isLeveraged
+      ? notional / leverage
+      : notional;
 
     const capitalRequired = isLeveraged
       ? quantity * capitalPerUnit
-      : notional + quantity * entryNotionalPerUnit * entryFeeRate;
+      : notional +
+        quantity * entryNotionalPerUnit * entryFeeRate;
 
     const actualLoss = quantity * lossPerUnit;
     const grossProfit = quantity * targetGrossPerUnit;
@@ -433,23 +609,24 @@ export function PositionSizeCalculatorPlaceholder() {
     extraCost,
     isLeveraged,
     isSpot,
+    isStock,
   ]);
 
   const reset = () => {
-    setMarket("crypto_spot");
-    setDirection("long");
-    setCapital(1000);
-    setRiskPercent(1);
-    setEntry(100);
-    setStop(95);
-    setTarget(110);
-    setLeverage(1);
-    setContractSize(1);
-    setQuantityStep(0.001);
-    setEntryFee(0.1);
-    setExitFee(0.1);
-    setSellTax(0);
-    setExtraCost(0);
+    setMarket(DEFAULT_VALUES.market);
+    setDirection(DEFAULT_VALUES.direction);
+    setCapital(DEFAULT_VALUES.capital);
+    setRiskPercent(DEFAULT_VALUES.riskPercent);
+    setEntry(DEFAULT_VALUES.entry);
+    setStop(DEFAULT_VALUES.stop);
+    setTarget(DEFAULT_VALUES.target);
+    setLeverage(DEFAULT_VALUES.leverage);
+    setContractSize(DEFAULT_VALUES.contractSize);
+    setQuantityStep(DEFAULT_VALUES.quantityStep);
+    setEntryFee(DEFAULT_VALUES.entryFee);
+    setExitFee(DEFAULT_VALUES.exitFee);
+    setSellTax(DEFAULT_VALUES.sellTax);
+    setExtraCost(DEFAULT_VALUES.extraCost);
   };
 
   const marketOptions: {
@@ -465,23 +642,25 @@ export function PositionSizeCalculatorPlaceholder() {
   return (
     <div
       dir="rtl"
-      className="relative overflow-hidden rounded-2xl border border-cyan-400/15 bg-gradient-to-br from-[#071722] via-[#06131e] to-[#08111d] p-3 sm:p-5"
+      className="relative mx-auto w-full max-w-2xl overflow-hidden rounded-xl border border-[#b88a3b]/20 p-2.5 text-zinc-100 shadow-2xl sm:rounded-2xl sm:p-3.5"
+      style={{ background: BACKGROUND }}
     >
-      <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-cyan-400/[0.05] blur-3xl" />
-
       {/* Header */}
-      <div className="relative mb-5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10">
-            <Calculator className="h-5 w-5 text-cyan-300" />
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#e7c477]/20"
+            style={{ background: "rgba(231,196,119,0.09)" }}
+          >
+            <Calculator size={16} style={{ color: GOLD }} />
           </div>
 
-          <div>
-            <h3 className="text-sm font-bold text-white sm:text-base">
+          <div className="min-w-0">
+            <h3 className="text-xs font-bold text-white sm:text-sm">
               ماشین‌حساب سود و ضرر
             </h3>
-            <p className="mt-1 text-[10px] text-slate-500 sm:text-xs">
-              محاسبه حجم معامله بر اساس ریسک و سرمایه
+            <p className="mt-0.5 text-[9px] text-zinc-500">
+              محاسبه حجم معامله و مدیریت ریسک
             </p>
           </div>
         </div>
@@ -489,20 +668,20 @@ export function PositionSizeCalculatorPlaceholder() {
         <button
           type="button"
           onClick={reset}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-xs text-slate-400 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+          className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-white/[0.08] bg-[#051118] px-2 text-[10px] text-zinc-400 transition hover:border-[#e7c477]/40 hover:text-[#e7c477]"
         >
-          <RotateCcw className="h-3.5 w-3.5" />
+          <RotateCcw size={12} />
           بازنشانی
         </button>
       </div>
 
-      {/* Market selector */}
-      <div className="relative mb-4">
-        <div className="mb-2 text-xs font-medium text-slate-400">
+      {/* Market */}
+      <section className="mb-3">
+        <div className="mb-1.5 text-[10px] font-medium text-zinc-400">
           بازار معاملاتی
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {marketOptions.map((item) => {
             const active = market === item.id;
 
@@ -512,37 +691,40 @@ export function PositionSizeCalculatorPlaceholder() {
                 type="button"
                 onClick={() => updateMarket(item.id)}
                 className={[
-                  "rounded-xl border px-2 py-3 text-xs font-semibold transition",
+                  "min-h-8 rounded-md border px-2 py-1.5 text-[10px] font-semibold transition sm:text-[11px]",
                   active
-                    ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.06)]"
-                    : "border-white/[0.07] bg-[#091925] text-slate-400 hover:border-white/20 hover:text-white",
+                    ? "border-[#e7c477]/45 text-[#fff0bd]"
+                    : "border-white/[0.06] bg-[#051118] text-zinc-400 hover:border-[#e7c477]/25 hover:text-zinc-200",
                 ].join(" ")}
+                style={active ? {
+                  background: "linear-gradient(110deg, rgba(184,138,59,0.18), rgba(231,196,119,0.08))",
+                } : undefined}
               >
                 {item.label}
               </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
       {/* Direction */}
-      <div className="mb-4">
-        <div className="mb-2 text-xs font-medium text-slate-400">
+      <section className="mb-3">
+        <div className="mb-1.5 text-[10px] font-medium text-zinc-400">
           جهت معامله
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
             onClick={() => setDirection("long")}
             className={[
-              "flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-bold transition",
+              "flex h-8 items-center justify-center gap-1.5 rounded-md border text-[11px] font-bold transition",
               direction === "long"
-                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                : "border-white/[0.07] bg-[#091925] text-slate-400 hover:text-white",
+                ? "border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-300"
+                : "border-white/[0.06] bg-[#051118] text-zinc-500 hover:text-zinc-200",
             ].join(" ")}
           >
-            <TrendingUp className="h-4 w-4" />
+            <TrendingUp size={13} />
             خرید / لانگ
           </button>
 
@@ -551,212 +733,223 @@ export function PositionSizeCalculatorPlaceholder() {
             disabled={isSpot}
             onClick={() => setDirection("short")}
             className={[
-              "flex h-11 items-center justify-center gap-2 rounded-xl border text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-30",
+              "flex h-8 items-center justify-center gap-1.5 rounded-md border text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-30",
               direction === "short"
-                ? "border-rose-400/40 bg-rose-400/10 text-rose-300"
-                : "border-white/[0.07] bg-[#091925] text-slate-400 hover:text-white",
+                ? "border-rose-500/30 bg-rose-500/[0.08] text-rose-300"
+                : "border-white/[0.06] bg-[#051118] text-zinc-500 hover:text-zinc-200",
             ].join(" ")}
           >
-            <TrendingDown className="h-4 w-4" />
+            <TrendingDown size={13} />
             فروش / شورت
           </button>
         </div>
 
         {isSpot && (
-          <p className="mt-1.5 text-[10px] text-slate-500">
-            در معاملات اسپات، فقط موقعیت خرید قابل محاسبه است.
+          <p className="mt-1 text-[9px] text-zinc-600">
+            در بازار اسپات فقط موقعیت خرید قابل محاسبه است.
           </p>
         )}
-      </div>
+      </section>
 
-      {/* Main inputs */}
-      <div className="relative space-y-4">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-300">
-            <Wallet className="h-4 w-4 text-cyan-300" />
-            سرمایه و مدیریت ریسک
-          </div>
+      <div className="mb-3 h-px bg-white/[0.06]" />
 
-          <div className="grid grid-cols-2 gap-3">
+      {/* Capital and Risk */}
+      <section className="mb-3">
+        <SectionTitle icon={Wallet} title="سرمایه و مدیریت ریسک" />
+
+        <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:grid-cols-3">
+          <NumericField
+            label="کل سرمایه"
+            value={capital}
+            onChange={setCapital}
+            suffix="واحد حساب"
+          />
+
+          <NumericField
+            label="ریسک هر معامله"
+            value={riskPercent}
+            onChange={setRiskPercent}
+            suffix="%"
+            step="0.1"
+          />
+
+          {isLeveraged && (
             <NumericField
-              label="کل سرمایه"
-              value={capital}
-              onChange={setCapital}
-              suffix="واحد حساب"
+              label="اهرم"
+              value={leverage}
+              onChange={setLeverage}
+              suffix="X"
+              min={1}
+              step="1"
             />
+          )}
 
-            <NumericField
-              label="ریسک هر معامله"
-              value={riskPercent}
-              onChange={setRiskPercent}
-              suffix="%"
-              min={0}
-              step="0.1"
-            />
-
-            {isLeveraged && (
-              <NumericField
-                label="اهرم"
-                value={leverage}
-                onChange={setLeverage}
-                suffix="X"
-                min={1}
-                step="1"
-              />
-            )}
-
-            <NumericField
-              label="ضریب اندازه قرارداد"
-              value={contractSize}
-              onChange={setContractSize}
-              suffix="واحد"
-              min={0}
-            />
-          </div>
-
-          <p className="mt-2 text-[10px] leading-5 text-slate-500">
-            ضریب قرارداد را مطابق مشخصات نماد یا قرارداد وارد کن. برای
-            دارایی‌هایی که هر واحد سفارش برابر یک واحد دارایی است، مقدار ۱
-            مناسب است.
-          </p>
+          <NumericField
+            label="ضریب اندازه قرارداد"
+            value={contractSize}
+            onChange={setContractSize}
+            suffix="واحد"
+          />
         </div>
 
-        <div className="h-px bg-white/[0.06]" />
+        <p className="mt-1.5 text-[9px] leading-4 text-zinc-600">
+          ضریب قرارداد را مطابق مشخصات نماد وارد کن. اگر هر واحد سفارش برابر یک واحد دارایی است، مقدار ۱ مناسب است.
+        </p>
+      </section>
 
-        {/* Prices */}
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-300">
-            <Target className="h-4 w-4 text-cyan-300" />
-            قیمت‌های معامله
-          </div>
+      <div className="mb-3 h-px bg-white/[0.06]" />
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <NumericField
-              label="قیمت ورود"
-              value={entry}
-              onChange={setEntry}
-            />
+      {/* Prices */}
+      <section className="mb-3">
+        <SectionTitle icon={Target} title="قیمت‌های معامله" />
 
-            <NumericField
-              label="حد ضرر"
-              value={stop}
-              onChange={setStop}
-            />
+        <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:grid-cols-3">
+          <NumericField
+            label="قیمت ورود"
+            value={entry}
+            onChange={setEntry}
+          />
 
-            <NumericField
-              label="حد سود"
-              value={target}
-              onChange={setTarget}
-            />
-          </div>
+          <NumericField
+            label="حد ضرر"
+            value={stop}
+            onChange={setStop}
+          />
+
+          <NumericField
+            label="حد سود"
+            value={target}
+            onChange={setTarget}
+          />
         </div>
+      </section>
 
-        <div className="h-px bg-white/[0.06]" />
+      <div className="mb-3 h-px bg-white/[0.06]" />
 
-        {/* Fees */}
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-300">
-            <Percent className="h-4 w-4 text-cyan-300" />
-            کارمزد و هزینه‌ها
-          </div>
+      {/* Fees */}
+      <section className="mb-3">
+        <SectionTitle icon={Percent} title="کارمزد و هزینه‌ها" />
 
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-x-2 gap-y-2 sm:grid-cols-3">
+          <NumericField
+            label="کارمزد ورود"
+            value={entryFee}
+            onChange={setEntryFee}
+            suffix="%"
+            step="0.001"
+          />
+
+          <NumericField
+            label="کارمزد خروج"
+            value={exitFee}
+            onChange={setExitFee}
+            suffix="%"
+            step="0.001"
+          />
+
+          {isStock && (
             <NumericField
-              label="کارمزد ورود"
-              value={entryFee}
-              onChange={setEntryFee}
-              suffix="%"
-              step="0.001"
-            />
-
-            <NumericField
-              label="کارمزد خروج"
-              value={exitFee}
-              onChange={setExitFee}
+              label="مالیات فروش"
+              value={sellTax}
+              onChange={setSellTax}
               suffix="%"
               step="0.001"
             />
+          )}
 
-            {isStock && (
-              <NumericField
-                label="مالیات فروش"
-                value={sellTax}
-                onChange={setSellTax}
-                suffix="%"
-                step="0.001"
-              />
-            )}
-
-            {isFutures && (
-              <NumericField
-                label="هزینه تخمینی اضافه"
-                value={extraCost}
-                onChange={setExtraCost}
-                suffix="%"
-                step="0.001"
-              />
-            )}
-
+          {isFutures && (
             <NumericField
-              label="گام مجاز حجم"
-              value={quantityStep}
-              onChange={setQuantityStep}
-              min={0}
+              label="هزینه تخمینی اضافه"
+              value={extraCost}
+              onChange={setExtraCost}
+              suffix="%"
+              step="0.001"
             />
-          </div>
+          )}
 
-          <p className="mt-2 text-[10px] leading-5 text-slate-500">
-            نرخ‌ها را دستی وارد کن؛ مثلاً ۰٫۱ یعنی ۰٫۱ درصد، نه ۱۰ درصد.
-            هزینه اضافه در فیوچرز برای برآورد هزینه‌هایی مثل اسلیپیج و
-            فاندینگ است و باید تخمینی وارد شود.
-          </p>
+          <NumericField
+            label="گام مجاز حجم"
+            value={quantityStep}
+            onChange={setQuantityStep}
+          />
         </div>
-      </div>
+
+        <p className="mt-1.5 text-[9px] leading-4 text-zinc-600">
+          نرخ‌ها درصدی هستند؛ مثلاً ۰٫۱ یعنی ۰٫۱ درصد. هزینه اضافه در فیوچرز برای تخمین اسلیپیج و فاندینگ است.
+        </p>
+      </section>
 
       {/* Results */}
-      <div className="relative mt-5 rounded-2xl border border-cyan-400/15 bg-[#06121c] p-3 sm:p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-white">
-            <ShieldCheck className="h-4 w-4 text-cyan-300" />
-            نتیجه محاسبه
+      <section
+        className="mt-3 rounded-lg border border-[#b88a3b]/25 p-2.5"
+        style={{
+          background: "linear-gradient(145deg, #051118 0%, #030712 100%)",
+        }}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <div
+              className="flex h-6 w-6 items-center justify-center rounded-md"
+              style={{ background: "rgba(231,196,119,0.1)" }}
+            >
+              <ChartIcon size={13} style={{ color: GOLD }} />
+            </div>
+
+            <h3 className="text-xs font-bold text-zinc-100">
+              نتیجه محاسبه
+            </h3>
           </div>
 
-          <span className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[10px] text-slate-400">
+          <span className="rounded-md border border-[#b88a3b]/20 bg-[#051118] px-2 py-1 text-[9px] text-[#e7c477]">
             {marketName[market]}
           </span>
         </div>
 
         {!calculation.valid ? (
-          <div className="rounded-xl border border-amber-400/20 bg-amber-400/[0.06] p-4 text-center">
-            <Info className="mx-auto mb-2 h-5 w-5 text-amber-300" />
-            <p className="text-xs leading-6 text-amber-200">
+          <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.05] p-2.5 text-center">
+            <Info
+              size={16}
+              className="mx-auto mb-1 text-amber-400"
+            />
+            <p className="text-[10px] leading-5 text-amber-200">
               {calculation.error}
             </p>
           </div>
         ) : (
           <>
-            <div className="mb-3 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-4 text-center">
-              <div className="text-xs text-slate-400">
+            {/* Main quantity */}
+            <div
+              className="mb-2 rounded-lg border border-[#e7c477]/25 p-2.5 text-center"
+              style={{
+                background: "linear-gradient(110deg, rgba(184,138,59,0.13), rgba(231,196,119,0.045), rgba(255,240,189,0.08))",
+              }}
+            >
+              <div className="text-[10px] text-zinc-400">
                 حجم پیشنهادی معامله
               </div>
 
               <div
-                className="mt-2 break-all text-2xl font-black text-cyan-300 sm:text-3xl"
+                className="mt-1 break-all bg-clip-text text-2xl font-black tracking-tight text-transparent sm:text-3xl"
+                style={{
+                  backgroundImage: goldGradient,
+                  WebkitBackgroundClip: "text",
+                }}
                 dir="ltr"
               >
                 {formatNumber(calculation.quantity, 8)}
               </div>
 
-              <div className="mt-1 text-[10px] text-slate-500">
-                حجم نهایی پس از اعمال محدودیت ریسک، سرمایه و گام مجاز
+              <div className="mt-1 text-[9px] text-zinc-500">
+                حجم نهایی بر اساس محدودیت ریسک و سرمایه
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {/* Result grid */}
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
               <ResultItem
                 label="مبلغ ریسک مجاز"
                 value={formatNumber(calculation.riskBudget)}
-                accent="text-amber-300"
+                accent="text-[#e7c477]"
               />
 
               <ResultItem
@@ -769,7 +962,6 @@ export function PositionSizeCalculatorPlaceholder() {
               <ResultItem
                 label="ارزش کل پوزیشن"
                 value={formatNumber(calculation.notional)}
-                accent="text-white"
               />
 
               <ResultItem
@@ -779,7 +971,7 @@ export function PositionSizeCalculatorPlaceholder() {
                     ? calculation.margin
                     : calculation.capitalRequired
                 )}
-                accent="text-cyan-300"
+                accent="text-[#e7c477]"
                 hint={
                   isLeveraged
                     ? `با اهرم ${formatNumber(leverage, 2)}X`
@@ -825,18 +1017,19 @@ export function PositionSizeCalculatorPlaceholder() {
               />
             </div>
 
-            <div className="mt-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-              <div className="mb-2 text-xs font-semibold text-slate-300">
+            {/* Limit status */}
+            <div className="mt-2 rounded-md border border-white/[0.06] bg-[#051118] p-2">
+              <div className="mb-1.5 text-[10px] font-semibold text-zinc-300">
                 محدودیت اعمال‌شده روی حجم
               </div>
 
-              <div className="flex flex-wrap gap-2 text-[10px]">
+              <div className="flex flex-wrap gap-1.5">
                 <span
                   className={[
-                    "rounded-lg px-2.5 py-1.5",
+                    "rounded-md px-2 py-1 text-[9px]",
                     calculation.riskLimited
-                      ? "bg-cyan-400/10 text-cyan-300"
-                      : "bg-white/[0.05] text-slate-500",
+                      ? "bg-[#e7c477]/[0.10] text-[#e7c477]"
+                      : "bg-white/[0.04] text-zinc-500",
                   ].join(" ")}
                 >
                   {calculation.riskLimited
@@ -846,10 +1039,10 @@ export function PositionSizeCalculatorPlaceholder() {
 
                 <span
                   className={[
-                    "rounded-lg px-2.5 py-1.5",
+                    "rounded-md px-2 py-1 text-[9px]",
                     calculation.capitalLimited
-                      ? "bg-amber-400/10 text-amber-300"
-                      : "bg-white/[0.05] text-slate-500",
+                      ? "bg-amber-500/[0.08] text-amber-300"
+                      : "bg-white/[0.04] text-zinc-500",
                   ].join(" ")}
                 >
                   {calculation.capitalLimited
@@ -860,19 +1053,25 @@ export function PositionSizeCalculatorPlaceholder() {
             </div>
           </>
         )}
-      </div>
+      </section>
 
       {/* Disclaimer */}
-      <div className="relative mt-3 flex gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-        <p className="text-[10px] leading-6 text-slate-500">
-          نتایج تخمینی هستند و بر اساس قیمت‌ها، ضریب قرارداد، کارمزدها و
-          هزینه‌هایی که وارد کرده‌ای محاسبه می‌شوند. لغزش قیمت، گپ بازار،
-          نقدشوندگی، تغییر نرخ کارمزد، فاندینگ واقعی و قوانین مارجین صرافی
-          می‌توانند نتیجه واقعی را تغییر دهند. این ابزار قیمت لیکوییدشدن
-          را محاسبه نمی‌کند و جایگزین بررسی مشخصات قرارداد و قوانین کارگزار
-          نیست.
+      <div className="mt-2 flex gap-2 rounded-md border border-white/[0.05] bg-[#051118] p-2">
+        <Info
+          size={13}
+          className="mt-0.5 shrink-0 text-zinc-500"
+        />
+
+        <p className="text-[9px] leading-4 text-zinc-600">
+          نتایج تخمینی هستند و بر اساس قیمت‌ها، ضریب قرارداد، کارمزدها و هزینه‌های واردشده محاسبه می‌شوند. لغزش قیمت، گپ بازار، نقدشوندگی، تغییر کارمزد، فاندینگ واقعی و قوانین مارجین می‌توانند نتیجه واقعی را تغییر دهند. این ابزار قیمت لیکوییدشدن را محاسبه نمی‌کند و جایگزین بررسی مشخصات قرارداد و قوانین کارگزار نیست.
         </p>
+      </div>
+
+      <div className="mt-2 flex items-center justify-center gap-1 text-[9px] text-zinc-600">
+        <ShieldCheck size={11} style={{ color: GOLD_DARK }} />
+        <span>
+          مقادیر ورودی به‌صورت خودکار در مرورگر ذخیره می‌شوند
+        </span>
       </div>
     </div>
   );

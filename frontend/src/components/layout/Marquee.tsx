@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "@/lib/api";
 import { formatNumber } from "@/lib/display";
 
@@ -11,6 +12,14 @@ interface PriceItem {
   change?: "up" | "down" | null;
 }
 
+const INITIAL_ITEMS: PriceItem[] = [
+  { name: "دلار آزاد", price: null, unit: "تومان", change: null },
+  { name: "طلای ۱۸ عیار", price: null, unit: "تومان", change: null },
+  { name: "سکه امامی", price: null, unit: "تومان", change: null },
+  { name: "انس جهانی", price: null, unit: "دلار", change: null },
+  { name: "نفت برنت", price: null, unit: "دلار", change: null },
+];
+
 const MARKETS = [
   { name: "توکیو", tz: "Asia/Tokyo", open: 0, close: 9, weekend: ["Sat", "Sun"] },
   { name: "لندن", tz: "Europe/London", open: 8, close: 17, weekend: ["Sat", "Sun"] },
@@ -20,11 +29,13 @@ const MARKETS = [
 ];
 
 function useIranTime() {
-  const [now, setNow] = useState(new Date());
+  const [now, setNow] = useState(() => new Date());
+
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
   return now;
 }
 
@@ -33,10 +44,13 @@ const TEHRAN_OFFSET_MIN = 3 * 60 + 30;
 function convertToTehran(gmtHour: number): string {
   const targetH = Math.floor(gmtHour);
   const targetM = Math.round((gmtHour % 1) * 60);
+
   let totalMin = targetH * 60 + targetM + TEHRAN_OFFSET_MIN;
   totalMin = ((totalMin % 1440) + 1440) % 1440;
+
   const tH = Math.floor(totalMin / 60);
   const tM = totalMin % 60;
+
   return `${String(tH).padStart(2, "0")}:${String(tM).padStart(2, "0")}`;
 }
 
@@ -47,78 +61,93 @@ function getMarketSessionStatus(now: Date) {
   if (utcDay === 0 || utcDay === 6) {
     return { label: "📅 آخر هفته", color: "text-gray-500" };
   }
+
   if (13 <= utcH && utcH < 17) {
     return { label: "🔥 لندن + نیویورک", color: "text-orange-400" };
   }
+
   if (8 <= utcH && utcH < 9) {
     return { label: "⚡ توکیو + لندن", color: "text-yellow-400" };
   }
+
   if (0 <= utcH && utcH < 8) {
     return { label: "🌙 بازار آسیا", color: "text-blue-400" };
   }
+
   return { label: "🕜 زمان عادی بازار", color: "text-gray-400" };
 }
 
-// 🔴 کامپوننت هر آیتم قیمت (برای تمیزی کد)
 function TickerItem({ item }: { item: PriceItem }) {
+  const decimals =
+    item.name === "نفت برنت" || item.name === "انس جهانی" ? 2 : 0;
+
   return (
     <div className="flex items-center gap-2.5 px-3 shrink-0" dir="rtl">
       <span className="text-[10px] text-gray-500 font-medium whitespace-nowrap">
         {item.name}
       </span>
+
       <span
         className={`num text-[12px] font-bold flex items-center gap-1 ${
           item.change === "up"
             ? "text-green-400/90"
             : item.change === "down"
-            ? "text-red-400/90"
-            : "text-gray-200"
+              ? "text-red-400/90"
+              : "text-gray-200"
         }`}
       >
-        {item.price
-          ? formatNumber(item.price, {
-              maxDecimals: item.name === "نفت برنت" || item.name === "انس جهانی" ? 2 : 0,
-            })
+        {item.price !== null
+          ? formatNumber(item.price, { maxDecimals: decimals })
           : "—"}
-        {item.change === "up" && <span className="text-[9px]">▲</span>}
-        {item.change === "down" && <span className="text-[9px]">▼</span>}
+
+        {item.change === "up" && (
+          <span className="text-[9px]">▲</span>
+        )}
+
+        {item.change === "down" && (
+          <span className="text-[9px]">▼</span>
+        )}
       </span>
-      <span className="text-[9px] text-gray-500/80">{item.unit}</span>
-      <span className="text-[#d6ad60]/20 px-1 text-[8px]">◆</span>
+
+      <span className="text-[9px] text-gray-500/80">
+        {item.unit}
+      </span>
+
+      <span className="text-[#d6ad60]/20 px-1 text-[8px]">
+        ◆
+      </span>
     </div>
   );
 }
 
 function PriceTicker({ items }: { items: PriceItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-2 text-[10px] text-gray-500">
-        در حال بارگذاری...
-      </div>
-    );
-  }
-
   return (
     <div className="relative w-full overflow-hidden py-1" dir="ltr">
-      {/* محو شدن دو طرف نوار */}
       <div className="pointer-events-none absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-[#051118] to-transparent z-10" />
       <div className="pointer-events-none absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-[#051118] to-transparent z-10" />
 
-      {/* مسیر حرکت بی‌نهایت */}
       <div className="ticker-track flex w-max flex-nowrap">
         <div className="ticker-group flex shrink-0 flex-nowrap">
-          {items.map((item, i) => (
-            <TickerItem key={`a-${i}`} item={item} />
+          {items.map((item) => (
+            <TickerItem key={item.name} item={item} />
           ))}
         </div>
-        <div className="ticker-group flex shrink-0 flex-nowrap" aria-hidden="true">
-          {items.map((item, i) => (
-            <TickerItem key={`b-${i}`} item={item} />
+
+        <div
+          className="ticker-group flex shrink-0 flex-nowrap"
+          aria-hidden="true"
+        >
+          {items.map((item) => (
+            <TickerItem key={item.name} item={item} />
           ))}
         </div>
-        <div className="ticker-group flex shrink-0 flex-nowrap" aria-hidden="true">
-          {items.map((item, i) => (
-            <TickerItem key={`c-${i}`} item={item} />
+
+        <div
+          className="ticker-group flex shrink-0 flex-nowrap"
+          aria-hidden="true"
+        >
+          {items.map((item) => (
+            <TickerItem key={item.name} item={item} />
           ))}
         </div>
       </div>
@@ -128,22 +157,27 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
           animation: ticker-scroll 40s linear infinite;
           will-change: transform;
         }
+
         .ticker-track:hover {
           animation-play-state: paused;
         }
+
         @keyframes ticker-scroll {
           from {
             transform: translateX(0);
           }
+
           to {
             transform: translateX(-33.33%);
           }
         }
+
         @media (max-width: 767px) {
           .ticker-track {
             animation-duration: 15s;
           }
         }
+
         @media (prefers-reduced-motion: reduce) {
           .ticker-track {
             animation: none;
@@ -155,66 +189,103 @@ function PriceTicker({ items }: { items: PriceItem[] }) {
 }
 
 export function Marquee() {
-  const [items, setItems] = useState<PriceItem[]>([]);
+  const [items, setItems] = useState<PriceItem[]>(INITIAL_ITEMS);
   const now = useIranTime();
 
   const prevPricesRef = useRef<Record<string, number>>({});
-  const lastDirectionRef = useRef<Record<string, "up" | "down" | null>>({});
+  const lastDirectionRef = useRef<
+    Record<string, "up" | "down" | null>
+  >({});
 
-  const fetchPrices = () => {
-    api
-      .get("/symbols/iran-prices")
-      .then((res) => {
-        const p = res.data.prices || {};
+  const requestInProgressRef = useRef(false);
 
-        const rawList = [
-          { name: "دلار آزاد", price: p.dollar, unit: "تومان" },
-          { name: "طلای ۱۸ عیار", price: p.geram18, unit: "تومان" },
-          { name: "سکه امامی", price: p.sekee, unit: "تومان" },
-          { name: "انس جهانی", price: p.ons, unit: "دلار" },
-          { name: "نفت برنت", price: p.brent, unit: "دلار" },
-        ];
+  const fetchPrices = useCallback(async () => {
+    if (requestInProgressRef.current) return;
 
-        const list: PriceItem[] = rawList
-          .filter((x) => x.price)
-          .map((item) => {
-            const prev = prevPricesRef.current[item.name];
-            let change = lastDirectionRef.current[item.name] || null;
+    requestInProgressRef.current = true;
 
-            if (prev !== undefined && item.price && item.price !== prev) {
-              change = item.price > prev ? "up" : "down";
-              lastDirectionRef.current[item.name] = change;
-            }
+    try {
+      const res = await api.get("/symbols/iran-prices");
+      const p = res.data?.prices || {};
 
-            if (item.price) {
-              prevPricesRef.current[item.name] = item.price;
-            }
+      const rawList = [
+        { name: "دلار آزاد", price: p.dollar, unit: "تومان" },
+        { name: "طلای ۱۸ عیار", price: p.geram18, unit: "تومان" },
+        { name: "سکه امامی", price: p.sekee, unit: "تومان" },
+        { name: "انس جهانی", price: p.ons, unit: "دلار" },
+        { name: "نفت برنت", price: p.brent, unit: "دلار" },
+      ];
 
-            return { ...item, change };
-          });
+      setItems((currentItems) =>
+        currentItems.map((current) => {
+          const incoming = rawList.find(
+            (item) => item.name === current.name
+          );
 
-        setItems(list);
-      })
-      .catch(() => setItems([]));
-  };
+          const value = incoming?.price;
+
+          // اگر API برای یک قیمت داده معتبر نفرستاد،
+          // مقدار قبلی و رنگ آن حفظ شود.
+          if (
+            typeof value !== "number" ||
+            !Number.isFinite(value)
+          ) {
+            return current;
+          }
+
+          const previous = prevPricesRef.current[current.name];
+
+          let change = lastDirectionRef.current[current.name] ?? null;
+
+          if (previous !== undefined && value !== previous) {
+            change = value > previous ? "up" : "down";
+            lastDirectionRef.current[current.name] = change;
+          }
+
+          prevPricesRef.current[current.name] = value;
+
+          return {
+            ...current,
+            price: value,
+            change,
+          };
+        })
+      );
+    } catch {
+      // در خطای موقت API، اطلاعات قبلی پاک نمی‌شوند.
+    } finally {
+      requestInProgressRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
-    const timer = setTimeout(fetchPrices, 1000);
-    const id = setInterval(fetchPrices, 60000);
+    let mounted = true;
+
+    const initialTimer = setTimeout(() => {
+      if (mounted) fetchPrices();
+    }, 1000);
+
+    const intervalId = setInterval(() => {
+      if (mounted) fetchPrices();
+    }, 60000);
+
     return () => {
-      clearTimeout(timer);
-      clearInterval(id);
+      mounted = false;
+      clearTimeout(initialTimer);
+      clearInterval(intervalId);
     };
-  }, []);
+  }, [fetchPrices]);
 
   const marketStatus = (mk: (typeof MARKETS)[number]) => {
     const utcH = now.getUTCHours();
     const utcM = now.getUTCMinutes();
     const utcTm = utcH * 60 + utcM;
+
     const localDay = now.toLocaleString("en-US", {
       timeZone: mk.tz,
       weekday: "short",
     });
+
     const fmtClose = convertToTehran(mk.close);
     const fmtOpen = convertToTehran(mk.open);
 
@@ -222,7 +293,9 @@ export function Marquee() {
       return { isOpen: false, isHoliday: true, time: "" };
     }
 
-    const isOpen = utcTm >= mk.open * 60 && utcTm < mk.close * 60;
+    const isOpen =
+      utcTm >= mk.open * 60 && utcTm < mk.close * 60;
+
     return {
       isOpen,
       isHoliday: false,
@@ -234,15 +307,19 @@ export function Marquee() {
 
   return (
     <div className="w-full overflow-hidden border-b border-white/5 bg-[#051118]/80 backdrop-blur-md shadow-sm">
-      {/* ═══════════ خط اول: وضعیت سشن‌ها ═══════════ */}
       <div className="flex items-center justify-center gap-x-2 md:gap-x-7 px-1 py-1 border-b border-white/5 overflow-x-auto whitespace-nowrap scrollbar-hide">
-        {MARKETS.map((mk, i) => {
+        {MARKETS.map((mk) => {
           const st = marketStatus(mk);
+
           return (
-            <div key={i} className="flex items-center gap-1.5 shrink-0 py-0.5">
+            <div
+              key={mk.name}
+              className="flex items-center gap-1.5 shrink-0 py-0.5"
+            >
               <span className="text-[10px] md:text-[11px] font-medium text-gray-400">
                 {mk.name}
               </span>
+
               {st.isHoliday ? (
                 <span className="text-[9px] md:text-[10px] font-bold text-orange-400/80">
                   تعطیل
@@ -252,6 +329,7 @@ export function Marquee() {
                   {st.isOpen && (
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                   )}
+
                   <span
                     className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
                       st.isOpen ? "bg-green-500" : "bg-slate-600"
@@ -259,6 +337,7 @@ export function Marquee() {
                   />
                 </span>
               )}
+
               {st.time && (
                 <span
                   className="hidden md:inline num text-[9px] text-gray-500/80"
@@ -280,7 +359,6 @@ export function Marquee() {
         </div>
       </div>
 
-      {/* ═══════════ خط دوم: Ticker قیمت‌ها ═══════════ */}
       <PriceTicker items={items} />
     </div>
   );
