@@ -113,3 +113,4 @@ check_schema.py
 seed_test_data.py
 data/*.bak
 data/backups/
+data/tickets/
