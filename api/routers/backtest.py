@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from api.models import SignalLog, SiteStatsOverride
 from api.database import get_session
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 from api.models import SignalLog
 from api.schemas import BacktestResponse, BacktestStats
 from api.config import settings
@@ -54,7 +54,7 @@ async def backtest_stats(
     return BacktestResponse(stats=BacktestStats(**stats), items=[])
 
 
-@router.get("/history")
+@router.get("/history", dependencies=[Depends(require_access)])
 async def backtest_history(
     limit: int = Query(default=200, ge=10, le=200),
     status: str = "all",
@@ -118,7 +118,7 @@ async def backtest_history(
     }
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_access)])
 async def backtest_run():
     try:
         result = await run_in_threadpool(backtest_all, 300)
@@ -228,7 +228,7 @@ class RecordRequest(BaseModel):
     ticker_name: str = ""
 
 
-@router.post("/record")
+@router.post("/record", dependencies=[Depends(require_access)])
 async def backtest_record(req: RecordRequest):
     from services.analyzer_service import analyze
 

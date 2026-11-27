@@ -1,11 +1,12 @@
 import asyncio
 import requests
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from api.deps import require_access
 
 from services.economic_calendar_service import get_weekly_calendar
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_access)])
 
 
 @router.get("/economic-calendar/weekly")

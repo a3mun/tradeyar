@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { sourceSupportsPair } from "@/lib/sources";
 import type { AnalyzeResponse } from "@/lib/types";
+import { getToken } from "@/lib/auth";
+import { handleAuthFailure, isAccessBlocked } from "@/lib/api";
 
 const POLL_BY_TF: Record<string, number> = {
   "۱ دقیقه": 10_000, "۵ دقیقه": 15_000, "۱۵ دقیقه": 20_000,
@@ -21,6 +23,8 @@ export function useDataLoop() {
     let cancelled = false;
 
     const fetchStream = async () => {
+      // 🔒 بدون ورود، یا وقتی اشتراک تمام شده، درخواست نفرست
+      if (!getToken() || isAccessBlocked()) return;
       // اگر fetch قبلی باز است، لغو کن تا درخواست جدید پاس شود
       if (fetchingRef.current) {
         abortRef.current?.abort();
@@ -37,9 +41,13 @@ export function useDataLoop() {
 
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        const token = getToken();
         const response = await fetch(`${apiUrl}/analyze/multi-stream`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           signal: controller.signal,
           body: JSON.stringify({
             ticker, source, timeframe,
@@ -48,7 +56,18 @@ export function useDataLoop() {
           }),
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            let detail: unknown;
+            try {
+              detail = (await response.clone().json())?.detail;
+            } catch {
+              /* پاسخ JSON نبود */
+            }
+            handleAuthFailure(response.status, detail);
+          }
+          throw new Error(`HTTP ${response.status}`);
+        }
         if (!response.body) throw new Error("No stream body");
 
         const reader = response.body.getReader();

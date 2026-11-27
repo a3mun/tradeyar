@@ -1,5 +1,8 @@
 "use client";
 
+import { getToken } from "@/lib/auth";
+import { handleAuthFailure } from "@/lib/api";
+
 /**
  * useWebSocketProvider — اتصال WebSocket مرکزی
  * ============================================================
@@ -141,12 +144,22 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
+    // 🔒 بدون توکن (مثلاً صفحه‌ی ورود) وصل نشو؛ هر ۳ ثانیه دوباره چک کن
+    const token = getToken();
+    if (!token) {
+      setStatus("disconnected");
+      reconnectTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) connect();
+      }, 3000);
+      return;
+    }
+
     setStatus(backoffIdxRef.current === 0 ? "connecting" : "reconnecting");
 
     const url = buildWsUrl();
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url);
+      ws = new WebSocket(url, ["bearer", token]);
     } catch {
       setStatus("disconnected");
       return;
@@ -193,12 +206,25 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       }
     };
     
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (pingTimerRef.current) {
         clearInterval(pingTimerRef.current);
         pingTimerRef.current = null;
       }
       if (!mountedRef.current) return;
+
+      // 🔒 قفل دسترسی: ۴۴۰۱ = ورود لازم · ۴۴۰۳ = اشتراک لازم
+      if (ev.code === 4401 || ev.code === 4403) {
+        handleAuthFailure(
+          ev.code === 4401 ? 401 : 403,
+          ev.code === 4403 ? "SUBSCRIPTION_REQUIRED" : ""
+        );
+        setStatus("disconnected");
+        reconnectTimerRef.current = setTimeout(() => {
+          if (mountedRef.current) connect();
+        }, 30000);
+        return;
+      }
 
       const wasClean =
         ws.readyState === WebSocket.CLOSED && backoffIdxRef.current === 0;

@@ -26,13 +26,13 @@ api/routers/orderbook.py
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status, Depends
 from fastapi.concurrency import run_in_threadpool
 
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/orderbook", tags=["OrderBook"])
+router = APIRouter(prefix="/orderbook", tags=["OrderBook"], dependencies=[Depends(require_access)])
 
 # ─── صرافی‌های دارای عمق بازار ───
 ORDERBOOK_SOURCES = frozenset({"nobitex", "bitpin", "wallex", "tabdeal"})

@@ -94,3 +94,12 @@ def pytest_addoption(parser):
         default=False,
         help="اجرای تست‌هایی که به API واقعی صرافی وصل می‌شوند",
     )
+
+
+@pytest.fixture(autouse=True)
+def _enforce_auth_off_by_default(monkeypatch):
+    """تست‌ها نباید به مقدار ENFORCE_AUTH در .env لوکال وابسته باشند.
+    تست‌های قفل دسترسی خودشان آن را true می‌کنند."""
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "ENFORCE_AUTH", False)

@@ -12,17 +12,17 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 from api.schemas import ScanItem, ScanRequest, ScanResponse
 from core.market_lists import MARKET_CATEGORIES
 from services.analyzer_service import analyze
 from services.cache import data_cache
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/scan", tags=["Scan"])
+router = APIRouter(prefix="/scan", tags=["Scan"], dependencies=[Depends(require_access)])
 
 MAX_CONCURRENT = 6
 SCAN_BUDGET_SEC = 45.0

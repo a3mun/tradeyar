@@ -38,6 +38,9 @@ Server → Client:
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
+
+from api.deps import ws_access_code
 
 from services.ws_manager import ws_manager
 
@@ -76,7 +79,24 @@ async def ws_live(ws: WebSocket):
       خودکار ری‌استارت می‌شن.
     • heartbeat: هر ۳۰ ثانیه ``ping`` بفرست.
     """
-    conn = await ws_manager.connect(ws)
+    # 🔒 توکن از طریق subprotocol می‌آید: new WebSocket(url, ["bearer", token])
+    # (توکن در URL نمی‌ماند تا در لاگ‌ها ثبت نشود). با ENFORCE_AUTH=false فقط
+    # subprotocol پذیرفته می‌شود و محدودیتی اعمال نمی‌شود.
+    offered = [
+        p.strip()
+        for p in (ws.headers.get("sec-websocket-protocol") or "").split(",")
+        if p.strip()
+    ]
+    subprotocol = "bearer" if "bearer" in offered else None
+    token = next((p for p in offered if p != "bearer"), "")
+
+    code = await run_in_threadpool(ws_access_code, token)
+    if code:
+        await ws.accept(subprotocol=subprotocol)
+        await ws.close(code=code)  # 4401 = ورود لازم · 4403 = اشتراک لازم
+        return
+
+    conn = await ws_manager.connect(ws, subprotocol=subprotocol)
 
     try:
         while True:

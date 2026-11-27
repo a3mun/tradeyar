@@ -10,13 +10,13 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/ai", tags=["AI"])
+router = APIRouter(prefix="/ai", tags=["AI"], dependencies=[Depends(require_access)])
 
 # 🔴 تنظیمات Cloudflare
 CF_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")

@@ -12,10 +12,10 @@ Endpointهای تحلیل
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 from api.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -33,7 +33,7 @@ from services.analyzer_service import (
 )
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/analyze", tags=["Analyze"])
+router = APIRouter(prefix="/analyze", tags=["Analyze"], dependencies=[Depends(require_access)])
 
 
 # ═══════════════════════════════════════════════════════════

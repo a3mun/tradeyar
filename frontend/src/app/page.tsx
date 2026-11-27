@@ -229,7 +229,7 @@ export default function HomePage() {
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-              <Link href="/dashboard">
+              <Link href="/subscription">
                 <Button className="h-11 w-full sm:w-auto gap-2 bg-gradient-to-l from-[#c89a49] to-[#e2c17e] text-[#101827] font-bold hover:opacity-90">
                   <CreditCard className="h-4 w-4" />
                   خرید / تمدید اشتراک

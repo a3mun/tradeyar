@@ -126,10 +126,12 @@ class WSManager:
         self._counter += 1
         return f"ws-{self._counter}"
 
-    async def connect(self, ws: WebSocket) -> Connection:
+    async def connect(
+        self, ws: WebSocket, subprotocol: str | None = None
+    ) -> Connection:
         global _shared_quote_loop_task, _shared_orderbook_loop_task
 
-        await ws.accept(subprotocol=None)
+        await ws.accept(subprotocol=subprotocol)
         conn = Connection(ws=ws, id=self._new_id())
         self.connections[conn.id] = conn
         logger.info(f"[WS] اتصال جدید {conn.id} — مجموع: {len(self.connections)}")

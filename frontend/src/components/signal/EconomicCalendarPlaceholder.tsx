@@ -1,6 +1,9 @@
 
 "use client";
 
+import { getToken } from "@/lib/auth";
+import { handleAuthFailure } from "@/lib/api";
+
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
@@ -169,6 +172,7 @@ export function EconomicCalendarPlaceholder() {
           signal: controller.signal,
           headers: {
             Accept: "application/json",
+            ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
           },
         }
       );
@@ -183,6 +187,13 @@ export function EconomicCalendarPlaceholder() {
       } catch {
         throw new Error(
           "پاسخ نامعتبر از سرور دریافت شد."
+        );
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        handleAuthFailure(
+          response.status,
+          (result as unknown as { detail?: unknown }).detail
         );
       }
 

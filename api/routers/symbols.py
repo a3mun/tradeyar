@@ -9,16 +9,16 @@ Endpointهای نمادها — نسخه ۱۶.۹
 
 import logging
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Depends
 from fastapi.concurrency import run_in_threadpool
 
-from api.deps import rate_limit_for
+from api.deps import rate_limit_for, require_access
 from api.schemas import SymbolItem, SymbolsResponse
 from core.contracts import POPULAR_SYMBOLS, SYMBOLS
 from services.data_service import get_iran_prices
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/symbols", tags=["Symbols"])
+router = APIRouter(prefix="/symbols", tags=["Symbols"], dependencies=[Depends(require_access)])
 
 
 # ═══════════════════════════════════════════════════════════════

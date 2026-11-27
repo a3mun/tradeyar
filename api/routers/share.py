@@ -5,14 +5,15 @@ api/routers/share.py
 """
 
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from api.deps import require_access
 from pydantic import BaseModel
 from fastapi.concurrency import run_in_threadpool
 
 from services.notifier import _build_message
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/share", tags=["Share"])
+router = APIRouter(prefix="/share", tags=["Share"], dependencies=[Depends(require_access)])
 
 
 class ShareRequest(BaseModel):

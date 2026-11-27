@@ -58,6 +58,10 @@ class Settings(BaseSettings):
 
     ADMIN_API_KEY: str = ""
 
+    # 🔒 قفل دسترسی API/WebSocket (ورود + اشتراک معتبر یا دوره رایگان).
+    # پیش‌فرض خاموش تا بتوان اول تست کرد؛ روی سرور بعد از تست true شود.
+    ENFORCE_AUTH: bool = False
+
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -72,17 +76,16 @@ class Settings(BaseSettings):
     CONTACT_TELEGRAM: str = "asemun_1993"
     CONTACT_BALE: str = "asemun_1993"
     CARD_NUMBER: str = "5859-4710-1084-0910"
-    
 
     # 🔴 تنظیمات زیبال
     ZIBAL_MERCHANT: str
-    ZIBAL_CALLBACK_URL: str = "http://127.0.0.1:8001/subscription/verify-zibal"  # لوکال
-   #  ZIBAL_CALLBACK_URL: str = (
-      #   "https://api.trademun.ir/subscription/verify-zibal"  # سرور
-  #   )
+    # ZIBAL_CALLBACK_URL: str = "http://127.0.0.1:8001/subscription/verify-zibal"  # لوکال
+    ZIBAL_CALLBACK_URL: str = (
+        "https://api.trademun.ir/subscription/verify-zibal"  # سرور
+    )
     # 🔴 آدرس فرانت برای ریدایرکت
-    FRONTEND_URL: str = "http://localhost:3000"  # لوکال
-    # FRONTEND_URL: str = "https://trademun.ir"  # سرور
+    # FRONTEND_URL: str = "http://localhost:3000"  # لوکال
+    FRONTEND_URL: str = "https://trademun.ir"  # سرور
 
     @model_validator(mode="after")
     def _check_jwt_secret(self):
