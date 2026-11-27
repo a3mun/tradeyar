@@ -23,7 +23,7 @@ from api.auth import (
 )
 from api.config import settings
 from api.database import get_session
-from api.deps import rate_limit
+from api.deps import rate_limit, rate_limit_for
 from api.models import Subscription, User
 from api.schemas import (
     SendOTPRequest,
@@ -143,11 +143,15 @@ async def verify_otp_endpoint(
 # ═══════════════════════════════════════════════════════════
 @router.post("/login", response_model=TokenResponse)
 async def login_with_password(
+    request: Request,
     phone: str = Body(...),
     password: str = Body(...),
     session: Session = Depends(get_session),
 ):
     phone = normalize_phone(phone)
+    # 🔒 جلوگیری از حدس زدن رمز (هم بر اساس شماره، هم IP)
+    rate_limit(f"login:{phone}", limit=10, window_sec=300)
+    rate_limit_for(request, "login_ip", limit=30, window_sec=300)
     user = session.exec(select(User).where(User.phone == phone)).first()
 
     if (
@@ -236,7 +240,3 @@ async def update_profile(
         },
     }
 
-    return {
-        "ok": True,
-        "user": UserRead.model_validate(user, from_attributes=True).model_dump(),
-    }

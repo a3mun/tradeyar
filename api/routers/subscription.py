@@ -10,7 +10,13 @@ import re
 from api.plans import PLANS, calculate_new_end_date
 from api.database import get_session
 from api.auth import get_current_user
-from api.models import User, Subscription, PaymentRequest, SubscriptionLog
+from api.models import (
+    User,
+    Subscription,
+    PaymentRequest,
+    SubscriptionLog,
+    PricingSettings,
+)
 from api.schemas import PaymentRequestCreate
 from api.config import settings
 from services.sms import send_subscription_activated_sms
@@ -24,6 +30,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/subscription", tags=["Subscription"])
 
 FRONTEND_URL = getattr(settings, "FRONTEND_URL", "http://localhost:3000")
+
+
+def _get_server_price(session: Session, plan: str) -> int:
+    """قیمت واقعی پلن (تومان) — فقط از سمت سرور.
+
+    اولویت: جدول PricingSettings (قابل ویرایش توسط ادمین) و سپس PLANS.
+    مبلغ ارسالی از سمت کلاینت هرگز مورد اعتماد نیست.
+    """
+    if plan not in PLANS or plan == "free":
+        raise HTTPException(status_code=400, detail="پلن نامعتبر است")
+    row = session.exec(
+        select(PricingSettings).where(PricingSettings.plan_id == plan)
+    ).first()
+    price = int(row.price) if row and row.price else int(PLANS[plan]["price"])
+    if price <= 0:
+        raise HTTPException(status_code=400, detail="قیمت پلن نامعتبر است")
+    return price
 
 
 # ═══════════════════════════════════════════════════════════
@@ -290,12 +313,13 @@ async def pay_with_zibal(
             detail="شما یک درخواست در حال بررسی دارید. لطفاً تا تکمیل آن صبر کنید.",
         )
 
-    # 🔴 ۴. ثبت درخواست و هدایت به درگاه
+    # 🔴 ۴. ثبت درخواست و هدایت به درگاه (مبلغ فقط از سرور)
+    server_price = _get_server_price(session, req.plan)
     pr = PaymentRequest(
         user_id=user.id,
         plan=req.plan,
-        amount=req.amount or 0,
-        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,
+        amount=server_price,
+        plan_price_at_purchase=server_price,
         payment_method="zibal",
         status="pending",
         receipt_note=req.receipt_note,
@@ -308,7 +332,7 @@ async def pay_with_zibal(
 
     order_id = f"trademun_{pr.id}_{uuid.uuid4().hex[:8]}"
     result = zibal_create_request(
-        amount=req.amount * 10,  # تومان به ریال
+        amount=server_price * 10,  # تومان به ریال
         description=f"خرید {req.plan} - تریدمون",
         mobile=user.phone,
         order_id=order_id,
@@ -379,6 +403,23 @@ async def verify_zibal_payment(
         session.commit()
         return RedirectResponse(
             url=f"{FRONTEND_URL}/payment-result?status=failed&reason=verify_failed"
+        )
+
+    # 🔒 مبلغ پرداخت‌شده باید با مبلغ ثبت‌شده در سرور یکی باشد (ریال = تومان × ۱۰)
+    paid_rial = result.get("amount")
+    if paid_rial is None:
+        logger.warning(f"[Zibal] مبلغ در پاسخ verify نبود (trackId={trackId})")
+    elif int(paid_rial) != int(pr.amount or 0) * 10:
+        pr.status = "rejected"
+        pr.admin_note = (
+            f"⚠️ مبلغ پرداختی ({paid_rial} ریال) با مبلغ مورد انتظار "
+            f"({int(pr.amount or 0) * 10} ریال) یکی نیست. نیاز به بررسی دستی."
+        )
+        session.add(pr)
+        session.commit()
+        logger.error(f"[Zibal] amount mismatch trackId={trackId} paid={paid_rial}")
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason=amount_mismatch"
         )
 
     # 🔴 ثبت کد پیگیری
@@ -507,11 +548,12 @@ async def create_manual_payment_request(
     ip = request.client.host if request.client else "نامشخص"
     user_agent = request.headers.get("user-agent", "نامشخص")
 
+    server_price = _get_server_price(session, req.plan)
     pr = PaymentRequest(
         user_id=user.id,
         plan=req.plan,
-        amount=req.amount or 0,
-        plan_price_at_purchase=req.plan_price_at_purchase or req.amount or 0,
+        amount=server_price,
+        plan_price_at_purchase=server_price,
         payment_method=req.payment_method or "card",
         status="pending",
         receipt_note=req.receipt_note,

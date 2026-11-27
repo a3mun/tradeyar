@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 def send_otp_sms(phone: str, code: str) -> bool:
     """ارسال کد OTP با پترن فراز"""
     if not settings.FARAZ_API_KEY or not settings.FARAZ_PATTERN_CODE:
-        logger.warning(f"[SMS] ⚠️ تنظیمات فراز کامل نیست. کد تست برای {phone}: {code}")
+        if settings.DEBUG:
+            logger.warning(f"[SMS] ⚠️ تنظیمات فراز کامل نیست. کد تست برای {phone}: {code}")
+        else:
+            logger.warning(f"[SMS] ⚠️ تنظیمات فراز کامل نیست (phone={phone})")
         return True
 
     try:
@@ -30,11 +33,13 @@ def send_otp_sms(phone: str, code: str) -> bool:
     except FarazError as e:
         # ⚠️ فال‌بک: اگه پترن تایید نشده بود، کد رو چاپ کن تا بتونی تست کنی
         logger.error(f"[SMS] ❌ خطای فراز: status={e.status} body={e.body}")
-        logger.warning(f"[SMS] 🔧 کد تست برای {phone}: {code}")  # ⬅️ این خط اضافه شد
+        if settings.DEBUG:
+            logger.warning(f"[SMS] 🔧 کد تست برای {phone}: {code}")
         return False
     except Exception as e:
         logger.exception(f"[SMS] ❌ خطای غیرمنتظره: {e}")
-        logger.warning(f"[SMS] 🔧 کد تست برای {phone}: {code}")
+        if settings.DEBUG:
+            logger.warning(f"[SMS] 🔧 کد تست برای {phone}: {code}")
         return False
 
 

@@ -12,6 +12,7 @@ import logging
 import os
 import gzip
 import shutil
+import subprocess
 from datetime import datetime
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -194,8 +195,20 @@ def auto_backup():
             raw_path = BASE_DIR / "data" / f"temp_auto_{timestamp}.sql"
             user = engine.url.username
             dbname = engine.url.database
-            cmd = f"pg_dump -U {user} {dbname} > {raw_path}"
-            if os.system(cmd) != 0:
+            cmd = ["pg_dump", "-U", str(user)]
+            if engine.url.host:
+                cmd += ["-h", str(engine.url.host)]
+            if engine.url.port:
+                cmd += ["-p", str(engine.url.port)]
+            cmd.append(str(dbname))
+            env = os.environ.copy()
+            if engine.url.password:
+                env["PGPASSWORD"] = str(engine.url.password)
+            with open(raw_path, "wb") as dump_out:
+                result = subprocess.run(
+                    cmd, stdout=dump_out, env=env, timeout=900, check=False
+                )
+            if result.returncode != 0:
                 raise Exception("pg_dump failed")
             ext = "sql"
 

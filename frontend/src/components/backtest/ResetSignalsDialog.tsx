@@ -1,18 +1,13 @@
 "use client";
 
 /**
- * ResetSignalsDialog — ساده‌شده (نسخه ۲.۰)
+ * ResetSignalsDialog (نسخه ۳.۰ — امن‌شده)
  * ============================================================
- * ═══ تغییرات نسخه ۲.۰ ═══
- *   • حذف مرحله‌ی دوگانه (RESET + کلید ادمین)
- *   • فقط یک رمز ساده: `38800`
- *   • چرا: کاربر (محمدمهدی) خودش ادمین است.
- *     رمز ساده کافیه که کاربر عادی ناخواسته ریست نکنه.
- *
- * ⚠️ توجه: این حفاظت «ظاهری» است، نه امنیتی.
- *    اگر اپ روی اینترنت عمومی میره، باید کلید ادمین سرور
- *    فعال باشه (`ADMIN_API_KEY` در .env). ولی رمز فرانت
- *    برای تجربه‌ی کاربری سریع کافیه.
+ * ═══ تغییرات نسخه ۳.۰ ═══
+ *   • رمز ثابت داخل کد فرانت حذف شد (قبلاً در مخزن عمومی و بسته‌ی JS
+ *     دیده می‌شد و همان کلید واقعی سرور بود).
+ *   • مدیر کلید `ADMIN_API_KEY` سرور را خودش وارد می‌کند و همان به‌صورت
+ *     هدر X-API-Key فرستاده می‌شود. بررسی نهایی فقط در بک‌اند انجام می‌شود.
  */
 
 import { useState } from "react";
@@ -29,26 +24,10 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 
-// ═══ رمز ریست ═══
-const RESET_PASSCODE = "38800";
-
-// ═══ کلید ادمین سرور (اختیاری) ═══
-// ─── اگه توی .env سرور ADMIN_API_KEY تنظیم شده، باید این هم ست بشه ───
-// ─── اگه تنظیم نشده باشه، backend ریست رو بدون کلید قبول می‌کنه ───
-const ADMIN_API_KEY_STORAGE = "trademun_admin_api_key";
-
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: (deleted: number) => void;
-}
-
-function readStoredAdminKey(): string {
-  try {
-    return localStorage.getItem(ADMIN_API_KEY_STORAGE) || "";
-  } catch {
-    return "";
-  }
 }
 
 export function ResetSignalsDialog({ open, onOpenChange, onSuccess }: Props) {
@@ -75,11 +54,11 @@ function ResetDialogBody({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const passOk = passcode.trim() === RESET_PASSCODE;
+  const passOk = passcode.trim().length >= 8;
 
 const handleReset = async () => {
   if (!passOk) {
-    setError("رمز اشتباه است");
+    setError("کلید ادمین را وارد کنید");
     return;
   }
 
@@ -149,14 +128,13 @@ const handleReset = async () => {
             className="mb-1 flex items-center gap-1 text-xs font-medium"
           >
             <KeyRound className="h-3 w-3" />
-            رمز ریست
+            کلید ادمین سرور
           </label>
           <Input
             id="reset-passcode"
             type="password"
             dir="ltr"
             autoComplete="off"
-            inputMode="numeric"
             value={passcode}
             onChange={(e) => {
               setPasscode(e.target.value);
@@ -167,7 +145,7 @@ const handleReset = async () => {
                 handleReset();
               }
             }}
-            placeholder="•••••"
+            placeholder="••••••••••••"
             className={
               passcode && !passOk ? "border-destructive/50" : ""
             }

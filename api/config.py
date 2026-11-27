@@ -4,6 +4,8 @@ api/config.py
 """
 
 from pathlib import Path
+import logging
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,7 +31,6 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://192.168.1.7:3000",
         "http://localhost:5173",
         "https://trademun.ir",
         "https://www.trademun.ir",
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7
-    ADMIN_PHONES: str = "09129630901"
+    ADMIN_PHONES: str = ""  # مثال: "0912xxxxxxx,0935xxxxxxx" — از .env بخوان
 
     FARAZ_API_KEY: str = ""
     FARAZ_PATTERN_CODE: str = ""
@@ -75,13 +76,24 @@ class Settings(BaseSettings):
 
     # 🔴 تنظیمات زیبال
     ZIBAL_MERCHANT: str
-    # ZIBAL_CALLBACK_URL: str = "http://127.0.0.1:8001/subscription/verify-zibal"  # لوکال
-    ZIBAL_CALLBACK_URL: str = (
-        "https://api.trademun.ir/subscription/verify-zibal"  # سرور
-    )
+    ZIBAL_CALLBACK_URL: str = "http://127.0.0.1:8001/subscription/verify-zibal"  # لوکال
+   #  ZIBAL_CALLBACK_URL: str = (
+      #   "https://api.trademun.ir/subscription/verify-zibal"  # سرور
+  #   )
     # 🔴 آدرس فرانت برای ریدایرکت
-    # FRONTEND_URL: str = "http://localhost:3000"  # لوکال
-    FRONTEND_URL: str = "https://trademun.ir"  # سرور
+    FRONTEND_URL: str = "http://localhost:3000"  # لوکال
+    # FRONTEND_URL: str = "https://trademun.ir"  # سرور
+
+    @model_validator(mode="after")
+    def _check_jwt_secret(self):
+        weak = self.JWT_SECRET == "change-me-in-production" or len(self.JWT_SECRET) < 32
+        if weak:
+            msg = "JWT_SECRET ضعیف/پیش‌فرض است. با `openssl rand -hex 32` یک مقدار قوی در .env بگذارید."
+            if self.DEBUG:
+                logging.getLogger(__name__).warning("⚠️ " + msg)
+            else:
+                raise ValueError(msg)
+        return self
 
 
 settings = Settings()

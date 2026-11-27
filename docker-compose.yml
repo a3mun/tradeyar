@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: trademun
-      POSTGRES_PASSWORD: 19540Asemun*
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD را در .env تنظیم کنید}
       POSTGRES_DB: trademun
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -38,7 +38,7 @@ services:
     container_name: trademun-api
     restart: always
     ports:
-      - "8000:7860"
+      - "127.0.0.1:8000:7860"
     env_file:
       - .env
     volumes:
@@ -94,7 +94,7 @@ services:
     container_name: trademun-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_OPTIONS=--max-old-space-size=768
     logging:

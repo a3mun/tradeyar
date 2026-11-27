@@ -1,6 +1,7 @@
 """api/routers/backtest.py — راستی‌آزمایی endpoints (نسخه ۴.۱)"""
 
 import logging
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -135,7 +136,7 @@ async def backtest_reset(request: Request, session: Session = Depends(get_sessio
     provided = request.headers.get("X-API-Key", "").strip()
     if not provided:
         raise HTTPException(status_code=401, detail="X-API-Key لازم است")
-    if provided != admin_key:
+    if not secrets.compare_digest(provided.encode("utf-8"), admin_key.encode("utf-8")):
         raise HTTPException(status_code=403, detail="کلید معتبر نیست")
     rows = session.exec(select(SignalLog)).all()
     count = len(rows)
