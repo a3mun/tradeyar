@@ -493,66 +493,86 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#030712] text-white">
-      {/* پس‌زمینه متحرک */}
-      <div className="absolute inset-0 z-0 overflow-hidden">
+      {/* پس‌زمینه نمودار؛ در موبایل فقط در انتهای صفحه نمایش داده می‌شود */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-[85px] z-0 h-[650px] overflow-hidden sm:inset-0 sm:bottom-0 sm:h-auto"
+      >
+        {/* لایه تیره در پشت نمودارها قرار دارد تا خطوط SVG پوشانده نشوند */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#030712]/15 via-[#030712]/58 to-[#030712]/95 sm:bg-gradient-to-br sm:from-[#030712]/35 sm:via-[#030712]/48 sm:to-[#030712]/78" />
+
         <svg
-          className="absolute inset-0 h-full w-full opacity-60"
+          className="absolute inset-0 hidden h-full w-full opacity-90 sm:block sm:opacity-95"
           viewBox="0 0 1200 800"
           preserveAspectRatio="none"
         >
+          <defs>
+            <linearGradient id="login-chart-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#d6ad60" stopOpacity="0.12" />
+              <stop offset="50%" stopColor="#e2c17e" stopOpacity="0.78" />
+              <stop offset="100%" stopColor="#10b981" stopOpacity="0.35" />
+            </linearGradient>
+            <linearGradient id="login-chart-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#d6ad60" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="#d6ad60" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
           <motion.path
-            initial={{
-              pathLength: 0,
-              opacity: 0,
-            }}
-            animate={{
-              pathLength: 1,
-              opacity: 0.4,
-            }}
+            initial={{ pathLength: 0, opacity: 0 }}
+            animate={{ pathLength: 1, opacity: 0.9 }}
             transition={{
-              duration: 10,
+              duration: 12,
               repeat: Infinity,
               repeatType: "reverse",
               ease: "easeInOut",
             }}
             d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110"
             fill="none"
-            stroke="#d6ad60"
-            strokeWidth="2"
+            stroke="url(#login-chart-line)"
+            strokeWidth="2.5"
             strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+
+          <motion.path
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0.08, 0.2, 0.08] }}
+            transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+            d="M-30 580 C100 520 120 620 230 500 S360 560 450 420 S590 490 690 320 S840 390 920 250 S1080 300 1240 110 L1240 800 L-30 800 Z"
+            fill="url(#login-chart-fill)"
           />
         </svg>
 
-        <div className="absolute inset-0 flex items-end justify-around gap-1 px-2 opacity-30">
+        <div className="absolute inset-x-0 bottom-0 flex h-[68%] items-end justify-around gap-1 px-3 opacity-40 sm:h-[58%] sm:px-8 sm:opacity-35">
           {candleHeights.map((candle) => (
             <motion.div
               key={candle.id}
-              initial={{
-                height: `${candle.base}%`,
-              }}
+              initial={{ height: `${candle.base}%` }}
               animate={{
                 height: [
                   `${candle.base}%`,
                   `${candle.peak}%`,
                   `${candle.base}%`,
                 ],
+                opacity: [0.55, 0.95, 0.55],
               }}
               transition={{
-                duration: 4 + (candle.id % 5),
+                duration: 5 + (candle.id % 4),
                 repeat: Infinity,
                 ease: "easeInOut",
-                delay: candle.id * 0.1,
+                delay: candle.id * 0.18,
               }}
-              className={`w-9 rounded-t-sm sm:w-12 ${candle.color}`}
+              className={`w-4 rounded-t-sm border border-white/[0.06] shadow-[0_0_12px_rgba(214,173,96,0.05)] sm:w-8 ${candle.color}`}
             />
           ))}
         </div>
 
-        <div className="absolute inset-0 bg-gradient-to-br from-[#030712]/80 via-[#030712]/60 to-[#030712]/95" />
+        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#030712]/20 to-transparent" />
       </div>
 
       {/* لوگو */}
-      <header className="relative z-10 flex items-center justify-center p-4 sm:p-6">
+      <header className="relative z-10 flex items-center justify-center px-4 pb-3 pt-5 sm:p-6">
         <Link
           href="/"
           className="flex items-center gap-3 transition-opacity hover:opacity-80"
@@ -561,19 +581,19 @@ export default function LoginPage() {
           <img
             src="/icon-512-login.png"
             alt="لوگوی تریدمون"
-            className="h-14 w-auto rounded-xl object-contain sm:h-16"
+            className="h-12 w-auto rounded-xl object-contain drop-shadow-[0_4px_16px_rgba(214,173,96,0.12)] sm:h-16"
           />
         </Link>
       </header>
 
       {/* تیتر اصلی */}
-      <section className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-4 pb-8 pt-4 text-center">
+      <section className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-4 pb-5 pt-3 text-center sm:pb-8 sm:pt-4">
         <h1 className="font-display font-bold leading-tight tracking-tight">
-          <span className="block text-3xl text-white sm:text-4xl lg:text-5xl">
+          <span className="block text-[1.7rem] font-extrabold tracking-tight text-white sm:text-4xl lg:text-5xl">
             تحلیل بازارهای مالی
           </span>
 
-          <span className="mt-3 block text-lg font-medium sm:text-xl lg:text-2xl">
+          <span className="mt-2.5 block text-base font-semibold sm:mt-3 sm:text-xl lg:text-2xl">
             <span className="text-white">
             </span>{" "}
             <span className="text-[#d6ad60]">
@@ -582,7 +602,7 @@ export default function LoginPage() {
           </span>
         </h1>
 
-        <p className="mt-3 max-w-2xl text-xs leading-7 text-gray-400 sm:text-sm">
+        <p className="mt-3 max-w-2xl text-[11px] leading-6 text-slate-300/75 sm:text-sm sm:leading-7">
           دستیار تحلیل تکنیکال و بررسی سیگنال‌های معاملاتی
           در بازار رمزارزها، بورس تهران و فارکس؛ همراه با
           اسکنر فرصت‌ها و مشاور هوشمند هوش مصنوعی.
@@ -590,7 +610,7 @@ export default function LoginPage() {
       </section>
 
       {/* محتوای اصلی */}
-      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-8 p-4 py-4 sm:p-6 lg:flex-row lg:justify-between">
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-start gap-5 px-4 py-3 sm:gap-8 sm:p-6 lg:flex-row lg:justify-between">
 
         {/* ستون معرفی امکانات */}
         <section className="flex w-full flex-col gap-4 lg:w-1/2">
@@ -599,7 +619,7 @@ export default function LoginPage() {
             {STATS.map((stat, i) => (
               <div
                 key={i}
-                className="flex h-full flex-col items-center justify-center rounded-xl border border-white/10 bg-[#051118]/80 py-3 backdrop-blur-sm"
+                className="flex h-full flex-col items-center justify-center rounded-xl border border-white/[0.09] bg-[#08151f]/85 py-3 shadow-[0_6px_22px_rgba(0,0,0,0.14)] backdrop-blur-md transition-colors hover:border-[#d6ad60]/25"
               >
                 <span className="text-lg font-bold leading-none text-[#d6ad60] sm:text-xl">
                   <AnimatedNumber
@@ -623,7 +643,7 @@ export default function LoginPage() {
             {FEATURES.map((feature, i) => (
               <div
                 key={i}
-                className="group flex h-full items-start gap-2 rounded-xl border border-white/10 bg-[#051118]/80 p-2 backdrop-blur-sm transition-all hover:border-[#d6ad60]/40 hover:bg-white/[0.03] sm:gap-2.5 sm:p-3"
+                className="group flex h-full items-start gap-2 rounded-xl border border-white/[0.09] bg-[#08151f]/85 p-2.5 shadow-[0_5px_20px_rgba(0,0,0,0.12)] backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-[#d6ad60]/35 hover:bg-[#0b1b27]/95 sm:gap-2.5 sm:p-3"
               >
                 <div className="shrink-0 rounded-lg bg-[#d6ad60]/15 p-1.5">
                   <feature.icon className="h-3.5 w-3.5 text-[#d6ad60]" />
@@ -650,7 +670,7 @@ export default function LoginPage() {
         {/* ستون ورود */}
         <section className="relative flex w-full max-w-sm flex-col gap-3 lg:w-[400px]">
           {/* انتخاب روش ورود */}
-          <div className="flex gap-1 rounded-xl border border-white/10 bg-[#051118]/80 p-1 backdrop-blur-sm">
+          <div className="flex gap-1 rounded-xl border border-white/[0.10] bg-[#08151f]/90 p-1 shadow-[0_8px_28px_rgba(0,0,0,0.18)] backdrop-blur-md">
             <button
               type="button"
               onClick={() => changeLoginMode("otp")}
@@ -683,7 +703,7 @@ export default function LoginPage() {
                 ? handlePasswordLogin
                 : handleVerifyOtp
             }
-            className="relative w-full rounded-2xl border border-[#d6ad60]/30 bg-[#051118]/80 p-6 shadow-[0_8px_40px_rgba(0,0,0,0.6)] backdrop-blur-sm"
+            className="relative w-full rounded-2xl border border-[#d6ad60]/25 bg-[#08151f]/95 p-5 shadow-[0_16px_48px_rgba(0,0,0,0.34),0_0_0_1px_rgba(255,255,255,0.025)] backdrop-blur-xl sm:p-6"
           >
             <div className="mb-6 text-center">
               <h2 className="mb-1 font-display text-2xl font-bold text-white">
@@ -875,7 +895,7 @@ export default function LoginPage() {
 
           {/* پلن اشتراک */}
           <Link href="/subscription" className="block">
-            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/30 bg-[#051118]/80 p-3 backdrop-blur-sm transition-all hover:border-[#d6ad60]/60">
+            <div className="group flex items-center justify-between rounded-xl border border-[#d6ad60]/25 bg-[#08151f]/90 p-3 shadow-[0_6px_22px_rgba(0,0,0,0.14)] backdrop-blur-md transition-all duration-300 hover:border-[#d6ad60]/45 hover:bg-[#0b1b27]">
               <div className="flex items-center gap-2.5">
                 <div className="rounded-lg bg-[#d6ad60]/15 p-1.5">
                   <CreditCard className="h-4 w-4 text-[#d6ad60]" />
@@ -906,7 +926,7 @@ export default function LoginPage() {
 
 
 {/* بازارها، صرافی‌ها و افزونه طلا */}
-<section className="relative z-10 w-full px-4 pb-4">
+<section className="relative z-10 w-full px-4 pb-5">
   <div className="mx-auto max-w-6xl flex flex-col gap-4 border-t border-white/10 pt-4">
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 

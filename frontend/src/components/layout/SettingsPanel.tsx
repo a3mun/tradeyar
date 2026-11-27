@@ -153,7 +153,7 @@ export function SettingsPanel() {
             <Settings className="h-4 w-4 text-[#d6ad60]" />
             تنظیمات
           </CardTitle>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
             <span className="rounded border border-[#d6ad60]/30 bg-[#d6ad60]/10 px-1.5 py-0.5 text-[7px] font-extrabold text-[#d6ad60]">
               {strategyLabel}
             </span>
@@ -168,7 +168,7 @@ export function SettingsPanel() {
             </span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-3">
+        <CardContent className="space-y-2 px-2 pb-3 pt-0">
           {/* ═══ ۱. صرافی ═══ */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-medium text-gray-400">

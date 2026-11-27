@@ -169,6 +169,7 @@ export function SignalCard() {
   const [sharing, setSharing] = useState(false);
   const [priceFlash, setPriceFlash] = useState<"up" | "down" | null>(null);
   const [polledPrice, setPolledPrice] = useState<number>(0);
+  const [brentPrice, setBrentPrice] = useState<number | null>(null);
   const [sparklineSeries, setSparklineSeries] = useState<number[]>([]);
   const [now, setNow] = useState<Date>(() => new Date());
 
@@ -242,6 +243,42 @@ export function SignalCard() {
     return () => { cancelled = true; clearInterval(id); };
   }, [ticker, source]);
   
+
+
+  // دریافت قیمت نفت برنت از همان منبع نوار بالای سایت
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchBrentPrice = async () => {
+      try {
+        const res = await api.get("/symbols/iran-prices");
+        const value = res.data?.prices?.brent;
+
+        if (
+          !cancelled &&
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          value > 0
+        ) {
+          setBrentPrice(value);
+        }
+      } catch {
+        // در خطای موقت، آخرین قیمت معتبر حفظ می‌شود.
+      }
+    };
+
+    fetchBrentPrice();
+
+    const intervalId = setInterval(fetchBrentPrice, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+
+
   // ═══ Sparkline ═══
   useEffect(() => {
     if (!ticker) { setSparklineSeries([]); return; }
@@ -520,11 +557,18 @@ export function SignalCard() {
         <CardContent className="flex flex-col flex-1 space-y-1.5 px-2 pb-1 pt-1.5">
           
           <div className="shrink-0">
+
             {isCFDSymbol && (
-              <div className="rounded-md border border-border/30 bg-muted/20 px-2 py-1 text-[9px] text-muted-foreground mb-1.5">
-                ℹ️ قیمت نمایش‌داده‌شده بر اساس CFD است و ممکن است با بازار ICE اختلاف کمی داشته باشد.
+              <div className="rounded-md bg-muted/20 px-2 py-0 text-[9px] text-muted-foreground mb-0.5">
+                ℹ️ قیمت نمایش‌داده‌شده بر اساس CFD بازار فارکس است و ممکن است با بازار اصلی اختلاف داشته باشد.
+                {data.ticker === "UKOIL-USD" && brentPrice !== null && (
+                  <span className="font-bold text-[#d6ad60]">
+                    {" "}(نفت برنت: {formatNumber(brentPrice, { maxDecimals: 2 })} دلار)
+                  </span>
+                )}
               </div>
             )}
+
 
             {isFallback && (
               <p className="rounded-md border border-border/30 bg-muted/20 px-2 py-1 text-[9px] text-muted-foreground mb-1.5">

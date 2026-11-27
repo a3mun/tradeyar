@@ -186,7 +186,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"[Global Exception] {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": f"خطای داخلی سرور: {str(exc)}"},
+        content={"detail": "خطای داخلی سرور. لطفاً بعداً تلاش کنید."},
         headers={
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "*",

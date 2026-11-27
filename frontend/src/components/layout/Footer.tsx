@@ -14,8 +14,8 @@ import {
   Ticket,
 } from "lucide-react";
 
-const VERSION = "V1.17.9";
-const UPDATE_DATE = "۱۴۰۵/۰۹/۰۴";
+const VERSION = "V1.17.92";
+const UPDATE_DATE = "۱۴۰۵/۰۹/۰۶";
 const DISCLAIMER_KEY = "trademun_hide_disclaimer_forever";
 
 const quickLinks = [
