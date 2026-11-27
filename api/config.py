@@ -59,8 +59,9 @@ class Settings(BaseSettings):
     ADMIN_API_KEY: str = ""
 
     # 🔒 قفل دسترسی API/WebSocket (ورود + اشتراک معتبر یا دوره رایگان).
-    # پیش‌فرض خاموش تا بتوان اول تست کرد؛ روی سرور بعد از تست true شود.
-    ENFORCE_AUTH: bool = False
+    # پیش‌فرض روشن (fail-closed): اگر .env گم شد یا ست نشد، API باز نمی‌ماند.
+    # برای توسعه‌ی لوکال بدون ورود، صراحتاً ENFORCE_AUTH=false بگذارید.
+    ENFORCE_AUTH: bool = True
 
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"

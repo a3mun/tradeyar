@@ -408,7 +408,17 @@ async def verify_zibal_payment(
     # 🔒 مبلغ پرداخت‌شده باید با مبلغ ثبت‌شده در سرور یکی باشد (ریال = تومان × ۱۰)
     paid_rial = result.get("amount")
     if paid_rial is None:
-        logger.warning(f"[Zibal] مبلغ در پاسخ verify نبود (trackId={trackId})")
+        pr.status = "rejected"
+        pr.admin_note = (
+            "⚠️ زیبال مبلغ پرداخت‌شده را در پاسخ verify نفرستاد؛ تطبیق مبلغ ممکن نبود. "
+            f"نیاز به بررسی دستی در پنل زیبال. trackId={trackId}"
+        )
+        session.add(pr)
+        session.commit()
+        logger.error(f"[Zibal] amount missing in verify response trackId={trackId}")
+        return RedirectResponse(
+            url=f"{FRONTEND_URL}/payment-result?status=failed&reason=amount_unverified"
+        )
     elif int(paid_rial) != int(pr.amount or 0) * 10:
         pr.status = "rejected"
         pr.admin_note = (

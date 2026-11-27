@@ -114,3 +114,12 @@ seed_test_data.py
 data/*.bak
 data/backups/
 data/tickets/
+
+# ═══ بکاپ‌ها و داده‌ی کاربران (هرگز commit نشود) ═══
+backups/
+data/backup_*
+data/temp_restore_*
+data/candles/
+data/*.sql
+data/*.sql.gz
+deploy-*.log
